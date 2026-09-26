@@ -38,6 +38,7 @@ class SLDCanvasRenderSystem:
         self._items: dict[str, tuple[Any, ...]] = {}
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
+        self._route_edit_controller: Any = None
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -50,6 +51,17 @@ class SLDCanvasRenderSystem:
     @property
     def semantic_realization(self) -> SemanticPresentationRealization:
         return self._semantic_realization
+
+    def bind_route_edit_controller(self, controller: Any) -> None:
+        """Bind the presentation route-edit boundary to realized connection items."""
+        if controller is None or not callable(getattr(controller, "handle_route_edit_request", None)):
+            raise TypeError("route edit controller must expose handle_route_edit_request().")
+        self._route_edit_controller = controller
+        for items in tuple(self._items.values()):
+            for item in items:
+                signal = getattr(item, "route_edit_requested", None)
+                if signal is not None and callable(getattr(signal, "connect", None)):
+                    signal.connect(controller.handle_route_edit_request)
 
     @staticmethod
     def _pen(width: float) -> QPen:
@@ -88,6 +100,10 @@ class SLDCanvasRenderSystem:
                 route_points = tuple(route.points[1:-1])
             item = self._item_factory.create_connection(connection, source, target)
             item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
+            if self._route_edit_controller is not None:
+                item.route_edit_requested.connect(
+                    self._route_edit_controller.handle_route_edit_request
+                )
             item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)

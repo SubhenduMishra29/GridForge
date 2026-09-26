@@ -133,6 +133,9 @@ class ModelCommandHandlers:
         payload = dict(command.payload)
         presentation_x = payload.pop("x", None)
         presentation_y = payload.pop("y", None)
+        # Presentation geometry is consumed by Application._coordinate_pre_commit;
+        # Core BusModelService must never receive UI-only presentation state.
+        payload.pop("presentation_properties", None)
         result = self._model_service.create_bus(transaction=transaction, **payload)
         if presentation_x is None or presentation_y is None:
             return result

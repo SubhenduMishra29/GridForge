@@ -62,10 +62,14 @@ class BusItem(BaseItem):
         parent: Optional[QGraphicsObject] = None,
         start: Optional[QPointF] = None,
         end: Optional[QPointF] = None,
+        attachment_count: int = DEFAULT_SLD_BUS_PRESENTATION.attachment_count,
     ) -> None:
         super().__init__(object_id=object_id, parent=parent)
         self._validate_radius(radius)
         self._radius = float(radius)
+        if isinstance(attachment_count, bool) or not isinstance(attachment_count, int) or attachment_count < 2:
+            raise ValueError("attachment_count must be at least two")
+        self._attachment_count = int(attachment_count)
         self._start = QPointF(*DEFAULT_SLD_BUS_PRESENTATION.start) if start is None else QPointF(float(start.x()), float(start.y()))
         self._end = QPointF(*DEFAULT_SLD_BUS_PRESENTATION.end) if end is None else QPointF(float(end.x()), float(end.y()))
         self._validate_bus_span()
@@ -155,19 +159,20 @@ class BusItem(BaseItem):
             raise ValueError("attachment_id must use the canonical 'attachment-N' form") from exc
         if index < 0:
             raise ValueError("attachment index must be non-negative")
+        if index >= self._attachment_count:
+            raise ValueError(f"attachment index {index} is outside the configured range")
         span = self._end - self._start
         length_sq = span.x() * span.x() + span.y() * span.y()
         if length_sq <= 0.0:
             return QPointF(self._start)
-        # Deterministic attachment locations are encoded by normalized span fractions.
-        fraction = min(1.0, index / float(DEFAULT_SLD_BUS_PRESENTATION.attachment_count - 1))
+        fraction = index / float(self._attachment_count - 1)
         local = QPointF(self._start.x() + span.x() * fraction, self._start.y() + span.y() * fraction)
         return self.mapToScene(local)
 
     def snap_points(self) -> tuple[dict[str, Any], ...]:
         """Expose deterministic Bus attachment candidates, not only the Bus center."""
         candidates = []
-        for index in range(0, DEFAULT_SLD_BUS_PRESENTATION.attachment_count):
+        for index in range(0, self._attachment_count):
             attachment_id = f"attachment-{index}"
             candidates.append({
                 "position": self.attachment_position(attachment_id),

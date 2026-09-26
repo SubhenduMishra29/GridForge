@@ -31,6 +31,19 @@ class SLDRouteEditController:
             raise IndexError(index)
         self._points[index] = (float(x), float(y))
 
+    def handle_route_edit_request(self, request: Any) -> None:
+        """Commit one graphics-item route edit through SLDController/Application."""
+        if not isinstance(request, dict):
+            raise TypeError("route edit request must be a mapping")
+        connection_id = request.get("connection_id")
+        points = request.get("points")
+        if not isinstance(connection_id, str) or not connection_id:
+            raise ValueError("route edit request requires connection_id")
+        if not isinstance(points, (tuple, list)):
+            raise TypeError("route edit request requires route points")
+        self.begin(connection_id, points)
+        self.commit()
+
     def commit(self) -> None:
         if self._connection_id is None:
             raise RuntimeError("No SLD route edit is active")

@@ -24,6 +24,8 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._target_object_id = target_object_id
         self._route_points: tuple[tuple[float, float], ...] = ()
         self._route_ownership = "auto"
+        self._visual_source = QPointF()
+        self._visual_target = QPointF()
 
     @property
     def object_id(self) -> str:
@@ -54,14 +56,11 @@ class SLDConnectionItem(QGraphicsPathItem):
     ) -> None:
         if ownership not in {"auto", "engineer"}:
             raise ValueError("route ownership must be 'auto' or 'engineer'")
-        route = [QPointF(float(x), float(y)) for x, y in points]
-        path = QPainterPath(QPointF(float(source.x()), float(source.y())))
-        for point in route:
-            path.lineTo(point)
-        path.lineTo(QPointF(float(target.x()), float(target.y())))
-        self.setPath(path)
-        self._route_points = tuple((point.x(), point.y()) for point in route)
+        self._visual_source = QPointF(float(source.x()), float(source.y()))
+        self._visual_target = QPointF(float(target.x()), float(target.y()))
+        self._route_points = tuple((float(x), float(y)) for x, y in points)
         self._route_ownership = ownership
+        self._rebuild_visual_path()
 
     def visual_endpoints(self) -> tuple[tuple[float, float], tuple[float, float]]:
         path = self.path()
@@ -75,11 +74,20 @@ class SLDConnectionItem(QGraphicsPathItem):
         points = list(self._route_points)
         points[index] = (float(x), float(y))
         self._route_points = tuple(points)
+        self._rebuild_visual_path()
         self.route_edit_requested.emit({
             "connection_id": self._object_id,
             "points": self._route_points,
         })
         return self._route_points
+
+    def _rebuild_visual_path(self) -> None:
+        """Rebuild the transient visible path from the current route points."""
+        path = QPainterPath(QPointF(self._visual_source))
+        for x, y in self._route_points:
+            path.lineTo(QPointF(float(x), float(y)))
+        path.lineTo(QPointF(self._visual_target))
+        self.setPath(path)
 
     def route_points(self) -> tuple[tuple[float, float], ...]:
         return self._route_points

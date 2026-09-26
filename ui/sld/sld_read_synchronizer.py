@@ -471,6 +471,7 @@ class SLDReadSynchronizer:
             semantic_properties = dict(properties)
             semantic_properties.pop("projection_source", None)
             existing.properties.update(semantic_properties)
+            existing.validate()
             return
         route = existing.route
         existing.source_node_id = source_node_id
@@ -479,6 +480,7 @@ class SLDReadSynchronizer:
         existing.target_endpoint = target_endpoint
         existing.route = route
         existing.properties.update(dict(properties))
+        existing.validate()
 
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
         """Project semantic endpoint identities without replacing presentation-owned route state."""
