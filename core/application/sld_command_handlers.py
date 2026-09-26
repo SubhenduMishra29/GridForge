@@ -17,6 +17,7 @@ from .commands.sld_commands import (
     REMOVE_SLD_CONNECTION,
     REMOVE_SLD_NODE,
     SET_SLD_NODE_POSITION,
+    SET_SLD_NODE_PRESENTATION,
 )
 from .results import ApplicationResult
 from .services.sld_service import SLDService
@@ -34,6 +35,7 @@ class SLDCommandHandlers:
     def handlers(self) -> Mapping[str, Any]:
         return {
             SET_SLD_NODE_POSITION: self.set_node_position,
+            SET_SLD_NODE_PRESENTATION: self.set_node_presentation,
             ADD_SLD_NODE: self.add_node,
             REMOVE_SLD_NODE: self.remove_node,
             ADD_SLD_CONNECTION: self.add_connection,
@@ -44,6 +46,9 @@ class SLDCommandHandlers:
         return self._service.execute(command, transaction, context=context)
 
     def set_node_position(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def set_node_presentation(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         return self._execute(command, context, transaction)
 
     def add_node(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
