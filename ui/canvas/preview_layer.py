@@ -274,9 +274,10 @@ class PreviewLayer:
         )
 
     def show_bus(self, center: Any, *, half_length: float = 20.0) -> None:
-        """Show a transient bus-placement preview centered on the cursor."""
+        """Show a transient bus-placement preview using canonical Bus geometry."""
+        from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
         point = self._point(center)
-        length = float(half_length)
+        length = float(DEFAULT_SLD_BUS_PRESENTATION.half_length if half_length == 20.0 else half_length)
         if length <= 0:
             raise ValueError("half_length must be positive.")
         self.show_segment(
