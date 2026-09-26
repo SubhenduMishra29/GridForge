@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
-from core.application.control_configuration import ControlConfiguration, DynamicControlAssociation
+from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -193,41 +193,11 @@ class ProjectPersistenceService:
 
     @staticmethod
     def _deserialize_control_configuration(data: Mapping[str, Any], project_id: str) -> ControlConfiguration:
-        from core.application.services.control_service import ControlApplicationService
-        from core.control.action import ControlActionBinding
-        from core.control.decision import ControlActionType
-        from core.control.interlock import ControlInterlock
-        from core.control.logic.ladder import LadderProgram
-
-        ladder = LadderProgram(str(data.get("program_id", "control")))
-        rungs = data.get("rungs", [])
-        components = data.get("components", [])
-        if not isinstance(rungs, list) or not isinstance(components, list):
-            raise ValueError("Control rungs/components must be arrays.")
-        for rung in sorted(rungs, key=lambda item: (int(item.get("order", 0)), str(item.get("rung_id", "")))):
-            ladder.add_rung(str(rung["rung_id"]), order=int(rung["order"]), enabled=bool(rung.get("enabled", True)))
-        factory_service = ControlApplicationService(ControlConfiguration(project_id, program=ladder))
-        for item in sorted(components, key=lambda value: int(value.get("order", 0))):
-            component = factory_service._create_component(str(item["component_id"]), str(item["component_type"]), dict(item.get("configuration", {})))
-            placement = None
-            rung_id = None
-            for rung in rungs:
-                for element in rung.get("elements", []):
-                    if str(element.get("component_id")) == component.component_id:
-                        placement, rung_id = element, str(rung["rung_id"])
-                        break
-                if placement is not None: break
-            if placement is None or rung_id is None:
-                raise ValueError(f"Component '{component.component_id}' has no persisted rung placement.")
-            ladder.restore_component(component, rung_id=rung_id, position=int(placement["position"]), order=int(item.get("order", 0)), state=dict(item.get("state", {})))
-        for item in data.get("connections", []):
-            ladder.engine.connect(source_component=item["source_component"], source_output=item["source_output"], target_component=item["target_component"], target_input=item["target_input"])
-        for item in data.get("dependencies", []):
-            ladder.engine.add_dependency(item["source_component"], item["target_component"])
-        bindings = tuple(ControlActionBinding(control_id=item["control_id"], source_component=item["source_component"], source_output=item["source_output"], target_equipment_id=item["target_equipment_id"], target_equipment_type=item.get("target_equipment_type", "breaker"), action_type=ControlActionType(item["action_type"]), reason=item.get("reason", "Control action"), interlock_id=item.get("interlock_id")) for item in data.get("action_bindings", []))
-        interlocks = tuple(ControlInterlock(item["interlock_id"], required_inputs=tuple(item.get("required_inputs", ()))) for item in data.get("interlocks", []))
-        dynamic = tuple(DynamicControlAssociation.from_dict(item) for item in data.get("dynamic_control_associations", []))
-        return ControlConfiguration(project_id=project_id, schema_version=int(data.get("schema_version", 1)), program=ladder, action_bindings=bindings, interlocks=interlocks, dynamic_control_associations=dynamic)
+        configuration = ControlConfiguration.from_dict(data)
+        if configuration.project_id != project_id:
+            raise ValueError("Control configuration project_id does not match the project.")
+        configuration.validate()
+        return configuration
 
     @staticmethod
     def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
