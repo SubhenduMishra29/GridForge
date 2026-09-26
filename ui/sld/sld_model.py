@@ -267,12 +267,18 @@ class SLDConnection:
         self.source_node_id = str(self.source_node_id)
         self.target_node_id = str(self.target_node_id)
         self.properties = dict(self.properties)
-        if self.source_endpoint is not None and not isinstance(self.source_endpoint, SLDEndpoint):
-            raise TypeError("source_endpoint must be an SLDEndpoint or None")
-        if self.target_endpoint is not None and not isinstance(self.target_endpoint, SLDEndpoint):
-            raise TypeError("target_endpoint must be an SLDEndpoint or None")
-        if not isinstance(self.route, SLDRoute):
-            raise TypeError("route must be an SLDRoute")
+        if isinstance(self.source_endpoint, Mapping):
+            object.__setattr__(self, "source_endpoint", SLDEndpoint.from_dict(self.source_endpoint))
+        elif self.source_endpoint is not None and not isinstance(self.source_endpoint, SLDEndpoint):
+            raise TypeError("source_endpoint must be an SLDEndpoint or mapping")
+        if isinstance(self.target_endpoint, Mapping):
+            object.__setattr__(self, "target_endpoint", SLDEndpoint.from_dict(self.target_endpoint))
+        elif self.target_endpoint is not None and not isinstance(self.target_endpoint, SLDEndpoint):
+            raise TypeError("target_endpoint must be an SLDEndpoint or mapping")
+        if isinstance(self.route, Mapping):
+            object.__setattr__(self, "route", SLDRoute.from_dict(self.route))
+        elif not isinstance(self.route, SLDRoute):
+            raise TypeError("route must be an SLDRoute or mapping")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
