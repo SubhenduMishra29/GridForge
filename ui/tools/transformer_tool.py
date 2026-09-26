@@ -50,10 +50,37 @@ class TransformerTool(ModelPlacementTool):
         self._engineering_parameters: dict[str, Any] = {}
 
     def set_engineering_parameters(self, **parameters: Any) -> None:
-        """Store explicit Transformer engineering input for the next placement."""
+        """Store explicit Transformer engineering input and complete a pending placement."""
         if not parameters:
             raise ValueError("Transformer engineering parameters must not be empty.")
         self._engineering_parameters = dict(parameters)
+        if self._position is not None and self._has_complete_engineering_parameters():
+            self.execute_command(self._build_command())
+            self._clear_state()
+
+    def on_mouse_press(self, event: Any) -> bool:
+        """Capture placement even when engineering input is configured afterward."""
+        self._ensure_active()
+        position = self._snap_position(event)
+        if position is None:
+            return False
+        self._position = position
+        self._preview_active = True
+        self._show_preview(position)
+        if self._has_complete_engineering_parameters():
+            self.execute_command(self._build_command())
+            self._clear_state()
+        return True
+
+    def _has_complete_engineering_parameters(self) -> bool:
+        parameters = self._engineering_parameters
+        required = ("r", "x", "impedance_basis", "impedance_base_voltage_kv")
+        if any(name not in parameters or parameters[name] is None for name in required):
+            return False
+        return (
+            parameters.get("impedance_base_mva") is not None
+            or parameters.get("rate_mva") is not None
+        )
 
     def _build_command(self) -> Any:
         """Build a position-first Transformer command with explicit engineering basis."""
