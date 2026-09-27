@@ -272,8 +272,7 @@ class ToolManager:
         if self._active_tool is None:
             return False
         result = bool(self._active_tool.cancel())
-        if result:
-            self.creation_context.cancel()
+        self.creation_context.cancel()
         return result
 
     def reset(self) -> None:
