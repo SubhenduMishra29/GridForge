@@ -1036,6 +1036,18 @@ Static source correction and second static re-audit only. No pytest, CI, startup
 
 ### 2026-09-27 — Complete Creation Contract Closure static correction
 
+
+### 2026-09-27 — GF-MASTER-0091 final PT contract closure
+
+**Finding:** PT `frequency_hz` contract gap.
+
+**Authoritative decision:** `frequency_hz` is **not** an authoritative PT engineering property in the current GridForge Core/Application contract. The authoritative PT model (`core/model/pt.py`), `CreatePTCommand` / `UpdatePTCommand` (`core/application/commands/pt_commands.py`), `PTModelService` (`core/application/services/pt_model_service.py`), and PT read-side engineering vocabulary (`core/application/read_service.py`) contain no PT `frequency_hz` field. CT/CVT symmetry is therefore not a valid reason to invent the field.
+
+**Creation contract consequence:** `ui/creation/creation_definition.py` intentionally omits `frequency_hz` from the PT `CreationDefinition`. PT creation remains mapped to `primary_voltage_kv`, `secondary_voltage_v`, `accuracy_class`, `burden_va`, and `phase_displacement_deg`, plus the four explicit terminals `primary_a`, `primary_b`, `secondary_a`, and `secondary_b`.
+
+**Status:** **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED**.
+
+**Verification boundary:** static source inspection only; no tests, CI, startup, GUI, or runtime execution performed.
 Static source correction and re-audit only. No pytest, CI, application startup, GUI, smoke, or runtime verification was performed.
 
 | Finding / Scope | Status | Static evidence |
