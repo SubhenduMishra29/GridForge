@@ -14,6 +14,7 @@ from core.application.commands.model_commands import CreateLineCommand
 
 from ui.connections.connection_preview import ConnectionPreview
 from ui.creation.creation_context import CreationContext
+from ui.creation.command_factory import CreationCommandFactory
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from .tool_base import ToolBase
@@ -159,24 +160,17 @@ class LineTool(ToolBase):
                 draft.validation_state.get("configuration", ()) +
                 draft.validation_state.get("placement", ())
             ))
-        parameters = draft.snapshot_values()
-        line_id = f"line-{uuid4().hex}"
-        command = CreateLineCommand(
-            line_id=line_id,
-            presentation_x=float(self._current_position[0]),
-            presentation_y=float(self._current_position[1]),
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
-            resistance_ohm=float(parameters["resistance_ohm"]),
-            reactance_ohm=float(parameters["reactance_ohm"]),
-            shunt_susceptance_siemens=float(parameters.get("shunt_susceptance_siemens", 0.0)),
-            name=str(parameters.get("name", "")),
-            rate_mva=float(parameters["rate_mva"]),
+        draft.mark_committing()
+        command = CreationCommandFactory.build(
+            draft,
+            object_id=f"line-{uuid4().hex}",
+            position=self._current_position,
+            endpoints={"from": endpoint_from, "to": endpoint_to},
         )
         result = self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(command.payload["line_id"] if "line_id" in command.payload else command.payload["cable_id"])
+            selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         return result
 
