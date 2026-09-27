@@ -107,11 +107,12 @@ class BusTool(ToolBase):
         if not draft.validate_for_commit():
             return False
         draft.mark_committing()
-        command = CreationCommandFactory.build(
+        intent = CreationCommandFactory.build(
             draft,
             object_id=f"bus-{uuid4().hex}",
             position=position,
         )
+        command = self.application.prepare_creation_command(intent)
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
