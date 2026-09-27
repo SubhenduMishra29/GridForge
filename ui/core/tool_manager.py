@@ -181,7 +181,7 @@ class ToolManager:
 
         if previous_tool is not None:
             previous_tool.deactivate()
-            self.creation_context.discard()
+            self.creation_context.cancel()
 
         try:
             if requested_tool is not None:
@@ -226,7 +226,7 @@ class ToolManager:
         previous_id = self._active_tool_id
         self._active_tool = None
         self._active_tool_id = None
-        self.creation_context.discard()
+        self.creation_context.cancel()
         self._notify_controller_tool_change(previous_id, None)
 
     def _notify_controller_tool_change(self, previous_id: str | None, current_id: str | None) -> None:
