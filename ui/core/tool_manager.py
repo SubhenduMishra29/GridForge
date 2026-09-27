@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ui.creation.creation_context import CreationContext
+
 
 ToolFactory = Callable[..., Any]
 
@@ -31,6 +33,8 @@ class ToolManager:
         snap_system: Any,
         tool_registry: Any = None,
         preview_layer: Any = None,
+        equipment_registry: Any = None,
+        creation_context: CreationContext | None = None,
     ) -> None:
         if controller is None:
             raise ValueError("controller must not be None.")
@@ -46,6 +50,8 @@ class ToolManager:
         self.selection_manager = selection_manager
         self.snap_system = snap_system
         self.preview_layer = preview_layer
+        self.equipment_registry = equipment_registry
+        self.creation_context = creation_context or CreationContext()
         self._tool_registry: dict[str, ToolFactory] = {}
         self._tool_instances: dict[str, Any] = {}
         self._active_tool_id: str | None = None
@@ -128,6 +134,9 @@ class ToolManager:
         )
         if tool is None:
             raise RuntimeError(f"Tool factory returned None: {tool_id!r}")
+        bind_creation = getattr(tool, "bind_creation_context", None)
+        if callable(bind_creation):
+            bind_creation(self.creation_context)
         return tool
 
     def _get_or_create_tool(self, tool_id: str) -> Any:
@@ -167,6 +176,7 @@ class ToolManager:
 
         if previous_tool is not None:
             previous_tool.deactivate()
+            self.creation_context.discard()
 
         try:
             if requested_tool is not None:
@@ -185,6 +195,21 @@ class ToolManager:
 
         self._active_tool_id = tool_id
         self._active_tool = requested_tool
+        try:
+            if tool_id is not None and self.equipment_registry is not None:
+                definition = self._definition_for_tool(tool_id)
+                if definition is not None:
+                    self.creation_context.begin(definition)
+        except Exception:
+            if requested_tool is not None:
+                requested_tool.deactivate()
+            self._active_tool_id = previous_id
+            self._active_tool = previous_tool
+            if previous_tool is not None:
+                previous_tool.activate()
+            throw_error = True
+            self.creation_context.discard()
+            raise
         self._notify_controller_tool_change(previous_id, tool_id)
         return requested_tool
 
@@ -196,6 +221,7 @@ class ToolManager:
         previous_id = self._active_tool_id
         self._active_tool = None
         self._active_tool_id = None
+        self.creation_context.discard()
         self._notify_controller_tool_change(previous_id, None)
 
     def _notify_controller_tool_change(self, previous_id: str | None, current_id: str | None) -> None:
@@ -268,8 +294,20 @@ class ToolManager:
         for tool_id, tool in tuple(self._tool_instances.items()):
             self._dispose_tool(tool)
             del self._tool_instances[tool_id]
+        self.creation_context.discard()
         self._tool_registry.clear()
         self._disposed = True
+
+    def _definition_for_tool(self, tool_id: str) -> Any | None:
+        registry = self.equipment_registry
+        require = getattr(registry, "require", None) if registry is not None else None
+        if not callable(require):
+            return None
+        try:
+            definition = require(tool_id)
+        except KeyError:
+            return None
+        return definition if getattr(definition, "tool_id", None) == tool_id else None
 
     @staticmethod
     def _dispose_tool(tool: Any) -> None:
