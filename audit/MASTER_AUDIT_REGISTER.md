@@ -2,7 +2,7 @@
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Canonical repository authority:** `pandaraseswari03-collab/GridForge`
-**Repository provenance:** historical register updates were previously performed/reported against `madhuri196mishra-cpu/GridForge`; current audit authority is `SubhenduMishra29/GridForge/main`.
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit authority is `pandaraseswari03-collab/GridForge:main`.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority
@@ -1202,7 +1202,7 @@ Bus has a dedicated `BusTool` and `PreviewLayer.show_bus()` path and commits on 
 
 Historical findings remain preserved. Runtime-dependent SLD findings are not CLOSED by this audit. The effective current dispositions above govern until GUI/runtime verification establishes actual visible realization.
 
-## 2026-09-27 — SLD Canvas / Engineering Palette Correction
+## 2026-09-27 — SLD Canvas / Engineering Palette Correction — superseded by current re-audit
 
 **Repository:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
@@ -1221,3 +1221,39 @@ Historical findings remain preserved. Runtime-dependent SLD findings are not CLO
 **Dependency authority conclusion:** the existing canonical SymbolRegistry composition and factory injection path were preserved. No SymbolRegistry injection redesign was performed.
 
 **Runtime boundary:** No claim is made for actual GUI icon visibility, mouse interaction, QGraphics realization, save/reload, or undo/redo execution.
+
+
+## 2026-09-27 — SLD Closure Re-audit and register reconciliation
+
+**Canonical implementation:** `pandaraseswari03-collab/GridForge:main`  
+**Current HEAD after correction:** `75a3130fb3e076f71d16903e88903d83f70701dc`  
+**Author:** Subhendu Mishra  
+**Audit mode:** static current-source inspection. Runtime/GUI execution was not available in the repository connector environment; therefore no runtime-dependent finding is marked VERIFIED/CLOSED.
+
+### Current SLD findings
+
+| Finding | Current status | Evidence |
+|---|---|---|
+| GF-SLD-UI-PALETTE-001 | **REMEDIATED — VERIFICATION REQUIRED** | `EquipmentPanelWidget` resolves each `EquipmentDefinition.symbol_id` through the canonical `SymbolRegistry` and `PaletteSymbolAdapter` to a `QIcon`; activation remains `EquipmentRegistry.require() → definition.tool_id → ToolManager.activate()`. |
+| GF-SLD-UI-PALETTE-002 | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** | `main.py` supplies the canonical `PresentationBootstrap.symbol_registry` to the default tool-factory composition; `ModelPlacementTool` receives that registry and uses it for preview realization. |
+| GF-SLD-CANVAS-040 | **REMEDIATED — VERIFICATION REQUIRED** | `SLDCanvasRenderSystem` retains structured `RenderDiagnostic` state and publishes diagnostics through its bound sink. The sink binding defect found during this re-audit was corrected by removing the erroneous `@property` decorator from `bind_diagnostic_sink()`. |
+| GF-SLD-CANVAS-041 | **REMEDIATED — VERIFICATION REQUIRED** | `ModelPlacementTool` now performs position-first preview, terminal acquisition through canonical `EndpointReference`, and release-to-commit after required acquisition; `BusTool` remains a dedicated bus workflow. |
+| GF-SLD-CANVAS-042 | **REMEDIATED — VERIFICATION REQUIRED** | Visible palette icon realization is canonical `symbol_id → SymbolRegistry → SymbolDefinition → PaletteSymbolAdapter → QIcon`; no second active symbol authority was introduced. |
+| GF-MASTER-0040 | **REMEDIATED — VERIFICATION REQUIRED** | Renderer diagnostics are now both retained and bindable at the composition root; runtime observation of diagnostic delivery and actual graphics visibility remains unverified. |
+
+### SLD end-to-end evidence boundary
+
+The current source establishes the intended chain through composition and dependency tracing:
+
+`EquipmentRegistry → EquipmentDefinition → SymbolRegistry → PaletteSymbolAdapter → QIcon`  
+`Palette selection → ToolManager → ModelPlacementTool → CreationContext → CreationCommandFactory → Application.prepare_creation_command() → Application.execute()`  
+`Application/Core semantic event → SLD reconciliation → SLDCanvasProjection → SLDCanvasRenderSystem → SLDGraphicsItemFactory → QGraphicsScene`
+
+The repository source also establishes canonical endpoint conversion through `SnapResult → EndpointIdentityAdapter → EndpointReference`, with Core remaining authoritative for terminals/topology.
+
+**Runtime gate:** palette icon readability, preview motion, permanent graphics realization, terminal snapping, connection visibility, undo/redo, save/reload, fresh-process startup, and Qt warning behavior remain **UNVERIFIED**. No such item is marked CLOSED from this static pass.
+
+### Re-audit correction applied
+
+`ui/canvas/sld_canvas_render_system.py` incorrectly declared `bind_diagnostic_sink()` as a property while `main.py` invokes it as a method. This was a live composition defect capable of preventing diagnostic binding during startup. It was corrected in commit `75a3130fb3e076f71d16903e88903d83f70701dc`, preserving the existing diagnostic-sink architecture.
+
