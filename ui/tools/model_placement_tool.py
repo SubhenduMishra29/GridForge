@@ -28,7 +28,6 @@ class ModelPlacementTool(ToolBase):
     SYMBOL_ID = ""
     COMMAND_CLASS = None
     ID_FIELD = "equipment_id"
-    COMMAND_DEFAULTS: dict[str, Any] = {}
 
     def __init__(
         self,
