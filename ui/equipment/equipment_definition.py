@@ -27,7 +27,10 @@ GridForge V2 — Equipment Definition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:
+    from ui.creation.creation_definition import CreationDefinition
 
 @dataclass(frozen=True, slots=True)
 class EngineeringParameterDefinition:
@@ -90,7 +93,7 @@ class EquipmentDefinition:
 
     category: str = "electrical"
     engineering_parameters: tuple[EngineeringParameterDefinition, ...] = ()
-    creation_definition: Any = None
+    creation_definition: CreationDefinition | None = None
 
     # ========================================================
     # VALIDATION
