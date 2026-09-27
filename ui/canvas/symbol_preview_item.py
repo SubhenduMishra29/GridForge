@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
@@ -22,11 +23,13 @@ class SymbolPreviewItem(QGraphicsItem):
         *,
         position: Any,
         rotation: float = 0.0,
+        presentation_state: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(definition, SymbolDefinition):
             raise TypeError("definition must be a SymbolDefinition.")
         super().__init__()
         self._definition = definition
+        self._presentation_state = MappingProxyType(dict(presentation_state or {}))
         self.setPos(self._point(position))
         self.setRotation(float(rotation))
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
