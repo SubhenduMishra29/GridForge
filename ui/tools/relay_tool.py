@@ -1,7 +1,17 @@
-# GridForge V2 — SLD relay tool. Author: Subhendu Mishra
-from core.application.commands.relay_commands import CreateRelayCommand
+# ============================================================
+# File: ui/tools/relay_tool.py
+# GridForge V2 — SLD Relay Tool
+# Author: Subhendu Mishra
+# ============================================================
+"""Relay placement through the canonical creation contract."""
+
 from .model_placement_tool import ModelPlacementTool
+
+
 class RelayTool(ModelPlacementTool):
-    TOOL_ID="relay"; MODEL_NAME="Relay"; SYMBOL_ID="relay"; COMMAND_CLASS=CreateRelayCommand
-    ID_FIELD="relay_id"; 
-__all__=["RelayTool"]
+    TOOL_ID = "relay"
+    MODEL_NAME = "Relay"
+    SYMBOL_ID = "relay"
+
+
+__all__ = ["RelayTool"]

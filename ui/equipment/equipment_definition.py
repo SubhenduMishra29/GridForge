@@ -27,7 +27,10 @@ GridForge V2 — Equipment Definition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:
+    from ui.creation.creation_definition import CreationDefinition
 
 @dataclass(frozen=True, slots=True)
 class EngineeringParameterDefinition:
@@ -90,6 +93,7 @@ class EquipmentDefinition:
 
     category: str = "electrical"
     engineering_parameters: tuple[EngineeringParameterDefinition, ...] = ()
+    creation_definition: CreationDefinition | None = None
 
     # ========================================================
     # VALIDATION
@@ -163,6 +167,8 @@ class EquipmentDefinition:
                 normalized_name
             )
 
+        if self.creation_definition is not None and not callable(getattr(self.creation_definition, 'validate_values', None)):
+            raise TypeError('creation_definition must provide validate_values().')
         if not isinstance(self.engineering_parameters, (tuple, list)):
             raise TypeError("engineering_parameters must be a tuple/list of EngineeringParameterDefinition")
         normalized_parameters: list[EngineeringParameterDefinition] = []
@@ -221,6 +227,10 @@ class EquipmentDefinition:
 
         object.__setattr__(self, "category", category)
         object.__setattr__(self, "engineering_parameters", tuple(normalized_parameters))
+        if self.creation_definition is not None:
+            contract_parameters = tuple(getattr(self.creation_definition, 'parameter_definitions', ()))
+            if tuple(p.parameter_id for p in contract_parameters) != tuple(p.parameter_id for p in normalized_parameters):
+                raise ValueError('creation_definition parameters must match engineering_parameters.')
 
     # --------------------------------------------------------
 
@@ -335,6 +345,7 @@ class EquipmentDefinition:
                 self.default_properties
             ),
             "category": self.category,
+            "creation_definition": None if self.creation_definition is None else {"equipment_type": self.creation_definition.equipment_type, "tool_id": self.creation_definition.tool_id, "id_field": self.creation_definition.id_field, "parameter_mapping": dict(self.creation_definition.parameter_mapping), "endpoint_mapping": dict(self.creation_definition.endpoint_mapping)},
             "engineering_parameters": [
                 {"parameter_id": item.parameter_id, "display_name": item.display_name,
                  "datatype": item.datatype, "unit": item.unit,
@@ -389,6 +400,11 @@ class EquipmentDefinition:
                 "default_properties must be a mapping"
             )
 
+        creation_definition = None
+        if data.get('creation_definition') is not None:
+            from ui.creation.creation_definition import creation_definition_for
+            creation_definition = creation_definition_for(data['equipment_type'], tuple(data.get('terminal_names', ())))
+
         return cls(
             equipment_type=data[
                 "equipment_type"
@@ -414,7 +430,8 @@ class EquipmentDefinition:
                 default_properties
             ),
             category=data.get("category", "electrical"),
-            engineering_parameters=parameters,
+            engineering_parameters=tuple(EngineeringParameterDefinition(parameter_id=item['parameter_id'], display_name=item['display_name'], datatype=item.get('datatype', 'str'), unit=item.get('unit'), required_before_create=item.get('required_before_create', False), default_value=item.get('default_value'), editable=item.get('editable', True), derived=item.get('derived', False), choices=tuple(item.get('choices', ())), minimum=item.get('minimum'), maximum=item.get('maximum'), validation=item.get('validation', {})) for item in data.get('engineering_parameters', ())),
+            creation_definition=creation_definition,
         )
 
 

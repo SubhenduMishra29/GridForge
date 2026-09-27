@@ -14,6 +14,7 @@ from core.application.commands.model_commands import CreateCableCommand
 
 from ui.connections.connection_preview import ConnectionPreview
 from ui.creation.creation_context import CreationContext
+from ui.creation.command_factory import CreationCommandFactory
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from .tool_base import ToolBase
@@ -157,30 +158,17 @@ class CableTool(ToolBase):
                 draft.validation_state.get("configuration", ()) +
                 draft.validation_state.get("placement", ())
             ))
-        parameters = draft.snapshot_values()
-        cable_id = f"cable-{uuid4().hex}"
-        command = CreateCableCommand(
-            cable_id=cable_id,
-            presentation_x=float(self._current_position[0]),
-            presentation_y=float(self._current_position[1]),
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
-            name=str(parameters.get("name", "")),
-            length_km=float(parameters["length_km"]),
-            rated_voltage_kv=self._optional_float(parameters.get("rated_voltage_kv")),
-            rated_current_a=self._optional_float(parameters.get("rated_current_a")),
-            r1_ohm_per_km=float(parameters["r1_ohm_per_km"]),
-            x1_ohm_per_km=float(parameters["x1_ohm_per_km"]),
-            b1_us_per_km=float(parameters.get("b1_us_per_km", 0.0)),
-            r0_ohm_per_km=self._optional_float(parameters.get("r0_ohm_per_km")),
-            x0_ohm_per_km=self._optional_float(parameters.get("x0_ohm_per_km")),
-            b0_us_per_km=self._optional_float(parameters.get("b0_us_per_km")),
-            in_service=bool(parameters.get("in_service", True)),
+        draft.mark_committing()
+        command = CreationCommandFactory.build(
+            draft,
+            object_id=f"cable-{uuid4().hex}",
+            position=self._current_position,
+            endpoints={"from": endpoint_from, "to": endpoint_to},
         )
         result = self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(command.payload["line_id"] if "line_id" in command.payload else command.payload["cable_id"])
+            selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         return result
 

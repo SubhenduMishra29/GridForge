@@ -6,8 +6,6 @@ from .model_placement_tool import ModelPlacementTool
 class PotentialTransformerTool(ModelPlacementTool):
     TOOL_ID = "potential_transformer"
     MODEL_NAME = "Potential Transformer"
-    COMMAND_CLASS = CreatePTCommand
-    ID_FIELD = "pt_id"
     SYMBOL_ID = "potential_transformer"
 
 

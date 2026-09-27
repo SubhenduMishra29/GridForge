@@ -17,6 +17,7 @@ from uuid import uuid4
 from core.application.commands.placement_commands import PlaceBusCommand
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 from ui.creation.creation_context import CreationContext
+from ui.creation.command_factory import CreationCommandFactory
 
 from .tool_base import ToolBase
 
@@ -105,29 +106,16 @@ class BusTool(ToolBase):
         self._show_preview(position)
         if not draft.validate_for_commit():
             return False
-        values = draft.snapshot_values()
-        command = PlaceBusCommand(
-            bus_id=f"bus-{uuid4()}",
-            name="Bus",
-            nominal_voltage_kv=float(values["nominal_voltage_kv"]),
-            voltage_pu=1.0,
-            angle_deg=0.0,
-            frequency_hz=float(values["frequency_hz"]),
-            in_service=bool(values.get("in_service", True)),
-            x=position[0],
-            y=position[1],
-            presentation_properties={
-                "start": DEFAULT_SLD_BUS_PRESENTATION.start,
-                "end": DEFAULT_SLD_BUS_PRESENTATION.end,
-                "orientation": float(DEFAULT_SLD_BUS_PRESENTATION.orientation_deg),
-                "attachment_count": DEFAULT_SLD_BUS_PRESENTATION.attachment_count,
-                "half_length": float(DEFAULT_SLD_BUS_PRESENTATION.half_length),
-            },
+        draft.mark_committing()
+        command = CreationCommandFactory.build(
+            draft,
+            object_id=f"bus-{uuid4().hex}",
+            position=position,
         )
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(command.payload["bus_id"])
+            selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         self._clear_state()
         return True

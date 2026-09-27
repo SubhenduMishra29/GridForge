@@ -13,6 +13,7 @@ from uuid import uuid4
 from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
+from ui.creation.command_factory import CreationCommandFactory
 
 
 class ModelPlacementTool(ToolBase):
@@ -26,8 +27,6 @@ class ModelPlacementTool(ToolBase):
     MODEL_NAME = "Model"
     TOOL_ID = "model"
     SYMBOL_ID = ""
-    COMMAND_CLASS = None
-    ID_FIELD = "equipment_id"
 
     def __init__(
         self,
@@ -92,6 +91,7 @@ class ModelPlacementTool(ToolBase):
         self._position = position
         draft = self._require_creation_context().set_placement(position)
         self._preview_active = True
+        draft.mark_previewing()
         self._show_preview(position)
         if not draft.validate_for_commit():
             return False
@@ -99,7 +99,7 @@ class ModelPlacementTool(ToolBase):
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(command.payload[self.ID_FIELD])
+            selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         self._clear_state()
         return True
@@ -182,23 +182,15 @@ class ModelPlacementTool(ToolBase):
         replace((item,))
 
     def _build_command(self) -> Any:
-        command_class = self.COMMAND_CLASS
-        if command_class is None:
-            raise RuntimeError(f"{self.MODEL_NAME} tool has no Application command constructor.")
         draft = self._require_creation_context().require_draft()
-        if not draft.validate_for_commit():
-            raise RuntimeError(
-                f"{self.MODEL_NAME} creation configuration is invalid: "
-                + "; ".join(draft.validation_state.get("final", ()))
-                + "; ".join(draft.validation_state.get("configuration", ()))
-            )
         if self._position is None:
             raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
-        payload = dict(draft.snapshot_values())
-        payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
-        payload["presentation_x"] = float(self._position[0])
-        payload["presentation_y"] = float(self._position[1])
-        return command_class(**payload)
+        draft.mark_committing()
+        return CreationCommandFactory.build(
+            draft,
+            object_id=f"{draft.definition.tool_id}-{uuid4().hex}",
+            position=self._position,
+        )
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
