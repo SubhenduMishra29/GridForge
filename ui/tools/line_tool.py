@@ -174,6 +174,9 @@ class LineTool(ToolBase):
             rate_mva=float(parameters["rate_mva"]),
         )
         result = self.execute_command(command)
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(command.payload["line_id"] if "line_id" in command.payload else command.payload["cable_id"])
         self._require_creation_context().complete()
         return result
 
