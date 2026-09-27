@@ -122,6 +122,11 @@ class NetworkRegistry:
         )
 
     @property
+    def elements(self) -> tuple[ElectricalObject, ...]:
+        """Return the canonical Network membership snapshot."""
+        return tuple(self._objects.values())
+
+    @property
     def buses(self) -> tuple[Any, ...]: return self._typed("bus")
     @property
     def grids(self) -> tuple[Any, ...]: return self._typed("grid")

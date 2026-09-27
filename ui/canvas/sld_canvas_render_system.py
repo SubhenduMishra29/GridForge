@@ -36,6 +36,8 @@ class SLDCanvasRenderSystem:
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
         self._items: dict[str, tuple[Any, ...]] = {}
+        self._unsupported_presentations: dict[str, str] = {}
+        self._unsupported_connections: dict[str, str] = {}
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
@@ -51,6 +53,16 @@ class SLDCanvasRenderSystem:
     @property
     def semantic_realization(self) -> SemanticPresentationRealization:
         return self._semantic_realization
+
+    @property
+    def unsupported_presentations(self) -> dict[str, str]:
+        """Return authored node IDs whose presentation could not be realized."""
+        return dict(self._unsupported_presentations)
+
+    @property
+    def unsupported_connections(self) -> dict[str, str]:
+        """Return authored connection IDs whose presentation could not be realized."""
+        return dict(self._unsupported_connections)
 
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the presentation route-edit boundary to realized connection items."""
@@ -77,12 +89,20 @@ class SLDCanvasRenderSystem:
         if not isinstance(snapshot, SLDCanvasSnapshot):
             raise TypeError("snapshot must be an SLDCanvasSnapshot")
         self.clear()
+        self._unsupported_presentations.clear()
+        self._unsupported_connections.clear()
         realized: dict[str, Any] = {}
         # Realize nodes first so semantic endpoint resolution can use canonical
         # SymbolDefinition anchors and Bus attachment geometry.
         for node in snapshot.nodes:
-            selection = self._semantic_realization.realize(node)
-            item = self._item_factory.create_node(node, selection)
+            try:
+                selection = self._semantic_realization.realize(node)
+                item = self._item_factory.create_node(node, selection)
+            except (KeyError, TypeError, ValueError) as exc:
+                # The authored SLD node remains in the document; unsupported
+                # presentation is an explicit projection state, not deletion.
+                self._unsupported_presentations[node.node_id] = f"{type(exc).__name__}: {exc}"
+                continue
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
@@ -90,10 +110,14 @@ class SLDCanvasRenderSystem:
 
         for connection in snapshot.connections:
             if connection.source_endpoint is None or connection.target_endpoint is None:
-                # Legacy snapshots are intentionally not rendered from node centers.
+                self._unsupported_connections[connection.connection_id] = "Missing canonical endpoint references."
                 continue
-            source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
-            target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
+            try:
+                source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
+                target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
+            except (KeyError, TypeError, ValueError) as exc:
+                self._unsupported_connections[connection.connection_id] = f"{type(exc).__name__}: {exc}"
+                continue
             route_points = connection.route.points
             if connection.route.ownership == "auto":
                 route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
@@ -114,6 +138,8 @@ class SLDCanvasRenderSystem:
                 if item is not None and item.scene() is self._scene:
                     self._scene.removeItem(item)
         self._items.clear()
+        self._unsupported_presentations.clear()
+        self._unsupported_connections.clear()
 
     def dispose(self) -> None:
         self.clear()

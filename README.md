@@ -286,17 +286,18 @@ GridForge/
 │   ├── validation/
 │   └── results/
 │
-├── application/
-│   ├── commands/
-│   ├── handlers/
-│   ├── services/
-│   ├── transactions/
-│   ├── history/
-│   ├── lifecycle/
-│   ├── studies/
-│   ├── events/
-│   ├── read_models/
-│   └── persistence/
+├── core/
+│   ├── application/
+│   │   ├── commands/
+│   │   ├── handlers/
+│   │   ├── services/
+│   │   ├── transactions/
+│   │   ├── history/
+│   │   ├── lifecycle/
+│   │   ├── studies/
+│   │   ├── events/
+│   │   ├── read_models/
+│   │   └── persistence/
 │
 ├── ui/
 │   ├── core/

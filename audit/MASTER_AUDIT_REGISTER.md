@@ -690,7 +690,7 @@ Final static checks:
 
 ## Batch 0 — Canonical effective-status index — 2026-09-26
 
-This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. Historical remediation provenance may reference other repositories, but no historical repository is a current authority. Earlier status phrases remain historical chronology and are not current status values.
+This is the baseline effective-status index for the **75 active Master IDs**. The dated 2026-09-27 reconciliation addendum below is the current effective state for GF-MASTER-0001 through GF-MASTER-0007. Historical remediation provenance may reference other repositories, but no historical repository is a current authority. Earlier status phrases remain historical chronology and are not current status values.
 
 | Master ID | Domain | Subsystem | Finding Title | Severity | Latest Effective Status | Verification Requirement |
 |---|---|---|---|---|---|---|
@@ -1075,3 +1075,20 @@ Static source correction and re-audit only. No pytest, CI, application startup, 
 | WF-CREATION-NEW-06 | Creation command contract | CreationDefinition and immutable command signatures required final reconciliation | CRITICAL | STATICALLY VERIFIED | CreationDefinition uses Application command types; verify_creation_contracts() checks ID, parameter, endpoint, terminal, conditional, and required-command-field mappings against authoritative Application command signatures. | No runtime verification |
 | WF-CREATION-NEW-07 | Preview configuration state | Preview did not consume transient configuration-sensitive presentation state | MEDIUM/HIGH | STATICALLY VERIFIED | CreationDraft maintains transient preview_state and SymbolPreviewItem receives that presentation-only snapshot; no Core object is created for preview. | No runtime verification |
 | WF-CREATION-NEW-08 | Creation lifecycle ownership | ToolManager, CreationContext, and ToolBase could carry conflicting lifecycle semantics | HIGH | STATICALLY VERIFIED | ToolManager remains the lifecycle authority; CreationContext owns only the single draft/session; ModelPlacementTool owns interaction only and delegates commit preparation to Application. | No runtime verification |
+
+
+## 2026-09-27 — GF-MASTER-0001 through GF-MASTER-0007 reconciliation
+
+This addendum is the current effective state for Master IDs 0001–0007 and supersedes the older OPEN rows in the historical chronology above. Historical IDs and prior status wording remain preserved.
+
+| Master ID | Finding status | Verification status | Current evidence |
+|---|---|---|---|
+| GF-MASTER-0001 | **REMEDIATED** | **RUNTIME_DEFERRED** | Undefined case_snapshot corrected; canonical PowerFlowResult consumer retained; historical result-vocabulary mismatch is no longer a live defect. |
+| GF-MASTER-0002 | **REMEDIATED** | **RUNTIME_DEFERRED** | Bus outage changes only isolated Core service state; canonical topology invalidation/rebuild derives the resulting topology. |
+| GF-MASTER-0003 | **REMEDIATED** | **RUNTIME_DEFERRED** | Contingency identity lookup delegates to Network.get_by_identity() and candidate enumeration uses canonical NetworkRegistry.elements; no contingency attachment scan remains. |
+| GF-MASTER-0004 | **STATICALLY_VERIFIED** | **NOT_REQUIRED** | All 23 frozen SLD semantic types have deterministic EquipmentRegistry → SymbolDefinition → factory → renderer coverage; unsupported presentation is explicit and non-destructive. |
+| GF-MASTER-0005 | **STATICALLY_VERIFIED** | **NOT_REQUIRED** | Historical IDs remain; CSV now separates Finding Status from Verification Status and records correction references. |
+| GF-MASTER-0006 | **STATICALLY_VERIFIED** | **NOT_REQUIRED** | pyproject.toml remains the single packaging/dependency authority; README structure matches core/application/; declared runtime dependencies are reconciled. |
+| GF-MASTER-0007 | **OPEN** | **RUNTIME_FAILED** | CI workflow exists and is source-preserving, but latest main run 36305923937 failed at source-integrity verification before tests. |
+
+See audit/GF_MASTER_0001_0007_RECONCILIATION_2026-09-27.md for the detailed report, coverage matrix, dependency matrix, and closure evidence.

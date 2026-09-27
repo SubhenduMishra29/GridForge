@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/topology.py
+# GridForge V2 — Authoritative Topology Manager
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 from collections import deque
 from core.model import Branch,Breaker,Cable,Disconnector,Fuse,Line,Switch,Transformer
@@ -21,11 +27,13 @@ class TopologyManager:
         return self.network.rebuild_topology()
 
     def _build(self):
-        graph={b:set() for b in self.network.buses};self._edges={};boundary=ElectricalBoundaryResolver(self.network)
-        self.network.connectivity.validate(self.network);attachments=self._physical_attachments();self._validate_conductive_elements(boundary)
+        active_buses=tuple(b for b in self.network.buses if getattr(b,"in_service",True))
+        active_bus_ids={str(b.id) for b in active_buses}
+        graph={b:set() for b in active_buses};self._edges={};boundary=ElectricalBoundaryResolver(self.network)
+        self.network.connectivity.validate(self.network);attachments=self._physical_attachments(active_buses);self._validate_conductive_elements(boundary)
         resolved_connectivity=ConnectivityResolver(self.network).resolve()
         zero={}
-        for b in self.network.buses:self._node(zero,("bus",b.id))
+        for b in active_buses:self._node(zero,("bus",b.id))
         for a in attachments:self._edge(zero,("terminal",a.equipment_id+"::"+a.terminal_role),("bus",a.bus_id))
         for source,targets in resolved_connectivity.terminal_adjacency:
             for target in targets:
@@ -37,7 +45,7 @@ class TopologyManager:
                     self._edge(zero,self._node_for_reference(source),self._node_for_reference(b.opposite_terminal))
         adjacency={b.id:set() for b in self.network.buses}
         for component in self._components(zero):
-            buses=sorted(n[1] for n in component if n[0]=="bus")
+            buses=sorted(n[1] for n in component if n[0]=="bus" and str(n[1]) in active_bus_ids)
             for i,a in enumerate(buses):
                 for b in buses[i+1:]:adjacency[a].add(b);adjacency[b].add(a)
         for b in self.network.buses:
@@ -45,6 +53,8 @@ class TopologyManager:
         # Conductive equipment is an explicit electrical boundary. It contributes
         # Bus adjacency, but Simple Wire never traverses its numerical branch.
         for e in self._topology_elements():
+            if not getattr(e,"in_service",True):
+                continue
             if not conduction_state(e):
                 continue
             terminals=tuple(getattr(e,"terminals",()))
@@ -55,6 +65,8 @@ class TopologyManager:
             if a.attached_bus_id is None or b.attached_bus_id is None:
                 raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
             bus_a=self.network.get_by_identity(a.attached_bus_id); bus_b=self.network.get_by_identity(b.attached_bus_id)
+            if bus_a not in active_buses or bus_b not in active_buses:
+                continue
             if bus_a is not bus_b:
                 graph.setdefault(bus_a,set()).add(bus_b)
                 graph.setdefault(bus_b,set()).add(bus_a)
@@ -66,18 +78,23 @@ class TopologyManager:
                 b=boundary.resolve(self._reference_for_terminal(e,e.to_terminal.role))
                 if a.attached_bus_id is None or b.attached_bus_id is None:raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
                 bus_a=self.network.get_by_identity(a.attached_bus_id);bus_b=self.network.get_by_identity(b.attached_bus_id)
+                if bus_a not in active_buses or bus_b not in active_buses:
+                    continue
                 if bus_a is not bus_b:self._edges.setdefault(self._edge_key(bus_a,bus_b),[]).append(e)
         self._graph=graph;self._snapshot=self._make_snapshot(adjacency,attachments,boundary);return graph
-    def _physical_attachments(self):
+    def _physical_attachments(self, active_buses):
         out=[];seen=set();boundary=ElectricalBoundaryResolver(self.network)
+        active_bus_ids={str(bus.id) for bus in active_buses}
         for e in self._registered_equipment():
+            if not getattr(e,"in_service",True):continue
             for t in sorted(getattr(e,"terminals",()),key=lambda x:x.role):
                 reference=self._reference_for_terminal(e,t.role)
                 resolved=boundary.resolve(reference)
                 bus_id=resolved.attached_bus_id
-                if bus_id is None:continue
+                if bus_id is None or str(bus_id) not in active_bus_ids:continue
                 bus=self.network.get_by_identity(bus_id)
-                if bus not in self.network.buses:raise EndpointCompatibilityError(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
+                if bus not in active_buses:continue
+(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
                 equipment_type = reference.equipment_type
                 if equipment_type is None:
                     raise EndpointCompatibilityError(
