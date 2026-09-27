@@ -8,7 +8,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from ui.core.qt import QListWidget, QVBoxLayout, QWidget
+from ui.projection.projection_state import EngineeringParameterState, ProjectionState
+
+from ui.core.qt import (
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
+    QListWidget, QPushButton, QVBoxLayout, QWidget,
+)
 from ui.plugins.panels_plugin import PanelSpec
 from .element_list_panel import ElementListPanelWidget
 from .messages_panel import MessagesPanelWidget
@@ -131,7 +136,7 @@ class EquipmentPanelWidget(QWidget):
 
 
 class PropertiesPanelWidget(QWidget):
-    """Qt realization that delegates inspection state to PropertiesPanel."""
+    """Qt realization of the canonical PropertiesPanel projection."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -139,22 +144,35 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel = PropertiesPanel()
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
+        self._parameter_controls: dict[str, QWidget] = {}
+        self._parameter_states: dict[str, EngineeringParameterState] = {}
+        self._apply_button: QPushButton | None = None
+        self._validation_label: QLabel | None = None
+        self._form_layout: QFormLayout | None = None
+        self._build_controls()
+
+    def _build_controls(self) -> None:
+        root = QVBoxLayout(self)
+        self._form_layout = QFormLayout()
+        root.addLayout(self._form_layout)
+        self._validation_label = QLabel("Select an element to inspect.", self)
+        self._validation_label.setWordWrap(True)
+        root.addWidget(self._validation_label)
+        self._apply_button = QPushButton("Apply / Commit", self)
+        self._apply_button.setEnabled(False)
+        self._apply_button.clicked.connect(self._apply_changes)
+        root.addWidget(self._apply_button)
 
     def bind_configuration_runtime(self, application: Any) -> None:
-        """Bind the canonical Application command boundary for parameter edits."""
         self._engineering_editor = EngineeringParameterEditor(application)
 
     def configure_parameter(self, parameter_id: str, value: Any) -> Any:
-        """Submit one typed edit from the current immutable projection."""
         if self._engineering_editor is None:
             raise RuntimeError("Properties configuration runtime is not bound.")
         target = self.logical_panel.target
         if target is None:
             raise RuntimeError("No projected element is selected.")
-        intent = self._engineering_editor.intent_from_projection(
-            target,
-            {parameter_id: value},
-        )
+        intent = self._engineering_editor.intent_from_projection(target, {parameter_id: value})
         return self._engineering_editor.submit(intent)
 
     @property
@@ -163,9 +181,137 @@ class PropertiesPanelWidget(QWidget):
 
     def set_target(self, target: Any | None) -> None:
         self.logical_panel.set_target(target)
+        self._render_projection(target)
 
     def clear_target(self) -> None:
         self.logical_panel.clear_target()
+        self._render_projection(None)
+
+    def _render_projection(self, target: ProjectionState | None) -> None:
+        self._clear_parameter_controls()
+        if target is None:
+            if self._validation_label is not None:
+                self._validation_label.setText("Select an element to inspect.")
+            return
+        self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
+        for parameter in target.engineering_parameters:
+            control = self._create_parameter_control(parameter)
+            self._parameter_controls[parameter.parameter_id] = control
+            assert self._form_layout is not None
+            self._form_layout.addRow(self._parameter_label(parameter), control)
+        if self._validation_label is not None:
+            self._validation_label.setText(
+                f"{target.display_type} · {target.object_id} · Core validation is authoritative on commit."
+            )
+        if self._apply_button is not None:
+            self._apply_button.setEnabled(
+                any(item.editable and not item.derived for item in target.engineering_parameters)
+            )
+
+    def _clear_parameter_controls(self) -> None:
+        self._parameter_controls.clear()
+        self._parameter_states.clear()
+        if self._form_layout is None:
+            return
+        while self._form_layout.count():
+            item = self._form_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _create_parameter_control(self, parameter: EngineeringParameterState) -> QWidget:
+        value = parameter.value
+        if parameter.derived or not parameter.editable:
+            control = QLabel(self._display_value(value), self)
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        datatype = str(parameter.datatype).strip().lower()
+        if datatype in {"float", "number"}:
+            control = QDoubleSpinBox(self)
+            control.setDecimals(6)
+            control.setRange(-1.0e15, 1.0e15)
+            control.setValue(float(value))
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        if datatype in {"bool", "boolean"}:
+            control = QCheckBox(self)
+            control.setChecked(bool(value))
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        if datatype == "enum":
+            control = QComboBox(self)
+            choices = tuple(str(choice) for choice in parameter.choices)
+            control.addItems(choices)
+            if str(value) in choices:
+                control.setCurrentText(str(value))
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        control = QLineEdit(self)
+        control.setText("" if value is None else str(value))
+        control.setToolTip(self._validation_text(parameter))
+        return control
+
+    def _parameter_label(self, parameter: EngineeringParameterState) -> QLabel:
+        suffix: list[str] = []
+        if parameter.unit:
+            suffix.append(str(parameter.unit))
+        if parameter.derived:
+            suffix.append("derived / read-only")
+        elif not parameter.editable:
+            suffix.append("read-only")
+        text = str(parameter.parameter_id)
+        if suffix:
+            text += " (" + ", ".join(suffix) + ")"
+        return QLabel(text, self)
+
+    @staticmethod
+    def _display_value(value: Any) -> str:
+        if isinstance(value, bool):
+            return "True" if value else "False"
+        return "" if value is None else str(value)
+
+    @staticmethod
+    def _validation_text(parameter: EngineeringParameterState) -> str:
+        if parameter.validation.get("authoritative") == "Core":
+            return "Core validation is authoritative."
+        return "Presentation metadata only; Core remains authoritative."
+
+    @staticmethod
+    def _current_value(parameter: EngineeringParameterState, control: QWidget) -> Any:
+        datatype = str(parameter.datatype).strip().lower()
+        if datatype in {"float", "number"}:
+            return float(control.value())  # type: ignore[attr-defined]
+        if datatype in {"bool", "boolean"}:
+            return bool(control.isChecked())  # type: ignore[attr-defined]
+        if datatype == "enum":
+            return str(control.currentText())  # type: ignore[attr-defined]
+        return str(control.text())  # type: ignore[attr-defined]
+
+    def _apply_changes(self) -> None:
+        if self._engineering_editor is None:
+            raise RuntimeError("Properties configuration runtime is not bound.")
+        target = self.logical_panel.target
+        if target is None:
+            raise RuntimeError("No projected element is selected.")
+        changes: dict[str, Any] = {}
+        for parameter_id, parameter in self._parameter_states.items():
+            if parameter.derived or not parameter.editable:
+                continue
+            value = self._current_value(parameter, self._parameter_controls[parameter_id])
+            if value != parameter.value:
+                changes[parameter_id] = value
+        if not changes:
+            if self._validation_label is not None:
+                self._validation_label.setText("No engineering changes to commit.")
+            return
+        intent = self._engineering_editor.intent_from_projection(target, changes)
+        self._engineering_editor.submit(intent)
+        if self._apply_button is not None:
+            self._apply_button.setEnabled(False)
+        if self._validation_label is not None:
+            self._validation_label.setText(
+                "Commit submitted. Waiting for authoritative read-model refresh."
+            )
 
 
 PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer")
