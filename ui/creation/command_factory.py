@@ -33,6 +33,7 @@ class CreationCommandFactory:
                 f"{draft.equipment_type} creation is incomplete: "
                 + "; ".join(draft.validation_state.get("final", ()))
             )
+        draft.mark_committing()
         if not isinstance(object_id, str) or not object_id.strip():
             raise ValueError("object_id must be non-empty.")
         definition = draft.definition
