@@ -13,6 +13,11 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from core.application.commands.model_commands import UpdateTransformerCommand
+from core.application.commands.measurement_commands import (
+    UpdateCurrentTransformerCommand,
+    UpdateCapacitiveVoltageTransformerCommand,
+)
+from core.application.commands.pt_commands import UpdatePTCommand
 from core.model.transformer import ImpedanceBasis
 
 from ui.projection.projection_state import ProjectionState
@@ -58,6 +63,9 @@ class EngineeringParameterEditor:
         self._builders: dict[str, Callable[[EngineeringConfigurationIntent], Any]] = {
             "transformer": self._build_transformer_command,
             "transformers": self._build_transformer_command,
+            "current_transformers": self._build_current_transformer_command,
+            "potential_transformers": self._build_pt_command,
+            "capacitive_voltage_transformers": self._build_cvt_command,
         }
 
     def intent_from_projection(
@@ -118,8 +126,41 @@ class EngineeringParameterEditor:
                 raise TypeError(f"{parameter_id} requires a boolean value.")
             return value
         if normalized == "enum":
-            return str(value).strip().lower()
+            # Preserve the Core enum vocabulary exactly.  Domain-specific
+            # command builders perform only the coercion required by their
+            # authoritative Core enum types.
+            return str(value).strip()
         return value
+
+    @staticmethod
+    def _build_current_transformer_command(
+        intent: EngineeringConfigurationIntent,
+    ) -> UpdateCurrentTransformerCommand:
+        values = dict(intent.values)
+        return UpdateCurrentTransformerCommand(
+            transformer_id=intent.element_id,
+            **values,
+        )
+
+    @staticmethod
+    def _build_pt_command(
+        intent: EngineeringConfigurationIntent,
+    ) -> UpdatePTCommand:
+        values = dict(intent.values)
+        return UpdatePTCommand(
+            pt_id=intent.element_id,
+            **values,
+        )
+
+    @staticmethod
+    def _build_cvt_command(
+        intent: EngineeringConfigurationIntent,
+    ) -> UpdateCapacitiveVoltageTransformerCommand:
+        values = dict(intent.values)
+        return UpdateCapacitiveVoltageTransformerCommand(
+            transformer_id=intent.element_id,
+            **values,
+        )
 
     @staticmethod
     def _build_transformer_command(
