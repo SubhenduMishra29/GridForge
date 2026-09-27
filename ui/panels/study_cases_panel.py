@@ -1,3 +1,9 @@
+# ============================================================
+# File: ui/panels/study_cases_panel.py
+# GridForge V2 — Study Cases Panel
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from typing import Callable, Iterable
