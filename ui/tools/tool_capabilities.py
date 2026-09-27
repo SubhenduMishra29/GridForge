@@ -165,6 +165,10 @@ _CAPABILITY_CATEGORIES: dict[
         ToolCapabilityCategory.EXECUTION,
     ToolCapability.PRODUCES_EVENTS:
         ToolCapabilityCategory.EXECUTION,
+    ToolCapability.REQUIRES_CONFIGURATION:
+        ToolCapabilityCategory.DOMAIN,
+    ToolCapability.REQUIRES_ENDPOINTS:
+        ToolCapabilityCategory.DOMAIN,
 }
 
 
