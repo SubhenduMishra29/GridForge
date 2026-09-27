@@ -195,8 +195,7 @@ class ContingencyAnalysis:
             raise KeyError(f"Unknown or out-of-service contingency element(s): {missing}")
         return requested
 
-    @staticmethod
-    def _normalize_element_types(element_types: Optional[Sequence[str]]) -> Optional[set[str]]:
+    def _normalize_element_types(self, element_types: Optional[Sequence[str]]) -> Optional[set[str]]:
         if element_types is None:
             return None
         normalized = {str(item).strip().lower() for item in element_types}

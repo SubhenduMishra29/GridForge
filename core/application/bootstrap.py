@@ -11,6 +11,7 @@ from typing import Any
 from dataclasses import replace
 from uuid import uuid4
 
+from core.analysis.contingency import ContingencyAnalysis
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PreparedPowerFlow
@@ -377,6 +378,26 @@ def create_application(network: Any) -> Application:
             return None
         return analysis.to_engineering_result()
 
+    def run_contingency(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
+        if token.cancelled:
+            return None
+        configuration = study_configuration(request, PowerFlowStudyConfiguration)
+        preparation = StudyPreparationService(execution_context)
+        request_configuration = request.configuration
+        analysis = ContingencyAnalysis(preparation.snapshot.network, configuration)
+        result = analysis.run(
+            elements=request_configuration.get("elements"),
+            contingency_type=request_configuration.get("contingency_type", "N-1"),
+            element_types=request_configuration.get("element_types"),
+            power_flow_options=request_configuration.get("power_flow_options"),
+            voltage_min=request_configuration.get("voltage_min", 0.95),
+            voltage_max=request_configuration.get("voltage_max", 1.05),
+            thermal_limit=request_configuration.get("thermal_limit", 100.0),
+        )
+        if token.cancelled:
+            return None
+        return result
+
     def run_short_circuit(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
         if token.cancelled:
             return None
@@ -438,6 +459,7 @@ def create_application(network: Any) -> Application:
         return result
 
     application.study_service.register("power_flow", run_power_flow)
+    application.study_service.register("contingency", run_contingency)
     application.study_service.register("short_circuit", run_short_circuit)
     application.study_service.register("transient_stability", run_transient_stability)
     return application
