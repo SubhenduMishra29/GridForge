@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +18,19 @@ from core.application.events import (
     StudyFailed,
     StudyStarted,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class StudyCaseRow:
+    """Immutable presentation row retaining Study Case identity separately from display text."""
+
+    study_id: UUID
+    display_name: str
+    study_type: str
+    status: str
+    current: bool = True
+    message: str = ""
+
 
 
 class StudyProjection:
@@ -51,7 +65,7 @@ class StudyProjection:
             return
         if isinstance(event, (ProjectLoaded, ProjectClosed)):
             self._active.clear()
-            self._cases = ()
+            self._cases: tuple[StudyCaseRow, ...] = ()
             self._panel.set_cases(())
             return
 
@@ -82,13 +96,27 @@ class StudyProjection:
         self._render()
 
     def _render(self) -> None:
-        rows = []
+        rows: list[StudyCaseRow] = []
         for entry in self._active.values():
-            message = entry.get("message")
-            suffix = f" — {message}" if message else ""
-            freshness = "" if entry.get("current", "true") == "true" else " [STALE]"
+            study_id = UUID(str(entry["study_id"]))
+            study_type = str(entry["study_type"])
+            display_name = f"{study_type.replace('_', ' ').title()} Study"
+            try:
+                case = self._application.study_case(study_id)
+            except (KeyError, TypeError, ValueError):
+                case = None
+            if case is not None:
+                display_name = case.display_name
+                study_type = case.study_type
             rows.append(
-                f"{entry['study_type']} [{entry['status']}]{freshness} {entry['study_id']}{suffix}"
+                StudyCaseRow(
+                    study_id=study_id,
+                    display_name=display_name,
+                    study_type=study_type,
+                    status=str(entry["status"]),
+                    current=entry.get("current", "true") == "true",
+                    message=str(entry.get("message") or ""),
+                )
             )
         self._cases = tuple(rows)
         self._panel.set_cases(self._cases)
@@ -102,4 +130,4 @@ class StudyProjection:
         self._disposed = True
 
 
-__all__ = ["StudyProjection"]
+__all__ = ["StudyCaseRow", "StudyProjection"]
