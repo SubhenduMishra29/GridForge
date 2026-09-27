@@ -1,6 +1,6 @@
 # Master Register — Required Field Metadata
 
-**Canonical repository authority:** `SubhenduMishra29/GridForge`
+**Canonical repository authority:** `pandaraseswari03-collab/GridForge`
 **Canonical branch:** `main`
 **Historical repository provenance:** Any other repository identity appearing in historical evidence is provenance only and is not current audit authority.
 
@@ -60,7 +60,7 @@ This companion table completes the required fields for the canonical findings in
 
 ## Post-B39 repository authority addendum — 2026-09-22
 
-Canonical register identity: `SubhenduMishra29/GridForge`.
+Canonical register identity: `pandaraseswari03-collab/GridForge`.
 
 Historical repository identities are preserved only in historical evidence and are not active canonical repository metadata.
 
@@ -115,3 +115,16 @@ The current status authority is the Batch 0 effective-status index in `MASTER_AU
 | ApplicationEvent / ApplicationEventBus / Core→UI boundary | **PASS — frozen architecture unchanged** | DEFERRED / UNVERIFIED |
 
 **Batch 1A gate:** STATIC RE-AUDIT PASS. Source correction is complete; runtime consumer verification remains deferred/unverified.
+
+
+## 2026-09-27 — New functional-audit finding metadata
+
+| Master ID | Evidence / Location | First Detected | Last Verified | Related Findings | Depends On | Blocks | Resolution Evidence | Historical Notes | Remediation State | Verification Method |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GF-MASTER-0092 | `core/analysis/contingency.py`; `core/solver/contingency/*`; StudyService | 2026-09-27 | 2026-09-27 | 0001,0002,0003 | Canonical StudyService/contingency authority | Contingency study execution consistency | None; finding remains open | New finding; historical contingency IDs preserved | OPEN | Static repository source/dependency inspection; runtime verification deferred |
+| GF-MASTER-0093 | `ui/projection/study_projection.py`; `core/application/application.py` | 2026-09-27 | 2026-09-27 | 0044 | Current Application study-result contract | Study result presentation | None; finding remains open | New finding | OPEN | Static signature/call-site inspection; runtime verification deferred |
+| GF-MASTER-0094 | `ui/panels/study_cases_panel.py`; composition root; StudyService | 2026-09-27 | 2026-09-27 | 0042,0027 | Application study execution boundary | Engineer-facing study execution | None; finding remains open | New finding | OPEN | Static UI-handler/composition tracing; runtime verification deferred |
+| GF-MASTER-0095 | `audit/MASTER_AUDIT_REGISTER.md`; `audit/MASTER_AUDIT_REGISTER.csv`; metadata companion | 2026-09-27 | 2026-09-27 | 0005 | Current repository authority | Audit governance | Corrected by this register reconciliation | New governance finding; historical repository identities retained only as provenance | OPEN | Static register inspection |
+| GF-MASTER-0096 | `main.py`; Protection UI/composition sources | 2026-09-27 | 2026-09-27 | 0027,0029 | Protection Application boundary | Engineer-facing protection workflow | None; finding remains open | New finding | OPEN | Static composition/action tracing; runtime verification deferred |
+| GF-MASTER-0097 | `core/application/application.py`; `ui/control/control_toolbar.py`; `ui/control/control_workspace.py` | 2026-09-27 | 2026-09-27 | 0042; GF-CTRL-ACT-005 | Application control-cycle boundary | Engineer-facing control execution | None; finding remains open | New finding; existing Control runtime remediation records remain preserved | OPEN | Static action-to-execution tracing; runtime verification deferred |
+| GF-MASTER-0098 | `plugins/dynamics/avr/plugin.py`; `plugins/dynamics/governor/plugin.py`; `plugins/dynamics/pss/plugin.py`; `core/model/` | 2026-09-27 | 2026-09-27 | 0011,0012,0013,0015,0030 | Current Core model package | Dynamics plugin loading/execution | None; finding remains open | New finding; historical Dynamics IDs preserved | OPEN | Static import/module existence and dependency tracing; runtime verification deferred |
