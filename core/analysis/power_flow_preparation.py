@@ -261,6 +261,8 @@ class PowerFlowPreparation:
         for branch in getattr(self.network, "lines", ()):
             if not getattr(branch, "in_service", True):
                 continue
+            if self._branch_outside_active_topology(branch):
+                continue
             if not isinstance(branch, Line):
                 raise TypeError(f"Network line '{getattr(branch, 'id', branch)}' is not a Line model.")
             from_bus, to_bus = self._resolve_branch_endpoints(branch)
@@ -271,6 +273,8 @@ class PowerFlowPreparation:
 
         for cable in getattr(self.network, "cables", ()):
             if not getattr(cable, "in_service", True):
+                continue
+            if self._branch_outside_active_topology(cable):
                 continue
             if not isinstance(cable, Cable):
                 raise TypeError(f"Network cable '{getattr(cable, 'id', cable)}' is not a Cable model.")
@@ -285,6 +289,8 @@ class PowerFlowPreparation:
         prepared: list[PreparedTransformer] = []
         for transformer in getattr(self.network, "transformers", ()):
             if not getattr(transformer, "in_service", True):
+                continue
+            if self._branch_outside_active_topology(transformer):
                 continue
             if not isinstance(transformer, Transformer):
                 raise TypeError(f"Network transformer '{getattr(transformer, 'id', transformer)}' is not a Transformer model.")
@@ -389,6 +395,17 @@ class PowerFlowPreparation:
                 )
             )
         return tuple(prepared)
+
+    def _branch_outside_active_topology(self, branch: Any) -> bool:
+        """Return whether the canonical topology snapshot excludes a branch endpoint."""
+        active_bus_ids = frozenset(str(bus_id) for bus_id in self.topology_snapshot.bus_ids)
+        endpoint_ids = []
+        for terminal in (getattr(branch, "from_terminal", None), getattr(branch, "to_terminal", None)):
+            endpoint = getattr(terminal, "endpoint", None)
+            endpoint_id = getattr(endpoint, "id", None)
+            if endpoint_id is not None:
+                endpoint_ids.append(str(endpoint_id))
+        return bool(endpoint_ids) and any(endpoint_id not in active_bus_ids for endpoint_id in endpoint_ids)
 
     def _resolve_branch_endpoints(self, branch: Any) -> tuple[Any, Any]:
         records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
