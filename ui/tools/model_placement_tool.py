@@ -98,6 +98,9 @@ class ModelPlacementTool(ToolBase):
             return False
         command = self._build_command()
         self.execute_command(command)
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(command.payload[self.ID_FIELD])
         self._require_creation_context().complete()
         self._clear_state()
         return True
