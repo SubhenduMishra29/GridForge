@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/analysis/contingency.py
+# GridForge V2 — Contingency Analysis
+# Author: Subhendu Mishra
+# ============================================================
+
 """Contingency analysis over isolated Network cases and prepared Power Flow results."""
 
 from __future__ import annotations
