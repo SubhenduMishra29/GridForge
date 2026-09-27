@@ -76,7 +76,6 @@ class SLDCanvasRenderSystem:
         """Return authored node IDs whose presentation could not be realized."""
         return dict(self._unsupported_presentations)
 
-    @property
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
         """Bind an optional application/UI diagnostic consumer."""
         if sink is not None and not callable(sink):
