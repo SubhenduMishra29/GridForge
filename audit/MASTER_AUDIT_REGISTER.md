@@ -1109,7 +1109,7 @@ This section is the current effective status addendum for the complete functiona
 |---|---|---|---|---|---|---|---|
 | GF-MASTER-0092 | Study | Contingency | Duplicate/legacy contingency authority removed and canonical Application StudyService registration established. | CRITICAL | **REMEDIATED** | **RUNTIME_DEFERRED** | `core/solver/contingency/` executable modules were removed; `core/application/bootstrap.py` now registers `contingency` exactly once through `Application.study_service`, delegating to `core/analysis/contingency.ContingencyAnalysis` over the detached study snapshot. Static verification complete; runtime verification remains deferred. |
 | GF-MASTER-0093 | Study/UI | Study Projection | `StudyProjection` called `Application.study_result()` using an obsolete/incomplete argument contract. | HIGH | **REMEDIATED** | **STATICALLY_VERIFIED — RUNTIME_DEFERRED** | Projection now consumes `Application.read_study_result()`, which resolves the active project/generation and returns the canonical `StudyResultReadModel`. | 
-| GF-MASTER-0094 | Study/UI | Study Cases | Study Cases exposes a Run Study action, but production composition does not wire a run handler to the Application study execution boundary. | HIGH | **OPEN** | **STATIC_VERIFIED** | This existing Master ID is preserved unchanged; it is not repurposed for result-integrity work. |
+| GF-MASTER-0094 | Study/UI | Study Cases | Study Cases exposes a Run Study action, but production composition did not wire a run handler to the Application study execution boundary. | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | **STATIC_VERIFIED** | Added Application-owned structured StudyCaseDefinition capture, immutable StudyCaseRow projection, UUID-preserving panel selection, dedicated StudyCaseController, and explicit main.py set_run_handler() wiring to Application.execute_study_case() → Application.execute_study(). Persistence gap is explicitly documented; no UI/Core bypass or duplicate study authority introduced. |
 | GF-MASTER-0099 | Study | Study Result Integrity | Study results required one canonical publication/read path, immutable exposure, provenance, freshness handling, and elimination of duplicate result authorities. | CRITICAL | **REMEDIATED** | **STATICALLY_VERIFIED — RUNTIME_DEFERRED** | Existing Application StudyService remains the sole execution/publication authority; existing StudyReadService is now the UI read boundary; StudyResultReadModel carries identity/provenance/freshness; dynamic wrapper authority was collapsed; contingency result records are immutable. See `audit/GF_MASTER_0094_STUDY_RESULT_INTEGRITY_REMEDIATION_2026-09-27.md`. |
 | GF-MASTER-0095 | Audit governance | Master Register | Register metadata still identifies `SubhenduMishra29/GridForge` as canonical authority instead of the current `pandaraseswari03-collab/GridForge`. | HIGH | **OPEN** | **STATIC_VERIFIED** | Existing register metadata and dated addenda contain the obsolete canonical repository identity. This is an audit-governance defect, not a production-code defect. |
 | GF-MASTER-0096 | Protection | UI/workspace | Protection backend exists, but the engineer-facing Protection workspace/action is explicitly left as an unconfigured surface. | HIGH | **OPEN** | **STATIC_VERIFIED** | `main.py` routes the Protection action to an unconfigured-surface path and states that Protection presentation is not configured in the current workspace. |
@@ -1140,3 +1140,26 @@ GF-MASTER-0092 through GF-MASTER-0098 are **new findings**, not replacements for
 The current register identity **GF-MASTER-0094** is preserved as the pre-existing Study Cases Run Study wiring finding. The result-integrity correction requested under the same prompt is recorded as **GF-MASTER-0099** rather than silently overwriting the existing ID. GF-MASTER-0093 is remediated because its StudyProjection signature mismatch was part of the result/read-model dependency chain.
 
 **Evidence:** `audit/GF_MASTER_0094_STUDY_RESULT_INTEGRITY_REMEDIATION_2026-09-27.md`.
+
+
+## 2026-09-27 — GF-MASTER-0094 Study Cases Run Study remediation
+
+GF-MASTER-0094 was corrected without repurposing its historical identity. The production path is now statically traceable as:
+
+`StudyCasesPanelWidget → StudyCaseController → Application.study_case()/execute_study_case() → StudyRequest → Application.execute_study() → canonical topology snapshot → detached ProjectSnapshot → StudyExecutionContext → StudyService → registered handler → StudyPreparationService → Core Analysis/Solver → Study lifecycle event → StudyProjection → structured StudyCaseRow → StudyCasesPanelWidget`.
+
+Changed source:
+- `core/application/study.py`
+- `core/application/application.py`
+- `ui/projection/study_projection.py`
+- `ui/panels/study_cases_panel.py`
+- `ui/controllers/study_case_controller.py`
+- `main.py`
+
+Audit evidence:
+- `audit/GF_MASTER_0094_STUDY_CASE_RUN_REMEDIATION_2026-09-27.md`
+
+Persistence limitation:
+The existing project persistence contract contains no Study Case payload. This remediation therefore keeps Study Cases Application-owned and runtime/transient rather than inventing a second persistence authority. Save/reopen persistence remains an explicit documented limitation.
+
+**Status: REMEDIATED — VERIFICATION DEFERRED.** Runtime, tests, CI, startup, and GUI verification were not performed.
