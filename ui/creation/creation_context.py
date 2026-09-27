@@ -3,37 +3,66 @@
 # GridForge V2 — Canonical transient equipment creation workflow
 # Author: Subhendu Mishra
 # ============================================================
-"""Transient creation intent and validation for SLD equipment placement.
+"""Generic transient creation lifecycle.
 
-CreationContext is presentation/application workflow state only. It is never
-registered with Core, topology, persistence, studies, or solvers.
+CreationDefinition owns creation semantics. CreationContext only owns the
+active session; CreationDraft stores transient intent and validation state.
+Neither object is a Core entity or persistence/study state.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from ui.creation.creation_definition import CreationDefinition
 from ui.equipment.equipment_definition import EquipmentDefinition, EngineeringParameterDefinition
+
+
+class CreationLifecycleState(str, Enum):
+    INACTIVE = "INACTIVE"
+    ACTIVATING = "ACTIVATING"
+    CONFIGURING = "CONFIGURING"
+    PREVIEWING = "PREVIEWING"
+    PLACING = "PLACING"
+    VALIDATING = "VALIDATING"
+    COMMITTING = "COMMITTING"
+    COMMITTED = "COMMITTED"
+    CANCELLED = "CANCELLED"
+    INSPECTION = "INSPECTION"
 
 
 @dataclass(frozen=True, slots=True)
 class CreationRequirements:
-    """Declarative requirements for one creation workflow."""
+    """Compatibility projection of a CreationDefinition, not a second schema."""
 
-    configuration_required: bool = False
-    placement_required: bool = True
-    endpoint_required: bool = False
-    multi_endpoint_required: bool = False
-    preview_supported: bool = True
+    configuration_required: bool
+    placement_required: bool
+    endpoint_required: bool
+    multi_endpoint_required: bool
+    preview_supported: bool
     commit_supported: bool = True
+
+    @classmethod
+    def from_definition(cls, definition: CreationDefinition) -> "CreationRequirements":
+        topology = definition.topology_requirements
+        required = tuple(item for item in topology if item.required)
+        return cls(
+            configuration_required=definition.configuration_required,
+            placement_required=definition.placement_required,
+            endpoint_required=bool(required),
+            multi_endpoint_required=any(item.cardinality in {"pair", "multiple"} for item in required),
+            preview_supported=definition.preview_supported,
+        )
 
 
 @dataclass
 class CreationDraft:
-    """Mutable, transient creation intent; never a Core/domain object."""
+    """Mutable transient creation intent; never a Core/domain object."""
 
+    definition: CreationDefinition
     equipment_type: str
     tool_id: str
     parameter_schema: tuple[EngineeringParameterDefinition, ...]
@@ -44,13 +73,17 @@ class CreationDraft:
     orientation: float = 0.0
     endpoints: dict[str, Any] = field(default_factory=dict)
     preview_state: dict[str, Any] = field(default_factory=dict)
-    requirements: CreationRequirements = field(default_factory=CreationRequirements)
+    phase: CreationLifecycleState = CreationLifecycleState.CONFIGURING
+    requirements: CreationRequirements | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.definition, CreationDefinition):
+            raise TypeError("definition must be a CreationDefinition.")
         self.parameter_schema = tuple(self.parameter_schema)
         self.values = dict(self.values)
         self.endpoints = dict(self.endpoints)
         self.preview_state = dict(self.preview_state)
+        self.requirements = self.requirements or CreationRequirements.from_definition(self.definition)
         self.validate_configuration()
 
     @property
@@ -73,92 +106,73 @@ class CreationDraft:
     def set_placement(self, position: tuple[float, float], orientation: float = 0.0) -> None:
         self.placement_position = (float(position[0]), float(position[1]))
         self.orientation = float(orientation)
+        self.phase = CreationLifecycleState.PLACING
         self.validate_placement()
 
     def set_endpoint(self, name: str, endpoint: Any) -> None:
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Endpoint name must be non-empty.")
-        self.endpoints[name.strip()] = endpoint
+        if name not in self.definition.endpoint_mapping:
+            raise KeyError(f"Unknown creation endpoint: {name!r}")
+        self.endpoints[name] = endpoint
+        self.validate_placement()
 
     def set_endpoints(self, endpoints: Mapping[str, Any]) -> None:
-        self.endpoints.update(endpoints)
+        for name, endpoint in endpoints.items():
+            self.set_endpoint(name, endpoint)
+
+    def mark_previewing(self) -> None:
+        self.phase = CreationLifecycleState.PREVIEWING
+
+    def mark_validating(self) -> None:
+        self.phase = CreationLifecycleState.VALIDATING
+
+    def mark_committing(self) -> None:
+        self.phase = CreationLifecycleState.COMMITTING
 
     def validate_configuration(self) -> bool:
-        errors: list[str] = []
-        warnings: list[str] = []
-        for definition in self.parameter_schema:
-            value = self.values.get(definition.parameter_id)
-            if definition.required_before_create and value is None:
-                errors.append(f"{definition.display_name} is required.")
-                continue
-            if value is None:
-                continue
-            try:
-                self._validate_value(definition, value)
-            except (TypeError, ValueError) as exc:
-                errors.append(f"{definition.display_name}: {exc}")
-        if self.equipment_type == "transformer":
-            if self.values.get("impedance_base_mva") is None and self.values.get("rate_mva") is None:
-                errors.append("Transformer requires impedance_base_mva or rate_mva.")
-        self.validation_state["configuration"] = tuple(errors)
-        self.validation_state["configuration_warnings"] = tuple(warnings)
+        errors = self.definition.validate_values(self.values)
+        self.validation_state["configuration"] = errors
         self.configuration_complete = not errors
         return self.configuration_complete
 
     def validate_placement(self) -> bool:
         errors: list[str] = []
-        if self.requirements.placement_required and self.placement_position is None:
+        if self.definition.placement_required and self.placement_position is None:
             errors.append("Placement position is required.")
-        if self.requirements.endpoint_required:
-            required_count = 2 if self.requirements.multi_endpoint_required else 1
-            present = sum(value is not None for value in self.endpoints.values())
-            if present < required_count:
-                errors.append("Required topology endpoints are incomplete.")
+        for requirement in self.definition.topology_requirements:
+            if requirement.required and self.endpoints.get(requirement.name) is None:
+                errors.append(f"Required topology endpoint {requirement.name!r} is missing.")
         self.validation_state["placement"] = tuple(errors)
+        self.validation_state["endpoint"] = tuple(
+            error for error in errors if "endpoint" in error.lower()
+        )
         return not errors
 
     def validate_for_commit(self) -> bool:
+        self.mark_validating()
         configuration_ok = self.validate_configuration()
         placement_ok = self.validate_placement()
-        endpoint_errors = tuple(self.validation_state.get("endpoint", ()))
-        self.validation_state["final"] = endpoint_errors
-        return configuration_ok and placement_ok and not endpoint_errors
+        self.validation_state["terminal"] = tuple(
+            f"Required terminal {item.terminal_name!r} is not acquired."
+            for item in self.definition.terminal_requirements
+            if item.required and self.endpoints.get(item.terminal_name) is None
+        )
+        final = (
+            tuple(self.validation_state.get("configuration", ()))
+            + tuple(self.validation_state.get("placement", ()))
+            + tuple(self.validation_state.get("terminal", ()))
+        )
+        self.validation_state["final"] = final
+        return not final and configuration_ok and placement_ok
 
     def snapshot_values(self) -> Mapping[str, Any]:
         return MappingProxyType(dict(self.values))
 
-    @staticmethod
-    def _validate_value(definition: EngineeringParameterDefinition, value: Any) -> None:
-        datatype = definition.datatype.strip().lower()
-        if datatype in {"float", "number"}:
-            if isinstance(value, bool):
-                raise TypeError("must be numeric")
-            numeric = float(value)
-            if definition.minimum is not None and numeric < definition.minimum:
-                raise ValueError(f"must be >= {definition.minimum}")
-            if definition.maximum is not None and numeric > definition.maximum:
-                raise ValueError(f"must be <= {definition.maximum}")
-        elif datatype in {"int", "integer"}:
-            if isinstance(value, bool) or int(value) != value:
-                raise TypeError("must be an integer")
-            numeric = int(value)
-            if definition.minimum is not None and numeric < definition.minimum:
-                raise ValueError(f"must be >= {definition.minimum}")
-            if definition.maximum is not None and numeric > definition.maximum:
-                raise ValueError(f"must be <= {definition.maximum}")
-        elif datatype in {"bool", "boolean"}:
-            if not isinstance(value, bool):
-                raise TypeError("must be boolean")
-        elif datatype == "enum":
-            if str(value) not in tuple(str(choice) for choice in definition.choices):
-                raise ValueError(f"must be one of {tuple(definition.choices)!r}")
-        elif datatype in {"str", "string"}:
-            if not isinstance(value, str):
-                raise TypeError("must be text")
+    def snapshot_endpoints(self) -> Mapping[str, Any]:
+        return MappingProxyType(dict(self.endpoints))
 
 
 class CreationContext:
-    """Single transient authority for the active equipment creation session."""
+    """Single generic authority for the active equipment creation session."""
 
     def __init__(self) -> None:
         self._draft: CreationDraft | None = None
@@ -171,29 +185,39 @@ class CreationContext:
     def active(self) -> bool:
         return self._draft is not None
 
-    def begin(self, definition: EquipmentDefinition, requirements: CreationRequirements | None = None) -> CreationDraft:
-        if not isinstance(definition, EquipmentDefinition):
-            raise TypeError("definition must be an EquipmentDefinition.")
+    @property
+    def state(self) -> CreationLifecycleState:
+        return self._draft.phase if self._draft is not None else CreationLifecycleState.INACTIVE
+
+    def begin(
+        self,
+        definition: EquipmentDefinition | CreationDefinition,
+        requirements: CreationRequirements | None = None,
+    ) -> CreationDraft:
+        if isinstance(definition, EquipmentDefinition):
+            creation_definition = definition.creation_definition
+            if not isinstance(creation_definition, CreationDefinition):
+                raise ValueError(
+                    f"Equipment definition {definition.equipment_type!r} has no canonical CreationDefinition."
+                )
+        elif isinstance(definition, CreationDefinition):
+            creation_definition = definition
+        else:
+            raise TypeError("definition must be an EquipmentDefinition or CreationDefinition.")
         if self._draft is not None:
             self.discard()
-        schema = tuple(definition.engineering_parameters)
-        values = {
-            item.parameter_id: item.default_value
-            for item in schema
-            if item.default_value is not None
-        }
-        self._draft = CreationDraft(
-            equipment_type=definition.equipment_type,
-            tool_id=definition.tool_id,
-            parameter_schema=schema,
-            values=values,
-            requirements=requirements or CreationRequirements(
-                configuration_required=any(item.required_before_create for item in schema),
-                endpoint_required=definition.equipment_type in {"line", "cable"},
-                multi_endpoint_required=definition.equipment_type in {"line", "cable"},
-            ),
+        draft = CreationDraft(
+            definition=creation_definition,
+            equipment_type=creation_definition.equipment_type,
+            tool_id=creation_definition.tool_id,
+            parameter_schema=creation_definition.parameter_definitions,
+            values=dict(creation_definition.default_values),
+            requirements=requirements or CreationRequirements.from_definition(creation_definition),
+            phase=CreationLifecycleState.ACTIVATING,
         )
-        return self._draft
+        draft.phase = CreationLifecycleState.CONFIGURING
+        self._draft = draft
+        return draft
 
     def update(self, parameter_id: str, value: Any) -> CreationDraft:
         draft = self.require_draft()
@@ -220,11 +244,23 @@ class CreationContext:
             raise RuntimeError("No active equipment creation session.")
         return self._draft
 
-    def discard(self) -> None:
-        self._draft = None
-
     def complete(self) -> None:
+        if self._draft is not None:
+            self._draft.phase = CreationLifecycleState.COMMITTED
         self._draft = None
 
+    def cancel(self) -> None:
+        if self._draft is not None:
+            self._draft.phase = CreationLifecycleState.CANCELLED
+        self._draft = None
 
-__all__ = ["CreationRequirements", "CreationDraft", "CreationContext"]
+    def discard(self) -> None:
+        self.cancel()
+
+
+__all__ = [
+    "CreationLifecycleState",
+    "CreationRequirements",
+    "CreationDraft",
+    "CreationContext",
+]
