@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
 
-from .read_models import StudyResultReadModel
 from .revision import ProjectRevision
 
 from core.network.network import Network
@@ -26,6 +25,7 @@ from .read_models import (
     RelayInputBindingReadModel,
     RelayReadModel,
     SimpleWireReadModel,
+    StudyResultReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
