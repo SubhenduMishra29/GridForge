@@ -176,7 +176,7 @@ class ToolManager:
 
         previous_id = self._active_tool_id
         previous_tool = self._active_tool
-        previous_definition = self._definition_for_tool(previous_id) if previous_id is not None else None
+        previous_draft = self.creation_context.snapshot_draft()
         requested_tool = self._get_or_create_tool(tool_id) if tool_id is not None else None
 
         if previous_tool is not None:
@@ -212,10 +212,7 @@ class ToolManager:
             self._active_tool = previous_tool
             if previous_tool is not None:
                 previous_tool.activate()
-            if previous_definition is not None:
-                self.creation_context.begin(previous_definition)
-            else:
-                self.creation_context.discard()
+            self.creation_context.restore_draft(previous_draft)
             raise
         self._notify_controller_tool_change(previous_id, tool_id)
         return requested_tool
@@ -273,7 +270,10 @@ class ToolManager:
         self._ensure_active()
         if self._active_tool is None:
             return False
-        return bool(self._active_tool.cancel())
+        result = bool(self._active_tool.cancel())
+        if result:
+            self.creation_context.cancel()
+        return result
 
     def reset(self) -> None:
         self._ensure_active()
