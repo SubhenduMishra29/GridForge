@@ -97,6 +97,9 @@ class StudyCaseDefinition:
     """Immutable Application-owned definition of a runnable Study Case."""
 
     study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
     study_type: str
     configuration: Mapping[str, Any]
     display_name: str = ""
@@ -104,12 +107,19 @@ class StudyCaseDefinition:
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
             raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be non-empty.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
         study_type = str(self.study_type).strip()
         if not study_type:
             raise ValueError("study_type must be non-empty.")
         if not isinstance(self.configuration, Mapping):
             raise TypeError("configuration must be a mapping.")
         _validate_study_case_configuration(study_type, self.configuration)
+        object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", study_type)
         object.__setattr__(self, "configuration", _freeze_study_value(self.configuration))
         name = str(self.display_name).strip() or f"{study_type.replace('_', ' ').title()} Study"
@@ -119,6 +129,9 @@ class StudyCaseDefinition:
     def from_request(cls, request: "StudyRequest") -> "StudyCaseDefinition":
         return cls(
             study_id=request.study_id,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
             study_type=request.study_type,
             configuration=request.configuration,
         )
