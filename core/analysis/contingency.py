@@ -122,9 +122,10 @@ class ContingencyAnalysis:
             case_snapshot = case_network.topology_snapshot
             if case_snapshot is None:
                 raise ValueError("Contingency case did not produce a canonical TopologySnapshot.")
+            case_configuration = self._configuration_for_snapshot(case_snapshot)
             prepared = PowerFlowPreparation.prepare(
                 case_network,
-                self.power_flow_configuration,
+                case_configuration,
                 topology_snapshot=case_snapshot,
             )
             power_flow = PowerFlowAnalysis(prepared.input, prepared.ybus, options=power_flow_options, prepared=prepared)
@@ -153,11 +154,8 @@ class ContingencyAnalysis:
             element = self._find_element(case_network, element_id)
             if element is None:
                 raise KeyError(f"Contingency element {element_id!r} was not found in the isolated case Network.")
-            if self._is_bus(element):
-                self._set_in_service(element, False)
-                self._disable_connected_equipment(case_network, element, case_snapshot)
-            else:
-                self._set_in_service(element, False)
+            self._set_in_service(element, False)
+        case_network.invalidate_topology()
         return case_network
 
     @staticmethod
@@ -176,33 +174,15 @@ class ContingencyAnalysis:
                 raise
             setter(bool(in_service))
 
-    @classmethod
-    def _disable_connected_equipment(cls, network: Any, bus: Any, topology_snapshot: Any) -> None:
-        bus_id = str(getattr(bus, "id", bus))
-        attached_ids = {
-            str(record.equipment_id)
-            for record in topology_snapshot.equipment_bus_attachments
-            if str(record.bus_id) == bus_id
-        }
-        for collection_name in ("lines", "transformers", "generators", "loads", "shunts", "cables"):
-            for element in getattr(network, collection_name, ()):
-                if str(element.id) in attached_ids:
-                    cls._set_in_service(element, False)
-
     def _get_candidates(self, *, elements: Optional[Sequence[Any]], element_types: Optional[Sequence[str]]) -> List[Any]:
         normalized_types = self._normalize_element_types(element_types)
         available: List[Any] = []
-        for element_type, collection in (
-            ("bus", self.network.buses),
-            ("line", self.network.lines),
-            ("transformer", self.network.transformers),
-            ("generator", self.network.generators),
-            ("load", self.network.loads),
-            ("shunt", self.network.shunts),
-        ):
+        for element in self.network.registry.elements:
+            element_type = str(getattr(element, "element_type", type(element).__name__)).strip().lower()
             if normalized_types is not None and element_type not in normalized_types:
                 continue
-            available.extend(element.id for element in collection if getattr(element, "in_service", True))
+            if getattr(element, "in_service", True):
+                available.append(element.id)
         if elements is None:
             return available
         requested = list(elements)
@@ -218,13 +198,36 @@ class ContingencyAnalysis:
         if element_types is None:
             return None
         normalized = {str(item).strip().lower() for item in element_types}
-        valid = {"bus", "line", "transformer", "generator", "load", "shunt"}
-        invalid = normalized - valid
+        available = {
+            str(getattr(element, "element_type", type(element).__name__)).strip().lower()
+            for element in self.network.registry.elements
+        }
+        invalid = normalized - available
         if invalid:
             raise ValueError(f"Unsupported contingency element type(s): {sorted(invalid)}")
         if not normalized:
             raise ValueError("element_types cannot be empty.")
         return normalized
+
+    def _configuration_for_snapshot(self, snapshot: Any) -> PowerFlowStudyConfiguration:
+        """Project the immutable study configuration onto the active case buses."""
+        bus_ids = tuple(snapshot.bus_ids)
+        configured = self.power_flow_configuration.bus_type_mapping
+        if any(bus_id not in configured for bus_id in bus_ids):
+            missing = sorted(set(bus_ids) - set(configured))
+            raise ValueError(f"Contingency case contains unconfigured active bus(es): {missing!r}.")
+        bus_types = {bus_id: configured[bus_id] for bus_id in bus_ids}
+        if sum(value.value == "SLACK" for value in bus_types.values()) != 1:
+            raise ValueError("Contingency case must retain exactly one configured SLACK bus; an outage removed the configured slack bus.")
+        voltage_bases = {bus_id: base for bus_id, base in self.power_flow_configuration.voltage_base_mapping.items() if bus_id in bus_types}
+        return PowerFlowStudyConfiguration.from_mapping(
+            bus_types,
+            base_mva=self.power_flow_configuration.base_mva,
+            tolerance=self.power_flow_configuration.tolerance,
+            max_iterations=self.power_flow_configuration.max_iterations,
+            voltage_bases_kv=voltage_bases,
+            numerical_options=self.power_flow_configuration.numerical_options,
+        )
 
     @staticmethod
     def _parse_contingency_order(contingency_type: str) -> int:
@@ -241,11 +244,10 @@ class ContingencyAnalysis:
 
     @staticmethod
     def _find_element(network: Any, element_id: Any) -> Optional[Any]:
-        for collection_name in ("buses", "lines", "transformers", "generators", "loads", "shunts", "cables"):
-            for element in getattr(network, collection_name, ()):
-                if element.id == element_id:
-                    return element
-        return None
+        try:
+            return network.get_by_identity(str(element_id))
+        except (KeyError, TypeError, ValueError):
+            return None
 
     def post_process(self, cases: Iterable[ContingencyCaseResult]) -> ContingencyResult:
         result = ContingencyResult(cases=list(cases))
