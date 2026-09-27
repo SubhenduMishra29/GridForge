@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
+from uuid import UUID
+
+from .revision import ProjectRevision
 
 
 _CANONICAL_ATTRIBUTES: dict[str, tuple[str, ...]] = {
@@ -170,6 +173,43 @@ class RelayReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class StudyResultReadModel:
+    """Immutable Application read-side view of one published study result.
+
+    The canonical Core/Analysis result remains the value; this model adds only
+    Application identity, lifecycle, provenance, and freshness metadata.
+    It is presentation/read state, never a second engineering result authority.
+    """
+
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    status: str
+    value: Any = None
+    message: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    current: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.study_id, UUID):
+            raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
+        if self.status not in {"completed", "failed", "cancelled"}:
+            raise ValueError("status must be completed, failed, or cancelled.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
+        object.__setattr__(self, "study_type", str(self.study_type).strip())
+        object.__setattr__(self, "message", str(self.message))
+        object.__setattr__(self, "metadata", _freeze(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
 class ProtectionReadModel:
     """Immutable collection snapshot of protection-domain read data."""
 
@@ -184,4 +224,5 @@ __all__ = [
     "ProtectionReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
+    "StudyResultReadModel",
 ]
