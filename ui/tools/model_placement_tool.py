@@ -176,7 +176,6 @@ class ModelPlacementTool(ToolBase):
         if position is None:
             return False
         self._position = position
-        draft.set_placement(position)
         self._preview_active = True
         self._show_preview(position)
         return True
