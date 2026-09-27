@@ -32,8 +32,8 @@ class StudyProjection:
     )
 
     def __init__(self, *, application: Any, panel: Any) -> None:
-        if application is None or not callable(getattr(application, "study_result", None)):
-            raise TypeError("application must provide study_result().")
+        if application is None or not callable(getattr(application, "read_study_result", None)):
+            raise TypeError("application must provide read_study_result().")
         if panel is None or not callable(getattr(panel, "set_cases", None)):
             raise TypeError("panel must provide set_cases().")
         self._application = application
@@ -69,12 +69,13 @@ class StudyProjection:
         }
         if status in {"completed", "failed", "cancelled"}:
             try:
-                result = self._application.study_result(UUID(str(study_id)))
+                result = self._application.read_study_result(UUID(str(study_id)))
             except (TypeError, ValueError):
                 result = None
             if result is not None:
                 entry["study_type"] = str(result.study_type)
                 entry["status"] = str(result.status)
+                entry["current"] = "true" if bool(getattr(result, "current", False)) else "false"
                 if getattr(result, "message", ""):
                     entry["message"] = str(result.message)
         self._active[str(study_id)] = entry
@@ -85,8 +86,9 @@ class StudyProjection:
         for entry in self._active.values():
             message = entry.get("message")
             suffix = f" — {message}" if message else ""
+            freshness = "" if entry.get("current", "true") == "true" else " [STALE]"
             rows.append(
-                f"{entry['study_type']} [{entry['status']}] {entry['study_id']}{suffix}"
+                f"{entry['study_type']} [{entry['status']}]{freshness} {entry['study_id']}{suffix}"
             )
         self._cases = tuple(rows)
         self._panel.set_cases(self._cases)

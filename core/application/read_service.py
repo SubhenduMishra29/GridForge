@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any
+from uuid import UUID
+
+from .revision import ProjectRevision
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
@@ -22,6 +25,7 @@ from .read_models import (
     RelayInputBindingReadModel,
     RelayReadModel,
     SimpleWireReadModel,
+    StudyResultReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -360,8 +364,96 @@ class ProtectionReadService:
         return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings)
 
 class StudyReadService:
-    """Placeholder study read boundary retained for Application consumers."""
-    def __init__(self, studies: Any) -> None: self._studies = studies
-    def snapshot(self) -> Any: return self._studies
+    """Canonical Application read boundary for published study results.
+
+    The service adapts the existing Application StudyService store into
+    immutable read models. It never executes studies and never becomes a
+    second result authority.
+    """
+    def __init__(self, studies: Any) -> None:
+        if studies is None or not callable(getattr(studies, "get_result", None)):
+            raise TypeError("studies must provide get_result().")
+        if not callable(getattr(studies, "results", None)):
+            raise TypeError("studies must provide results().")
+        self._studies = studies
+
+    @staticmethod
+    def _to_read_model(
+        result: Any,
+        *,
+        current_project_id: str | None = None,
+        current_activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> StudyResultReadModel | None:
+        if result is None:
+            return None
+        source_revision = result.source_revision
+        current = (
+            current_project_id is not None
+            and current_activation_generation is not None
+            and current_revision is not None
+            and result.project_id == current_project_id
+            and result.activation_generation == current_activation_generation
+            and source_revision == current_revision
+        )
+        return StudyResultReadModel(
+            study_id=result.study_id,
+            project_id=result.project_id,
+            activation_generation=result.activation_generation,
+            source_revision=source_revision,
+            study_type=result.study_type,
+            status=result.status,
+            value=result.value,
+            message=result.message,
+            metadata=result.metadata,
+            current=current,
+        )
+
+    def result(
+        self,
+        study_id: UUID,
+        *,
+        project_id: str,
+        activation_generation: int,
+        current_revision: ProjectRevision | None = None,
+    ) -> StudyResultReadModel | None:
+        result = self._studies.get_result(
+            study_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+        )
+        return self._to_read_model(
+            result,
+            current_project_id=project_id,
+            current_activation_generation=activation_generation,
+            current_revision=current_revision,
+        )
+
+    def results(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int,
+        current_revision: ProjectRevision | None = None,
+    ) -> tuple[StudyResultReadModel, ...]:
+        return tuple(
+            self._to_read_model(
+                result,
+                current_project_id=project_id,
+                current_activation_generation=activation_generation,
+                current_revision=current_revision,
+            )
+            for result in self._studies.results(
+                project_id=project_id,
+                activation_generation=activation_generation,
+            )
+        )
+
+    def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
+        return self.results(
+            project_id=project_id,
+            activation_generation=activation_generation,
+            current_revision=current_revision,
+        )
 
 __all__ = ["NetworkReadService", "ProtectionReadService", "ReadService", "StudyReadService"]

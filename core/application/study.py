@@ -130,6 +130,24 @@ class StudyService:
     def registered_study_types(self) -> tuple[str, ...]:
         return tuple(self._handlers)
 
+    @staticmethod
+    def _event_metadata(request: StudyRequest, *, status: str | None = None, error: str | None = None) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "study_id": str(request.study_id),
+            "study_type": request.study_type,
+            "project_id": request.project_id,
+            "activation_generation": request.activation_generation,
+            "model_revision": request.source_revision.model_revision,
+            "topology_revision": request.source_revision.topology_revision,
+            "presentation_revision": request.source_revision.presentation_revision,
+            "persisted_revision": request.source_revision.persisted_revision,
+        }
+        if status is not None:
+            metadata["status"] = status
+        if error is not None:
+            metadata["error"] = error
+        return metadata
+
     def register(self, study_type: str, handler: StudyHandler) -> None:
         if not isinstance(study_type, str) or not study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
@@ -158,12 +176,7 @@ class StudyService:
             raise ValueError(f"Study is already active: {request.study_id}")
         token = StudyCancellationToken()
         self._tokens[key] = token
-        self._event_bus.publish(StudyStarted(metadata={
-            "study_id": str(request.study_id),
-            "study_type": request.study_type,
-            "project_id": request.project_id,
-            "activation_generation": request.activation_generation,
-        }))
+        self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
 
         try:
             value = handler(request, execution_context, token)
@@ -178,12 +191,7 @@ class StudyService:
                     message="Study cancelled.",
                 )
                 self._results[key] = result
-                self._event_bus.publish(StudyCancelled(metadata={
-                    "study_id": str(request.study_id),
-                    "study_type": request.study_type,
-                    "project_id": request.project_id,
-                    "activation_generation": request.activation_generation,
-                }))
+                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
                 return result
 
             result = StudyResult(
@@ -196,12 +204,7 @@ class StudyService:
                 value=value,
             )
             self._results[key] = result
-            self._event_bus.publish(StudyCompleted(metadata={
-                "study_id": str(request.study_id),
-                "study_type": request.study_type,
-                "project_id": request.project_id,
-                "activation_generation": request.activation_generation,
-            }))
+            self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
         except Exception as exc:
             result = StudyResult(
@@ -214,13 +217,7 @@ class StudyService:
                 message=str(exc),
             )
             self._results[key] = result
-            self._event_bus.publish(StudyFailed(metadata={
-                "study_id": str(request.study_id),
-                "study_type": request.study_type,
-                "project_id": request.project_id,
-                "activation_generation": request.activation_generation,
-                "error": str(exc),
-            }))
+            self._event_bus.publish(StudyFailed(metadata=self._event_metadata(request, status="failed", error=str(exc))))
             raise
         finally:
             self._tokens.pop(key, None)
