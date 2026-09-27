@@ -48,7 +48,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
-from .read_service import ProtectionReadService, ReadService
+from .read_service import ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
 from .revision import ProjectRevision
@@ -96,6 +96,7 @@ class Application:
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
+        self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
         self._control_cycle: ControlCycleService | None = None
@@ -401,7 +402,31 @@ class Application:
         )
         return self._study_service.execute(request, execution_context)
 
+    def read_study_result(self, study_id) -> Any:
+        """Return the current project-scoped study result read model."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            return None
+        return self._study_read_service.result(
+            study_id,
+            project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+            current_revision=self.revision,
+        )
+
+    def read_study_results(self) -> tuple[Any, ...]:
+        """Return all study result read models for the active project generation."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            return ()
+        return self._study_read_service.results(
+            project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+            current_revision=self.revision,
+        )
+
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
+        """Compatibility-only Application lookup retained for non-presentation callers."""
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
 
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
