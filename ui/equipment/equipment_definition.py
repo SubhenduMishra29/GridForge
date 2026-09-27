@@ -29,6 +29,37 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+@dataclass(frozen=True, slots=True)
+class EngineeringParameterDefinition:
+    """Canonical engineering parameter contract for equipment creation."""
+    parameter_id: str
+    display_name: str
+    datatype: str = "str"
+    unit: str | None = None
+    required_before_create: bool = False
+    default_value: Any = None
+    editable: bool = True
+    derived: bool = False
+    choices: tuple[Any, ...] = ()
+    minimum: float | None = None
+    maximum: float | None = None
+    validation: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.parameter_id, str) or not self.parameter_id.strip():
+            raise ValueError("parameter_id must be non-empty")
+        if not isinstance(self.display_name, str) or not self.display_name.strip():
+            raise ValueError("display_name must be non-empty")
+        if not isinstance(self.datatype, str) or not self.datatype.strip():
+            raise ValueError("datatype must be non-empty")
+        if self.derived and self.editable:
+            raise ValueError("derived parameters cannot be editable")
+        object.__setattr__(self, "parameter_id", self.parameter_id.strip())
+        object.__setattr__(self, "display_name", self.display_name.strip())
+        object.__setattr__(self, "datatype", self.datatype.strip())
+        object.__setattr__(self, "choices", tuple(self.choices))
+        object.__setattr__(self, "validation", dict(self.validation))
+
 
 @dataclass(frozen=True)
 class EquipmentDefinition:
@@ -58,6 +89,7 @@ class EquipmentDefinition:
     )
 
     category: str = "electrical"
+    engineering_parameters: tuple[EngineeringParameterDefinition, ...] = ()
 
     # ========================================================
     # VALIDATION
@@ -131,6 +163,18 @@ class EquipmentDefinition:
                 normalized_name
             )
 
+        if not isinstance(self.engineering_parameters, (tuple, list)):
+            raise TypeError("engineering_parameters must be a tuple/list of EngineeringParameterDefinition")
+        normalized_parameters: list[EngineeringParameterDefinition] = []
+        seen_parameters: set[str] = set()
+        for parameter in self.engineering_parameters:
+            if not isinstance(parameter, EngineeringParameterDefinition):
+                raise TypeError("engineering_parameters must contain EngineeringParameterDefinition values")
+            if parameter.parameter_id in seen_parameters:
+                raise ValueError("Duplicate engineering parameter: " + parameter.parameter_id)
+            seen_parameters.add(parameter.parameter_id)
+            normalized_parameters.append(parameter)
+
         if not isinstance(
             self.default_properties,
             Mapping,
@@ -175,11 +219,8 @@ class EquipmentDefinition:
             dict(self.default_properties),
         )
 
-        object.__setattr__(
-            self,
-            "category",
-            category,
-        )
+        object.__setattr__(self, "category", category)
+        object.__setattr__(self, "engineering_parameters", tuple(normalized_parameters))
 
     # --------------------------------------------------------
 
@@ -244,6 +285,19 @@ class EquipmentDefinition:
         return terminal_name in self.terminal_names
 
     # ========================================================
+    # ENGINEERING CREATION CONTRACT
+    # ========================================================
+
+    def parameter(self, parameter_id: str) -> EngineeringParameterDefinition:
+        for parameter in self.engineering_parameters:
+            if parameter.parameter_id == parameter_id:
+                return parameter
+        raise KeyError(parameter_id)
+
+    def parameter_ids(self) -> tuple[str, ...]:
+        return tuple(item.parameter_id for item in self.engineering_parameters)
+
+    # ========================================================
     # DEFAULT PROPERTIES
     # ========================================================
 
@@ -281,6 +335,16 @@ class EquipmentDefinition:
                 self.default_properties
             ),
             "category": self.category,
+            "engineering_parameters": [
+                {"parameter_id": item.parameter_id, "display_name": item.display_name,
+                 "datatype": item.datatype, "unit": item.unit,
+                 "required_before_create": item.required_before_create,
+                 "default_value": item.default_value, "editable": item.editable,
+                 "derived": item.derived, "choices": list(item.choices),
+                 "minimum": item.minimum, "maximum": item.maximum,
+                 "validation": dict(item.validation)}
+                for item in self.engineering_parameters
+            ],
         }
 
     # --------------------------------------------------------
@@ -349,13 +413,9 @@ class EquipmentDefinition:
             default_properties=dict(
                 default_properties
             ),
-            category=data.get(
-                "category",
-                "electrical",
-            ),
+            category=data.get("category", "electrical"),
+            engineering_parameters=parameters,
         )
 
 
-__all__ = [
-    "EquipmentDefinition",
-]
+__all__ = ["EngineeringParameterDefinition", "EquipmentDefinition"]
