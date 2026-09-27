@@ -308,6 +308,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+    def _on_render_diagnostic(diagnostic: object) -> None:
+        messages_panel.append_message(
+            "SLD rendering failure: "
+            f"node={getattr(diagnostic, 'node_id', '<unknown>')} "
+            f"equipment={getattr(diagnostic, 'equipment_id', None) or '<none>'} "
+            f"symbol={getattr(diagnostic, 'symbol_id', None) or '<none>'} "
+            f"{getattr(diagnostic, 'message', diagnostic)}"
+        )
+
+    sld_canvas_render_system.bind_diagnostic_sink(_on_render_diagnostic)
+    for diagnostic in sld_canvas_render_system.render_diagnostics:
+        _on_render_diagnostic(diagnostic)
     def study_case_error_handler(error: BaseException) -> None:
         QMessageBox.critical(window, "Run Study", str(error))
 
