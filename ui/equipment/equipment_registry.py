@@ -250,6 +250,7 @@ class EquipmentRegistry:
             ("relay", "Relay", (), "protection"),
         )
         for equipment_type, display_name, terminals, category in definitions:
+            creation_definition = creation_definition_for(equipment_type, terminals)
             registry.register(
                 EquipmentDefinition(
                     equipment_type=equipment_type,
@@ -257,8 +258,8 @@ class EquipmentRegistry:
                     tool_id=equipment_type,
                     terminal_names=terminals,
                     category=category,
-                    engineering_parameters=creation_definition_for(equipment_type, terminals).parameter_definitions,
-                    creation_definition=creation_definition_for(equipment_type, terminals),
+                    engineering_parameters=creation_definition.parameter_definitions,
+                    creation_definition=creation_definition,
                 )
             )
         return registry
