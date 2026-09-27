@@ -52,12 +52,12 @@ class StudyProjection:
             raise TypeError("panel must provide set_cases().")
         self._application = application
         self._panel = panel
-        self._cases: tuple[str, ...] = ()
+        self._cases: tuple[StudyCaseRow, ...] = ()
         self._active: dict[str, dict[str, str]] = {}
         self._disposed = False
 
     @property
-    def cases(self) -> tuple[str, ...]:
+    def cases(self) -> tuple[StudyCaseRow, ...]:
         return self._cases
 
     def refresh(self, event: Any) -> None:
@@ -65,7 +65,7 @@ class StudyProjection:
             return
         if isinstance(event, (ProjectLoaded, ProjectClosed)):
             self._active.clear()
-            self._cases: tuple[StudyCaseRow, ...] = ()
+            self._cases = ()
             self._panel.set_cases(())
             return
 
