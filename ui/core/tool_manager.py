@@ -176,6 +176,7 @@ class ToolManager:
 
         previous_id = self._active_tool_id
         previous_tool = self._active_tool
+        previous_definition = self._definition_for_tool(previous_id) if previous_id is not None else None
         requested_tool = self._get_or_create_tool(tool_id) if tool_id is not None else None
 
         if previous_tool is not None:
