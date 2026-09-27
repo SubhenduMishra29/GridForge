@@ -2,6 +2,4 @@
 from core.application.commands.solar_commands import CreateSolarCommand
 from .model_placement_tool import ModelPlacementTool
 class SolarTool(ModelPlacementTool):
-    TOOL_ID="solar"; MODEL_NAME="Solar"; COMMAND_CLASS=CreateSolarCommand
-    ID_FIELD="solar_id"; SYMBOL_ID="solar"
 __all__=["SolarTool"]
