@@ -94,7 +94,8 @@ class TopologyManager:
                 if bus_id is None or str(bus_id) not in active_bus_ids:continue
                 bus=self.network.get_by_identity(bus_id)
                 if bus not in active_buses:continue
-(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
+                if bus not in self.network.buses:
+                    raise EndpointCompatibilityError(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
                 equipment_type = reference.equipment_type
                 if equipment_type is None:
                     raise EndpointCompatibilityError(
