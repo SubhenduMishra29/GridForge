@@ -428,6 +428,7 @@ class EquipmentDefinition:
             ),
             category=data.get("category", "electrical"),
             engineering_parameters=tuple(EngineeringParameterDefinition(parameter_id=item['parameter_id'], display_name=item['display_name'], datatype=item.get('datatype', 'str'), unit=item.get('unit'), required_before_create=item.get('required_before_create', False), default_value=item.get('default_value'), editable=item.get('editable', True), derived=item.get('derived', False), choices=tuple(item.get('choices', ())), minimum=item.get('minimum'), maximum=item.get('maximum'), validation=item.get('validation', {})) for item in data.get('engineering_parameters', ())),
+            creation_definition=creation_definition,
         )
 
 
