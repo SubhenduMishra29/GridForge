@@ -196,6 +196,7 @@ class ToolManager:
                     raise
             self._active_tool_id = previous_id
             self._active_tool = previous_tool
+            self.creation_context.restore_draft(previous_draft)
             raise
 
         self._active_tool_id = tool_id
