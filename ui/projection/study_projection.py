@@ -32,8 +32,8 @@ class StudyProjection:
     )
 
     def __init__(self, *, application: Any, panel: Any) -> None:
-        if application is None or not callable(getattr(application, "study_result", None)):
-            raise TypeError("application must provide study_result().")
+        if application is None or not callable(getattr(application, "read_study_result", None)):
+            raise TypeError("application must provide read_study_result().")
         if panel is None or not callable(getattr(panel, "set_cases", None)):
             raise TypeError("panel must provide set_cases().")
         self._application = application
@@ -69,7 +69,7 @@ class StudyProjection:
         }
         if status in {"completed", "failed", "cancelled"}:
             try:
-                result = self._application.study_result(UUID(str(study_id)))
+                result = self._application.read_study_result(UUID(str(study_id)))
             except (TypeError, ValueError):
                 result = None
             if result is not None:
