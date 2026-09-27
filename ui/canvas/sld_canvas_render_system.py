@@ -194,4 +194,4 @@ class SLDCanvasRenderSystem:
         self.clear()
 
 
-__all__ = ["SLDCanvasRenderSystem"]
+__all__ = ["RenderDiagnostic", "SLDCanvasRenderSystem"]
