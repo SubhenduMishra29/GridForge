@@ -39,15 +39,10 @@ class TransientStabilityStudyConfiguration:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
-@dataclass(frozen=True, slots=True)
-class TransientStabilityStudyResult:
-    """Immutable analysis result independent of Core object lifetime."""
-
-    result: TransientStabilityResult
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.result, TransientStabilityResult):
-            raise TypeError("result must be TransientStabilityResult.")
+# Compatibility alias: the solver's immutable TransientStabilityResult is
+# the single canonical dynamic-study result authority. The analysis layer does
+# not wrap it in a second executable result representation.
+TransientStabilityStudyResult = TransientStabilityResult
 
 
 class TransientStabilityAnalysis:
@@ -72,7 +67,7 @@ class TransientStabilityAnalysis:
         self.solver.dt = self.configuration.dt
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
         numerical = self.solver.run(record_initial=True)
-        self.result = TransientStabilityStudyResult(numerical)
+        self.result = numerical
         return self.result
 
 
