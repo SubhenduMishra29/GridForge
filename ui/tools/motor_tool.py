@@ -1,5 +1,20 @@
-# GridForge V2 — SLD motor tool. Author: Subhendu Mishra
+# ============================================================
+# File: ui/tools/motor_tool.py
+# GridForge V2 — SLD Motor Tool
+# Author: Subhendu Mishra
+# ============================================================
+
 from core.application.commands.motor_commands import CreateMotorCommand
+
 from .model_placement_tool import ModelPlacementTool
+
+
 class MotorTool(ModelPlacementTool):
-__all__=["MotorTool"]
+    """SLD placement tool for Motor equipment."""
+
+    TOOL_ID = "motor"
+    MODEL_NAME = "Motor"
+    SYMBOL_ID = "motor"
+
+
+__all__ = ["MotorTool"]
