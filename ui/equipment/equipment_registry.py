@@ -263,6 +263,11 @@ class EquipmentRegistry:
             )
         return registry
 
+    def validate_creation_contracts(self) -> tuple[str, ...]:
+        """Return static creation-contract inconsistencies for this catalogue."""
+        from ui.creation.command_factory import verify_creation_contracts
+        return verify_creation_contracts(self.catalogue())
+
     # ========================================================
     # PRESENTATION CONTRACT
     # ========================================================
