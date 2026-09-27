@@ -282,6 +282,15 @@ class NetworkReadService(ReadService):
                 metadata["datatype"] = "enum"
                 metadata["editable"] = True
                 metadata["derived"] = False
+            if element_type in {
+                "current_transformers",
+                "potential_transformers",
+                "capacitive_voltage_transformers",
+            }:
+                metadata["editable"] = parameter_id not in {"ratio", "voltage_ratio"}
+                if parameter_id in {"ratio", "voltage_ratio"}:
+                    metadata["derived"] = True
+                    metadata["editable"] = False
             if element_type == "transformers" and parameter_id in {"r", "x", "b", "impedance_basis", "impedance_base_mva", "tap", "shift", "rate_mva", "in_service"}:
                 metadata["editable"] = True
             if parameter_id in {"r", "x"}:
