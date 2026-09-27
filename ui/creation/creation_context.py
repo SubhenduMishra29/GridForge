@@ -98,6 +98,7 @@ class CreationDraft:
         if definition.derived or not definition.editable:
             raise ValueError(f"Creation parameter is read-only: {parameter_id!r}")
         self.values[parameter_id] = value
+        self._refresh_preview_state()
         self.validate_configuration()
 
     def set_values(self, values: Mapping[str, Any]) -> None:
@@ -107,14 +108,37 @@ class CreationDraft:
     def set_placement(self, position: tuple[float, float], orientation: float = 0.0) -> None:
         self.placement_position = (float(position[0]), float(position[1]))
         self.orientation = float(orientation)
+        self._refresh_preview_state()
         self.phase = CreationLifecycleState.PLACING
         self.validate_placement()
 
     def set_endpoint(self, name: str, endpoint: Any) -> None:
         if name not in self.definition.endpoint_mapping:
             raise KeyError(f"Unknown creation endpoint: {name!r}")
+        requirement = next(
+            (item for item in self.definition.terminal_requirements if item.terminal_name == name),
+            None,
+        )
+        if requirement is not None and requirement.allowed_connection_types:
+            connection_type = getattr(endpoint, "connection_type", None)
+            if connection_type is not None and str(connection_type) not in requirement.allowed_connection_types:
+                raise ValueError(
+                    f"Endpoint for {name!r} has unsupported connection type {connection_type!r}."
+                )
         self.endpoints[name] = endpoint
+        self._refresh_preview_state()
         self.validate_placement()
+
+    def _refresh_preview_state(self) -> None:
+        self.preview_state = {
+            "equipment_type": self.equipment_type,
+            "parameters": dict(self.values),
+            "acquired_terminals": tuple(
+                name for name in self.definition.endpoint_mapping if self.endpoints.get(name) is not None
+            ),
+            "placement": self.placement_position,
+            "orientation": self.orientation,
+        }
 
     def set_endpoints(self, endpoints: Mapping[str, Any]) -> None:
         for name, endpoint in endpoints.items():
