@@ -95,7 +95,11 @@ class ModelPlacementTool(ToolBase):
         self._show_preview(position)
         if not draft.validate_for_commit():
             return False
-        command = self._build_command()
+        intent = self._build_command()
+        prepare = getattr(self.application, "prepare_creation_command", None)
+        if not callable(prepare):
+            raise RuntimeError("Application must provide prepare_creation_command().")
+        command = prepare(intent)
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
