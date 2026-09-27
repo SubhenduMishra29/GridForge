@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
+from ui.creation.creation_context import CreationContext
 
 
 class ModelPlacementTool(ToolBase):
@@ -48,6 +49,23 @@ class ModelPlacementTool(ToolBase):
         self._preview_active = False
         self._preview_layer = preview_layer
         self._symbol_registry = symbol_registry
+        self._creation_context: CreationContext | None = None
+
+    def bind_creation_context(self, creation_context: CreationContext) -> None:
+        if not isinstance(creation_context, CreationContext):
+            raise TypeError("creation_context must be a CreationContext.")
+        self._creation_context = creation_context
+
+    def set_engineering_parameters(self, **parameters: Any) -> None:
+        """Compatibility adapter into the canonical CreationDraft."""
+        if not parameters:
+            raise ValueError("Engineering parameters must not be empty.")
+        self._require_creation_context().update_many(parameters)
+
+    def _require_creation_context(self) -> CreationContext:
+        if self._creation_context is None:
+            raise RuntimeError("ModelPlacementTool is not bound to CreationContext.")
+        return self._creation_context
 
     @property
     def tool_id(self) -> str:
@@ -73,10 +91,14 @@ class ModelPlacementTool(ToolBase):
         if position is None:
             return False
         self._position = position
+        draft = self._require_creation_context().set_placement(position)
         self._preview_active = True
         self._show_preview(position)
+        if not draft.validate_for_commit():
+            return False
         command = self._build_command()
         self.execute_command(command)
+        self._require_creation_context().complete()
         self._clear_state()
         return True
 
@@ -86,6 +108,7 @@ class ModelPlacementTool(ToolBase):
         if position is None:
             return False
         self._position = position
+        self._require_creation_context().set_placement(position)
         self._preview_active = True
         self._show_preview(position)
         return True
@@ -160,10 +183,17 @@ class ModelPlacementTool(ToolBase):
         command_class = self.COMMAND_CLASS
         if command_class is None:
             raise RuntimeError(f"{self.MODEL_NAME} tool has no Application command constructor.")
-        payload = dict(self.COMMAND_DEFAULTS)
-        payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
+        draft = self._require_creation_context().require_draft()
+        if not draft.validate_for_commit():
+            raise RuntimeError(
+                f"{self.MODEL_NAME} creation configuration is invalid: "
+                + "; ".join(draft.validation_state.get("final", ()))
+                + "; ".join(draft.validation_state.get("configuration", ()))
+            )
         if self._position is None:
             raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
+        payload = dict(draft.snapshot_values())
+        payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
         payload["presentation_x"] = float(self._position[0])
         payload["presentation_y"] = float(self._position[1])
         return command_class(**payload)
@@ -200,6 +230,7 @@ class ModelPlacementTool(ToolBase):
         state.update({
             "position": self._position,
             "preview_active": self._preview_active,
+            "creation_active": self._creation_context is not None and self._creation_context.active,
         })
         return state
 
