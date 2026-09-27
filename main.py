@@ -20,6 +20,7 @@ from ui.control.control_surface_host import ControlSurfaceHost
 from ui.control.control_workspace import ControlWorkspace
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.controllers.study_case_controller import StudyCaseController
 from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.tool_manager import ToolManager
@@ -307,6 +308,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+    def study_case_error_handler(error: BaseException) -> None:
+        QMessageBox.critical(window, "Run Study", str(error))
+
+    study_case_controller = StudyCaseController(
+        application=gridforge_application,
+        error_handler=study_case_error_handler,
+    )
+    study_cases_panel.set_run_handler(study_case_controller.run_study)
+    resources["study_case_controller"] = study_case_controller
+
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
     registered_docks: list[str] = []

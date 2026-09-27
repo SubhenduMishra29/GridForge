@@ -15,6 +15,9 @@ from uuid import UUID, uuid4
 from .event_bus import ApplicationEventBus
 from .revision import ProjectRevision
 from .events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
+from core.analysis.transient_stability import TransientStabilityStudyConfiguration
 from core.network.topology_snapshot import TopologySnapshot
 
 
@@ -63,6 +66,75 @@ class StudyRequest:
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
         object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
+
+
+def _freeze_study_value(value: Any) -> Any:
+    """Freeze Study Case configuration without converting typed Core/Analysis contracts."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_study_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_study_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_study_value(item) for item in value)
+    return value
+
+
+def _validate_study_case_configuration(study_type: str, configuration: Mapping[str, Any]) -> None:
+    """Validate the existing typed study configuration contract at the Application boundary."""
+    typed = configuration.get("configuration")
+    if study_type == "power_flow" and not isinstance(typed, PowerFlowStudyConfiguration):
+        raise TypeError("power_flow Study Case requires PowerFlowStudyConfiguration.")
+    if study_type == "short_circuit" and not isinstance(typed, ShortCircuitStudyConfiguration):
+        raise TypeError("short_circuit Study Case requires ShortCircuitStudyConfiguration.")
+    if study_type == "transient_stability" and not isinstance(typed, TransientStabilityStudyConfiguration):
+        raise TypeError("transient_stability Study Case requires TransientStabilityStudyConfiguration.")
+    if study_type == "contingency" and not isinstance(typed, PowerFlowStudyConfiguration):
+        raise TypeError("contingency Study Case requires its existing PowerFlowStudyConfiguration contract.")
+
+
+@dataclass(frozen=True, slots=True)
+class StudyCaseDefinition:
+    """Immutable Application-owned definition of a runnable Study Case."""
+
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    configuration: Mapping[str, Any]
+    display_name: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.study_id, UUID):
+            raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be non-empty.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
+        study_type = str(self.study_type).strip()
+        if not study_type:
+            raise ValueError("study_type must be non-empty.")
+        if not isinstance(self.configuration, Mapping):
+            raise TypeError("configuration must be a mapping.")
+        _validate_study_case_configuration(study_type, self.configuration)
+        object.__setattr__(self, "project_id", self.project_id.strip())
+        object.__setattr__(self, "study_type", study_type)
+        object.__setattr__(self, "configuration", _freeze_study_value(self.configuration))
+        name = str(self.display_name).strip() or f"{study_type.replace('_', ' ').title()} Study"
+        object.__setattr__(self, "display_name", name)
+
+    @classmethod
+    def from_request(cls, request: "StudyRequest") -> "StudyCaseDefinition":
+        return cls(
+            study_id=request.study_id,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            study_type=request.study_type,
+            configuration=request.configuration,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +326,7 @@ class StudyService:
 __all__ = [
     "StudyExecutionContext",
     "StudyRequest",
+    "StudyCaseDefinition",
     "StudyResult",
     "StudyCancellationToken",
     "StudyHandler",

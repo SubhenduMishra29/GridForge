@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Mapping
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from core.control.context import ControlExecutionContext
 from core.control.engine import ControlEngine
@@ -58,7 +58,7 @@ from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
-from .study import StudyExecutionContext, StudyRequest, StudyResult, StudyService
+from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
 
 
@@ -96,6 +96,7 @@ class Application:
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
+        self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
@@ -134,6 +135,53 @@ class Application:
         return self._control_service
     @property
     def study_service(self) -> StudyService: return self._study_service
+
+    @property
+    def study_cases(self) -> tuple[StudyCaseDefinition, ...]:
+        """Return the immutable Application-owned runnable Study Case definitions."""
+        return tuple(self._study_cases.values())
+
+    def study_case(self, study_id: UUID) -> StudyCaseDefinition:
+        """Resolve one structured Study Case without exposing Core state to UI."""
+        if not isinstance(study_id, UUID):
+            try:
+                study_id = UUID(str(study_id))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("study_id must be a valid UUID.") from exc
+        try:
+            return self._study_cases[study_id]
+        except KeyError as exc:
+            raise KeyError(f"Study Case {study_id} is not registered.") from exc
+
+    def _remember_study_case(self, request: StudyRequest) -> None:
+        """Capture a validated request as the Application-owned runnable Study Case."""
+        try:
+            case = StudyCaseDefinition.from_request(request)
+        except (TypeError, ValueError):
+            # Existing non-UI callers retain the StudyService contract; only
+            # requests that satisfy the structured Study Case contract become
+            # re-runnable presentation cases.
+            return
+        self._study_cases[case.study_id] = case
+
+    def execute_study_case(self, study_id: UUID) -> StudyResult:
+        """Rebuild an immutable StudyRequest from an Application-owned Study Case."""
+        case = self.study_case(study_id)
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
+        if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+            raise ValueError("Study Case project scope does not match the active project generation.")
+        request = StudyRequest(
+            study_id=case.study_id,
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision,
+            study_type=case.study_type,
+            configuration=case.configuration,
+        )
+        return self.execute_study(request)
     @property
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
@@ -364,6 +412,7 @@ class Application:
     def execute_study(self, request: StudyRequest) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
+        self._remember_study_case(request)
         lifecycle = self.project_lifecycle
         context = lifecycle.context
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
