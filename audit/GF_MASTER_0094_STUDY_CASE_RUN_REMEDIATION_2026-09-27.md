@@ -12,7 +12,7 @@ GF-MASTER-0094 remains the authoritative finding for the Study Cases **Run Study
 ## Corrections
 
 1. Added immutable Application-owned `StudyCaseDefinition` in `core/application/study.py`.
-2. The definition preserves `study_id`, `study_type`, display identity, and the existing typed configuration contract. Known study types validate against:
+2. The definition preserves `study_id`, `project_id`, `activation_generation`, `source_revision`, `study_type`, display identity, and the existing typed configuration contract. Known study types validate against:
    - `PowerFlowStudyConfiguration`
    - `ShortCircuitStudyConfiguration`
    - `TransientStabilityStudyConfiguration`
@@ -74,4 +74,4 @@ Accordingly, this correction does **not** invent a second persistence store or h
 
 **REMEDIATED — VERIFICATION DEFERRED**
 
-The source-level production Run Study path is now statically traceable end-to-end. Persistence of Study Case definitions across project save/reopen remains explicitly outside the repository's existing persistence contract and was not invented during this targeted remediation.
+The source-level production Run Study path is now statically traceable end-to-end, including project/activation scoping of the runnable case definition. Persistence of Study Case definitions across project save/reopen remains explicitly outside the repository's existing persistence contract and was not invented during this targeted remediation.
