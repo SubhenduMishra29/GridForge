@@ -248,7 +248,7 @@ class PropertiesPanelWidget(QWidget):
             self._parameter_controls[definition.parameter_id] = control
             self._form_layout.addRow(
                 QLabel(
-                    f"{definition.display_name}" + (f" ({definition.unit})" if definition.unit else ""),
+                    (f"{definition.display_name} *" if definition.required_before_create else definition.display_name) + (f" ({definition.unit})" if definition.unit else ""),
                     self,
                 ),
                 control,
