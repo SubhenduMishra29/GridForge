@@ -29,7 +29,7 @@ from ui.core.qt import QGraphicsScene, QWidget
 from ui.canvas.canvas_composition import CanvasComposition
 from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
-from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.canvas.sld_canvas_render_system import RenderDiagnostic, SLDCanvasRenderSystem
 from ui.plugins.plugin_context import PluginContext
 from ui.sld.sld_document import SLDDocument
 
@@ -188,6 +188,13 @@ class CanvasPlugin:
     @property
     def sld_canvas_render_system(self) -> Optional[SLDCanvasRenderSystem]:
         return self._sld_canvas_render_system
+
+    @property
+    def render_diagnostics(self) -> tuple[RenderDiagnostic, ...]:
+        """Expose the latest presentation diagnostics to application/UI consumers."""
+        if self._sld_canvas_render_system is None:
+            return ()
+        return self._sld_canvas_render_system.render_diagnostics
 
     @property
     def widget(self) -> Optional[QWidget]:

@@ -13,9 +13,10 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
-    QListWidget, QPushButton, QVBoxLayout, QWidget,
+    QListWidget, QPushButton, QVBoxLayout, QWidget, QSize,
 )
 from ui.plugins.panels_plugin import PanelSpec
+from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
 from .element_list_panel import ElementListPanelWidget
 from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
@@ -54,8 +55,16 @@ class EquipmentPanelWidget(QWidget):
         self._selected_equipment_type: str | None = None
         self._active_tool_id: str | None = None
         self._properties_panel: Any | None = None
+        self._symbol_registry: Any | None = None
+        self._palette_symbol_adapter: PaletteSymbolAdapter | None = None
 
         self._list = QListWidget(self)
+        self._list.setViewMode(QListWidget.ViewMode.IconMode)
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._list.setMovement(QListWidget.Movement.Static)
+        self._list.setIconSize(QSize(72, 52))
+        self._list.setGridSize(QSize(112, 88))
+        self._list.setWordWrap(True)
         layout = QVBoxLayout(self)
         layout.addWidget(self._list)
         self._list.itemClicked.connect(self._on_item_clicked)
@@ -76,12 +85,16 @@ class EquipmentPanelWidget(QWidget):
     def active_tool_id(self) -> str | None:
         return self._active_tool_id
 
-    def bind_equipment_runtime(self, equipment_registry: Any, tool_manager: Any, properties_panel: Any | None = None) -> None:
+    def bind_equipment_runtime(self, equipment_registry: Any, tool_manager: Any, properties_panel: Any | None = None, symbol_registry: Any | None = None) -> None:
         """Receive the canonical catalogue and live ToolManager from composition."""
         if equipment_registry is None or not callable(getattr(equipment_registry, "catalogue", None)):
             raise TypeError("equipment_registry must provide catalogue().")
         if tool_manager is None or not callable(getattr(tool_manager, "activate", None)):
             raise TypeError("tool_manager must provide activate().")
+        if symbol_registry is None:
+            raise TypeError("symbol_registry must be the canonical SymbolRegistry.")
+        self._symbol_registry = symbol_registry
+        self._palette_symbol_adapter = PaletteSymbolAdapter(symbol_registry)
         self._equipment_registry = equipment_registry
         self._tool_manager = tool_manager
         self._properties_panel = properties_panel
@@ -89,6 +102,17 @@ class EquipmentPanelWidget(QWidget):
         self._list.clear()
         for definition in self._definitions:
             self._list.addItem(definition.display_name)
+            item = self._list.item(self._list.count() - 1)
+            if self._palette_symbol_adapter is None:
+                raise RuntimeError("Equipment palette symbol adapter is not configured.")
+            item.setIcon(self._palette_symbol_adapter.icon_for(definition.symbol_id))
+            item.setToolTip(
+                f"{definition.display_name}\n"
+                f"Category: {definition.category}\n"
+                f"Tool: {definition.tool_id}\n"
+                f"Symbol: {definition.symbol_id}"
+            )
+            item.setData(32, definition.equipment_type)
 
     def select_equipment_type(self, equipment_type: str | None) -> None:
         if equipment_type is None:

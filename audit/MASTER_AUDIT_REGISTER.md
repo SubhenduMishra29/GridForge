@@ -1201,3 +1201,23 @@ Bus has a dedicated `BusTool` and `PreviewLayer.show_bus()` path and commits on 
 ### Register rule
 
 Historical findings remain preserved. Runtime-dependent SLD findings are not CLOSED by this audit. The effective current dispositions above govern until GUI/runtime verification establishes actual visible realization.
+
+## 2026-09-27 — SLD Canvas / Engineering Palette Correction
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only; no pytest, CI, startup, GUI/runtime, save/reload, or undo/redo execution.
+
+| Finding | Status | Static correction evidence |
+|---|---|---|
+| GF-SLD-UI-PALETTE-001 | **REMEDIATED — VERIFICATION REQUIRED** | The existing palette finding is retained through GF-SLD-CANVAS-042. `EquipmentPanelWidget` now consumes the canonical `SymbolRegistry` through `PluginContext.symbol_registry` and `PaletteSymbolAdapter`. Each `EquipmentDefinition.symbol_id` resolves through that registry to a `SymbolDefinition`, which is converted to a high-DPI `QIcon`. Palette activation remains definition/tool-id based. Runtime icon/display behavior remains unverified. |
+| GF-SLD-UI-PALETTE-002 | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** | `EquipmentPanelWidget.activate_equipment()` still performs `EquipmentRegistry.require() → definition.tool_id → ToolManager.activate()`. The icon bridge does not instantiate tools or Core objects and does not alter the canonical activation identity. |
+| GF-MASTER-0040 | **REMEDIATED — VERIFICATION DEFERRED** | `SLDCanvasRenderSystem` now records structured `RenderDiagnostic` entries for node realization exceptions and exposes `render_diagnostics` / `has_render_failures`. `CanvasPlugin.render_diagnostics` exposes the same presentation status to application/UI consumers. The authored SLD node remains intact and is not confused with a successfully realized graphics item. Runtime rendering remains unverified. |
+| GF-SLD-CANVAS-040 | **REMEDIATED — VERIFICATION REQUIRED** | Node realization failures are no longer represented only by an internal unsupported map. A structured diagnostic includes node ID, equipment ID/type, symbol/presentation identity, category, message, and canvas. The diagnostic is retained after synchronization and can be consumed without mutating Core. Runtime display of the diagnostic remains unverified. |
+| GF-SLD-CANVAS-041 | **REMEDIATED — VERIFICATION REQUIRED** | Generic `ModelPlacementTool` now uses a coherent press/preview → release/commit contract for single-location equipment. Equipment with required terminals keeps placement pending, acquires terminals on subsequent object-snap interaction, and commits on the release following successful endpoint acquisition. Bus-specific release-to-commit behavior remains unchanged. |
+| GF-SLD-CANVAS-042 | **REMEDIATED — VERIFICATION REQUIRED** | The visible equipment palette now resolves `EquipmentDefinition.symbol_id → canonical SymbolRegistry → SymbolDefinition → PaletteSymbolAdapter → QIcon`. No second symbol registry or palette symbol catalogue was introduced. GF-SLD-UI-PALETTE-001 remains the preserved historical identity. |
+
+**Dependency authority conclusion:** the existing canonical SymbolRegistry composition and factory injection path were preserved. No SymbolRegistry injection redesign was performed.
+
+**Runtime boundary:** No claim is made for actual GUI icon visibility, mouse interaction, QGraphics realization, save/reload, or undo/redo execution.

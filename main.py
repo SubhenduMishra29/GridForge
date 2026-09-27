@@ -302,12 +302,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
-    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
+    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+    def _on_render_diagnostic(diagnostic: object) -> None:
+        messages_panel.append_message(
+            "SLD rendering failure: "
+            f"node={getattr(diagnostic, 'node_id', '<unknown>')} "
+            f"equipment={getattr(diagnostic, 'equipment_id', None) or '<none>'} "
+            f"symbol={getattr(diagnostic, 'symbol_id', None) or '<none>'} "
+            f"{getattr(diagnostic, 'message', diagnostic)}"
+        )
+
+    sld_canvas_render_system.bind_diagnostic_sink(_on_render_diagnostic)
+    for diagnostic in sld_canvas_render_system.render_diagnostics:
+        _on_render_diagnostic(diagnostic)
     def study_case_error_handler(error: BaseException) -> None:
         QMessageBox.critical(window, "Run Study", str(error))
 
