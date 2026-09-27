@@ -549,8 +549,8 @@ EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRe
 
 | Finding | Status | Static evidence |
 |---|---|---|
-| GF-SLD-UI-PALETTE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | PresentationBootstrap.equipment_registry is the single EquipmentRegistry.create_default() catalogue; PluginContext passes that exact instance to PanelsPlugin; PanelsPlugin.initialize() composes EquipmentPanelWidget and calls bind_equipment_runtime(context.equipment_registry, context.tool_manager); the widget populates its QListWidget from catalogue(); canonical SLD_WORKSPACE places equipment on PanelArea.LEFT with visible=True; main.py registers the equipment dock with WorkspaceRealizer before WorkspaceController.activate_default(). No second live EquipmentRegistry is composed by the Browser. |
-| GF-SLD-UI-PALETTE-002 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | EquipmentPanelWidget._on_item_clicked() resolves the canonical equipment type and activate_equipment() calls EquipmentRegistry.require() → definition.tool_id → ToolManager.activate(). create_default_tool_factories() provides factories for every default catalogue tool ID. Concrete tools route through SnapSystem, transient preview state, immutable Application command construction, ToolBase.execute_command() → Application.execute() → CommandManager → Core handlers. Line/Cable/Transformer use the same Application boundary and do not perform direct Core mutation. |
+| GF-SLD-UI-PALETTE-001 | **CONFIRMED OPEN** | PresentationBootstrap.equipment_registry is the single EquipmentRegistry.create_default() catalogue; PluginContext passes that exact instance to PanelsPlugin; PanelsPlugin.initialize() composes EquipmentPanelWidget and calls bind_equipment_runtime(context.equipment_registry, context.tool_manager); the widget populates its QListWidget from catalogue(); canonical SLD_WORKSPACE places equipment on PanelArea.LEFT with visible=True; main.py registers the equipment dock with WorkspaceRealizer before WorkspaceController.activate_default(). No second live EquipmentRegistry is composed by the Browser. |
+| GF-SLD-UI-PALETTE-002 | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** | EquipmentPanelWidget._on_item_clicked() resolves the canonical equipment type and activate_equipment() calls EquipmentRegistry.require() → definition.tool_id → ToolManager.activate(). create_default_tool_factories() provides factories for every default catalogue tool ID. Concrete tools route through SnapSystem, transient preview state, immutable Application command construction, ToolBase.execute_command() → Application.execute() → CommandManager → Core handlers. Line/Cable/Transformer use the same Application boundary and do not perform direct Core mutation. |
 | GF-UI-COMPOSE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | main.py now resolves and validates canvas_plugin.synchronize_sld before defining/subscribing handle_project_workspace_changed; the callback therefore cannot reference an uninitialized synchronization local. |
 
 Register status discipline: these findings are not marked CLOSED. Static correction is recorded as AGENT CORRECTED → RE-AUDIT REQUIRED. Runtime verification remains deferred.
@@ -1163,3 +1163,41 @@ Persistence limitation:
 The existing project persistence contract contains no Study Case payload. This remediation therefore keeps Study Cases Application-owned and runtime/transient rather than inventing a second persistence authority. Save/reopen persistence remains an explicit documented limitation.
 
 **Status: REMEDIATED — VERIFICATION DEFERRED.** Runtime, tests, CI, startup, and GUI verification were not performed.
+
+## 2026-09-27 — Complete SLD Canvas & Tool Palette Functional Audit
+
+**Method:** current `main` source inspection and dependency/call-chain tracing only. No production-code changes, GUI/runtime execution, tests, or CI used as closure evidence.
+
+| ID | Effective status | Current-repository evidence |
+|---|---|---|
+| GF-SLD-UI-PALETTE-001 | **CONFIRMED OPEN** | `EquipmentPanelWidget` uses a `QListWidget` and inserts `definition.display_name`. No QIcon, icon delegate, palette icon provider, or SymbolRegistry-backed palette icon path is composed. |
+| GF-SLD-UI-PALETTE-002 | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** | `main.py` passes `PresentationBootstrap.symbol_registry` into `create_default_tool_factories()`. The factory closure passes that canonical registry into `ModelPlacementTool`; `ToolManager._create_tool()` invokes the factory and binds the shared `CreationContext`. |
+| GF-MASTER-0040 | **OPEN — FUNCTIONAL VERIFICATION REQUIRED** | Projection/rendering is statically connected, but `SLDCanvasRenderSystem.synchronize()` catches node realization errors, records `unsupported_presentations`, and continues. A failed generic realization can therefore appear as a blank canvas without an application-visible failure. |
+| GF-SLD-CANVAS-040 | **CONFIRMED OPEN** | Renderer failure visibility is insufficient for end-to-end functional proof because node realization exceptions are converted to internal unsupported state instead of being surfaced at the canvas/application boundary. |
+| GF-SLD-CANVAS-041 | **CONFIRMED OPEN** | `ModelPlacementTool.on_mouse_release()` does not commit; it only updates preview and returns `False`. `BusTool.on_mouse_release()` does commit. Generic equipment therefore has a materially different placement interaction path. |
+| GF-SLD-CANVAS-042 | **CONFIRMED OPEN** | The canonical symbol registry/catalogue is consumed by renderer/preview paths but not by the visible equipment palette as engineering icons. This is distinct from palette-to-tool activation. |
+
+### Static end-to-end disposition
+
+`Palette → ToolManager → Tool → Preview → Command → Application → Core → Event → SLDDocument → SLDCanvasProjection → SLDCanvasRenderSystem → QGraphicsScene`
+
+- **CONNECTED:** composition, canonical command/Application boundary, Core semantic-event publication, SLD pre-commit node creation, canvas projection, renderer, scene insertion.
+- **PARTIAL:** palette visual symbol integration; generic equipment preview/placement interaction; runtime proof of permanent rendering.
+- **OPEN:** icon-first palette; renderer failure propagation/diagnostic visibility; Bus-vs-generic release/commit divergence.
+- **UNVERIFIED:** GUI-visible realization, repaint/display behavior, runtime undo/redo, runtime save/reload.
+
+### Symbol authority
+
+One canonical `SymbolRegistry` is composed by `PresentationBootstrap`, populated by `register_builtin_symbols()`, and reused by semantic realization, `SLDGraphicsItemFactory`, `EquipmentFactory`, and model-placement preview. No second active symbol registry was found in the inspected path.
+
+### Dependency-injection conclusion
+
+The earlier suspicion that `ToolManager._create_tool()` necessarily loses `SymbolRegistry` is **not confirmed** in the current repository. The default factory path closes over the canonical registry supplied by `main.py` and injects it into `ModelPlacementTool`. The manager does not own the registry directly, but the active factory path does propagate the canonical instance.
+
+### Bus vs generic equipment
+
+Bus has a dedicated `BusTool` and `PreviewLayer.show_bus()` path and commits on mouse release. Breaker/Transformer/Motor inherit `ModelPlacementTool`; their preview uses `SymbolPreviewItem` and the canonical SymbolRegistry, while their generic release handler does not commit. This divergence is confirmed statically.
+
+### Register rule
+
+Historical findings remain preserved. Runtime-dependent SLD findings are not CLOSED by this audit. The effective current dispositions above govern until GUI/runtime verification establishes actual visible realization.
