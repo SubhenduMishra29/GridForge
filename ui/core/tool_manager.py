@@ -212,7 +212,10 @@ class ToolManager:
             self._active_tool = previous_tool
             if previous_tool is not None:
                 previous_tool.activate()
-            self.creation_context.discard()
+            if previous_definition is not None:
+                self.creation_context.begin(previous_definition)
+            else:
+                self.creation_context.discard()
             raise
         self._notify_controller_tool_change(previous_id, tool_id)
         return requested_tool
