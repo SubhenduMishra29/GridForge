@@ -18,33 +18,6 @@ from typing import Any, Mapping
 
 from ui.equipment.equipment_definition import EngineeringParameterDefinition
 
-from core.application.commands.model_commands import (
-    CreateCableCommand,
-    CreateDisconnectorCommand,
-    CreateFuseCommand,
-    CreateGeneratorCommand,
-    CreateGridCommand,
-    CreateLineCommand,
-    CreateLoadCommand,
-    CreateShuntCommand,
-    CreateSwitchCommand,
-    CreateTransformerCommand,
-)
-from core.application.commands.placement_commands import PlaceBusCommand
-from core.application.commands.breaker_commands import CreateBreakerCommand
-from core.application.commands.capacitor_commands import CreateCapacitorCommand
-from core.application.commands.reactor_commands import CreateReactorCommand
-from core.application.commands.motor_commands import CreateMotorCommand
-from core.application.commands.synchronous_machine_commands import CreateSynchronousMachineCommand
-from core.application.commands.solar_commands import CreateSolarCommand
-from core.application.commands.battery_commands import CreateBatteryCommand
-from core.application.commands.measurement_commands import (
-    CreateCurrentTransformerCommand,
-    CreateCapacitiveVoltageTransformerCommand,
-)
-from core.application.commands.pt_commands import CreatePTCommand
-from core.application.commands.relay_commands import CreateRelayCommand
-
 
 @dataclass(frozen=True, slots=True)
 class CreationTerminalRequirement:
@@ -54,12 +27,15 @@ class CreationTerminalRequirement:
     required: bool = False
     cardinality: str = "single"
     allowed_connection_types: tuple[str, ...] = ()
+    acquisition_state: str = "required"
 
     def __post_init__(self) -> None:
         if not isinstance(self.terminal_name, str) or not self.terminal_name.strip():
             raise ValueError("terminal_name must be non-empty.")
         if self.cardinality not in {"single", "pair", "multiple"}:
             raise ValueError("cardinality must be single, pair, or multiple.")
+        if self.acquisition_state not in {"required", "optional", "acquired", "pending"}:
+            raise ValueError("acquisition_state must be required, optional, acquired, or pending.")
         object.__setattr__(self, "terminal_name", self.terminal_name.strip())
         object.__setattr__(self, "allowed_connection_types", tuple(self.allowed_connection_types))
 
@@ -104,7 +80,7 @@ class CreationDefinition:
     equipment_type: str
     tool_id: str
     parameter_definitions: tuple[EngineeringParameterDefinition, ...]
-    command_class: type[Any]
+    command_type: str
     id_field: str
     parameter_mapping: Mapping[str, str] = field(default_factory=dict)
     endpoint_mapping: Mapping[str, str] = field(default_factory=dict)
@@ -118,8 +94,8 @@ class CreationDefinition:
     def __post_init__(self) -> None:
         if not self.equipment_type.strip() or not self.tool_id.strip():
             raise ValueError("CreationDefinition identities must be non-empty.")
-        if not callable(self.command_class):
-            raise TypeError("command_class must be callable.")
+        if not isinstance(self.command_type, str) or not self.command_type.strip():
+            raise TypeError("command_type must be a non-empty Application command type.")
         if not self.id_field.strip():
             raise ValueError("id_field must be non-empty.")
         parameters = tuple(self.parameter_definitions)
@@ -135,6 +111,7 @@ class CreationDefinition:
         object.__setattr__(self, "equipment_type", self.equipment_type.strip())
         object.__setattr__(self, "tool_id", self.tool_id.strip())
         object.__setattr__(self, "id_field", self.id_field.strip())
+        object.__setattr__(self, "command_type", self.command_type.strip())
         object.__setattr__(self, "parameter_definitions", parameters)
         object.__setattr__(self, "parameter_mapping", mapping)
         object.__setattr__(self, "endpoint_mapping", dict(self.endpoint_mapping))
@@ -242,15 +219,24 @@ def _p(parameter_id: str, display_name: str | None = None, datatype: str = "floa
     )
 
 
-def _terminals(names: tuple[str, ...], *, required: bool = False) -> tuple[CreationTerminalRequirement, ...]:
-    return tuple(CreationTerminalRequirement(name, required=required) for name in names)
+def _terminals(names: tuple[str, ...], *, required: bool = True) -> tuple[CreationTerminalRequirement, ...]:
+    return tuple(
+        CreationTerminalRequirement(
+            name,
+            required=required,
+            cardinality="single",
+            allowed_connection_types=("electrical",),
+            acquisition_state="required",
+        )
+        for name in names
+    )
 
 
 def _definition(
     equipment_type: str,
     tool_id: str,
     parameters: tuple[EngineeringParameterDefinition, ...],
-    command_class: type[Any],
+    command_type: str,
     id_field: str,
     *,
     topology: tuple[CreationTopologyRequirement, ...] = (),
@@ -263,7 +249,7 @@ def _definition(
         equipment_type=equipment_type,
         tool_id=tool_id,
         parameter_definitions=parameters,
-        command_class=command_class,
+        command_type=command_type,
         id_field=id_field,
         parameter_mapping=parameter_mapping,
         endpoint_mapping=endpoint_mapping or {},
@@ -286,34 +272,34 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("in_service", "In service", "bool", required=True, default=True),
-        ), PlaceBusCommand, "bus_id"),
+        ), "model.create_bus", "bus_id"),
         "grid": _definition("grid", "grid", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
-        ), CreateGridCommand, "grid_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_grid", "grid_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "generator": _definition("generator", "generator", (
             _p("p", "Active power", unit="MW", required=True),
             _p("q", "Reactive power", unit="MVAr", required=True),
             _p("V_setpoint", "Voltage setpoint", unit="pu", required=True),
-        ), CreateGeneratorCommand, "generator_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_generator", "generator_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "load": _definition("load", "load", (
             _p("p", "Active power", unit="MW", required=True),
             _p("q", "Reactive power", unit="MVAr", required=True),
-        ), CreateLoadCommand, "load_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_load", "load_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "shunt": _definition("shunt", "shunt", (
             _p("g_pu", "Conductance", required=True),
             _p("b_pu", "Susceptance", required=True),
-        ), CreateShuntCommand, "shunt_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_shunt", "shunt_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "capacitor": _definition("capacitor", "capacitor", (
             _p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),
-        ), CreateCapacitorCommand, "capacitor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_capacitor", "capacitor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "reactor": _definition("reactor", "reactor", (
             _p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),
-        ), CreateReactorCommand, "reactor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_reactor", "reactor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "solar": _definition("solar", "solar", (
             _p("p_mw", "Active power", unit="MW", required=True),
             _p("q_mvar", "Reactive power", unit="MVAr", required=True),
-        ), CreateSolarCommand, "solar_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_solar", "solar_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "battery": _definition("battery", "battery", (
             _p("p_mw", "Active power", unit="MW", required=True),
             _p("q_mvar", "Reactive power", unit="MVAr", required=True),
@@ -321,7 +307,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("max_charge_mw", unit="MW", minimum=0.0),
             _p("max_discharge_mw", unit="MW", minimum=0.0),
             _p("soc", "State of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0),
-        ), CreateBatteryCommand, "battery_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_battery", "battery_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "motor": _definition("motor", "motor", (
             _p("rated_mva", unit="MVA", required=True, minimum=0.0),
             _p("rated_kv", unit="kV", required=True, minimum=0.0),
@@ -331,21 +317,21 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("efficiency", minimum=0.0, maximum=1.0, default=1.0),
             _p("slip", default=0.0),
             _p("starting_current_pu", default=0.0),
-        ), CreateMotorCommand, "motor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_motor", "motor_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "synchronous_machine": _definition("synchronous_machine", "synchronous_machine", (
             _p("active_power_injection_mw", "Active power", unit="MW", required=True),
             _p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),
             _p("rated_power_mva", unit="MVA", minimum=0.0),
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, default=50.0, minimum=0.0),
-        ), CreateSynchronousMachineCommand, "synchronous_machine_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
+        ), "model.create_synchronous_machine", "synchronous_machine_id", endpoint_mapping={"terminal": "endpoint"}, terminal_names=terminal_names),
         "line": _definition("line", "line", (
             _p("resistance_ohm", unit="ohm", required=True),
             _p("reactance_ohm", unit="ohm", required=True),
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), CreateLineCommand, "line_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_line", "line_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "cable": _definition("cable", "cable", (
             _p("length_km", unit="km", required=True, minimum=0.0),
             _p("r1_ohm_per_km", unit="ohm/km", required=True),
@@ -357,7 +343,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
             _p("name", "Name", "str", default=""),
-        ), CreateCableCommand, "cable_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_cable", "cable_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "transformer": _definition("transformer", "transformer", (
             _p("r", "Resistance", required=True),
             _p("x", "Reactance", required=True),
@@ -369,7 +355,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("tap", "Tap", default=1.0),
             _p("shift", "Phase shift", unit="deg", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), CreateTransformerCommand, "transformer_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names,
+        ), "model.create_transformer", "transformer_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names,
            conditional=(ConditionalParameterRequirement(
                "Transformer requires impedance_base_mva or rate_mva.",
                require_any=("impedance_base_mva", "rate_mva"),
@@ -377,22 +363,22 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
         "switch": _definition("switch", "switch", (
             _p("rated_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), CreateSwitchCommand, "switch_id", endpoint_mapping={"from": "endpoint_a", "to": "endpoint_b"}, terminal_names=terminal_names),
+        ), "model.create_switch", "switch_id", endpoint_mapping={"from": "endpoint_a", "to": "endpoint_b"}, terminal_names=terminal_names),
         "breaker": _definition("breaker", "breaker", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("current_a", unit="A", required=True, minimum=0.0),
             _p("interrupting_ka", unit="kA", required=True, minimum=0.0),
             _p("closed", "Closed", "bool", default=True),
             _p("in_service", "In service", "bool", default=True),
-        ), CreateBreakerCommand, "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "disconnector": _definition("disconnector", "disconnector", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), CreateDisconnectorCommand, "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
-        ), CreateFuseCommand, "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
             _p("secondary_rated_current_a", unit="A", required=True, minimum=0.0),
@@ -400,7 +386,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("accuracy_class", "Accuracy class", "str"),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("P1_P2", "P2_P1")),
-        ), CreateCurrentTransformerCommand, "transformer_id",
+        ), "model.create_current_transformer", "transformer_id",
            endpoint_mapping={"P1": "p1_endpoint", "P2": "p2_endpoint", "S1": "s1_endpoint", "S2": "s2_endpoint"},
            terminal_names=terminal_names),
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
@@ -409,7 +395,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("accuracy_class", "Accuracy class", "str"),
             _p("burden_va", unit="VA", minimum=0.0),
             _p("phase_displacement_deg", unit="deg"),
-        ), CreatePTCommand, "pt_id",
+        ), "model.create_potential_transformer", "pt_id",
            endpoint_mapping={"primary_a": "primary_a", "primary_b": "primary_b", "secondary_a": "secondary_a", "secondary_b": "secondary_b"},
            terminal_names=terminal_names),
         "cvt": _definition("cvt", "cvt", (
@@ -419,12 +405,12 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rated_burden_va", unit="VA", minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED")),
-        ), CreateCapacitiveVoltageTransformerCommand, "transformer_id",
+        ), "model.create_capacitive_voltage_transformer", "transformer_id",
            endpoint_mapping={"H1": "h1_endpoint", "H2": "h2_endpoint", "X1": "x1_endpoint", "X2": "x2_endpoint"},
            terminal_names=terminal_names),
         "relay": _definition("relay", "relay", (
             _p("relay_type", "Relay type", "str", required=True),
-        ), CreateRelayCommand, "relay_id"),
+        ), "model.create_relay", "relay_id"),
     }
     try:
         definition = definitions[equipment_type]
