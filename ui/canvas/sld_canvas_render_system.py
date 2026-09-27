@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from ui.core.qt import QGraphicsScene, QPen, QPointF
 from ui.connections.connection_router import ConnectionRouter
@@ -16,6 +17,20 @@ from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from .semantic_presentation_realization import SemanticPresentationRealization
 from .sld_canvas_projection import SLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
+
+
+@dataclass(frozen=True, slots=True)
+class RenderDiagnostic:
+    """Structured presentation-realization failure visible to UI consumers."""
+
+    node_id: str
+    equipment_id: str | None
+    equipment_type: str | None
+    symbol_id: str | None
+    requested_presentation: str | None
+    category: str
+    message: str
+    canvas: str = "SLD"
 
 
 class SLDCanvasRenderSystem:
@@ -38,6 +53,8 @@ class SLDCanvasRenderSystem:
         self._items: dict[str, tuple[Any, ...]] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
+        self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
+        self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
@@ -58,6 +75,22 @@ class SLDCanvasRenderSystem:
     def unsupported_presentations(self) -> dict[str, str]:
         """Return authored node IDs whose presentation could not be realized."""
         return dict(self._unsupported_presentations)
+
+    @property
+    def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
+        """Bind an optional application/UI diagnostic consumer."""
+        if sink is not None and not callable(sink):
+            raise TypeError("diagnostic sink must be callable or None")
+        self._diagnostic_sink = sink
+
+    @property
+    def render_diagnostics(self) -> tuple[RenderDiagnostic, ...]:
+        """Return structured diagnostics for the latest synchronization."""
+        return self._render_diagnostics
+
+    @property
+    def has_render_failures(self) -> bool:
+        return bool(self._render_diagnostics or self._unsupported_connections)
 
     @property
     def unsupported_connections(self) -> dict[str, str]:
@@ -91,6 +124,7 @@ class SLDCanvasRenderSystem:
         self.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
+        self._render_diagnostics = ()
         realized: dict[str, Any] = {}
         # Realize nodes first so semantic endpoint resolution can use canonical
         # SymbolDefinition anchors and Bus attachment geometry.
@@ -98,10 +132,24 @@ class SLDCanvasRenderSystem:
             try:
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
-            except (KeyError, TypeError, ValueError) as exc:
-                # The authored SLD node remains in the document; unsupported
-                # presentation is an explicit projection state, not deletion.
-                self._unsupported_presentations[node.node_id] = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:
+                # The authored SLD node remains intact. The failure is explicit
+                # projection state and is also exposed through structured
+                # diagnostics so blank rendering cannot masquerade as absence.
+                message = f"{type(exc).__name__}: {exc}"
+                self._unsupported_presentations[node.node_id] = message
+                diagnostic = RenderDiagnostic(
+                    node_id=node.node_id,
+                    equipment_id=node.equipment_id,
+                    equipment_type=str(node.properties.get("element_type")) if node.properties.get("element_type") is not None else None,
+                    symbol_id=getattr(node.presentation, "symbol_id", None),
+                    requested_presentation=getattr(node.presentation, "representation_id", None),
+                    category="presentation_realization",
+                    message=message,
+                )
+                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+                if self._diagnostic_sink is not None:
+                    self._diagnostic_sink(diagnostic)
                 continue
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
@@ -140,6 +188,7 @@ class SLDCanvasRenderSystem:
         self._items.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
+        self._render_diagnostics = ()
 
     def dispose(self) -> None:
         self.clear()
