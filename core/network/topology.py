@@ -22,6 +22,7 @@ class TopologyManager:
 
     def _build(self):
         active_buses=tuple(b for b in self.network.buses if getattr(b,"in_service",True))
+        active_bus_ids={str(b.id) for b in active_buses}
         graph={b:set() for b in active_buses};self._edges={};boundary=ElectricalBoundaryResolver(self.network)
         self.network.connectivity.validate(self.network);attachments=self._physical_attachments(active_buses);self._validate_conductive_elements(boundary)
         resolved_connectivity=ConnectivityResolver(self.network).resolve()
@@ -38,7 +39,7 @@ class TopologyManager:
                     self._edge(zero,self._node_for_reference(source),self._node_for_reference(b.opposite_terminal))
         adjacency={b.id:set() for b in self.network.buses}
         for component in self._components(zero):
-            buses=sorted(n[1] for n in component if n[0]=="bus")
+            buses=sorted(n[1] for n in component if n[0]=="bus" and str(n[1]) in active_bus_ids)
             for i,a in enumerate(buses):
                 for b in buses[i+1:]:adjacency[a].add(b);adjacency[b].add(a)
         for b in self.network.buses:
