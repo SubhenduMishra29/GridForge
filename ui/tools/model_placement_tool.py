@@ -49,6 +49,7 @@ class ModelPlacementTool(ToolBase):
         self._preview_layer = preview_layer
         self._symbol_registry = symbol_registry
         self._creation_context: CreationContext | None = None
+        self._endpoint_acquired_this_interaction = False
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -100,15 +101,15 @@ class ModelPlacementTool(ToolBase):
             draft.set_placement(position)
             draft.mark_previewing()
             self._preview_active = True
+            self._endpoint_acquired_this_interaction = False
             self._show_preview(position)
-            if not draft.definition.terminal_requirements:
-                return self._commit_if_valid()
             return True
 
         if not self._acquire_terminal(draft, snap):
             return False
+        self._endpoint_acquired_this_interaction = True
         self._show_preview(self._position or draft.placement_position)
-        return self._commit_if_valid()
+        return True
 
     def _commit_if_valid(self) -> bool:
         draft = self._require_creation_context().require_draft()
@@ -182,13 +183,22 @@ class ModelPlacementTool(ToolBase):
 
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
+        draft = self._require_creation_context().require_draft()
         position = self._snap_position(event)
         if position is None:
-            self._clear_state()
             return False
-        self._position = position
-        self._preview_active = True
-        self._show_preview(position)
+        if draft.placement_position is None:
+            self._position = position
+            draft.set_placement(position)
+            self._preview_active = True
+            self._show_preview(position)
+            return False
+        if not draft.definition.terminal_requirements or self._endpoint_acquired_this_interaction:
+            self._position = draft.placement_position
+            self._show_preview(self._position)
+            self._endpoint_acquired_this_interaction = False
+            return self._commit_if_valid()
+        self._show_preview(self._position or draft.placement_position)
         return False
 
     def on_mouse_double_click(self, event: Any) -> bool:
@@ -281,6 +291,7 @@ class ModelPlacementTool(ToolBase):
     def _clear_state(self) -> None:
         self._position = None
         self._preview_active = False
+        self._endpoint_acquired_this_interaction = False
         if self._preview_layer is not None:
             clear = getattr(self._preview_layer, "clear", None)
             if callable(clear):
@@ -292,6 +303,17 @@ class ModelPlacementTool(ToolBase):
             "position": self._position,
             "preview_active": self._preview_active,
             "creation_active": self._creation_context is not None and self._creation_context.active,
+            "placement_phase": (
+                self._creation_context.draft.phase.value
+                if self._creation_context is not None and self._creation_context.draft is not None
+                else "INACTIVE"
+            ),
+            "required_endpoints": (
+                tuple(item.terminal_name for item in self._creation_context.draft.definition.terminal_requirements
+                      if self._creation_context.draft.endpoints.get(item.terminal_name) is None)
+                if self._creation_context is not None and self._creation_context.draft is not None
+                else ()
+            ),
         })
         return state
 
