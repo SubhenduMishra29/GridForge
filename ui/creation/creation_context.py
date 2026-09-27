@@ -48,13 +48,18 @@ class CreationRequirements:
 
     @classmethod
     def from_definition(cls, definition: CreationDefinition) -> "CreationRequirements":
-        topology = definition.topology_requirements
-        required = tuple(item for item in topology if item.required)
+        topology = tuple(item for item in definition.topology_requirements if item.required)
+        terminals = tuple(item for item in definition.terminal_requirements if item.required)
+        endpoint_required = bool(topology or terminals)
+        multi_endpoint_required = (
+            len(topology) + len(terminals) > 1
+            or any(item.cardinality in {"pair", "multiple"} for item in (*topology, *terminals))
+        )
         return cls(
             configuration_required=definition.configuration_required,
             placement_required=definition.placement_required,
-            endpoint_required=bool(required),
-            multi_endpoint_required=any(item.cardinality in {"pair", "multiple"} for item in required),
+            endpoint_required=endpoint_required,
+            multi_endpoint_required=multi_endpoint_required,
             preview_supported=definition.preview_supported,
         )
 
