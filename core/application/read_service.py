@@ -12,6 +12,8 @@ from typing import Any
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
+from core.model.ct import CTPolarity
+from core.model.cvt import CVTPolarity
 
 from .read_models import (
     ElementReadModel,
@@ -96,6 +98,72 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "phase_shift_rad": {"unit": "rad", "datatype": "float", "derived": True, "study_impact": True},
     "phase_shift_deg": {"unit": "deg", "datatype": "float", "derived": True, "study_impact": True},
     "in_service": {"datatype": "bool", "topology_impact": True, "study_impact": True},
+    # Instrument-transformer engineering contracts.  Core remains the
+    # authoritative validator; these descriptors only describe presentation.
+    "primary_rated_current_a": {
+        "unit": "A", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "secondary_rated_current_a": {
+        "unit": "A", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "ratio": {
+        "datatype": "float", "editable": False, "derived": True, "study_impact": True,
+        "coupling_group": "ct_ratio",
+        "validation": {"depends_on": ("primary_rated_current_a", "secondary_rated_current_a")},
+    },
+    "burden_va": {
+        "unit": "VA", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core"},
+    },
+    "accuracy_class": {
+        "datatype": "str", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core"},
+    },
+    "polarity": {
+        "datatype": "enum", "editable": True, "study_impact": True,
+        "choices": tuple(value.value for value in CTPolarity),
+        "validation": {"authoritative": "Core"},
+    },
+    "primary_voltage_kv": {
+        "unit": "kV", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "secondary_voltage_v": {
+        "unit": "V", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "voltage_ratio": {
+        "datatype": "float", "editable": False, "derived": True, "study_impact": True,
+        "coupling_group": "voltage_ratio",
+        "validation": {"depends_on": ("primary_voltage_kv", "secondary_voltage_v")},
+    },
+    "phase_displacement_deg": {
+        "unit": "deg", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core"},
+    },
+    "rated_primary_voltage_kv": {
+        "unit": "kV", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "rated_secondary_voltage_v": {
+        "unit": "V", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "rated_burden_va": {
+        "unit": "VA", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core"},
+    },
+    "frequency_hz": {
+        "unit": "Hz", "datatype": "float", "editable": True, "study_impact": True,
+        "validation": {"authoritative": "Core", "positive": True},
+    },
+    "cvt_polarity": {
+        "datatype": "enum", "editable": True, "study_impact": True,
+        "choices": tuple(value.value for value in CVTPolarity),
+        "validation": {"authoritative": "Core"},
+    },
     "p": {"unit": "MW", "datatype": "float", "study_impact": True},
     "q": {"unit": "MVAr", "datatype": "float", "study_impact": True},
 }
@@ -209,6 +277,11 @@ class NetworkReadService(ReadService):
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type == "capacitive_voltage_transformers" and parameter_id == "polarity":
+                metadata["choices"] = tuple(value.value for value in CVTPolarity)
+                metadata["datatype"] = "enum"
+                metadata["editable"] = True
+                metadata["derived"] = False
             if element_type == "transformers" and parameter_id in {"r", "x", "b", "impedance_basis", "impedance_base_mva", "tap", "shift", "rate_mva", "in_service"}:
                 metadata["editable"] = True
             if parameter_id in {"r", "x"}:
