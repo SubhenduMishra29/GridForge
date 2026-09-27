@@ -125,6 +125,9 @@ class BusTool(ToolBase):
             },
         )
         self.execute_command(command)
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(command.payload["bus_id"])
         self._require_creation_context().complete()
         self._clear_state()
         return True
