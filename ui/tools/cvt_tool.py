@@ -6,8 +6,6 @@ from .model_placement_tool import ModelPlacementTool
 class CVTTool(ModelPlacementTool):
     TOOL_ID = "cvt"
     MODEL_NAME = "CVT"
-    COMMAND_CLASS = CreateCapacitiveVoltageTransformerCommand
-    ID_FIELD = "transformer_id"
     SYMBOL_ID = "cvt"
 
 
