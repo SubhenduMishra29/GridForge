@@ -335,6 +335,7 @@ class EquipmentDefinition:
                 self.default_properties
             ),
             "category": self.category,
+            "creation_definition": None if self.creation_definition is None else {"equipment_type": self.creation_definition.equipment_type, "tool_id": self.creation_definition.tool_id, "id_field": self.creation_definition.id_field, "parameter_mapping": dict(self.creation_definition.parameter_mapping), "endpoint_mapping": dict(self.creation_definition.endpoint_mapping)},
             "engineering_parameters": [
                 {"parameter_id": item.parameter_id, "display_name": item.display_name,
                  "datatype": item.datatype, "unit": item.unit,
@@ -414,7 +415,7 @@ class EquipmentDefinition:
                 default_properties
             ),
             category=data.get("category", "electrical"),
-            engineering_parameters=parameters,
+            engineering_parameters=tuple(EngineeringParameterDefinition(parameter_id=item['parameter_id'], display_name=item['display_name'], datatype=item.get('datatype', 'str'), unit=item.get('unit'), required_before_create=item.get('required_before_create', False), default_value=item.get('default_value'), editable=item.get('editable', True), derived=item.get('derived', False), choices=tuple(item.get('choices', ())), minimum=item.get('minimum'), maximum=item.get('maximum'), validation=item.get('validation', {})) for item in data.get('engineering_parameters', ())),
         )
 
 
