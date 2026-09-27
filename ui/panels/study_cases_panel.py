@@ -49,12 +49,7 @@ class StudyCasesPanelWidget(QWidget):
         if row is None:
             return None
         study_id = getattr(row, "study_id", None)
-        if isinstance(study_id, UUID):
-            return study_id
-        try:
-            return UUID(str(study_id))
-        except (TypeError, ValueError):
-            return None
+        return study_id if isinstance(study_id, UUID) else None
 
     def _run_selected(self) -> None:
         study_id = self.selected_case_id()
