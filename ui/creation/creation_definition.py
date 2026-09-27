@@ -214,6 +214,13 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
     elif datatype in {"str", "string"}:
         if not isinstance(value, str):
             raise TypeError("must be text")
+    rules = dict(definition.validation)
+    if rules.get("non_empty") and (value is None or (isinstance(value, str) and not value.strip())):
+        raise ValueError("must not be empty")
+    if rules.get("nonzero") and value == 0:
+        raise ValueError("must be non-zero")
+    if "allowed_values" in rules and value not in tuple(rules["allowed_values"]):
+        raise ValueError(f"must be one of {tuple(rules['allowed_values'])!r}")
 
 
 def _p(parameter_id: str, display_name: str | None = None, datatype: str = "float",
