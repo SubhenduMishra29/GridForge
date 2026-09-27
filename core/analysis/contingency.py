@@ -21,7 +21,7 @@ from core.analysis.power_flow_preparation import PowerFlowPreparation, PreparedP
 from core.solver.power_flow.study_configuration import PowerFlowStudyConfiguration
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ContingencyViolation:
     category: str
     element_id: Any
@@ -30,32 +30,32 @@ class ContingencyViolation:
     severity: Optional[float] = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ContingencyCaseResult:
     case_id: str
     outages: Tuple[Any, ...]
     success: bool = False
     converged: bool = False
     power_flow_result: Any = None
-    violations: List[ContingencyViolation] = field(default_factory=list)
+    violations: Tuple[ContingencyViolation, ...] = ()
     error: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ContingencyResult:
-    cases: List[ContingencyCaseResult] = field(default_factory=list)
+    cases: Tuple[ContingencyCaseResult, ...] = ()
     success: bool = False
     converged: bool = False
-    critical_cases: List[str] = field(default_factory=list)
-    critical_violations: List[ContingencyViolation] = field(default_factory=list)
+    critical_cases: Tuple[str, ...] = ()
+    critical_violations: Tuple[ContingencyViolation, ...] = ()
 
     @property
-    def failed_cases(self) -> List[ContingencyCaseResult]:
-        return [case for case in self.cases if not case.success]
+    def failed_cases(self) -> Tuple[ContingencyCaseResult, ...]:
+        return tuple(case for case in self.cases if not case.success)
 
     @property
-    def violated_cases(self) -> List[ContingencyCaseResult]:
-        return [case for case in self.cases if case.success and case.violations]
+    def violated_cases(self) -> Tuple[ContingencyCaseResult, ...]:
+        return tuple(case for case in self.cases if case.success and case.violations)
 
 
 class ContingencyAnalysis:
@@ -121,7 +121,11 @@ class ContingencyAnalysis:
         voltage_max: float,
         thermal_limit: float,
     ) -> ContingencyCaseResult:
-        case_result = ContingencyCaseResult(case_id=self._make_case_id(outages), outages=outages)
+        power_flow_result = None
+        success = False
+        converged = False
+        violations: Tuple[ContingencyViolation, ...] = ()
+        error: Optional[str] = None
         try:
             case_network = self._create_outage_case(outages)
             case_network.rebuild_topology()
@@ -136,23 +140,30 @@ class ContingencyAnalysis:
             )
             power_flow = PowerFlowAnalysis(prepared.input, prepared.ybus, options=power_flow_options, prepared=prepared)
             power_flow_result = power_flow.solve()
-            case_result.power_flow_result = power_flow_result
-            case_result.success = bool(power_flow_result.success)
-            case_result.converged = bool(power_flow_result.success)
-            if not case_result.success:
-                case_result.error = str(power_flow_result.message)
-                return case_result
-            case_result.violations = self._detect_violations(
-                case_network,
-                prepared,
-                power_flow_result,
-                voltage_min=voltage_min,
-                voltage_max=voltage_max,
-                thermal_limit=thermal_limit,
-            )
+            success = bool(power_flow_result.success)
+            converged = bool(power_flow_result.success)
+            if not success:
+                error = str(power_flow_result.message)
+            else:
+                violations = self._detect_violations(
+                    case_network,
+                    prepared,
+                    power_flow_result,
+                    voltage_min=voltage_min,
+                    voltage_max=voltage_max,
+                    thermal_limit=thermal_limit,
+                )
         except Exception as exc:
-            case_result.error = f"{type(exc).__name__}: {exc}"
-        return case_result
+            error = f"{type(exc).__name__}: {exc}"
+        return ContingencyCaseResult(
+            case_id=self._make_case_id(outages),
+            outages=tuple(outages),
+            success=success,
+            converged=converged,
+            power_flow_result=power_flow_result,
+            violations=violations,
+            error=error,
+        )
 
     def _create_outage_case(self, outages: Tuple[Any, ...]) -> Any:
         case_network = copy.deepcopy(self.network)
@@ -251,16 +262,22 @@ class ContingencyAnalysis:
             return None
 
     def post_process(self, cases: Iterable[ContingencyCaseResult]) -> ContingencyResult:
-        result = ContingencyResult(cases=list(cases))
-        if not result.cases:
-            return result
-        result.success = all(case.success for case in result.cases)
-        result.converged = all(case.success and case.converged for case in result.cases)
-        for case in result.cases:
+        case_results = tuple(cases)
+        if not case_results:
+            return ContingencyResult()
+        critical_cases: list[str] = []
+        critical_violations: list[ContingencyViolation] = []
+        for case in case_results:
             if case.violations:
-                result.critical_cases.append(case.case_id)
-                result.critical_violations.extend(case.violations)
-        return result
+                critical_cases.append(case.case_id)
+                critical_violations.extend(case.violations)
+        return ContingencyResult(
+            cases=case_results,
+            success=all(case.success for case in case_results),
+            converged=all(case.success and case.converged for case in case_results),
+            critical_cases=tuple(critical_cases),
+            critical_violations=tuple(critical_violations),
+        )
 
     def _detect_violations(
         self,
@@ -271,7 +288,7 @@ class ContingencyAnalysis:
         voltage_min: float,
         voltage_max: float,
         thermal_limit: float,
-    ) -> List[ContingencyViolation]:
+    ) -> Tuple[ContingencyViolation, ...]:
         violations: List[ContingencyViolation] = []
         voltage = tuple(power_flow_result.voltage_magnitudes)
         if len(voltage) != len(prepared.bus_ids):
@@ -306,10 +323,10 @@ class ContingencyAnalysis:
             value = max(flow.s_from_pu, flow.s_to_pu) * prepared.base_mva / limit * 100.0
             if value > thermal_limit:
                 violations.append(ContingencyViolation("transformer_thermal", transformer.id, value, thermal_limit, value - thermal_limit))
-        return violations
+        return tuple(violations)
 
     @staticmethod
-    def _detect_voltage_violations(bus_ids: Sequence[str], voltage: Sequence[Any], voltage_min: float, voltage_max: float) -> List[ContingencyViolation]:
+    def _detect_voltage_violations(bus_ids: Sequence[str], voltage: Sequence[Any], voltage_min: float, voltage_max: float) -> Tuple[ContingencyViolation, ...]:
         violations: List[ContingencyViolation] = []
         for bus_id, value in zip(bus_ids, voltage):
             numeric = float(value)
@@ -319,7 +336,7 @@ class ContingencyAnalysis:
                 violations.append(ContingencyViolation("voltage_low", bus_id, numeric, voltage_min, voltage_min - numeric))
             elif numeric > voltage_max:
                 violations.append(ContingencyViolation("voltage_high", bus_id, numeric, voltage_max, numeric - voltage_max))
-        return violations
+        return tuple(violations)
 
     @classmethod
     def _extract_result_value(cls, result: Any, name: str) -> Any:
