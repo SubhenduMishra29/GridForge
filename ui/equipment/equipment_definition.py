@@ -90,6 +90,7 @@ class EquipmentDefinition:
 
     category: str = "electrical"
     engineering_parameters: tuple[EngineeringParameterDefinition, ...] = ()
+    creation_definition: Any = None
 
     # ========================================================
     # VALIDATION
@@ -163,6 +164,8 @@ class EquipmentDefinition:
                 normalized_name
             )
 
+        if self.creation_definition is not None and not callable(getattr(self.creation_definition, 'validate_values', None)):
+            raise TypeError('creation_definition must provide validate_values().')
         if not isinstance(self.engineering_parameters, (tuple, list)):
             raise TypeError("engineering_parameters must be a tuple/list of EngineeringParameterDefinition")
         normalized_parameters: list[EngineeringParameterDefinition] = []
@@ -221,6 +224,10 @@ class EquipmentDefinition:
 
         object.__setattr__(self, "category", category)
         object.__setattr__(self, "engineering_parameters", tuple(normalized_parameters))
+        if self.creation_definition is not None:
+            contract_parameters = tuple(getattr(self.creation_definition, 'parameter_definitions', ()))
+            if tuple(p.parameter_id for p in contract_parameters) != tuple(p.parameter_id for p in normalized_parameters):
+                raise ValueError('creation_definition parameters must match engineering_parameters.')
 
     # --------------------------------------------------------
 
