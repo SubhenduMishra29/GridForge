@@ -93,15 +93,19 @@ class PanelsPlugin(QObject):
                 created_ids.append(spec.panel_id)
 
             equipment_panel = self._panels.get("equipment")
+            properties_panel = self._panels.get("properties")
             bind_equipment_runtime = getattr(equipment_panel, "bind_equipment_runtime", None)
             if not callable(bind_equipment_runtime):
                 raise RuntimeError("Equipment Browser does not expose bind_equipment_runtime().")
-            bind_equipment_runtime(context.equipment_registry, context.tool_manager)
-            properties_panel = self._panels.get("properties")
+            bind_equipment_runtime(context.equipment_registry, context.tool_manager, properties_panel)
             bind_configuration_runtime = getattr(properties_panel, "bind_configuration_runtime", None)
             if not callable(bind_configuration_runtime):
                 raise RuntimeError("Properties Panel does not expose bind_configuration_runtime().")
-            bind_configuration_runtime(context.application)
+            bind_configuration_runtime(
+                context.application,
+                getattr(context.tool_manager, "creation_context", None),
+                context.controller,
+            )
         except BaseException as exc:
             failures: list[BaseException] = []
             for panel_id in reversed(created_ids):
