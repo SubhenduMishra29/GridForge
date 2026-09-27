@@ -14,14 +14,15 @@ from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
 from ui.creation.command_factory import CreationCommandFactory
+from core.model import EndpointReference, EquipmentType
 
 
 class ModelPlacementTool(ToolBase):
     """Reusable UI-only placement interaction for concrete SLD model tools.
 
     Placement captures a canvas position and creates the immutable Application
-    command. Electrical endpoint references are deliberately not acquired by
-    this interaction; connectivity is a separate workflow.
+    command. Required endpoint/terminal acquisition is definition-driven and
+    remains transient until the final Application command is prepared.
     """
 
     MODEL_NAME = "Model"
@@ -85,17 +86,39 @@ class ModelPlacementTool(ToolBase):
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
-        position = self._snap_position(event)
-        if position is None:
+        draft = self._require_creation_context().require_draft()
+        snap = self._snap_result(event)
+        if snap is None:
             return False
-        self._position = position
-        draft = self._require_creation_context().set_placement(position)
-        self._preview_active = True
-        draft.mark_previewing()
-        self._show_preview(position)
+
+        # First interaction establishes the presentation placement.  Required
+        # terminal/topology acquisition is then performed by subsequent
+        # object-snap interactions against canonical terminal identities.
+        if draft.placement_position is None:
+            position = self._position_tuple(snap.position)
+            self._position = position
+            draft.set_placement(position)
+            draft.mark_previewing()
+            self._preview_active = True
+            self._show_preview(position)
+            if not draft.definition.terminal_requirements:
+                return self._commit_if_valid()
+            return True
+
+        if not self._acquire_terminal(draft, snap):
+            return False
+        self._show_preview(self._position or draft.placement_position)
+        return self._commit_if_valid()
+
+    def _commit_if_valid(self) -> bool:
+        draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
             return False
-        command = self._build_command()
+        intent = self._build_command()
+        prepare = getattr(self.application, "prepare_creation_command", None)
+        if not callable(prepare):
+            raise RuntimeError("Application must provide prepare_creation_command().")
+        command = prepare(intent)
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
@@ -104,13 +127,55 @@ class ModelPlacementTool(ToolBase):
         self._clear_state()
         return True
 
+    def _acquire_terminal(self, draft: CreationDraft, snap: Any) -> bool:
+        terminal_name = getattr(snap, "terminal_name", None)
+        object_id = getattr(snap, "object_id", None)
+        source = getattr(snap, "source", None)
+        semantic_name = terminal_name
+        if semantic_name is None and getattr(snap, "bus_id", None) is not None:
+            # A bus snap is a valid electrical endpoint target for any
+            # creation-contract terminal/topology semantic.
+            pending = [
+                item.terminal_name for item in draft.definition.terminal_requirements
+                if draft.endpoints.get(item.terminal_name) is None
+            ]
+            semantic_name = pending[0] if pending else None
+        if not semantic_name:
+            return False
+        requirements = {item.terminal_name: item for item in draft.definition.terminal_requirements}
+        if semantic_name not in requirements or draft.endpoints.get(semantic_name) is not None:
+            return False
+        try:
+            if getattr(snap, "bus_id", None) is not None:
+                attachment_id = getattr(snap, "attachment_id", None)
+                if not attachment_id:
+                    return False
+                endpoint = EndpointReference.bus(str(snap.bus_id), str(attachment_id))
+            else:
+                element_type = getattr(source, "element_type", None)
+                if not element_type or not object_id or not terminal_name:
+                    return False
+                endpoint = EndpointReference.terminal(
+                    equipment_type=EquipmentType(str(element_type).strip().lower()),
+                    equipment_id=str(object_id),
+                    terminal_role=str(terminal_name),
+                )
+        except (TypeError, ValueError):
+            return False
+        draft.set_endpoint(semantic_name, endpoint)
+        return True
+
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
+        draft = self._require_creation_context().require_draft()
+        if draft.placement_position is not None:
+            self._preview_active = True
+            self._show_preview(self._position or draft.placement_position)
+            return True
         position = self._snap_position(event)
         if position is None:
             return False
         self._position = position
-        self._require_creation_context().set_placement(position)
         self._preview_active = True
         self._show_preview(position)
         return True
@@ -171,10 +236,12 @@ class ModelPlacementTool(ToolBase):
         if not self.SYMBOL_ID:
             raise RuntimeError(f"{self.MODEL_NAME} has no canonical SYMBOL_ID.")
         definition = self._symbol_registry.require(self.SYMBOL_ID)
+        draft = self._require_creation_context().require_draft()
         item = SymbolPreviewItem(
             definition,
             position=position,
-            rotation=0.0,
+            rotation=draft.orientation,
+            presentation_state=draft.preview_state,
         )
         replace = getattr(self._preview_layer, "replace", None)
         if not callable(replace):

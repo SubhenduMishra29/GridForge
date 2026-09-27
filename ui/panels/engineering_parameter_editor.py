@@ -10,15 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
-
-from core.application.commands.model_commands import UpdateTransformerCommand
-from core.application.commands.measurement_commands import (
-    UpdateCurrentTransformerCommand,
-    UpdateCapacitiveVoltageTransformerCommand,
-)
-from core.application.commands.pt_commands import UpdatePTCommand
-from core.model.transformer import ImpedanceBasis
+from typing import Any, Mapping
 
 from ui.projection.projection_state import ProjectionState
 
@@ -42,31 +34,19 @@ class EngineeringConfigurationIntent:
 
 
 class EngineeringParameterEditor:
-    """Build and submit immutable commands from generic projected parameters.
+    """Emit typed engineering intent; Application owns command construction.
 
-    ``_builders`` is the editor's command-adapter extension boundary: each
-    projected ``element_type`` maps to exactly one immutable Application
-    command builder. It is not a state store, command manager, or mutation
-    authority. Concrete equipment support may add builders here while the
-    generic ProjectionState -> intent -> Application.execute() contract stays
-    unchanged.
-
-    The editor owns no engineering state. Values are read from ProjectionState,
-    edited as typed values, converted into one immutable Application command,
-    and then discarded. Core/Application ReadModel state remains authoritative.
+    The editor has no equipment-specific command builders and no engineering
+    state. ProjectionState supplies parameter metadata; Application decides how
+    the resulting intent becomes the authoritative update command.
     """
 
     def __init__(self, application: Any) -> None:
         if application is None or not callable(getattr(application, "execute", None)):
             raise TypeError("application must provide execute(command).")
+        if not callable(getattr(application, "prepare_engineering_update", None)):
+            raise TypeError("application must provide prepare_engineering_update(intent).")
         self._application = application
-        self._builders: dict[str, Callable[[EngineeringConfigurationIntent], Any]] = {
-            "transformer": self._build_transformer_command,
-            "transformers": self._build_transformer_command,
-            "current_transformers": self._build_current_transformer_command,
-            "potential_transformers": self._build_pt_command,
-            "capacitive_voltage_transformers": self._build_cvt_command,
-        }
 
     def intent_from_projection(
         self,
@@ -106,13 +86,8 @@ class EngineeringParameterEditor:
     def submit(self, intent: EngineeringConfigurationIntent) -> Any:
         if not isinstance(intent, EngineeringConfigurationIntent):
             raise TypeError("intent must be an EngineeringConfigurationIntent.")
-        builder = self._builders.get(intent.element_type)
-        if builder is None:
-            raise KeyError(
-                f"No canonical engineering command builder is registered for "
-                f"{intent.element_type!r}."
-            )
-        return self._application.execute(builder(intent))
+        command = self._application.prepare_engineering_update(intent)
+        return self._application.execute(command)
 
     @staticmethod
     def _coerce_typed_value(datatype: str, value: Any, parameter_id: str) -> Any:
@@ -121,58 +96,17 @@ class EngineeringParameterEditor:
             if isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires a numeric value.")
             return float(value)
+        if normalized in {"int", "integer"}:
+            if isinstance(value, bool) or int(value) != value:
+                raise TypeError(f"{parameter_id} requires an integer value.")
+            return int(value)
         if normalized in {"bool", "boolean"}:
             if not isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires a boolean value.")
             return value
         if normalized == "enum":
-            # Preserve the Core enum vocabulary exactly.  Domain-specific
-            # command builders perform only the coercion required by their
-            # authoritative Core enum types.
             return str(value).strip()
         return value
-
-    @staticmethod
-    def _build_current_transformer_command(
-        intent: EngineeringConfigurationIntent,
-    ) -> UpdateCurrentTransformerCommand:
-        values = dict(intent.values)
-        return UpdateCurrentTransformerCommand(
-            transformer_id=intent.element_id,
-            **values,
-        )
-
-    @staticmethod
-    def _build_pt_command(
-        intent: EngineeringConfigurationIntent,
-    ) -> UpdatePTCommand:
-        values = dict(intent.values)
-        return UpdatePTCommand(
-            pt_id=intent.element_id,
-            **values,
-        )
-
-    @staticmethod
-    def _build_cvt_command(
-        intent: EngineeringConfigurationIntent,
-    ) -> UpdateCapacitiveVoltageTransformerCommand:
-        values = dict(intent.values)
-        return UpdateCapacitiveVoltageTransformerCommand(
-            transformer_id=intent.element_id,
-            **values,
-        )
-
-    @staticmethod
-    def _build_transformer_command(
-        intent: EngineeringConfigurationIntent,
-    ) -> UpdateTransformerCommand:
-        values = dict(intent.values)
-        if "impedance_basis" in values:
-            values["impedance_basis"] = ImpedanceBasis(str(values["impedance_basis"]).strip().lower())
-        return UpdateTransformerCommand(
-            transformer_id=intent.element_id,
-            **values,
-        )
 
 
 __all__ = ["EngineeringConfigurationIntent", "EngineeringParameterEditor"]

@@ -17,6 +17,8 @@ from core.control.engine import ControlEngine
 from core.model import EndpointReference
 
 from .command import Command
+from .creation import CreationCommitIntent, CreationCommandPreparer
+from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand
 from .commands.control_commands import (
@@ -697,6 +699,14 @@ class Application:
             "state": "completed" if not result.execution.failed_decisions else "completed_with_failures",
         }))
         return result
+
+    def prepare_creation_command(self, intent: CreationCommitIntent) -> Command:
+        """Translate immutable UI creation intent into the canonical Application command."""
+        return CreationCommandPreparer.prepare(intent)
+
+    def prepare_engineering_update(self, intent: Any) -> Command:
+        """Translate typed engineering intent into the authoritative update command."""
+        return EngineeringUpdatePreparer.prepare(intent)
 
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
