@@ -44,10 +44,10 @@ class StudyCaseController:
             # string is interpreted and no Core state is accessed here.
             self._application.study_case(study_id)
             return self._application.execute_study_case(study_id)
-        except BaseException as exc:
+        except Exception as exc:
             return self._handle_error(exc)
 
-    def _handle_error(self, error: BaseException, *, cause: BaseException | None = None) -> None:
+    def _handle_error(self, error: Exception, *, cause: BaseException | None = None) -> None:
         if self._error_handler is not None:
             self._error_handler(error)
             return None
