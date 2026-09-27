@@ -168,6 +168,8 @@ class ToolManager:
             if tool_id not in self._tool_registry:
                 raise KeyError(f"Unknown tool ID: {tool_id!r}")
             if tool_id == self._active_tool_id:
+                if self.creation_context.active:
+                    return self._active_tool
                 if self.equipment_registry is not None:
                     definition = self._definition_for_tool(tool_id)
                     if definition is not None:
@@ -177,11 +179,18 @@ class ToolManager:
         previous_id = self._active_tool_id
         previous_tool = self._active_tool
         previous_draft = self.creation_context.snapshot_draft()
+
+        # An active creation session may not be destroyed implicitly by a
+        # palette/tool switch.  The caller must explicitly cancel first.
+        if previous_tool is not None and previous_id != tool_id and self.creation_context.active:
+            raise RuntimeError(
+                "Active equipment creation must be explicitly cancelled before switching tools."
+            )
+
         requested_tool = self._get_or_create_tool(tool_id) if tool_id is not None else None
 
         if previous_tool is not None:
             previous_tool.deactivate()
-            self.creation_context.cancel()
 
         try:
             if requested_tool is not None:
@@ -272,7 +281,11 @@ class ToolManager:
         if self._active_tool is None:
             return False
         result = bool(self._active_tool.cancel())
+        had_draft = self.creation_context.active
         self.creation_context.cancel()
+        callback = getattr(self.controller, "_on_creation_cancelled", None)
+        if callable(callback) and had_draft:
+            callback()
         return result
 
     def reset(self) -> None:
