@@ -1032,3 +1032,20 @@ Static source correction and second static re-audit only. No pytest, CI, startup
 **Master register:** GF-MASTER-0089 = **REMEDIATED — VERIFICATION DEFERRED** (consolidated Batches 1–30 correction cluster).
 
 **Re-audit result:** Batches 1–30 = **VERIFIED WITH DEFERRED ITEMS**. Runtime execution remains unverified by instruction.
+
+
+### 2026-09-27 — Complete Creation Contract Closure static correction
+
+Static source correction and re-audit only. No pytest, CI, application startup, GUI, smoke, or runtime verification was performed.
+
+| Finding / Scope | Status | Static evidence |
+|---|---|---|
+| Creation contract architecture — CreationDefinition / CreationContext / CreationDraft / command preparation | **CORRECTED — STATIC VERIFICATION COMPLETE** | EquipmentRegistry now composes one CreationDefinition per registered equipment type; CreationContext contains no equipment-specific creation semantics; CreationDraft delegates validation to the definition; CreationCommandFactory performs explicit schema-to-command mapping and required-field verification. |
+| Tool-local engineering defaults / command metadata | **CORRECTED — STATIC VERIFICATION COMPLETE** | Obsolete COMMAND_DEFAULTS/COMMAND_CLASS/ID_FIELD creation authority was removed from concrete placement tools; compatibility parameter APIs delegate to CreationContext only. |
+| Property Editor creation mode | **CORRECTED — STATIC VERIFICATION COMPLETE** | Default properties panel binds CreationContext/CreationDraft, renders canonical parameter definitions, values, units, ranges, choices, required indicators, and validation state without Core mutation. |
+| Creation lifecycle / cancellation / reactivation | **CORRECTED — STATIC VERIFICATION COMPLETE** | CreationLifecycleState is explicit; ToolManager starts/restarts sessions intentionally, cancellation discards the draft, and activation rollback restores the prior draft snapshot. |
+| Line/Cable topology contract | **CORRECTED — STATIC VERIFICATION COMPLETE** | Line/Cable CreationDefinitions require semantic from/to topology acquisition and their tools pass EndpointReference values through the command factory. |
+| CT/PT/CVT terminal contract | **CORRECTED — STATIC VERIFICATION COMPLETE** | CT/PT/CVT CreationDefinitions expose canonical terminal requirements and semantic endpoint-to-command mappings; no generic equipment-type conditional was added to CreationContext. |
+| PT frequency engineering parameter | **OPEN — DOMAIN CONTRACT GAP** | Existing PT Core/Application model and CreatePTCommand expose primary/secondary voltage, accuracy, burden, phase displacement, and service state, but no frequency_hz field. Closing this specific requirement requires a Core/Application PT contract extension and therefore is not claimed as a UI creation-only correction. |
+
+**Creation-contract re-audit result:** all creation-architecture findings in this correction pass are statically corrected except the explicitly recorded PT frequency domain gap. Runtime/tests/CI remain deferred.
