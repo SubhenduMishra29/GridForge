@@ -189,8 +189,8 @@ class CreationContext:
             values=values,
             requirements=requirements or CreationRequirements(
                 configuration_required=any(item.required_before_create for item in schema),
-                endpoint_required=definition.category in {"branch", "switching", "measurement"},
-                multi_endpoint_required=len(definition.terminal_names) > 2,
+                endpoint_required=definition.equipment_type in {"line", "cable"},
+                multi_endpoint_required=definition.equipment_type in {"line", "cable"},
             ),
         )
         return self._draft
