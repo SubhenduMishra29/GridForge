@@ -4,5 +4,5 @@ from .model_placement_tool import ModelPlacementTool
 class DisconnectorTool(ModelPlacementTool):
     TOOL_ID="disconnector"; MODEL_NAME="Disconnector"; COMMAND_CLASS=CreateDisconnectorCommand
     ID_FIELD="disconnector_id"; SYMBOL_ID="disconnector"
-    COMMAND_DEFAULTS={}
+    
 __all__=["DisconnectorTool"]
