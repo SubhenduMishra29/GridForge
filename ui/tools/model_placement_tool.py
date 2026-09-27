@@ -101,7 +101,7 @@ class ModelPlacementTool(ToolBase):
         self.execute_command(command)
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(command.payload[self.ID_FIELD])
+            selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         self._clear_state()
         return True
