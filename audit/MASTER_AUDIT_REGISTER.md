@@ -1,7 +1,7 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Canonical repository authority:** `SubhenduMishra29/GridForge`
+**Canonical repository authority:** `pandaraseswari03-collab/GridForge`
 **Repository provenance:** historical register updates were previously performed/reported against `madhuri196mishra-cpu/GridForge`; current audit authority is `SubhenduMishra29/GridForge/main`.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
@@ -16,7 +16,7 @@ This register distinguishes current repository evidence from historical register
 
 ## 2026-09-23 — Consolidated SLD terminal/symbol/snap/protection remediation status
 
-**Repository:** `SubhenduMishra29/GridForge`  
+**Repository:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Verification mode:** static source inspection only; pytest, CI, startup, GUI, and runtime integration execution were intentionally not performed.  
 **Status discipline:** source correction is not runtime closure. Findings corrected in this pass remain **AGENT CORRECTED → RE-AUDIT REQUIRED** unless explicitly stated otherwise.
@@ -559,7 +559,7 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 ## UI-01 Consolidated Remediation — 2026-09-25
 
 **Historical working repository provenance:** `madhuri196mishra-cpu/GridForge`  
-**Canonical repository authority:** `SubhenduMishra29/GridForge`  
+**Canonical repository authority:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Verification boundary:** static source inspection only; no tests, CI, application startup, GUI execution, or runtime verification performed.
 
@@ -1092,3 +1092,43 @@ This addendum is the current effective state for Master IDs 0001–0007 and supe
 | GF-MASTER-0007 | **OPEN** | **RUNTIME_FAILED** | CI workflow exists and is source-preserving, but latest main run 36305923937 failed at source-integrity verification before tests. |
 
 See audit/GF_MASTER_0001_0007_RECONCILIATION_2026-09-27.md for the detailed report, coverage matrix, dependency matrix, and closure evidence.
+
+
+## 2026-09-27 — Complete Functional Repository Audit: Effective Register Reconciliation
+
+**Canonical repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Audit mode:** static source inspection only. No pytest, CI, startup, GUI, or runtime execution was performed for this reconciliation.  
+**Author:** Subhendu Mishra
+
+This section is the current effective status addendum for the complete functional audit performed against the current repository. Historical register entries remain preserved and are not deleted or silently rewritten.
+
+### Newly registered findings
+
+| Master ID | Domain | Subsystem | Finding | Severity | Finding Status | Verification Status | Static evidence |
+|---|---|---|---|---|---|---|---|
+| GF-MASTER-0092 | Study | Contingency | Legacy `core/solver/contingency` remains a competing/disconnected contingency study authority alongside the canonical Application/Analysis contingency path. | CRITICAL | **OPEN** | **STATIC_VERIFIED** | Current tree contains `core/analysis/contingency.py` plus the legacy `core/solver/contingency/` analyzer/case/violation path. The legacy path uses its own solver-era network/YBus assumptions and is not the canonical Application StudyService path. |
+| GF-MASTER-0093 | Study/UI | Study Projection | `StudyProjection` calls `Application.study_result()` using an obsolete/incomplete argument contract; the current API requires project and activation-generation scope. | HIGH | **OPEN** | **STATIC_VERIFIED** | Current projection call shape does not satisfy the current Application signature. The projection catches the resulting TypeError/ValueError and treats the result as unavailable, masking the contract mismatch from the UI. |
+| GF-MASTER-0094 | Study/UI | Study Cases | Study Cases exposes a Run Study action, but production composition does not wire a run handler to the Application study execution boundary. | HIGH | **OPEN** | **STATIC_VERIFIED** | `StudyCasesPanelWidget` defines the run action/handler seam, while current composition does not establish the production `set_run_handler()` connection to StudyService/Application execution. |
+| GF-MASTER-0095 | Audit governance | Master Register | Register metadata still identifies `SubhenduMishra29/GridForge` as canonical authority instead of the current `pandaraseswari03-collab/GridForge`. | HIGH | **OPEN** | **STATIC_VERIFIED** | Existing register metadata and dated addenda contain the obsolete canonical repository identity. This is an audit-governance defect, not a production-code defect. |
+| GF-MASTER-0096 | Protection | UI/workspace | Protection backend exists, but the engineer-facing Protection workspace/action is explicitly left as an unconfigured surface. | HIGH | **OPEN** | **STATIC_VERIFIED** | `main.py` routes the Protection action to an unconfigured-surface path and states that Protection presentation is not configured in the current workspace. |
+| GF-MASTER-0097 | Control | UI/workspace | Control execution runtime exists behind Application, but the engineer-facing Control workspace exposes editing/configuration without a control-cycle execution action. | HIGH | **OPEN** | **STATIC_VERIFIED** | Application exposes `execute_control_cycle()` and the Control runtime chain is composed, while current ControlToolbar/ControlWorkspace actions cover editing/lifecycle operations and do not expose the execution boundary. |
+| GF-MASTER-0098 | Dynamics | Plugin/Core integration | Dynamics AVR/Governor/PSS plugins import Core model modules that are absent from the current `core/model` tree. | HIGH | **OPEN** | **STATIC_VERIFIED** | `plugins/dynamics/avr/plugin.py` imports `core.model.avr.AVR`; Governor imports `core.model.governor.Governor`; corresponding current Core model modules are absent. The PSS plugin similarly participates in the same drift cluster. |
+
+### Effective-status interpretation
+
+- **Finding Status** records whether the defect remains an active current-repository finding. The new findings above remain **OPEN**.
+- **Verification Status = STATIC_VERIFIED** means the finding and its source evidence were confirmed by static repository inspection.
+- **STATIC_VERIFIED does not mean runtime verified or functionally closed.** Runtime execution remains deferred.
+- Historical IDs are retained even where current evidence reclassifies, supersedes, or resolves their original wording.
+- No production source correction is represented by this register reconciliation.
+
+### Functional baseline after reconciliation
+
+The current repository is **not yet functionally complete end-to-end**. Major Core/Application/SLD/creation boundaries are substantially source-reconciled, but the newly registered study, protection, control, and dynamics integration findings remain open. The appropriate audit baseline is:
+
+`ARCHITECTURALLY RECONCILED IN MAJOR CORE/SLD/CREATION AREAS + FUNCTIONALLY INCOMPLETE + OPEN INTEGRATION FINDINGS + RUNTIME VERIFICATION DEFERRED`
+
+### Historical relationship
+
+GF-MASTER-0092 through GF-MASTER-0098 are **new findings**, not replacements for earlier IDs. Earlier contingency, dynamics, protection, control, and documentation findings remain in the register for traceability and are not silently marked closed by these entries.
