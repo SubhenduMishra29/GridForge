@@ -91,34 +91,35 @@ class CreationCommandFactory:
             )
 
 
-def verify_creation_contracts() -> tuple[str, ...]:
-    """Statically verify every registered built-in creation contract."""
+def verify_creation_contracts(definitions: Any) -> tuple[str, ...]:
+    """Statically verify the supplied EquipmentDefinition catalogue.
 
-    terminal_catalogue = {
-        "bus": ("terminal",), "line": ("from", "to"), "cable": ("from", "to"),
-        "transformer": ("from", "to"), "switch": ("from", "to"), "breaker": ("from", "to"),
-        "disconnector": ("from", "to"), "fuse": ("from", "to"), "load": ("terminal",),
-        "generator": ("terminal",), "synchronous_machine": ("terminal",), "motor": ("terminal",),
-        "shunt": ("terminal",), "capacitor": ("terminal",), "reactor": ("terminal",),
-        "solar": ("terminal",), "battery": ("terminal",), "grid": ("terminal",),
-        "current_transformer": ("P1", "P2", "S1", "S2"),
-        "potential_transformer": ("primary_a", "primary_b", "secondary_a", "secondary_b"),
-        "cvt": ("H1", "H2", "X1", "X2"), "relay": (),
-    }
+    The caller supplies the authoritative EquipmentRegistry catalogue; this
+    function never maintains a second equipment/tool registry.
+    """
+
     errors: list[str] = []
-    for equipment_type, terminals in terminal_catalogue.items():
+    for equipment_definition in definitions:
+        definition = getattr(equipment_definition, "creation_definition", None)
+        if definition is None:
+            errors.append(f"{getattr(equipment_definition, 'equipment_type', '<unknown>')}: missing CreationDefinition")
+            continue
         try:
-            definition = creation_definition_for(equipment_type, terminals)
             signature = inspect.signature(definition.command_class)
             command_fields = set(signature.parameters)
+            parameter_ids = {item.parameter_id for item in definition.parameter_definitions}
             for parameter_id, command_field in definition.parameter_mapping.items():
+                if parameter_id not in parameter_ids:
+                    errors.append(f"{definition.equipment_type}: unknown schema parameter {parameter_id!r}")
                 if command_field not in command_fields:
-                    errors.append(f"{equipment_type}: parameter {parameter_id!r} maps to missing command field {command_field!r}")
+                    errors.append(f"{definition.equipment_type}: parameter {parameter_id!r} maps to missing command field {command_field!r}")
+            terminal_names = {item.terminal_name for item in definition.terminal_requirements}
+            topology_names = {item.name for item in definition.topology_requirements}
             for semantic_name, command_field in definition.endpoint_mapping.items():
-                if semantic_name not in terminals and semantic_name not in {item.name for item in definition.topology_requirements}:
-                    errors.append(f"{equipment_type}: endpoint mapping uses unknown semantic terminal {semantic_name!r}")
+                if semantic_name not in terminal_names and semantic_name not in topology_names:
+                    errors.append(f"{definition.equipment_type}: endpoint mapping uses unknown semantic name {semantic_name!r}")
                 if command_field not in command_fields:
-                    errors.append(f"{equipment_type}: endpoint {semantic_name!r} maps to missing command field {command_field!r}")
+                    errors.append(f"{definition.equipment_type}: endpoint {semantic_name!r} maps to missing command field {command_field!r}")
             handled = {
                 definition.id_field, "presentation_x", "presentation_y", "x", "y",
                 "command_id", "correlation_id", "causation_id",
@@ -128,9 +129,9 @@ def verify_creation_contracts() -> tuple[str, ...]:
             for name, parameter in signature.parameters.items():
                 if name in handled or parameter.default is not inspect.Parameter.empty:
                     continue
-                errors.append(f"{equipment_type}: required command field {name!r} has no creation-contract source")
+                errors.append(f"{definition.equipment_type}: required command field {name!r} has no creation-contract source")
         except Exception as exc:
-            errors.append(f"{equipment_type}: {exc}")
+            errors.append(f"{getattr(definition, 'equipment_type', '<unknown>')}: {exc}")
     return tuple(errors)
 
 
