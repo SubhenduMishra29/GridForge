@@ -397,6 +397,11 @@ class EquipmentDefinition:
                 "default_properties must be a mapping"
             )
 
+        creation_definition = None
+        if data.get('creation_definition') is not None:
+            from ui.creation.creation_definition import creation_definition_for
+            creation_definition = creation_definition_for(data['equipment_type'], tuple(data.get('terminal_names', ())))
+
         return cls(
             equipment_type=data[
                 "equipment_type"
