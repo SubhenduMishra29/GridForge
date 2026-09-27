@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_requirements.py
 # GridForge V2 — Tool Requirements
 # ============================================================
@@ -1335,23 +1336,14 @@ def requirements_for_tool(
 
     normalized = tool_id.strip()
 
-    profiles = {
-        "select": select_tool_requirements,
-        "bus": bus_tool_requirements,
-        "line": line_tool_requirements,
-    }
-
-    try:
-        return profiles[
-            normalized
-        ]()
-    except KeyError as exc:
-        raise KeyError(
-            (
-                "No standard requirement profile exists for "
-                f"tool {tool_id!r}."
-            )
-        ) from exc
+    if normalized == "select":
+        return select_tool_requirements()
+    if normalized in {"line", "cable", "wire"}:
+        return line_tool_requirements()
+    # All registered equipment tools share the canonical creation
+    # infrastructure; equipment-specific creation metadata lives in
+    # EquipmentDefinition/CreationDraft, not another requirement registry.
+    return bus_tool_requirements()
 
 
 # ============================================================

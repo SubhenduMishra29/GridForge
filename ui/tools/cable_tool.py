@@ -13,6 +13,7 @@ from uuid import uuid4
 from core.application.commands.model_commands import CreateCableCommand
 
 from ui.connections.connection_preview import ConnectionPreview
+from ui.creation.creation_context import CreationContext
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from .tool_base import ToolBase
@@ -40,7 +41,7 @@ class CableTool(ToolBase):
         self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview = ConnectionPreview()
-        self._engineering_parameters: dict[str, Any] = {}
+        self._creation_context: CreationContext | None = None
 
     @property
     def tool_id(self) -> str:
@@ -54,11 +55,21 @@ class CableTool(ToolBase):
     def description(self) -> str:
         return "Create a cable connection between two SLD endpoints."
 
+    def bind_creation_context(self, creation_context: CreationContext) -> None:
+        if not isinstance(creation_context, CreationContext):
+            raise TypeError("creation_context must be a CreationContext.")
+        self._creation_context = creation_context
+
+    def _require_creation_context(self) -> CreationContext:
+        if self._creation_context is None:
+            raise RuntimeError("CableTool is not bound to CreationContext.")
+        return self._creation_context
+
     def set_engineering_parameters(self, **parameters: Any) -> None:
-        """Store UI-entered cable configuration until command creation."""
+        """Compatibility adapter into the canonical CreationDraft."""
         if not parameters:
             raise ValueError("Cable engineering parameters must not be empty.")
-        self._engineering_parameters = dict(parameters)
+        self._require_creation_context().update_many(parameters)
 
     def on_activate(self) -> None:
         self._clear_state()
@@ -79,10 +90,14 @@ class CableTool(ToolBase):
             self._start_snap = snap_result
             self._start_position = position
             self._current_position = position
+            self._require_creation_context().set_placement(position)
+            self._require_creation_context().set_endpoints({"from": endpoint})
             self._preview.update_cursor(position)
             return True
 
         self._current_position = position
+        self._require_creation_context().set_placement(position)
+        self._require_creation_context().set_endpoints({"to": endpoint})
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
         self._execute_cable_command(*self._preview.get_endpoint_pair(), source_snap=self._start_snap, target_snap=snap_result)
@@ -136,14 +151,13 @@ class CableTool(ToolBase):
         return result
 
     def _execute_cable_command(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
-        parameters = self._engineering_parameters
-        required = ("length_km", "r1_ohm_per_km", "x1_ohm_per_km")
-        missing = [name for name in required if name not in parameters]
-        if missing:
-            raise RuntimeError(
-                "Cable engineering parameters are incomplete: " + ", ".join(missing)
-            )
-
+        draft = self._require_creation_context().require_draft()
+        if not draft.validate_for_commit():
+            raise RuntimeError("Cable creation draft is invalid: " + "; ".join(
+                draft.validation_state.get("configuration", ()) +
+                draft.validation_state.get("placement", ())
+            ))
+        parameters = draft.snapshot_values()
         cable_id = f"cable-{uuid4().hex}"
         command = CreateCableCommand(
             cable_id=cable_id,
@@ -164,6 +178,10 @@ class CableTool(ToolBase):
             in_service=bool(parameters.get("in_service", True)),
         )
         result = self.execute_command(command)
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(command.payload["line_id"] if "line_id" in command.payload else command.payload["cable_id"])
+        self._require_creation_context().complete()
         return result
 
     @staticmethod
@@ -201,7 +219,7 @@ class CableTool(ToolBase):
             "start_position": self._start_position,
             "current_position": self._current_position,
             "preview": self._preview.get_state(),
-            "has_engineering_parameters": bool(self._engineering_parameters),
+            "creation_active": self._creation_context is not None and self._creation_context.active,
         })
         return state
 

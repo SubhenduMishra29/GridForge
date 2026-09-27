@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ui.projection.projection_state import EngineeringParameterState, ProjectionState
+from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
@@ -52,6 +53,7 @@ class EquipmentPanelWidget(QWidget):
         self._definitions: tuple[Any, ...] = ()
         self._selected_equipment_type: str | None = None
         self._active_tool_id: str | None = None
+        self._properties_panel: Any | None = None
 
         self._list = QListWidget(self)
         layout = QVBoxLayout(self)
@@ -74,7 +76,7 @@ class EquipmentPanelWidget(QWidget):
     def active_tool_id(self) -> str | None:
         return self._active_tool_id
 
-    def bind_equipment_runtime(self, equipment_registry: Any, tool_manager: Any) -> None:
+    def bind_equipment_runtime(self, equipment_registry: Any, tool_manager: Any, properties_panel: Any | None = None) -> None:
         """Receive the canonical catalogue and live ToolManager from composition."""
         if equipment_registry is None or not callable(getattr(equipment_registry, "catalogue", None)):
             raise TypeError("equipment_registry must provide catalogue().")
@@ -82,6 +84,7 @@ class EquipmentPanelWidget(QWidget):
             raise TypeError("tool_manager must provide activate().")
         self._equipment_registry = equipment_registry
         self._tool_manager = tool_manager
+        self._properties_panel = properties_panel
         self._definitions = tuple(equipment_registry.catalogue())
         self._list.clear()
         for definition in self._definitions:
@@ -112,21 +115,23 @@ class EquipmentPanelWidget(QWidget):
         tool_id = definition.tool_id
         tool = self._tool_manager.activate(tool_id)
         self._active_tool_id = self._tool_manager.active_tool_id
+        if self._properties_panel is not None:
+            setter = getattr(self._properties_panel, "set_creation_draft", None)
+            if callable(setter):
+                setter(self._tool_manager.creation_context.draft)
         return tool
 
     def configure_active_tool(self, **parameters: Any) -> None:
-        """Forward typed engineering configuration to the active Tool only.
-
-        The Browser does not retain an engineering-configuration store.
-        The active Tool owns the transient pre-placement configuration.
-        """
+        """Compatibility adapter into the canonical CreationDraft."""
         if self._tool_manager is None:
             raise RuntimeError("Equipment Browser has not been composed with ToolManager.")
-        tool = self._tool_manager.get_current_tool()
-        setter = getattr(tool, "set_engineering_parameters", None)
-        if not callable(setter):
-            raise RuntimeError("Active tool does not accept engineering parameters.")
-        setter(**parameters)
+        if not parameters:
+            raise ValueError("Creation parameters must not be empty.")
+        self._tool_manager.creation_context.update_many(parameters)
+        if self._properties_panel is not None:
+            setter = getattr(self._properties_panel, "set_creation_draft", None)
+            if callable(setter):
+                setter(self._tool_manager.creation_context.draft)
 
     def _on_item_clicked(self, item: Any) -> None:
         row = self._list.row(item)
@@ -149,6 +154,8 @@ class PropertiesPanelWidget(QWidget):
         self._apply_button: QPushButton | None = None
         self._validation_label: QLabel | None = None
         self._form_layout: QFormLayout | None = None
+        self._creation_context: CreationContext | None = None
+        self._creation_mode = False
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -163,8 +170,14 @@ class PropertiesPanelWidget(QWidget):
         self._apply_button.clicked.connect(self._apply_changes)
         root.addWidget(self._apply_button)
 
-    def bind_configuration_runtime(self, application: Any) -> None:
+    def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._engineering_editor = EngineeringParameterEditor(application)
+        self._creation_context = creation_context
+        if controller is not None:
+            signal = getattr(controller, "tool_changed", None)
+            connect = getattr(signal, "connect", None)
+            if callable(connect):
+                connect(self._on_tool_changed)
 
     def configure_parameter(self, parameter_id: str, value: Any) -> Any:
         if self._engineering_editor is None:
@@ -180,12 +193,30 @@ class PropertiesPanelWidget(QWidget):
         return self.logical_panel.target
 
     def set_target(self, target: Any | None) -> None:
+        self._creation_mode = False
         self.logical_panel.set_target(target)
         self._render_projection(target)
 
+    def set_creation_draft(self, draft: CreationDraft | None) -> None:
+        if draft is None:
+            self._creation_mode = False
+            if self.logical_panel.target is None:
+                self._render_projection(None)
+            return
+        self._creation_mode = True
+        self.logical_panel.clear_target()
+        self._render_creation_draft(draft)
+
+
     def clear_target(self) -> None:
         self.logical_panel.clear_target()
-        self._render_projection(None)
+        if self._creation_context is not None and self._creation_context.draft is not None:
+            self._creation_mode = True
+            self._render_creation_draft(self._creation_context.draft)
+        else:
+            self._creation_mode = False
+            self._render_projection(None)
+
 
     def _render_projection(self, target: ProjectionState | None) -> None:
         self._clear_parameter_controls()
@@ -204,9 +235,92 @@ class PropertiesPanelWidget(QWidget):
                 f"{target.display_type} · {target.object_id} · Core validation is authoritative on commit."
             )
         if self._apply_button is not None:
+            self._apply_button.setText("Apply / Commit")
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
+
+    def _render_creation_draft(self, draft: CreationDraft) -> None:
+        self._clear_parameter_controls()
+        assert self._form_layout is not None
+        for definition in draft.parameter_schema:
+            control = self._create_creation_control(definition, draft.values.get(definition.parameter_id))
+            self._parameter_controls[definition.parameter_id] = control
+            self._form_layout.addRow(
+                QLabel(
+                    f"{definition.display_name}" + (f" ({definition.unit})" if definition.unit else ""),
+                    self,
+                ),
+                control,
+            )
+        errors = draft.validation_state.get("configuration", ())
+        if self._validation_label is not None:
+            self._validation_label.setText(
+                f"Creating {draft.equipment_type}: " +
+                ("Configuration complete." if draft.configuration_complete else "; ".join(errors))
+            )
+        if self._apply_button is not None:
+            self._apply_button.setEnabled(False)
+            self._apply_button.setText("Draft configuration")
+
+    def _create_creation_control(self, definition: Any, value: Any) -> QWidget:
+        datatype = str(definition.datatype).strip().lower()
+        if definition.derived or not definition.editable:
+            return QLabel(self._display_value(value), self)
+        if datatype in {"float", "number"}:
+            control = QDoubleSpinBox(self)
+            control.setDecimals(6)
+            control.setRange(
+                float(definition.minimum if definition.minimum is not None else -1.0e15),
+                float(definition.maximum if definition.maximum is not None else 1.0e15),
+            )
+            if value is not None:
+                control.setValue(float(value))
+            control.valueChanged.connect(lambda new_value, pid=definition.parameter_id: self._update_creation_value(pid, float(new_value)))
+            return control
+        if datatype in {"bool", "boolean"}:
+            control = QCheckBox(self)
+            control.setChecked(bool(value))
+            control.toggled.connect(lambda new_value, pid=definition.parameter_id: self._update_creation_value(pid, bool(new_value)))
+            return control
+        if datatype == "enum":
+            control = QComboBox(self)
+            choices = tuple(str(choice) for choice in definition.choices)
+            control.addItems(choices)
+            if value is not None and str(value) in choices:
+                control.setCurrentText(str(value))
+            control.currentTextChanged.connect(lambda new_value, pid=definition.parameter_id: self._update_creation_value(pid, str(new_value)))
+            return control
+        control = QLineEdit(self)
+        control.setText("" if value is None else str(value))
+        control.textChanged.connect(lambda new_value, pid=definition.parameter_id: self._update_creation_value(pid, new_value))
+        return control
+
+    def _update_creation_value(self, parameter_id: str, value: Any) -> None:
+        if not self._creation_mode or self._creation_context is None:
+            return
+        try:
+            draft = self._creation_context.update(parameter_id, value)
+        except (TypeError, ValueError, KeyError):
+            return
+        errors = draft.validation_state.get("configuration", ())
+        if self._validation_label is not None:
+            self._validation_label.setText(
+                f"Creating {draft.equipment_type}: " +
+                ("Configuration complete." if draft.configuration_complete else "; ".join(errors))
+            )
+
+    def _on_tool_changed(self, current_tool_id: Any, previous_tool_id: Any) -> None:
+        del current_tool_id, previous_tool_id
+        if self._creation_context is None:
+            return
+        draft = self._creation_context.draft
+        if draft is None:
+            self._creation_mode = False
+            if self.logical_panel.target is None:
+                self._render_projection(None)
+        else:
+            self.set_creation_draft(draft)
 
     def _clear_parameter_controls(self) -> None:
         self._parameter_controls.clear()

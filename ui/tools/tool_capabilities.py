@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_capabilities.py
 # GridForge V2 — Tool Capabilities
 # ============================================================
@@ -90,6 +91,8 @@ class ToolCapability(str, Enum):
 
     COMMAND_DRIVEN = "command_driven"
     PRODUCES_EVENTS = "produces_events"
+    REQUIRES_CONFIGURATION = "requires_configuration"
+    REQUIRES_ENDPOINTS = "requires_endpoints"
 
 
 # ============================================================
@@ -163,6 +166,10 @@ _CAPABILITY_CATEGORIES: dict[
         ToolCapabilityCategory.EXECUTION,
     ToolCapability.PRODUCES_EVENTS:
         ToolCapabilityCategory.EXECUTION,
+    ToolCapability.REQUIRES_CONFIGURATION:
+        ToolCapabilityCategory.DOMAIN,
+    ToolCapability.REQUIRES_ENDPOINTS:
+        ToolCapabilityCategory.DOMAIN,
 }
 
 
@@ -555,6 +562,29 @@ def line_tool_capabilities() -> ToolCapabilities:
     )
 
 
+
+def creation_tool_capabilities(*, requires_endpoints: bool = False) -> ToolCapabilities:
+    """Canonical capability profile shared by all registered creation tools."""
+    values = (
+        ToolCapability.CREATE,
+        ToolCapability.CANVAS_INPUT,
+        ToolCapability.POINTER_INPUT,
+        ToolCapability.KEYBOARD_INPUT,
+        ToolCapability.PREVIEW,
+        ToolCapability.CANCEL,
+        ToolCapability.COMMIT,
+        ToolCapability.REQUIRES_CANVAS,
+        ToolCapability.USES_GRID,
+        ToolCapability.USES_SNAP,
+        ToolCapability.CREATES_ENTITIES,
+        ToolCapability.COMMAND_DRIVEN,
+        ToolCapability.PRODUCES_EVENTS,
+        ToolCapability.REQUIRES_CONFIGURATION,
+    )
+    if requires_endpoints:
+        values = (*values, ToolCapability.REQUIRES_ENDPOINTS)
+    return ToolCapabilities.from_iterable(values, description="Create equipment through the canonical Application command workflow.")
+
 # ============================================================
 # PROFILE REGISTRY
 # ============================================================
@@ -595,17 +625,14 @@ def capabilities_for_tool(
             "tool_id must not be empty."
         )
 
-    try:
-        return _STANDARD_CAPABILITIES[
-            normalized
-        ]
-    except KeyError as exc:
-        raise KeyError(
-            (
-                f"No standard capability profile exists for "
-                f"tool {tool_id!r}."
-            )
-        ) from exc
+    if normalized in _STANDARD_CAPABILITIES:
+        return _STANDARD_CAPABILITIES[normalized]
+    if normalized in {"wire"}:
+        return line_tool_capabilities()
+    # EquipmentRegistry/ToolManager is the authoritative runtime catalogue.
+    # Unknown registered equipment tools use the shared creation profile
+    # instead of requiring another parallel capability registry.
+    return creation_tool_capabilities(requires_endpoints=normalized in {"line", "cable"})
 
 
 # ============================================================
@@ -620,5 +647,6 @@ __all__ = [
     "select_tool_capabilities",
     "bus_tool_capabilities",
     "line_tool_capabilities",
+    "creation_tool_capabilities",
     "capabilities_for_tool",
 ]

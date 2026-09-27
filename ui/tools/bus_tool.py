@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from core.application.commands.placement_commands import PlaceBusCommand
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
+from ui.creation.creation_context import CreationContext
 
 from .tool_base import ToolBase
 
@@ -42,6 +43,17 @@ class BusTool(ToolBase):
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
         self._preview_layer = preview_layer
+        self._creation_context: CreationContext | None = None
+
+    def bind_creation_context(self, creation_context: CreationContext) -> None:
+        if not isinstance(creation_context, CreationContext):
+            raise TypeError("creation_context must be a CreationContext.")
+        self._creation_context = creation_context
+
+    def _require_creation_context(self) -> CreationContext:
+        if self._creation_context is None:
+            raise RuntimeError("BusTool is not bound to CreationContext.")
+        return self._creation_context
 
     @property
     def tool_id(self) -> str:
@@ -88,15 +100,20 @@ class BusTool(ToolBase):
             self._clear_state()
             return False
         self._position = position
-
+        draft = self._require_creation_context().set_placement(position)
+        self._preview_active = True
+        self._show_preview(position)
+        if not draft.validate_for_commit():
+            return False
+        values = draft.snapshot_values()
         command = PlaceBusCommand(
             bus_id=f"bus-{uuid4()}",
             name="Bus",
-            nominal_voltage_kv=0.0,
+            nominal_voltage_kv=float(values["nominal_voltage_kv"]),
             voltage_pu=1.0,
             angle_deg=0.0,
-            frequency_hz=50.0,
-            in_service=True,
+            frequency_hz=float(values["frequency_hz"]),
+            in_service=bool(values.get("in_service", True)),
             x=position[0],
             y=position[1],
             presentation_properties={
@@ -108,6 +125,10 @@ class BusTool(ToolBase):
             },
         )
         self.execute_command(command)
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(command.payload["bus_id"])
+        self._require_creation_context().complete()
         self._clear_state()
         return True
 

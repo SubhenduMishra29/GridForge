@@ -42,7 +42,109 @@ from typing import TYPE_CHECKING, Dict, Iterable, Optional
 if TYPE_CHECKING:
     from .symbol.symbol_registry import SymbolRegistry
 
-from .equipment_definition import EquipmentDefinition
+from .equipment_definition import EquipmentDefinition, EngineeringParameterDefinition
+
+
+
+def _p(parameter_id: str, display_name: str | None = None, datatype: str = "float",
+       unit: str | None = None, *, required: bool = False, default: object = None,
+       editable: bool = True, derived: bool = False, choices: tuple[object, ...] = (),
+       minimum: float | None = None, maximum: float | None = None) -> EngineeringParameterDefinition:
+    return EngineeringParameterDefinition(
+        parameter_id=parameter_id, display_name=display_name or parameter_id.replace("_", " ").title(),
+        datatype=datatype, unit=unit, required_before_create=required, default_value=default,
+        editable=editable, derived=derived, choices=choices, minimum=minimum, maximum=maximum,
+    )
+
+
+_CREATION_SCHEMAS: dict[str, tuple[EngineeringParameterDefinition, ...]] = {
+    "bus": (_p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
+            _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
+            _p("in_service", "In service", "bool", required=True, default=True)),
+    "line": (_p("resistance_ohm", unit="ohm", required=True),
+             _p("reactance_ohm", unit="ohm", required=True),
+             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
+             _p("shunt_susceptance_siemens", unit="S", default=0.0)),
+    "cable": (_p("length_km", unit="km", required=True, minimum=0.0),
+              _p("r1_ohm_per_km", unit="ohm/km", required=True),
+              _p("x1_ohm_per_km", unit="ohm/km", required=True),
+              _p("rated_voltage_kv", unit="kV", minimum=0.0),
+              _p("rated_current_a", unit="A", minimum=0.0)),
+    "transformer": (_p("r", "Resistance", required=True),
+                    _p("x", "Reactance", required=True),
+                    _p("b", "Susceptance", default=0.0),
+                    _p("impedance_basis", "Impedance basis", "enum", required=True,
+                       choices=("pu", "engineering")),
+                    _p("impedance_base_voltage_kv", unit="kV", required=True, minimum=0.0),
+                    _p("impedance_base_mva", unit="MVA", minimum=0.0),
+                    _p("rate_mva", unit="MVA", minimum=0.0),
+                    _p("tap", "Tap", default=1.0), _p("shift", "Phase shift", unit="deg", default=0.0)),
+    "switch": (_p("rated_voltage_kv", unit="kV", required=True, minimum=0.0),
+               _p("rated_current_a", unit="A", required=True, minimum=0.0)),
+    "breaker": (_p("voltage_kv", unit="kV", required=True, minimum=0.0),
+                _p("current_a", unit="A", required=True, minimum=0.0)),
+    "disconnector": (_p("voltage_kv", unit="kV", required=True, minimum=0.0),
+                     _p("rated_current_a", unit="A", required=True, minimum=0.0)),
+    "fuse": (_p("rated_current_a", unit="A", required=True, minimum=0.0),
+             _p("rated_voltage_v", unit="V", required=True, minimum=0.0)),
+    "load": (_p("p", "Active power", unit="MW", required=True),
+             _p("q", "Reactive power", unit="MVAr", required=True)),
+    "generator": (_p("p", "Active power", unit="MW", required=True),
+                  _p("q", "Reactive power", unit="MVAr", required=True),
+                  _p("V_setpoint", "Voltage setpoint", unit="pu", required=True)),
+    "synchronous_machine": (_p("active_power_injection_mw", "Active power", unit="MW", required=True),
+                            _p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),
+                            _p("rated_power_mva", unit="MVA", minimum=0.0),
+                            _p("rated_voltage_kv", unit="kV", minimum=0.0),
+                            _p("frequency_hz", unit="Hz", required=True, default=50.0, minimum=0.0)),
+    "motor": (_p("rated_mva", unit="MVA", required=True, minimum=0.0),
+              _p("rated_kv", unit="kV", required=True, minimum=0.0),
+              _p("power_factor", minimum=0.0, maximum=1.0, default=0.9),
+              _p("p", "Active power", unit="MW", required=True),
+              _p("q", "Reactive power", unit="MVAr", required=True),
+              _p("efficiency", minimum=0.0, maximum=1.0, default=1.0),
+              _p("slip", default=0.0),
+              _p("starting_current_pu", default=0.0)),
+    "shunt": (_p("g_pu", "Conductance", required=True), _p("b_pu", "Susceptance", required=True)),
+    "capacitor": (_p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),),
+    "reactor": (_p("reactive_power_injection_mvar", "Reactive power", unit="MVAr", required=True),),
+    "solar": (_p("p_mw", "Active power", unit="MW", required=True),
+              _p("q_mvar", "Reactive power", unit="MVAr", required=True)),
+    "battery": (_p("p_mw", "Active power", unit="MW", required=True),
+                _p("q_mvar", "Reactive power", unit="MVAr", required=True),
+                _p("energy_capacity_mwh", unit="MWh", required=True, minimum=0.0),
+                _p("max_charge_mw", unit="MW", minimum=0.0),
+                _p("max_discharge_mw", unit="MW", minimum=0.0),
+                _p("soc", "State of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0)),
+    "grid": (_p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
+             _p("frequency_hz", unit="Hz", required=True, minimum=0.0)),
+    "current_transformer": (_p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
+                            _p("secondary_rated_current_a", unit="A", required=True, minimum=0.0),
+                            _p("burden_va", unit="VA", minimum=0.0),
+                            _p("accuracy_class", "Accuracy class", "str"),
+                            _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
+                            _p("polarity", "Polarity", "enum", required=True, choices=("P1_P2", "P2_P1"))),
+    "potential_transformer": (_p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
+                              _p("secondary_voltage_v", unit="V", required=True, minimum=0.0),
+                              _p("accuracy_class", "Accuracy class", "str"),
+                              _p("burden_va", unit="VA", minimum=0.0),
+                              _p("phase_displacement_deg", unit="deg")),
+    "cvt": (_p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
+            _p("rated_secondary_voltage_v", unit="V", required=True, minimum=0.0),
+            _p("accuracy_class", "Accuracy class", "str"),
+            _p("rated_burden_va", unit="VA", minimum=0.0),
+            _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
+            _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED"))),
+    "relay": (_p("relay_type", "Relay type", "str", required=True),),
+}
+
+
+def creation_schema_for(equipment_type: str) -> tuple[EngineeringParameterDefinition, ...]:
+    try:
+        return _CREATION_SCHEMAS[equipment_type]
+    except KeyError as exc:
+        raise KeyError(f"No canonical creation schema for {equipment_type!r}") from exc
+
 
 
 class EquipmentRegistry:
@@ -253,6 +355,7 @@ class EquipmentRegistry:
                     tool_id=equipment_type,
                     terminal_names=terminals,
                     category=category,
+                    engineering_parameters=creation_schema_for(equipment_type),
                 )
             )
         return registry

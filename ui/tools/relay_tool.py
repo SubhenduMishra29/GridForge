@@ -3,5 +3,5 @@ from core.application.commands.relay_commands import CreateRelayCommand
 from .model_placement_tool import ModelPlacementTool
 class RelayTool(ModelPlacementTool):
     TOOL_ID="relay"; MODEL_NAME="Relay"; SYMBOL_ID="relay"; COMMAND_CLASS=CreateRelayCommand
-    ID_FIELD="relay_id"; COMMAND_DEFAULTS={"relay_type":"overcurrent"}
+    ID_FIELD="relay_id"; 
 __all__=["RelayTool"]
