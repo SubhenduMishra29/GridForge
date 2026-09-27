@@ -58,6 +58,8 @@ class TopologyManager:
             if a.attached_bus_id is None or b.attached_bus_id is None:
                 raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
             bus_a=self.network.get_by_identity(a.attached_bus_id); bus_b=self.network.get_by_identity(b.attached_bus_id)
+            if bus_a not in active_buses or bus_b not in active_buses:
+                continue
             if bus_a is not bus_b:
                 graph.setdefault(bus_a,set()).add(bus_b)
                 graph.setdefault(bus_b,set()).add(bus_a)
@@ -69,6 +71,8 @@ class TopologyManager:
                 b=boundary.resolve(self._reference_for_terminal(e,e.to_terminal.role))
                 if a.attached_bus_id is None or b.attached_bus_id is None:raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
                 bus_a=self.network.get_by_identity(a.attached_bus_id);bus_b=self.network.get_by_identity(b.attached_bus_id)
+                if bus_a not in active_buses or bus_b not in active_buses:
+                    continue
                 if bus_a is not bus_b:self._edges.setdefault(self._edge_key(bus_a,bus_b),[]).append(e)
         self._graph=graph;self._snapshot=self._make_snapshot(adjacency,attachments,boundary);return graph
     def _physical_attachments(self, active_buses):
