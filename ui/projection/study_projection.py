@@ -75,6 +75,7 @@ class StudyProjection:
             if result is not None:
                 entry["study_type"] = str(result.study_type)
                 entry["status"] = str(result.status)
+                entry["current"] = "true" if bool(getattr(result, "current", False)) else "false"
                 if getattr(result, "message", ""):
                     entry["message"] = str(result.message)
         self._active[str(study_id)] = entry
@@ -85,8 +86,9 @@ class StudyProjection:
         for entry in self._active.values():
             message = entry.get("message")
             suffix = f" — {message}" if message else ""
+            freshness = "" if entry.get("current", "true") == "true" else " [STALE]"
             rows.append(
-                f"{entry['study_type']} [{entry['status']}] {entry['study_id']}{suffix}"
+                f"{entry['study_type']} [{entry['status']}]{freshness} {entry['study_id']}{suffix}"
             )
         self._cases = tuple(rows)
         self._panel.set_cases(self._cases)
