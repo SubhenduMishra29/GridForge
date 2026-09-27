@@ -27,8 +27,6 @@ class ModelPlacementTool(ToolBase):
     MODEL_NAME = "Model"
     TOOL_ID = "model"
     SYMBOL_ID = ""
-    COMMAND_CLASS = None
-    ID_FIELD = "equipment_id"
 
     def __init__(
         self,
