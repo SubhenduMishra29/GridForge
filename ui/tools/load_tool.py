@@ -1,6 +1,8 @@
 # GridForge V2 — SLD load tool. Author: Subhendu Mishra
-from core.application.commands.model_commands import CreateLoadCommand
 from .model_placement_tool import ModelPlacementTool
 class LoadTool(ModelPlacementTool):
+    TOOL_ID = "load"
+    MODEL_NAME = "Load"
+    SYMBOL_ID = "load"
     SYMBOL_ID="load"
 __all__=["LoadTool"]
