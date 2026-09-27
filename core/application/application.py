@@ -171,6 +171,8 @@ class Application:
         context = lifecycle.context
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
             raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
+        if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+            raise ValueError("Study Case project scope does not match the active project generation.")
         request = StudyRequest(
             study_id=case.study_id,
             project_id=context.project_id,
