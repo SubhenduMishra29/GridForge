@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Mapping
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from core.control.context import ControlExecutionContext
 from core.control.engine import ControlEngine
