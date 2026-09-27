@@ -159,10 +159,6 @@ class ContingencyAnalysis:
         return case_network
 
     @staticmethod
-    def _is_bus(element: Any) -> bool:
-        return type(element).__name__.lower() == "bus"
-
-    @staticmethod
     def _set_in_service(element: Any, in_service: bool) -> None:
         if not hasattr(element, "in_service"):
             raise TypeError(f"Contingency element {element!r} has no in_service state.")
