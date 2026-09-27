@@ -168,6 +168,10 @@ class ToolManager:
             if tool_id not in self._tool_registry:
                 raise KeyError(f"Unknown tool ID: {tool_id!r}")
             if tool_id == self._active_tool_id:
+                if self.equipment_registry is not None:
+                    definition = self._definition_for_tool(tool_id)
+                    if definition is not None:
+                        self.creation_context.begin(definition)
                 return self._active_tool
 
         previous_id = self._active_tool_id
@@ -207,7 +211,6 @@ class ToolManager:
             self._active_tool = previous_tool
             if previous_tool is not None:
                 previous_tool.activate()
-            throw_error = True
             self.creation_context.discard()
             raise
         self._notify_controller_tool_change(previous_id, tool_id)
