@@ -13,6 +13,7 @@ Neither object is a Core entity or persistence/study state.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from copy import deepcopy
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -238,6 +239,14 @@ class CreationContext:
         draft = self.require_draft()
         draft.set_endpoints(endpoints)
         return draft
+
+    def snapshot_draft(self) -> CreationDraft | None:
+        return None if self._draft is None else deepcopy(self._draft)
+
+    def restore_draft(self, draft: CreationDraft | None) -> None:
+        if draft is not None and not isinstance(draft, CreationDraft):
+            raise TypeError('draft must be a CreationDraft or None.')
+        self._draft = deepcopy(draft) if draft is not None else None
 
     def require_draft(self) -> CreationDraft:
         if self._draft is None:
