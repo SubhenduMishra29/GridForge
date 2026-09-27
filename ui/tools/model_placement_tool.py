@@ -14,6 +14,7 @@ from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
 from ui.creation.command_factory import CreationCommandFactory
+from core.model import EndpointReference, EquipmentType
 
 
 class ModelPlacementTool(ToolBase):
@@ -85,14 +86,32 @@ class ModelPlacementTool(ToolBase):
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
-        position = self._snap_position(event)
-        if position is None:
+        draft = self._require_creation_context().require_draft()
+        snap = self._snap_result(event)
+        if snap is None:
             return False
-        self._position = position
-        draft = self._require_creation_context().set_placement(position)
-        self._preview_active = True
-        draft.mark_previewing()
-        self._show_preview(position)
+
+        # First interaction establishes the presentation placement.  Required
+        # terminal/topology acquisition is then performed by subsequent
+        # object-snap interactions against canonical terminal identities.
+        if draft.placement_position is None:
+            position = self._position_tuple(snap.position)
+            self._position = position
+            draft.set_placement(position)
+            draft.mark_previewing()
+            self._preview_active = True
+            self._show_preview(position)
+            if not draft.definition.terminal_requirements:
+                return self._commit_if_valid()
+            return True
+
+        if not self._acquire_terminal(draft, snap):
+            return False
+        self._show_preview(self._position or draft.placement_position)
+        return self._commit_if_valid()
+
+    def _commit_if_valid(self) -> bool:
+        draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
             return False
         intent = self._build_command()
@@ -106,6 +125,34 @@ class ModelPlacementTool(ToolBase):
             selector(command.payload[draft.definition.id_field])
         self._require_creation_context().complete()
         self._clear_state()
+        return True
+
+    def _acquire_terminal(self, draft: CreationDraft, snap: Any) -> bool:
+        terminal_name = getattr(snap, "terminal_name", None)
+        object_id = getattr(snap, "object_id", None)
+        source = getattr(snap, "source", None)
+        if not terminal_name or not object_id:
+            return False
+        requirements = {
+            item.terminal_name: item
+            for item in draft.definition.terminal_requirements
+        }
+        if terminal_name not in requirements:
+            return False
+        if draft.endpoints.get(terminal_name) is not None:
+            return False
+        element_type = getattr(source, "element_type", None)
+        if not element_type:
+            return False
+        try:
+            endpoint = EndpointReference.terminal(
+                equipment_type=EquipmentType(str(element_type).strip().lower()),
+                equipment_id=str(object_id),
+                terminal_role=str(terminal_name),
+            )
+        except (TypeError, ValueError):
+            return False
+        draft.set_endpoint(terminal_name, endpoint)
         return True
 
     def on_mouse_move(self, event: Any) -> bool:
@@ -175,10 +222,12 @@ class ModelPlacementTool(ToolBase):
         if not self.SYMBOL_ID:
             raise RuntimeError(f"{self.MODEL_NAME} has no canonical SYMBOL_ID.")
         definition = self._symbol_registry.require(self.SYMBOL_ID)
+        draft = self._require_creation_context().require_draft()
         item = SymbolPreviewItem(
             definition,
             position=position,
-            rotation=0.0,
+            rotation=draft.orientation,
+            presentation_state=draft.preview_state,
         )
         replace = getattr(self._preview_layer, "replace", None)
         if not callable(replace):
