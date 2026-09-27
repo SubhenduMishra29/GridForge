@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/topology.py
+# GridForge V2 — Authoritative Topology Manager
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 from collections import deque
 from core.model import Branch,Breaker,Cable,Disconnector,Fuse,Line,Switch,Transformer
