@@ -131,28 +131,38 @@ class ModelPlacementTool(ToolBase):
         terminal_name = getattr(snap, "terminal_name", None)
         object_id = getattr(snap, "object_id", None)
         source = getattr(snap, "source", None)
-        if not terminal_name or not object_id:
+        semantic_name = terminal_name
+        if semantic_name is None and getattr(snap, "bus_id", None) is not None:
+            # A bus snap is a valid electrical endpoint target for any
+            # creation-contract terminal/topology semantic.
+            pending = [
+                item.terminal_name for item in draft.definition.terminal_requirements
+                if draft.endpoints.get(item.terminal_name) is None
+            ]
+            semantic_name = pending[0] if pending else None
+        if not semantic_name:
             return False
-        requirements = {
-            item.terminal_name: item
-            for item in draft.definition.terminal_requirements
-        }
-        if terminal_name not in requirements:
-            return False
-        if draft.endpoints.get(terminal_name) is not None:
-            return False
-        element_type = getattr(source, "element_type", None)
-        if not element_type:
+        requirements = {item.terminal_name: item for item in draft.definition.terminal_requirements}
+        if semantic_name not in requirements or draft.endpoints.get(semantic_name) is not None:
             return False
         try:
-            endpoint = EndpointReference.terminal(
-                equipment_type=EquipmentType(str(element_type).strip().lower()),
-                equipment_id=str(object_id),
-                terminal_role=str(terminal_name),
-            )
+            if getattr(snap, "bus_id", None) is not None:
+                attachment_id = getattr(snap, "attachment_id", None)
+                if not attachment_id:
+                    return False
+                endpoint = EndpointReference.bus(str(snap.bus_id), str(attachment_id))
+            else:
+                element_type = getattr(source, "element_type", None)
+                if not element_type or not object_id or not terminal_name:
+                    return False
+                endpoint = EndpointReference.terminal(
+                    equipment_type=EquipmentType(str(element_type).strip().lower()),
+                    equipment_id=str(object_id),
+                    terminal_role=str(terminal_name),
+                )
         except (TypeError, ValueError):
             return False
-        draft.set_endpoint(terminal_name, endpoint)
+        draft.set_endpoint(semantic_name, endpoint)
         return True
 
     def on_mouse_move(self, event: Any) -> bool:
