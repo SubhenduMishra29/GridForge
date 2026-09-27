@@ -27,6 +27,7 @@
 
 **Files corrected:**
 - `core/analysis/contingency.py`
+- `core/analysis/power_flow_preparation.py`
 
 **Correction:**
 ```
@@ -44,7 +45,7 @@ The consumer reads `success`, `voltage_magnitudes`, `voltage_angles`, and `messa
 
 **Architectural impact:** No new topology or result authority.
 
-**Static verification:** PASS. The undefined reference is removed; `_disable_connected_equipment` is absent; the result path remains canonical.
+**Static verification:** PASS. The undefined reference is removed; `_disable_connected_equipment` is absent; the result path remains canonical; Power Flow preparation consumes the rebuilt active snapshot.
 
 **Runtime verification required:** Yes — deferred.
 
@@ -58,6 +59,7 @@ The consumer reads `success`, `voltage_magnitudes`, `voltage_angles`, and `messa
 **Files corrected:**
 - `core/analysis/contingency.py`
 - `core/network/topology.py`
+- `core/analysis/power_flow_preparation.py`
 
 **Correction:** Contingency now only sets `in_service=False` on the isolated case object and invalidates topology. `TopologyManager` derives active buses and active topology elements from Core service state.
 
