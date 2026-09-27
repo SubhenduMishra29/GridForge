@@ -21,8 +21,8 @@ class ModelPlacementTool(ToolBase):
     """Reusable UI-only placement interaction for concrete SLD model tools.
 
     Placement captures a canvas position and creates the immutable Application
-    command. Electrical endpoint references are deliberately not acquired by
-    this interaction; connectivity is a separate workflow.
+    command. Required endpoint/terminal acquisition is definition-driven and
+    remains transient until the final Application command is prepared.
     """
 
     MODEL_NAME = "Model"
@@ -167,11 +167,16 @@ class ModelPlacementTool(ToolBase):
 
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
+        draft = self._require_creation_context().require_draft()
+        if draft.placement_position is not None:
+            self._preview_active = True
+            self._show_preview(self._position or draft.placement_position)
+            return True
         position = self._snap_position(event)
         if position is None:
             return False
         self._position = position
-        self._require_creation_context().set_placement(position)
+        draft.set_placement(position)
         self._preview_active = True
         self._show_preview(position)
         return True
