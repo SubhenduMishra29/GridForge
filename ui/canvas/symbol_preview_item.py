@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
+from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
 
 
 class SymbolPreviewItem(QGraphicsItem):
@@ -30,6 +31,7 @@ class SymbolPreviewItem(QGraphicsItem):
         super().__init__()
         self._definition = definition
         self._presentation_state = MappingProxyType(dict(presentation_state or {}))
+        self._visual_state = VisualState.PREVIEW
         self.setPos(self._point(position))
         self.setRotation(float(rotation))
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -44,8 +46,10 @@ class SymbolPreviewItem(QGraphicsItem):
 
     def paint(self, painter: QPainter, option: Any, widget: Any = None) -> None:
         del option, widget
-        painter.setPen(QPen())
-        painter.setBrush(QBrush())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(visual_pen("symbol", self._visual_state, width=1.8))
+        painter.setBrush(visual_brush("symbol", self._visual_state))
+        painter.setFont(visual_font("engineering"))
         for primitive in self._definition.primitives:
             kind = primitive.get("kind")
             if kind == "line":
@@ -65,6 +69,12 @@ class SymbolPreviewItem(QGraphicsItem):
                     float(primitive["cy"]) - radius,
                     radius * 2.0,
                     radius * 2.0,
+                )
+            elif kind == "text":
+                painter.drawText(
+                    QRectF(float(primitive["x"]), float(primitive["y"]), float(primitive["width"]), float(primitive["height"])),
+                    Qt.AlignmentFlag.AlignCenter,
+                    str(primitive["text"]),
                 )
 
     @staticmethod
