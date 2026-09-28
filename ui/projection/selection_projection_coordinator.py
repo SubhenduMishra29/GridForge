@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.application.read_models import RelayReadModel
+
 from core.application.events import (
     ApplicationEvent,
     ElementRemoved,
@@ -68,6 +70,10 @@ class SelectionProjectionCoordinator:
             raise TypeError("application must provide read_element().")
         if not callable(getattr(application, "read_network", None)):
             raise TypeError("application must provide read_network().")
+        if not callable(getattr(application, "read_relay", None)):
+            raise TypeError("application must provide read_relay().")
+        if not callable(getattr(application, "read_protection", None)):
+            raise TypeError("application must provide read_protection().")
         self.application = application
         self.refresh()
 
@@ -111,29 +117,32 @@ class SelectionProjectionCoordinator:
             self.clear_projection()
             return
 
-        state = ProjectionState(
-            object_id=element.object_id,
-            display_type=element.element_type,
-            labels=tuple(str(value) for value in element.labels.values()),
-            connectivity_refs=tuple(element.connectivity_refs),
-            status=self._status(element.attributes),
-            engineering_parameters=tuple(
-                EngineeringParameterState(
-                    parameter_id=item.parameter_id,
-                    value=item.value,
-                    unit=item.unit,
-                    datatype=item.datatype,
-                    choices=item.choices,
-                    editable=item.editable,
-                    derived=item.derived,
-                    validation=item.validation,
-                    coupling_group=item.coupling_group,
-                    topology_impact=item.topology_impact,
-                    study_impact=item.study_impact,
-                )
-                for item in getattr(element, "engineering_parameters", ())
-            ),
-        )
+        if isinstance(element, RelayReadModel):
+            state = self._relay_projection(element)
+        else:
+            state = ProjectionState(
+                object_id=element.object_id,
+                display_type=element.element_type,
+                labels=tuple(str(value) for value in element.labels.values()),
+                connectivity_refs=tuple(element.connectivity_refs),
+                status=self._status(element.attributes),
+                engineering_parameters=tuple(
+                    EngineeringParameterState(
+                        parameter_id=item.parameter_id,
+                        value=item.value,
+                        unit=item.unit,
+                        datatype=item.datatype,
+                        choices=item.choices,
+                        editable=item.editable,
+                        derived=item.derived,
+                        validation=item.validation,
+                        coupling_group=item.coupling_group,
+                        topology_impact=item.topology_impact,
+                        study_impact=item.study_impact,
+                    )
+                    for item in getattr(element, "engineering_parameters", ())
+                ),
+            )
         self._set_panel_target(state)
 
     def clear_projection(self) -> None:
@@ -171,6 +180,14 @@ class SelectionProjectionCoordinator:
     def _read_selected_element(self, object_id: Any) -> Any | None:
         if self.application is None:
             return None
+        # Relay presentation identity belongs to ProtectionReadService.  The
+        # coordinator checks that read domain first instead of coercing Relay
+        # into NetworkReadService.
+        protection = self.application.read_protection()
+        for relay in getattr(protection, "relays", ()):
+            if getattr(relay, "object_id", None) == object_id:
+                return self.application.read_relay(str(object_id))
+
         network = self.application.read_network()
         for element in getattr(network, "elements", ()):
             if getattr(element, "object_id", None) == object_id:
@@ -179,6 +196,61 @@ class SelectionProjectionCoordinator:
                     return None
                 return self.application.read_element(element_type, str(object_id))
         return None
+
+    @staticmethod
+    def _relay_projection(relay: RelayReadModel) -> ProjectionState:
+        parameters = (
+            EngineeringParameterState(
+                parameter_id="name", value=relay.name, datatype="str", editable=True,
+                validation={"authoritative": "Core"},
+            ),
+            EngineeringParameterState(
+                parameter_id="relay_type", value=relay.relay_type, datatype="str", editable=False,
+                validation={"authoritative": "Core"},
+            ),
+            EngineeringParameterState(
+                parameter_id="function_type", value=relay.function_type, datatype="str", editable=False,
+                validation={"authoritative": "Core"},
+            ),
+            EngineeringParameterState(
+                parameter_id="plugin_id", value=relay.plugin_id, datatype="str", editable=True,
+                validation={"authoritative": "Core"},
+            ),
+            EngineeringParameterState(
+                parameter_id="settings", value=relay.settings, datatype="mapping", editable=True,
+                validation={"authoritative": "Core"}, study_impact=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="in_service", value=relay.in_service, datatype="bool", editable=True,
+                validation={"authoritative": "Core"}, topology_impact=True, study_impact=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="enabled", value=relay.enabled, datatype="bool", editable=True,
+                validation={"authoritative": "Core"}, study_impact=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="blocked", value=relay.blocked, datatype="bool", editable=True,
+                validation={"authoritative": "Core"}, study_impact=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="picked_up", value=relay.picked_up, datatype="bool", derived=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="tripped", value=relay.tripped, datatype="bool", derived=True,
+            ),
+            EngineeringParameterState(
+                parameter_id="input_channel_bindings", value=tuple(
+                    (item.input_name, item.channel_id) for item in relay.input_channel_bindings
+                ), datatype="tuple", editable=False, topology_impact=True,
+            ),
+        )
+        return ProjectionState(
+            object_id=relay.object_id,
+            display_type="relay",
+            labels=(relay.name,),
+            status="in_service" if relay.in_service else "out_of_service",
+            engineering_parameters=parameters,
+        )
 
     def _set_panel_target(self, state: ProjectionState) -> None:
         panel = self.properties_panel
