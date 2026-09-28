@@ -1378,3 +1378,18 @@ For this source-only pass, all source-reconciled items above are **remediated wi
 ### E. Architecture integrity
 
 No second Core, Application, Study, Power Flow, Protection, Control, Dynamics, SLD, topology, identity, persistence, or rendering authority was introduced. ProtectionWorkspace is read/presentation-only; Control execution reuses `Application.execute_control_cycle()`; selection deletion reuses existing typed DeleteCommands; obsolete Dynamics plugin code was retired rather than replaced by duplicate Core models.
+
+
+## 2026-09-28 — SLD Creation-to-Canvas Static Re-audit
+
+| Register item | Status | Current static evidence |
+|---|---|---|
+| GF-MASTER-0090 | STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED | CreationDefinition remains the schema/command contract; CreationDraft owns transient placement; CreationCommandFactory now sources position exclusively from CreationDraft; commit crosses ToolManager → Controller → Application.prepare_creation_command() → Application.execute(). |
+| GF-SLD-CANVAS-040 | STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED | SLDCanvasRenderSystem now incrementally reconciles the existing scene and retains structured RenderDiagnostic records for realization failures; no silent node-disappearance path remains in the realization boundary. |
+| GF-SLD-CANVAS-041 | STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED | Generic placement no longer implicitly commits on mouse release. PropertiesPanel exposes Create / Commit Equipment, routed through ToolManager/Controller to the immutable Application creation-command path. |
+| GF-DRAFT-COMMIT-006 | PARTIAL | The existing DraftNetwork commit path has same-transaction draft→Core→SLD rebinding, but the newly corrected direct CreationCommand path does not yet carry a draft identity into the typed Create* commands; complete draft/persistent-SLD rebinding therefore remains open. |
+| GF-DRAFT-COMMIT-009 | OPEN | The Properties panel now has an explicit final creation action, but the separate draft-id Apply Data contract remains outside this correction scope. |
+
+**Requested STY-016 through STY-026 and STY-032 through STY-034:** these identifiers are not present in the current implementation or canonical MASTER_AUDIT_REGISTER files inspected during this re-audit. They are therefore not assigned fabricated statuses; the existing GF-/WF-/TRACE register identities above are used for evidence-backed closure.
+
+**Verification boundary:** source inspection only. No pytest, CI, application startup, GUI execution, integration test, or runtime verification was performed.

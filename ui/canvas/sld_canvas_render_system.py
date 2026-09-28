@@ -51,6 +51,7 @@ class SLDCanvasRenderSystem:
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
         self._items: dict[str, tuple[Any, ...]] = {}
+        self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
@@ -118,23 +119,40 @@ class SLDCanvasRenderSystem:
         return pen
 
     def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
+        """Incrementally reconcile the existing scene with one immutable snapshot."""
         if not isinstance(snapshot, SLDCanvasSnapshot):
             raise TypeError("snapshot must be an SLDCanvasSnapshot")
-        self.clear()
+
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
-        realized: dict[str, Any] = {}
-        # Realize nodes first so semantic endpoint resolution can use canonical
-        # SymbolDefinition anchors and Bus attachment geometry.
+
+        desired_ids = {node.node_id for node in snapshot.nodes}
+        desired_ids.update(connection.connection_id for connection in snapshot.connections)
+        for item_id in tuple(self._items):
+            if item_id not in desired_ids:
+                self._remove_realized(item_id)
+
+        realized: dict[str, Any] = {
+            node_id: items[0]
+            for node_id, items in self._items.items()
+            if items
+        }
+
+        # Realize nodes first so endpoint resolution can use canonical symbol
+        # anchors and existing Bus attachment geometry.
         for node in snapshot.nodes:
+            signature = self._node_signature(node)
+            if self._render_signatures.get(node.node_id) == signature and node.node_id in self._items:
+                realized[node.node_id] = self._items[node.node_id][0]
+                continue
+
+            if node.node_id in self._items:
+                self._remove_realized(node.node_id)
             try:
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
             except Exception as exc:
-                # The authored SLD node remains intact. The failure is explicit
-                # projection state and is also exposed through structured
-                # diagnostics so blank rendering cannot masquerade as absence.
                 message = f"{type(exc).__name__}: {exc}"
                 self._unsupported_presentations[node.node_id] = message
                 diagnostic = RenderDiagnostic(
@@ -153,9 +171,15 @@ class SLDCanvasRenderSystem:
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
+            self._render_signatures[node.node_id] = signature
             realized[node.node_id] = item
 
         for connection in snapshot.connections:
+            signature = self._connection_signature(connection)
+            if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
+                continue
+            if connection.connection_id in self._items:
+                self._remove_realized(connection.connection_id)
             if connection.source_endpoint is None or connection.target_endpoint is None:
                 self._unsupported_connections[connection.connection_id] = "Missing canonical endpoint references."
                 continue
@@ -178,6 +202,27 @@ class SLDCanvasRenderSystem:
             item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)
+            self._render_signatures[connection.connection_id] = signature
+
+    @staticmethod
+    def _node_signature(node: Any) -> str:
+        presentation = getattr(node.presentation, "to_dict", lambda: None)()
+        properties = tuple(sorted((str(key), repr(value)) for key, value in node.properties.items()))
+        return repr((node.node_id, node.equipment_id, node.x, node.y, presentation, properties))
+
+    @staticmethod
+    def _connection_signature(connection: Any) -> str:
+        route = getattr(connection.route, "to_dict", lambda: None)()
+        properties = tuple(sorted((str(key), repr(value)) for key, value in connection.properties.items()))
+        return repr((connection.connection_id, connection.source_node_id, connection.target_node_id,
+                     connection.source_endpoint, connection.target_endpoint, route, properties))
+
+    def _remove_realized(self, item_id: str) -> None:
+        items = self._items.pop(item_id, ())
+        for item in items:
+            if item is not None and item.scene() is self._scene:
+                self._scene.removeItem(item)
+        self._render_signatures.pop(item_id, None)
 
     def clear(self) -> None:
         for items in tuple(self._items.values()):
@@ -185,6 +230,7 @@ class SLDCanvasRenderSystem:
                 if item is not None and item.scene() is self._scene:
                     self._scene.removeItem(item)
         self._items.clear()
+        self._render_signatures.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()

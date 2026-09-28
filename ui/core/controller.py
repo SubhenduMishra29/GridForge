@@ -116,6 +116,19 @@ class Controller(QObject):
             raise RuntimeError("Controller requires the canonical ToolManager for tool activation.")
         manager.activate(tool_id)
 
+    def commit_creation(self) -> bool:
+        """Commit the active equipment creation through ToolManager/Application."""
+        self._ensure_active()
+        manager = self._tool_manager
+        if manager is None:
+            raise RuntimeError("Controller requires the canonical ToolManager for creation commit.")
+        commit = getattr(manager, "commit_creation", None)
+        if not callable(commit):
+            raise RuntimeError("ToolManager does not expose commit_creation().")
+        result = bool(commit())
+        self.state_changed.emit()
+        return result
+
     def clear_tool(self) -> None:
         self._ensure_active()
         manager = self._tool_manager
