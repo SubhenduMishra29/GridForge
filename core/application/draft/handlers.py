@@ -58,7 +58,7 @@ class CommitNetworkHandler:
             child=CreationCommandPreparer.prepare(CreationCommitIntent(command_type=item.command_type,id_field=item.id_field,object_id=core_ids[item.draft_id],parameter_mapping=dict(item.parameter_mapping),endpoint_mapping=dict(item.endpoint_mapping),values=dict(item.engineering_data),endpoints=endpoints,position=item.placement))
             result=model_handlers[child.command_type](child,context,transaction)
             if not result.success: raise RuntimeError(result.message)
-            created.append({"draft_id":item.draft_id,"core_id":core_ids[item.draft_id],"element_type":item.equipment_type,"x":item.placement[0] if item.placement else None,"y":item.placement[1] if item.placement else None,"presentation":dict(item.presentation)})
+            created.append({"draft_id":item.draft_id,"core_id":core_ids[item.draft_id],"sld_node_id":f"sld-draft-{item.draft_id}","element_type":item.equipment_type,"x":item.placement[0] if item.placement else None,"y":item.placement[1] if item.placement else None,"presentation":dict(item.presentation)})
         wire_service=SimpleWireConnectionService(); committed_connections=[]
         from ..commands.simple_wire_commands import CreateSimpleWireConnectionCommand
         for item in snapshot.connections:
@@ -67,6 +67,6 @@ class CommitNetworkHandler:
             a=self._endpoint(source,core_ids); b=self._endpoint(target,core_ids)
             result=wire_service.execute(CreateSimpleWireConnectionCommand(connection_id=item.connection_id,endpoint_a=a,endpoint_b=b),context,transaction)
             if not result.success: raise RuntimeError(result.message)
-            committed_connections.append({"connection_id":item.connection_id,"endpoint_a":dict(a.to_mapping()),"endpoint_b":dict(b.to_mapping()),"source_draft_id":item.source_draft_id,"target_draft_id":item.target_draft_id})
+            committed_connections.append({"connection_id":item.connection_id,"sld_connection_id":f"sld-draft-{item.connection_id}","endpoint_a":dict(a.to_mapping()),"endpoint_b":dict(b.to_mapping()),"source_draft_id":item.source_draft_id,"target_draft_id":item.target_draft_id})
         d.clear_after_commit(); transaction.record_undo(lambda:d.restore_snapshot(snapshot.to_dict()))
         return ApplicationResult.success_result(message="Commit Network completed.",metadata={"draft_to_core":core_ids,"created_elements":tuple(created),"committed_connections":tuple(committed_connections),"operation":"network.commit_draft"})
