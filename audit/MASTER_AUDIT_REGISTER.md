@@ -325,7 +325,7 @@ Static remediation and static self-review were performed against the current wor
 | GF-MASTER-0064 | RCA-UI-BOOTSTRAP-005 — project hierarchy lifecycle authority | **REMEDIATED — VERIFICATION DEFERRED** | Workspace/project UI remains downstream of Application project lifecycle; no second Core project lifecycle was introduced |
 | GF-MASTER-0065 | RCA-UI-WORKSPACE-001 — workspace transition rollback integrity | **REMEDIATED — VERIFICATION DEFERRED** | `WorkspaceRealizer.realize()` compensates failed realization using the prior realized layout and surfaces restoration failure |
 | GF-MASTER-0066 | RCA-SLD-AUTH-002 — validate SLD equipment references | **CLOSED** | `SLDService._add_node()` validates bound equipment through Application network/protection read models before creating authored presentation state |
-| GF-MASTER-0067 | RCA-SLD-CONN-002 — canonical terminal identity / terminal realization | **OPEN — unresolved** | Complete Core Terminal → SLD terminal → anchor → snap resolution is not source-proven end-to-end |
+| GF-MASTER-0067 | RCA-SLD-CONN-002 — canonical terminal identity / terminal realization | **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED** | Core Terminal role → EndpointReference → SLD semantic endpoint → realized EquipmentItem/BusItem anchor candidates → SLDEndpointResolver → SLDConnectionItem is source-proven; canvas projection now preserves endpoint identity and reports unresolved node/endpoint/anchor failures through RenderDiagnostic. |
 | GF-MASTER-0068 | RCA-SLD-PREVIEW-001 — Bus live cursor preview | **CLOSED** | `PreviewLayer.show_bus()` and `BusTool` preview lifecycle provide transient preview without Core mutation |
 | GF-MASTER-0069 | RCA-SLD-INTERACTION-002 — duplicate interaction state | **OPEN — unresolved** | Concrete tools retain local interaction state; no safe evidence justified broad consolidation with `ToolInteraction` in this pass |
 | GF-MASTER-0070 | RCA-APP-ID-001 — measurement command identity vocabulary | **OPEN — SOURCE EVIDENCE PENDING** | No compatibility alias/consumer sweep was changed without direct source proof for historical `transformer_id` vocabulary |
@@ -334,6 +334,19 @@ Static remediation and static self-review were performed against the current wor
 | GF-MASTER-0073 | RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation | **CLOSED** | `EndpointReference` remains canonical; `resolve_terminal_reference()` supports unconnected-terminal use cases without a second identity model |
 | GF-MASTER-0074 | RCA-SLD-CONN-001 — canonical electrical connection/reconnection workflow | **REMEDIATED — VERIFICATION DEFERRED** | Added connect/disconnect/reconnect commands, Application service/handlers, EndpointReference resolution, Core Terminal attach/detach, Network invalidation, transaction undo, semantic topology events, and downstream SLD reconciliation |
 
+
+
+## 2026-09-28 — SLD connection projection / endpoint identity static correction
+
+**Implementation repository:** `pandaraseswari03-collab/GridForge`  
+**Verification mode:** static source inspection only. Tests, CI, startup, GUI execution, and runtime verification were not performed.
+
+| Existing Master ID | Scope | Status | Static evidence |
+|---|---|---|---|
+| GF-MASTER-0067 / RCA-SLD-CONN-002 | Persisted SLD endpoint identity through canvas projection and terminal-anchor realization | **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED** | `SLDCanvasProjection._project_connection()` preserves connection/node IDs, semantic endpoints, route, connection kind, presentation owner, and projection source; `SLDCanvasRenderSystem.synchronize()` resolves endpoints only after node realization and emits structured diagnostics for missing nodes/endpoints/anchors; `SLDGraphicsItemFactory.create_connection()` passes semantic endpoint identity into the canonical `SLDConnectionItem`; `SLDEndpointResolver.resolve()` selects terminal/attachment candidates from presentation snap points rather than node centers. |
+| GF-MASTER-0074 / RCA-SLD-CONN-001 | Downstream persisted connection presentation path | **REMEDIATED — VERIFICATION DEFERRED** | Existing Application/Core connection workflow remains unchanged; this correction is downstream at SLD projection/rendering and does not introduce another command, service, or topology authority. |
+
+No new Master ID was introduced. Runtime canvas behavior remains unverified/deferred.
 
 ## Post-correction static re-audit — 2026-09-22
 
@@ -368,7 +381,7 @@ Runtime evidence remains intentionally outside this static classification.
 | GF-SLD-TERM-028 | Multi-terminal snap identity needed an explicit role contract. | `ui/core/snap_system.py`, `ui/items/equipment_item.py` | Terminal index/order could become a semantic fallback. | Snap candidates carry explicit `terminal_name`; adapter rejects missing terminal role instead of inferring it. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
 | GF-SLD-SNAP-022 | SnapResult needed terminal-aware provenance across normalization. | `ui/core/snap_system.py` | Tools could receive a position without enough endpoint identity. | `SnapResult` retains object/source/terminal metadata through normalized candidates. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
 | RCA-SLD-CONN-002 | Complete Core Terminal → SLD anchor → snap → canonical endpoint chain was previously unproven. | `core/model/terminal.py`, `ui/equipment/equipment_factory.py`, `ui/items/equipment_item.py`, `ui/core/snap_system.py`, `ui/tools/endpoint_identity_adapter.py`, `core/application/endpoint_reference.py` | Connection intent could diverge from authoritative Core terminal identity. | Preserve explicit terminal role end-to-end and terminate at canonical `EndpointReference.terminal()`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
-| GF-MASTER-0067 | Master register retained the unresolved generic terminal/snap chain finding after source corrections. | Same SLD terminal/snap chain above | Register state could lag the corrected source contract. | Reconciled the finding with explicit static evidence and retained runtime status as deferred. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-MASTER-0067 | Master register reconciled after SLD connection projection correction. | Same SLD terminal/snap chain above | Projection, snapshot, renderer, canonical item, and diagnostic chain are source-proven. | **STATICALLY CLOSED** | **RUNTIME VERIFICATION DEFERRED** |
 | GF-PROT-035 | MeasurementChannel setter validated generic object identity instead of the canonical terminal reference contract. | `core/measurement/measurement_channel.py` | A non-canonical source-terminal representation could enter the channel. | Enforce terminal `EndpointReference` in `set_source_terminal()`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
 | GF-PROT-036 | Measurement generation context represented source terminal as a free-form string. | `core/measurement/measurement_generation.py` | Source provenance could be detached from canonical equipment identity. | `PreparedMeasurementContext.source_terminal` now requires terminal `EndpointReference`; generation validates equipment identity and uses `terminal_role`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
 | GF-PROT-037 | Measurement provisioning lacked a dedicated orchestration boundary. | `core/measurement/measurement_provisioning.py`, `core/application/endpoint_resolver.py` | Channel creation could be scattered across callers and bypass explicit terminal resolution. | Added the smallest provisioning boundary; it resolves the explicit endpoint through the existing resolver and creates the canonical channel. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
@@ -760,7 +773,7 @@ This is the baseline effective-status index for the **75 active Master IDs**. Th
 | GF-MASTER-0064 | UI | Lifecycle authority | Workspace remains downstream of Application lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0065 | UI | Workspace rollback | WorkspaceRealizer compensates failed realization using prior layout | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0066 | SLD | Reference validation | Authored SLD equipment references are validated through Application read state | HIGH | **STATIC CLOSED** | No runtime verification |
-| GF-MASTER-0067 | SLD | Terminal/snap identity | Canonical terminal identity / terminal realization | HIGH | **STATICALLY VERIFIED** | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED |
+| GF-MASTER-0067 | SLD | Terminal/snap identity | Canonical terminal identity / terminal realization | HIGH | **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED** | Static projection → snapshot → resolver → graphics-item chain complete; runtime verification deferred |
 | GF-MASTER-0068 | SLD | Preview | Bus placement preview uses existing PreviewLayer architecture | MEDIUM | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **STATIC CLOSED** | Static source verification; runtime deferred |
 | GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
