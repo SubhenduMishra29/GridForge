@@ -1,22 +1,8 @@
+"""Retired Dynamics PSS plugin package.
+
+The frozen current Core architecture does not contain an authoritative PSS
+model. The historical plugin is therefore not exposed as a compatibility
+facade or duplicate Core authority.
 """
-GridForge PSS Plugin
-"""
 
-from .model import PSSPlugin
-
-from .plugin import (
-    PLUGIN_ID,
-    PLUGIN_TYPE,
-    PLUGIN_VERSION,
-    create_pss_plugin,
-    plugin_info,
-)
-
-__all__ = [
-    "PSSPlugin",
-    "PLUGIN_ID",
-    "PLUGIN_TYPE",
-    "PLUGIN_VERSION",
-    "create_pss_plugin",
-    "plugin_info",
-]
+__all__: tuple[str, ...] = ()
