@@ -109,10 +109,15 @@ class DraftNetwork:
     def remove_connection(self,connection_id): return self._connections.pop(connection_id)
     def validate(self):
         errors=[]
+        from ..creation import CreationCommitIntent, CreationCommandPreparer
         for item in self._equipment.values():
             if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
             for role in item.endpoints:
                 if role not in item.terminal_contract: errors.append(f"{item.draft_id}: endpoint role {role!r} is not canonical.")
+            try:
+                CreationCommandPreparer.prepare(CreationCommitIntent(command_type=item.command_type,id_field=item.id_field,object_id=item.draft_id,parameter_mapping=dict(item.parameter_mapping),endpoint_mapping=dict(item.endpoint_mapping),values=dict(item.engineering_data),endpoints=dict(item.endpoints),position=item.placement))
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"{item.draft_id}: engineering/create-command validation failed: {exc}")
         for item in self._connections.values():
             try: source,target=self.require_equipment(item.source_draft_id),self.require_equipment(item.target_draft_id)
             except KeyError: errors.append(f"{item.connection_id}: unresolved draft endpoint."); continue

@@ -519,7 +519,7 @@ class Application:
         if command_type == "network.commit_draft":
             if self._sld_service is not None:
                 for item in tuple(result.metadata.get("created_elements", ())):
-                    node_id = f"sld-draft-{item['draft_id']}"
+                    node_id = str(item.get("sld_node_id") or f"sld-draft-{item['draft_id']}")
                     existing = self._sld_service.document.model.get_node_optional(node_id)
                     if existing is not None:
                         self._sld_service.execute(RemoveSLDNodeCommand(node_id=node_id), transaction)
@@ -533,7 +533,7 @@ class Application:
                             correlation_id=command.correlation_id, causation_id=command.command_id,
                         ), transaction)
                 for item in tuple(result.metadata.get("committed_connections", ())):
-                    connection_id = f"sld-draft-{item['connection_id']}"
+                    connection_id = str(item.get("sld_connection_id") or f"sld-draft-{item['connection_id']}")
                     if self._sld_service.document.model.get_connection_optional(connection_id) is not None:
                         self._sld_service.execute(RemoveSLDConnectionCommand(connection_id=connection_id), transaction)
                     self._sld_service.execute(AddSLDConnectionCommand(
