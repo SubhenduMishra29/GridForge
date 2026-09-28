@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # GridForge V2 — SLD Connection Graphics Projection
 # ============================================================
 """Presentation-only realization of one semantic SLD connection."""
