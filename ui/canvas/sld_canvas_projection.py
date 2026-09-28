@@ -43,6 +43,9 @@ class SLDCanvasConnection:
     source_endpoint: SLDEndpoint | None
     target_endpoint: SLDEndpoint | None
     route: SLDRoute
+    connection_kind: str | None
+    presentation_owner: str | None
+    projection_source: str | None
     properties: Mapping[str, Any]
 
 
@@ -86,6 +89,8 @@ class SLDCanvasProjection:
 
     @staticmethod
     def _project_connection(connection: SLDConnection) -> SLDCanvasConnection:
+        """Preserve the complete semantic/presentation connection descriptor."""
+        properties = dict(connection.properties)
         return SLDCanvasConnection(
             connection_id=connection.connection_id,
             source_node_id=connection.source_node_id,
@@ -93,8 +98,20 @@ class SLDCanvasProjection:
             source_endpoint=connection.source_endpoint,
             target_endpoint=connection.target_endpoint,
             route=connection.route,
-            properties=MappingProxyType(dict(connection.properties)),
+            connection_kind=SLDCanvasProjection._property_value(properties, "connection_kind", "kind"),
+            presentation_owner=SLDCanvasProjection._property_value(properties, "presentation_owner", "owner"),
+            projection_source=SLDCanvasProjection._property_value(properties, "projection_source", "source"),
+            properties=MappingProxyType(properties),
         )
+
+    @staticmethod
+    def _property_value(properties: Mapping[str, Any], *names: str) -> str | None:
+        """Read an existing persisted vocabulary without creating a new identity."""
+        for name in names:
+            value = properties.get(name)
+            if value is not None:
+                return str(value)
+        return None
 
 
 __all__ = [
