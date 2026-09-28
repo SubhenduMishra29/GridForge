@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import QBrush, QIcon, QPainter, QPen, QPixmap, QSize, Qt
+from ui.core.qt import QBrush, QFont, QIcon, QPainter, QPen, QPixmap, QSize, Qt, QRectF
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
+from ui.styling.presentation_style import token_color, visual_font
 
 
 class PaletteSymbolAdapter:
@@ -97,6 +98,21 @@ class PaletteSymbolAdapter:
                 float(primitive["cy"]) - radius,
                 radius * 2.0,
                 radius * 2.0,
+            )
+        elif kind == "text":
+            # Engineering labels are part of the canonical SymbolDefinition
+            # and must remain visible in palette previews.
+            painter.setPen(QPen(token_color("symbol_stroke")))
+            painter.setFont(visual_font("engineering"))
+            painter.drawText(
+                QRectF(
+                    float(primitive["x"]),
+                    float(primitive["y"]),
+                    float(primitive["width"]),
+                    float(primitive["height"]),
+                ),
+                Qt.AlignmentFlag.AlignCenter,
+                str(primitive["text"]),
             )
 
     @staticmethod
