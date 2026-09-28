@@ -107,6 +107,7 @@ These capabilities must remain presentation concerns.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, Optional
 
@@ -384,6 +385,19 @@ class StyleManager:
         return self.load_stylesheet()
 
     # ========================================================
+    # TOKEN RESOLUTION
+    # ========================================================
+
+    def render_stylesheet(self, stylesheet: Optional[str] = None) -> str:
+        """Resolve semantic token markers through the active Theme."""
+        source = self.get_stylesheet() if stylesheet is None else stylesheet
+        rendered = source
+        for field in fields(self._theme.tokens):
+            value = getattr(self._theme.tokens, field.name)
+            rendered = rendered.replace("{{" + field.name + "}}", str(value))
+        return rendered
+
+    # ========================================================
     # APPLICATION
     # ========================================================
 
@@ -421,7 +435,7 @@ class StyleManager:
                 "before applying UI styling."
             )
 
-        stylesheet = self.get_stylesheet()
+        stylesheet = self.render_stylesheet()
 
         try:
             target.setStyleSheet(
