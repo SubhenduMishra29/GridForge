@@ -1257,3 +1257,19 @@ The repository source also establishes canonical endpoint conversion through `Sn
 
 `ui/canvas/sld_canvas_render_system.py` incorrectly declared `bind_diagnostic_sink()` as a property while `main.py` invokes it as a method. This was a live composition defect capable of preventing diagnostic binding during startup. It was corrected in commit `75a3130fb3e076f71d16903e88903d83f70701dc`, preserving the existing diagnostic-sink architecture.
 
+
+
+## 2026-09-28 — GF-TRACE-001 / GF-TRACE-002 Remediation
+
+**Canonical implementation:** `pandaraseswari03-collab/GridForge:main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only; no pytest, CI, startup, GUI, or runtime execution.
+
+| Finding | Status | Correction evidence |
+|---|---|---|
+| GF-TRACE-001 | **REMEDIATED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED** | `core/application/read_service.py` now explicitly translates plural Application read-model collection names to singular Core registry types before `Network.get_by_id()`. Core registry vocabulary remains unchanged and authoritative. |
+| GF-TRACE-002 | **REMEDIATED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED** | `ui/tools/model_placement_tool.py` and `ui/tools/bus_tool.py` now complete `CreationContext` and clear transient placement state immediately after the committed Application command and before synchronous selection projection. |
+
+Detailed evidence: `audit/GF_TRACE_001_002_REMEDIATION_2026-09-28.md`.
+
+Historical audit IDs remain preserved. Runtime GUI/startup/repeated-placement behavior is not claimed as verified.
