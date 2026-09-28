@@ -240,7 +240,7 @@ class ControlWorkspace(QWidget):
         simulation_time = getattr(result, "simulation_time", None)
         self._status.set_status("Control cycle completed" if simulation_time is None else f"Control cycle completed at t={simulation_time:g}")
 
-    def _set_editing_enabled(self, enabled: bool) -> None
+    def _set_editing_enabled(self, enabled: bool) -> None:
         self._toolbar.set_editing_enabled(enabled)
         self._palette.setEnabled(bool(enabled))
 
