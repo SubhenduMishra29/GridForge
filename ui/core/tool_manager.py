@@ -161,7 +161,13 @@ class ToolManager:
     def active_tool_id(self) -> str | None:
         return self.get_current_tool_id()
 
-    def activate(self, tool_id: str | None) -> Any | None:
+    def activate(
+        self,
+        tool_id: str | None,
+        *,
+        cancel_active_creation: bool = False,
+    ) -> Any | None:
+        """Activate a tool, optionally cancelling an explicit user-requested draft switch."""
         self._ensure_active()
         if tool_id is not None:
             self._validate_tool_id(tool_id)
@@ -180,8 +186,19 @@ class ToolManager:
         previous_tool = self._active_tool
         previous_draft = self.creation_context.snapshot_draft()
 
+        # Only an explicit caller may authorize cancellation of the active
+        # transient creation session.  Palette switching uses this path; other
+        # callers retain the strict lifecycle guard below.
+        if (
+            cancel_active_creation
+            and previous_tool is not None
+            and previous_id != tool_id
+            and self.creation_context.active
+        ):
+            self.cancel()
+
         # An active creation session may not be destroyed implicitly by a
-        # palette/tool switch.  The caller must explicitly cancel first.
+        # tool switch.  The caller must explicitly authorize cancellation.
         if previous_tool is not None and previous_id != tool_id and self.creation_context.active:
             raise RuntimeError(
                 "Active equipment creation must be explicitly cancelled before switching tools."
