@@ -75,7 +75,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 from ui.styling.style_tokens import DEFAULT_STYLE_TOKENS
-from ui.styling.presentation_style import VisualState, visual_pen
 from .grid_system import GridSystem
 
 from ui.core.qt import (
@@ -152,7 +151,11 @@ class GridScene(QGraphicsScene):
         grid = self._grid_system
         if not grid.visible:
             return
-        painter.setPen(visual_pen("symbol", VisualState.DISCONNECTED, width=0.7))
+        minor_pen = QPen(QColor(DEFAULT_STYLE_TOKENS.canvas_grid_minor))
+        setter = getattr(minor_pen, "setWidthF", None)
+        if callable(setter):
+            setter(0.7)
+        painter.setPen(minor_pen)
         if grid.minor_visible:
             for x1, y1, x2, y2 in grid.get_lines(rect, major=False):
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
