@@ -127,16 +127,26 @@ class ModelPlacementTool(ToolBase):
         self._show_preview(self._position or draft.placement_position)
         return True
 
-    def _commit_if_valid(self) -> bool:
+    def commit_creation(self) -> bool:
+        """Commit the active CreationDraft through the canonical Application boundary."""
+        self._ensure_active()
         draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
-            self._report_feedback("Draft configuration or endpoint validation failed.")
+            self._report_feedback("Draft configuration, placement, or endpoint validation failed.")
             return False
-        self.persist_transient_draft()
-        self._require_creation_context().cancel()
+        command = self._build_command()
+        result = self.execute_command(command)
+        if not result.success:
+            self._report_feedback(result.message)
+            return False
+        self._require_creation_context().complete()
         self._clear_state()
         self._active_draft_id = None
+        self._report_feedback(f"{draft.equipment_type} committed.")
         return True
+
+    def _commit_if_valid(self) -> bool:
+        return self.commit_creation()
 
     def _draft_network(self) -> Any:
         draft_network = getattr(self.application, "draft_network", None)
@@ -358,13 +368,14 @@ class ModelPlacementTool(ToolBase):
 
     def _build_command(self) -> Any:
         draft = self._require_creation_context().require_draft()
-        if self._position is None:
+        if draft.placement_position is None:
             raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
         draft.mark_committing()
-        return CreationCommandFactory.build(
-            draft,
-            object_id=f"{draft.definition.tool_id}-{uuid4().hex}",
-            position=self._position,
+        return self.application.prepare_creation_command(
+            CreationCommandFactory.build(
+                draft,
+                object_id=f"{draft.definition.tool_id}-{uuid4().hex}",
+            )
         )
 
     @staticmethod
