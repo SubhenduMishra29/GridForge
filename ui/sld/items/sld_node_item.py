@@ -12,6 +12,7 @@ immutable reference and no domain mutation is performed here.
 from __future__ import annotations
 
 from ui.core.qt import QGraphicsEllipseItem, QPointF, QRectF
+from ui.styling.presentation_style import VisualState, visual_brush, visual_pen
 
 
 class SLDNodeItem(QGraphicsEllipseItem):
@@ -25,6 +26,10 @@ class SLDNodeItem(QGraphicsEllipseItem):
         half = self._SIZE / 2.0
         super().__init__(QRectF(-half, -half, self._SIZE, self._SIZE))
         self._object_id = object_id
+        self._visual_state = VisualState.NORMAL
+        self.setAcceptHoverEvents(True)
+        self.setPen(visual_pen("terminal", VisualState.NORMAL, width=1.5))
+        self.setBrush(visual_brush("terminal", VisualState.NORMAL))
         self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, True)
 
     @property
@@ -40,3 +45,17 @@ class SLDNodeItem(QGraphicsEllipseItem):
         """Return the current presentation position."""
         position = self.pos()
         return (position.x(), position.y())
+
+
+    def set_visual_state(self, state: VisualState | str) -> None:
+        self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
+        self.setPen(visual_pen("terminal", self._visual_state, width=1.5))
+        self.setBrush(visual_brush("terminal", self._visual_state))
+
+    def hoverEnterEvent(self, event) -> None:
+        self.set_visual_state(VisualState.HOVER)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        self.set_visual_state(VisualState.SELECTED if self.isSelected() else VisualState.NORMAL)
+        super().hoverLeaveEvent(event)
