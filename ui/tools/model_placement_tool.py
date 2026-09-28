@@ -90,11 +90,13 @@ class ModelPlacementTool(ToolBase):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
-        snap = (
-            self._snap_result(event)
-            if draft.placement_position is None
-            else self._snap_endpoint_result(event)
-        )
+        if draft.placement_position is None:
+            snap = self._snap_result(event)
+        else:
+            if not draft.configuration_complete:
+                self._report_feedback("Required engineering parameter missing.")
+                return False
+            snap = self._snap_endpoint_result(event)
         if snap is None:
             return False
 
@@ -201,6 +203,10 @@ class ModelPlacementTool(ToolBase):
             self._show_preview(self._position or draft.placement_position)
             self._endpoint_acquired_this_interaction = False
             self._accepted_endpoint_snap = None
+            pending_role = self._pending_creation_role(draft)
+            if pending_role is not None:
+                self._report_feedback(f"Another endpoint is still required: {pending_role}.")
+                return False
             return self._commit_if_valid()
 
         position = self._snap_position(event)
