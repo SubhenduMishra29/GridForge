@@ -143,14 +143,15 @@ class EquipmentPanelWidget(QWidget):
         # through ToolManager before requesting the new tool.  ToolManager
         # intentionally rejects implicit destruction of an active draft.
         active_tool_id = self._tool_manager.active_tool_id
-        if (
+        explicit_creation_switch = (
             active_tool_id is not None
             and active_tool_id != tool_id
-            and self._tool_manager.creation_context.active
-        ):
-            self._tool_manager.cancel()
+        )
 
-        tool = self._tool_manager.activate(tool_id)
+        tool = self._tool_manager.activate(
+            tool_id,
+            cancel_active_creation=explicit_creation_switch,
+        )
         self._active_tool_id = self._tool_manager.active_tool_id
         if self._properties_panel is not None:
             setter = getattr(self._properties_panel, "set_creation_draft", None)
