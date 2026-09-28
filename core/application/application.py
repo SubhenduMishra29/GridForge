@@ -620,6 +620,25 @@ class Application:
             return
 
         source = "protection_read_model" if element_type.upper() == "RELAY" else "application_read_model"
+
+        # The SLD projection is allowed to bind only after the authoritative
+        # Application read model contains the just-created Core element. This
+        # keeps AddSLDNodeCommand downstream of the authoritative read state
+        # rather than making the SLD layer infer creation success from command
+        # payloads.
+        if element_type.upper() == "RELAY":
+            protection = self.read_protection()
+            if not any(item.object_id == element_id for item in protection.relays):
+                raise ValueError(
+                    f"Created Relay {element_id!r} is not present in the authoritative protection read model."
+                )
+        else:
+            read_model = self.read_element(element_type, element_id)
+            if read_model.object_id != element_id:
+                raise ValueError(
+                    f"Created equipment identity mismatch: expected {element_id!r}, got {read_model.object_id!r}."
+                )
+
         existing = self._sld_service.document.model.get_node_by_equipment_id_optional(element_id)
         if existing is not None:
             if existing.properties.get("presentation_owner") == "engineer" and existing.properties.get("projection_source") is None:
@@ -1047,7 +1066,7 @@ class Application:
                 "load_id", "motor_id", "shunt_id", "reactor_id", "solar_id",
                 "battery_id", "capacitor_id", "breaker_id", "switch_id",
                 "disconnector_id", "fuse_id", "line_id", "transformer_id",
-                "cable_id", "ct_id", "pt_id", "cvt_id",
+                "cable_id", "ct_id", "pt_id", "cvt_id", "relay_id",
             ):
                 if key in payload: value = payload[key]; break
         return str(value) if value is not None else None
