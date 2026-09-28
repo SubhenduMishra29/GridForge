@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/canvas/grid_scene.py
 # GridForge V2 — Canvas Scene
+# Author: Subhendu Mishra
 # ============================================================
 """
 GridForge V2 canvas scene.
