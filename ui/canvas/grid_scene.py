@@ -74,7 +74,7 @@ No direct PySide6/PyQt imports are permitted.
 from __future__ import annotations
 
 from typing import Any, Optional
-from ui.styling.style_tokens import DEFAULT_STYLE_TOKENS
+from ui.styling.presentation_style import token_color
 from .grid_system import GridSystem
 
 from ui.core.qt import (
@@ -147,11 +147,11 @@ class GridScene(QGraphicsScene):
 
     def drawBackground(self, painter: Any, rect: QRectF) -> None:
         """Render a subordinate engineering grid behind projected graphics."""
-        painter.fillRect(rect, QColor(DEFAULT_STYLE_TOKENS.canvas_background))
+        painter.fillRect(rect, token_color("canvas_background"))
         grid = self._grid_system
         if not grid.visible:
             return
-        minor_pen = QPen(QColor(DEFAULT_STYLE_TOKENS.canvas_grid_minor))
+        minor_pen = QPen(token_color("canvas_grid_minor"))
         setter = getattr(minor_pen, "setWidthF", None)
         if callable(setter):
             setter(0.7)
@@ -160,7 +160,7 @@ class GridScene(QGraphicsScene):
             for x1, y1, x2, y2 in grid.get_lines(rect, major=False):
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
         if grid.major_visible:
-            major_pen = QPen(QColor(DEFAULT_STYLE_TOKENS.canvas_grid_major))
+            major_pen = QPen(token_color("canvas_grid_major"))
             setter = getattr(major_pen, "setWidthF", None)
             if callable(setter):
                 setter(0.9)
