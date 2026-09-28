@@ -861,7 +861,10 @@ class ToolbarPlugin(QObject):
                 )
             )
 
-        set_tool(tool_id)
+        # Toolbar selection is an explicit user request to switch tools.
+        # Authorize cancellation of the previous transient creation session
+        # rather than letting ToolManager destroy it implicitly.
+        set_tool(tool_id, cancel_active_creation=True)
 
         authoritative_tool_id = get_current_tool_id()
 
