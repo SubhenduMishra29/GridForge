@@ -1,6 +1,6 @@
 # GridForge V2 — Architecture Reconciliation Matrix
 
-Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
+Baseline: `main` — current effective re-audit HEAD `f27ef42a39333f5fb35522e5839d23f58a427207`
 
 | Area | Frozen Requirement | Current Implementation Evidence | Status | Finding IDs | Root Cause |
 |---|---|---|---|---|---|
@@ -41,3 +41,8 @@ Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
 | Reactive equipment | Capacitor/Reactor feed prepared shunt representation | Historical remediation records `PreparedShunt` integration | UNVERIFIED | GF-MASTER-0024 |
 | Short Circuit | Detached sequence/fault input before solver | Historical remediation added Short Circuit preparation boundary | UNVERIFIED | GF-MASTER-0026 |
 | Persistence engineering truth | Engineering units/bases preserved, ambiguity rejected | Migration audit documents explicit metadata/ambiguity rejection | UNVERIFIED | GF-MASTER-0032 |
+
+
+## 2026-09-28 — Current effective re-audit
+
+The matrix above contains historical/status snapshots and is retained as audit chronology. The current implementation authority is `pandaraseswari03-collab/GridForge:main`. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
