@@ -21,6 +21,21 @@ from .creation import CreationCommitIntent, CreationCommandPreparer
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand
+from .commands.model_commands import (
+    DeleteBusCommand, DeleteGridCommand, DeleteGeneratorCommand, DeleteLoadCommand,
+    DeleteShuntCommand, DeleteLineCommand, DeleteTransformerCommand, DeleteCableCommand,
+    DeleteSwitchCommand, DeleteDisconnectorCommand, DeleteFuseCommand,
+)
+from .commands.breaker_commands import DeleteBreakerCommand
+from .commands.capacitor_commands import DeleteCapacitorCommand
+from .commands.reactor_commands import DeleteReactorCommand
+from .commands.motor_commands import DeleteMotorCommand
+from .commands.synchronous_machine_commands import DeleteSynchronousMachineCommand
+from .commands.solar_commands import DeleteSolarCommand
+from .commands.battery_commands import DeleteBatteryCommand
+from .commands.measurement_commands import DeleteCurrentTransformerCommand, DeleteCapacitiveVoltageTransformerCommand
+from .commands.pt_commands import DeletePTCommand
+from .commands.relay_commands import DeleteRelayCommand
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -70,6 +85,30 @@ class Application:
         "generator", "synchronous_machine", "motor", "shunt", "capacitor", "reactor", "solar", "battery", "grid",
     })
     _STATE_CHANGE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
+    _DELETE_COMMANDS = {
+        "bus": (DeleteBusCommand, "bus_id"),
+        "grid": (DeleteGridCommand, "grid_id"),
+        "generator": (DeleteGeneratorCommand, "generator_id"),
+        "load": (DeleteLoadCommand, "load_id"),
+        "shunt": (DeleteShuntCommand, "shunt_id"),
+        "line": (DeleteLineCommand, "line_id"),
+        "transformer": (DeleteTransformerCommand, "transformer_id"),
+        "cable": (DeleteCableCommand, "cable_id"),
+        "switch": (DeleteSwitchCommand, "switch_id"),
+        "breaker": (DeleteBreakerCommand, "breaker_id"),
+        "disconnector": (DeleteDisconnectorCommand, "disconnector_id"),
+        "fuse": (DeleteFuseCommand, "fuse_id"),
+        "capacitor": (DeleteCapacitorCommand, "capacitor_id"),
+        "reactor": (DeleteReactorCommand, "reactor_id"),
+        "motor": (DeleteMotorCommand, "motor_id"),
+        "synchronous_machine": (DeleteSynchronousMachineCommand, "synchronous_machine_id"),
+        "solar": (DeleteSolarCommand, "solar_id"),
+        "battery": (DeleteBatteryCommand, "battery_id"),
+        "current_transformer": (DeleteCurrentTransformerCommand, "transformer_id"),
+        "potential_transformer": (DeletePTCommand, "pt_id"),
+        "cvt": (DeleteCapacitiveVoltageTransformerCommand, "transformer_id"),
+        "relay": (DeleteRelayCommand, "relay_id"),
+    }
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
@@ -781,6 +820,36 @@ class Application:
     def prepare_engineering_update(self, intent: Any) -> Command:
         """Translate typed engineering intent into the authoritative update command."""
         return EngineeringUpdatePreparer.prepare(intent)
+
+    def prepare_delete_selection(self, object_id: str) -> Command:
+        """Resolve one selected engineering identity to its typed Delete command.
+
+        Selection remains UI-owned; command typing and payload construction remain
+        Application-owned.  Relay identity is resolved through the protection
+        read boundary rather than being coerced into the network read model.
+        """
+        if not isinstance(object_id, str) or not object_id.strip():
+            raise ValueError("object_id must be a non-empty string.")
+        object_id = object_id.strip()
+
+        element_type = None
+        protection = self.read_protection()
+        if any(str(relay.object_id) == object_id for relay in protection.relays):
+            element_type = "relay"
+        else:
+            network = self.read_network()
+            for element in network.elements:
+                if str(element.object_id) == object_id:
+                    element_type = str(element.element_type).strip().lower()
+                    break
+
+        if element_type is None:
+            raise KeyError(f"No selected engineering element exists for object_id={object_id!r}.")
+        entry = self._DELETE_COMMANDS.get(element_type)
+        if entry is None:
+            raise ValueError(f"No typed delete command is registered for element type {element_type!r}.")
+        command_class, id_field = entry
+        return command_class(**{id_field: object_id})
 
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
