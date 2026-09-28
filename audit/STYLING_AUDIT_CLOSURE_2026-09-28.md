@@ -136,3 +136,17 @@ No Core Qt/QGraphics dependency was added. No Application command path, Core ele
 ## 10. Final static status
 
 **STYLING CORRECTION — STATIC SOURCE VERIFICATION COMPLETE; RUNTIME VERIFICATION DEFERRED.**
+
+
+## 11. 2026-09-28 active-theme consumer re-audit
+
+A remaining static consumer gap was corrected: graphics styling helpers and canvas rendering could otherwise fall back directly to DEFAULT_STYLE_TOKENS instead of the currently applied Theme token set.
+
+Corrected presentation path:
+
+`Theme.tokens → StyleManager.apply() → QApplication[gridforge.style_tokens] → presentation_style.resolve_style_tokens() → graphics consumers`
+
+QSS continues to resolve the same Theme.tokens through StyleManager. GridScene and GraphicsView now consume canonical token resolution for canvas styling. Existing equipment, bus, line, control, SLD node, SLD connection and preview consumers use the same presentation helper family.
+
+**Static result:** active-theme consumer path source-proven.
+**Runtime result:** deferred; no GUI or theme-switch execution performed.
