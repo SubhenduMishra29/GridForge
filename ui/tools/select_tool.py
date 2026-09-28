@@ -26,6 +26,7 @@ class SelectTool(ToolBase):
     SHIFT_MODIFIER = 0x02000000
     CTRL_MODIFIER = 0x04000000
     META_MODIFIER = 0x10000000
+    DELETE_KEY = 0x01000007
 
     def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any) -> None:
         super().__init__(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system)
@@ -90,7 +91,23 @@ class SelectTool(ToolBase):
 
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
-        return False
+        if self._event_key(event) != self.DELETE_KEY:
+            return False
+        selected_ids = tuple(self.get_selection_manager().get_selected_ids())
+        if not selected_ids:
+            return False
+        application = self.get_application()
+        prepare = getattr(application, "prepare_delete_selection", None)
+        execute = getattr(application, "execute", None)
+        if not callable(prepare) or not callable(execute):
+            raise TypeError("Application must provide prepare_delete_selection() and execute().")
+        # Application resolves the selected identity to the correct typed
+        # Delete*Command.  The tool never mutates Core or the SLD directly.
+        command = prepare(str(selected_ids[0]))
+        result = execute(command)
+        if getattr(result, "success", False):
+            self.get_selection_manager().clear()
+        return True
 
     def on_cancel(self) -> bool:
         self._ensure_active()
@@ -149,6 +166,22 @@ class SelectTool(ToolBase):
     @classmethod
     def _has_toggle_modifier(cls, modifiers: int) -> bool:
         return bool(modifiers & (cls.CTRL_MODIFIER | cls.META_MODIFIER))
+
+    @staticmethod
+    def _event_key(event: Any) -> int | None:
+        if event is None:
+            return None
+        key = getattr(event, "key", None)
+        if callable(key):
+            key = key()
+        if isinstance(event, dict):
+            key = event.get("key", key)
+        if key is None:
+            return None
+        try:
+            return int(key)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("event key must be integer-compatible.") from exc
 
     @staticmethod
     def _event_object_id(event: Any) -> Any:
