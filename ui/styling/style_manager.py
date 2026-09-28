@@ -438,6 +438,14 @@ class StyleManager:
 
         stylesheet = self.render_stylesheet()
 
+        # Publish the same immutable token object used to resolve QSS so
+        # QGraphics projections consume the active Theme rather than a
+        # second/default styling authority.
+        target.setProperty(
+            "gridforge.style_tokens",
+            self._theme.tokens,
+        )
+
         try:
             target.setStyleSheet(
                 stylesheet
