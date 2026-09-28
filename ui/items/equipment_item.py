@@ -12,7 +12,7 @@ from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
-from ui.styling.presentation_style import VisualState, visual_brush, visual_font, visual_pen
+from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen
 
 from .base_item import BaseItem
 
@@ -54,6 +54,7 @@ class EquipmentItem(BaseItem):
             )
         self._symbol_instance = SymbolBase.from_dict(symbol_instance.to_dict())
         self._visual_state = VisualState.NORMAL
+        self.set_presentation_state(PresentationState(visual_state=VisualState.NORMAL, readout=f"{self._element_type}: {self.object_id}"))
         self.setAcceptHoverEvents(True)
         self.setScale(self._symbol_instance.scale)
         self.setRotation(self._symbol_instance.rotation)
@@ -84,7 +85,8 @@ class EquipmentItem(BaseItem):
     def set_visual_state(self, state: VisualState | str) -> None:
         normalized = state if isinstance(state, VisualState) else VisualState(str(state).lower())
         self._visual_state = normalized
-        self.update()
+        current = self.presentation_state
+        self.set_presentation_state(PresentationState(visual_state=normalized, status=current.status, tool_state=current.tool_state, readout=current.readout or f"{self._element_type}: {self.object_id}"))
 
     def set_invalid(self, invalid: bool = True) -> None:
         self.set_visual_state(VisualState.INVALID if invalid else VisualState.NORMAL)
@@ -160,13 +162,13 @@ class EquipmentItem(BaseItem):
 
     def hoverEnterEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.NORMAL:
-            self._visual_state = VisualState.HOVER
+            self.set_visual_state(VisualState.HOVER)
         self.update()
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.HOVER:
-            self._visual_state = VisualState.NORMAL
+            self.set_visual_state(VisualState.NORMAL)
         self.update()
         super().hoverLeaveEvent(event)
 
