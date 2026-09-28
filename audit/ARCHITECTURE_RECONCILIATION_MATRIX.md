@@ -46,3 +46,18 @@ Baseline: `main` — current effective re-audit HEAD `f27ef42a39333f5fb35522e583
 ## 2026-09-28 — Current effective re-audit
 
 The matrix above contains historical/status snapshots and is retained as audit chronology. The current implementation authority is `pandaraseswari03-collab/GridForge:main`. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
+
+
+## 2026-09-28 — Superseding effective static re-audit
+
+The historical table above is retained as chronology. For current source authority, the effective static re-audit is the current `main` source at `cbe167a533598c63afaba9a30cd10906370548b1`.
+
+- Core/Application boundary: no new UI/Core mutation bypass identified in the current source pass.
+- Dynamics: the historical `state_vector.py` artifact is absent; current `core/solver/dynamics/__init__.py` exports implemented symbols and does not export obsolete `DynamicState`; current `machine_models.py` does not contain the historical `DynamicMachineModel` dependency.
+- SLD placement: `ModelPlacementTool` uses transient `CreationDraft` state, preview-layer presentation, and explicit Application creation commands; it does not create persistent SLD nodes during preview.
+- SLD realization: `SLDCanvasRenderSystem` resolves nodes through `SemanticPresentationRealization` and `SLDGraphicsItemFactory`; failures are retained as structured diagnostics.
+- Palette: `EquipmentPanelWidget` resolves definitions through `EquipmentRegistry`, activates the definition's `tool_id` through `ToolManager`, and renders icons through the canonical `SymbolRegistry`. `PaletteSymbolAdapter` now renders canonical text primitives and active style tokens.
+- Canvas styling: `StyleTokens.canvas_background` is `#FFFFFF`; graphics helpers resolve active QApplication tokens when no explicit token set is supplied.
+- Runtime/GUI/study execution remains deferred wherever the register requires executable evidence.
+
+The historical OPEN/CONFIRMED wording in earlier matrix rows must not be interpreted as current status where the effective CSV/register has since reconciled the finding. Historical rows remain preserved for audit chronology.

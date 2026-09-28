@@ -36,3 +36,10 @@ This is an audit register, not a deletion plan. A parallel-looking implementatio
 ## 2026-09-28 — Current effective redundancy re-audit
 
 No second theme authority was introduced. `StyleManager` publishes the active immutable Theme token set through the existing QApplication presentation boundary, and graphics helpers resolve that same authority. The white canvas correction changes only the canonical presentation token. No parallel Core/Application/SLD/registry authority was introduced.
+
+
+## 2026-09-28 — Superseding effective static re-audit
+
+Current source inspection confirms no second symbol, equipment, tool, theme, renderer, command-manager, topology, or persistence authority was introduced by the final correction pass. The palette correction extends the existing `PaletteSymbolAdapter` over the existing canonical `SymbolRegistry`; it does not create a second catalogue. Palette stroke/text styling resolves through the existing `StyleTokens` presentation authority.
+
+Historical conflict rows are retained as chronology. Current source status is governed by the effective Master Register and the 2026-09-28 full-completion re-audit.
