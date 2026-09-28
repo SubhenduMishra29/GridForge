@@ -53,6 +53,19 @@ _ELEMENT_TYPE_ALIASES = {
     "fuse": "fuses", "fuses": "fuses",
 }
 
+_CORE_ELEMENT_TYPES = {
+    "buses": "bus", "grids": "grid", "generators": "generator",
+    "synchronous_machines": "synchronous_machine", "loads": "load",
+    "motors": "motor", "shunts": "shunt", "capacitors": "capacitor",
+    "reactors": "reactor", "solar": "solar", "batteries": "battery",
+    "current_transformers": "current_transformer",
+    "potential_transformers": "potential_transformer",
+    "capacitive_voltage_transformers": "capacitive_voltage_transformer",
+    "lines": "line", "cables": "cable", "transformers": "transformer",
+    "breakers": "breaker", "switches": "switch", "disconnectors": "disconnector",
+    "fuses": "fuse",
+}
+
 _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "buses": (("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)), ("angle_deg", ("angle_deg",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
     "lines": (("resistance_ohm", ("resistance_ohm", "r")), ("reactance_ohm", ("reactance_ohm", "x")), ("shunt_susceptance_siemens", ("shunt_susceptance_siemens", "b")), ("rate_mva", ("rate_mva", "rated_power")), ("in_service", ("in_service",))),
@@ -222,14 +235,17 @@ class NetworkReadService(ReadService):
                 "Relay is owned by the protection read boundary; "
                 "use Application.read_relay() instead of read_element()."
             )
-        key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
-        if key == "relays":
+        read_model_type = _ELEMENT_TYPE_ALIASES.get(requested, requested)
+        if read_model_type == "relays":
             raise ValueError(
                 "Relay is owned by the protection read boundary; "
                 "use Application.read_relay() instead of read_element()."
             )
-        model = self._network.get_by_id(key, object_id)
-        return self._to_read_model(key, model)
+        core_type = _CORE_ELEMENT_TYPES.get(read_model_type)
+        if core_type is None:
+            raise KeyError(f"Unknown Application network element type: {element_type}")
+        model = self._network.get_by_id(core_type, object_id)
+        return self._to_read_model(read_model_type, model)
     @staticmethod
     def _value(model: Any, names: tuple[str, ...]) -> Any:
         for name in names:

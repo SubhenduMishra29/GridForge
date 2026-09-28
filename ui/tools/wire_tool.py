@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 
-from core.application.commands.simple_wire_commands import CreateSimpleWireConnectionCommand
+from core.application.commands.draft_commands import AddDraftConnectionCommand
+from core.application.draft import DraftEndpoint
 
 from ui.connections.connection_preview import ConnectionPreview
 
@@ -118,13 +119,35 @@ class WireTool(ToolBase):
         return result
 
     def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
-        if not getattr(endpoint_from, "is_terminal", False) and not getattr(endpoint_from, "is_bus", False):
-            raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
-        if not getattr(endpoint_to, "is_terminal", False) and not getattr(endpoint_to, "is_bus", False):
-            raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
-        command = CreateSimpleWireConnectionCommand(endpoint_a=endpoint_from, endpoint_b=endpoint_to)
-        result = self.execute_command(command)
-        return result
+        source = self._draft_endpoint(source_snap)
+        target = self._draft_endpoint(target_snap)
+        if source is None or target is None:
+            raise ValueError("WireTool requires DraftNetwork endpoints during engineering draft.")
+        connection = {
+            "connection_id": f"draft-wire-{__import__('uuid').uuid4().hex}",
+            "source_draft_id": source.draft_id,
+            "source_terminal": source.terminal_role,
+            "target_draft_id": target.draft_id,
+            "target_terminal": target.terminal_role,
+            "connection_kind": "simple_wire",
+            "route": {},
+            "validation_state": {},
+        }
+        return self.execute_command(AddDraftConnectionCommand(connection=connection))
+
+    @staticmethod
+    def _draft_endpoint(snap: Any) -> DraftEndpoint | None:
+        source = getattr(snap, "source", None)
+        draft_id = getattr(snap, "draft_id", None) or getattr(source, "draft_id", None)
+        props = getattr(source, "properties", None)
+        if draft_id is None and isinstance(props, dict):
+            draft_id = props.get("draft_id")
+        role = getattr(snap, "terminal_name", None)
+        if not isinstance(draft_id, str) or not draft_id or not isinstance(role, str) or not role:
+            return None
+        equipment = getattr(source, "equipment", None)
+        equipment_type = getattr(equipment, "equipment_type", None)
+        return DraftEndpoint(draft_id=draft_id, terminal_role=role, endpoint_kind=str(equipment_type or "terminal").lower())
 
     def _show_preview(self) -> None:
         layer = self._preview_layer

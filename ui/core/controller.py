@@ -40,6 +40,7 @@ class Controller(QObject):
             raise TypeError("application must be a core.application.Application.")
         self.application = application
         self._tool_manager: Any | None = None
+        self._status_plugin: Any | None = None
         self._project: Any | None = None
         self._disposed = False
         self._subscriptions: dict[str, list[Any]] = {
@@ -71,6 +72,22 @@ class Controller(QObject):
             raise RuntimeError("Controller is already bound to a different ToolManager.")
         self._tool_manager = tool_manager
         self.state_changed.emit()
+
+    def bind_status_plugin(self, status_plugin: Any) -> None:
+        """Bind the canonical StatusPlugin presentation capability."""
+        self._ensure_active()
+        if status_plugin is None or not callable(getattr(status_plugin, "set_message", None)):
+            raise TypeError("status_plugin must provide set_message().")
+        if self._status_plugin is not None and self._status_plugin is not status_plugin:
+            raise RuntimeError("Controller is already bound to a different StatusPlugin.")
+        self._status_plugin = status_plugin
+
+    def show_status_message(self, message: str) -> None:
+        """Route transient tool feedback to the canonical status presentation."""
+        self._ensure_active()
+        plugin = self._status_plugin
+        if plugin is not None:
+            plugin.set_message(message)
 
     def _on_tool_manager_changed(self, tool_id: str | None, previous_tool_id: str | None) -> None:
         """Receive authoritative tool lifecycle changes from ToolManager."""
@@ -230,6 +247,7 @@ class Controller(QObject):
                     pass
             callbacks.clear()
         self._tool_manager = None
+        self._status_plugin = None
         self._project = None
         self.application = None
         self._disposed = True

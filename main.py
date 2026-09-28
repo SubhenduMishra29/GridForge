@@ -401,6 +401,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         workspace_controller=workspace_controller,
         project_adapter=project_workspace_adapter,
     )
+    controller.bind_status_plugin(status_plugin)
 
     ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle

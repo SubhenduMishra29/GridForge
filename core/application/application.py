@@ -54,7 +54,7 @@ from .control_events import (
 )
 from .event_bus import ApplicationEventBus
 from .events import (
-    ElementCreated, ElementRemoved, ElementUpdated,
+    ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
@@ -133,6 +133,7 @@ class Application:
         self._measurement_channel_service = measurement_channel_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._draft_network: Any | None = None
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -150,6 +151,13 @@ class Application:
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._sld_service is not None:
             self._register_sld_handlers(self._sld_service)
+
+    @property
+    def draft_network(self) -> Any | None:
+        return self._draft_network
+
+    def set_draft_network(self, draft_network: Any | None) -> None:
+        self._draft_network = draft_network
 
     @property
     def event_bus(self) -> ApplicationEventBus: return self._event_bus
@@ -546,6 +554,38 @@ class Application:
         performs the persistent presentation mutation requested by this hook;
         it never creates a second command/history boundary.
         """
+        command_type = command.command_type
+        if command_type == "network.commit_draft":
+            if self._sld_service is not None:
+                for item in tuple(result.metadata.get("created_elements", ())):
+                    node_id = f"sld-draft-{item['draft_id']}"
+                    existing = self._sld_service.document.model.get_node_optional(node_id)
+                    if existing is not None:
+                        self._sld_service.execute(RemoveSLDNodeCommand(node_id=node_id), transaction)
+                    x, y = item.get("x"), item.get("y")
+                    if x is not None and y is not None:
+                        self._sld_service.execute(AddSLDNodeCommand(
+                            node_id=node_id, equipment_id=str(item["core_id"]),
+                            x=float(x), y=float(y), presentation_owner="projection",
+                            projection_source="network.commit_draft", element_type=str(item["element_type"]),
+                            presentation_properties=dict(item.get("presentation", {})),
+                            correlation_id=command.correlation_id, causation_id=command.command_id,
+                        ), transaction)
+                for item in tuple(result.metadata.get("committed_connections", ())):
+                    connection_id = f"sld-draft-{item['connection_id']}"
+                    if self._sld_service.document.model.get_connection_optional(connection_id) is not None:
+                        self._sld_service.execute(RemoveSLDConnectionCommand(connection_id=connection_id), transaction)
+                    self._sld_service.execute(AddSLDConnectionCommand(
+                        connection_id=connection_id,
+                        source_node_id=f"sld-draft-{item['source_draft_id']}",
+                        target_node_id=f"sld-draft-{item['target_draft_id']}",
+                        source_endpoint=item["endpoint_a"], target_endpoint=item["endpoint_b"],
+                        connection_kind="SIMPLE_WIRE", presentation_owner="projection",
+                        projection_source="network.commit_draft",
+                        correlation_id=command.correlation_id, causation_id=command.command_id,
+                    ), transaction)
+            return
+
         if self._sld_service is None:
             return
 
@@ -940,6 +980,10 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
+        if command.command_type == "network.commit_draft":
+            if operation == "execute":
+                self._event_bus.publish(NetworkCommitted(metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            return
         if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
             action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
             if operation == "undo":
