@@ -325,7 +325,7 @@ Static remediation and static self-review were performed against the current wor
 | GF-MASTER-0064 | RCA-UI-BOOTSTRAP-005 — project hierarchy lifecycle authority | **REMEDIATED — VERIFICATION DEFERRED** | Workspace/project UI remains downstream of Application project lifecycle; no second Core project lifecycle was introduced |
 | GF-MASTER-0065 | RCA-UI-WORKSPACE-001 — workspace transition rollback integrity | **REMEDIATED — VERIFICATION DEFERRED** | `WorkspaceRealizer.realize()` compensates failed realization using the prior realized layout and surfaces restoration failure |
 | GF-MASTER-0066 | RCA-SLD-AUTH-002 — validate SLD equipment references | **CLOSED** | `SLDService._add_node()` validates bound equipment through Application network/protection read models before creating authored presentation state |
-| GF-MASTER-0067 | RCA-SLD-CONN-002 — canonical terminal identity / terminal realization | **OPEN — unresolved** | Complete Core Terminal → SLD terminal → anchor → snap resolution is not source-proven end-to-end |
+| GF-MASTER-0067 | RCA-SLD-CONN-002 — canonical terminal identity / terminal realization | **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED** | Core Terminal role → EndpointReference → SLD semantic endpoint → realized EquipmentItem/BusItem anchor candidates → SLDEndpointResolver → SLDConnectionItem is source-proven; canvas projection now preserves endpoint identity and reports unresolved node/endpoint/anchor failures through RenderDiagnostic. |
 | GF-MASTER-0068 | RCA-SLD-PREVIEW-001 — Bus live cursor preview | **CLOSED** | `PreviewLayer.show_bus()` and `BusTool` preview lifecycle provide transient preview without Core mutation |
 | GF-MASTER-0069 | RCA-SLD-INTERACTION-002 — duplicate interaction state | **OPEN — unresolved** | Concrete tools retain local interaction state; no safe evidence justified broad consolidation with `ToolInteraction` in this pass |
 | GF-MASTER-0070 | RCA-APP-ID-001 — measurement command identity vocabulary | **OPEN — SOURCE EVIDENCE PENDING** | No compatibility alias/consumer sweep was changed without direct source proof for historical `transformer_id` vocabulary |
@@ -334,6 +334,19 @@ Static remediation and static self-review were performed against the current wor
 | GF-MASTER-0073 | RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation | **CLOSED** | `EndpointReference` remains canonical; `resolve_terminal_reference()` supports unconnected-terminal use cases without a second identity model |
 | GF-MASTER-0074 | RCA-SLD-CONN-001 — canonical electrical connection/reconnection workflow | **REMEDIATED — VERIFICATION DEFERRED** | Added connect/disconnect/reconnect commands, Application service/handlers, EndpointReference resolution, Core Terminal attach/detach, Network invalidation, transaction undo, semantic topology events, and downstream SLD reconciliation |
 
+
+
+## 2026-09-28 — SLD connection projection / endpoint identity static correction
+
+**Implementation repository:** `pandaraseswari03-collab/GridForge`  
+**Verification mode:** static source inspection only. Tests, CI, startup, GUI execution, and runtime verification were not performed.
+
+| Existing Master ID | Scope | Status | Static evidence |
+|---|---|---|---|
+| GF-MASTER-0067 / RCA-SLD-CONN-002 | Persisted SLD endpoint identity through canvas projection and terminal-anchor realization | **STATICALLY CLOSED — RUNTIME VERIFICATION DEFERRED** | `SLDCanvasProjection._project_connection()` preserves connection/node IDs, semantic endpoints, route, connection kind, presentation owner, and projection source; `SLDCanvasRenderSystem.synchronize()` resolves endpoints only after node realization and emits structured diagnostics for missing nodes/endpoints/anchors; `SLDGraphicsItemFactory.create_connection()` passes semantic endpoint identity into the canonical `SLDConnectionItem`; `SLDEndpointResolver.resolve()` selects terminal/attachment candidates from presentation snap points rather than node centers. |
+| GF-MASTER-0074 / RCA-SLD-CONN-001 | Downstream persisted connection presentation path | **REMEDIATED — VERIFICATION DEFERRED** | Existing Application/Core connection workflow remains unchanged; this correction is downstream at SLD projection/rendering and does not introduce another command, service, or topology authority. |
+
+No new Master ID was introduced. Runtime canvas behavior remains unverified/deferred.
 
 ## Post-correction static re-audit — 2026-09-22
 
