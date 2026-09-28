@@ -545,6 +545,20 @@ class SnapSystem:
 
     # --------------------------------------------------------
 
+    def snap_endpoint(
+        self,
+        scene_pos: Any,
+    ) -> SnapResult:
+        """Resolve only an electrical object endpoint; grid is never eligible."""
+        self._ensure_active()
+        self._validate_point(scene_pos, "scene_pos")
+        if not self.object_enabled:
+            return self._none_result(scene_pos)
+        result = self._find_object_snap(scene_pos)
+        if result is None:
+            return self._none_result(scene_pos)
+        return result
+
     def snap_point(
         self,
         scene_pos: Any,
@@ -759,7 +773,7 @@ class SnapSystem:
     def _normalize_candidate(
         candidate: Any,
         item: Any,
-    ) -> tuple[Any, Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any, Any, Any]:
         """
         Normalize one object snap candidate.
 
