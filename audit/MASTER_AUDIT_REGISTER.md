@@ -1498,3 +1498,34 @@ The CSV and current effective register are reconciled with **GF-MASTER-0104** as
 **Finding:** graphics helpers could bypass the active Theme because `visual_brush()` and `visual_font()` defaulted directly to `DEFAULT_STYLE_TOKENS`; the SLD canvas token was also dark despite the required white canvas contract.  
 **Correction:** both helpers now resolve `QApplication[gridforge.style_tokens]` when no explicit token set is supplied, and `canvas_background` is now `#FFFFFF`. `GraphicsView` and `GridScene` already consume the canonical canvas token.  
 **Re-audit:** source re-fetch confirms the active-token default is `None → resolve_style_tokens()` and the canvas token is white. Runtime theme switching and GUI rendering remain deferred.
+
+
+## 2026-09-28 — Superseding effective full-completion static re-audit
+
+**Current implementation/audit authority:** `pandaraseswari03-collab/GridForge:main`  
+**Current source HEAD:** `bf6027972e4b0fa88bbe453b4be02cd80ab70fb9` at the time this register addendum was prepared; subsequent audit-only documentation commits do not alter the implementation conclusions.  
+**Verification:** static source inspection/correction only; no current runtime/GUI completion claim.
+
+### Register integrity
+
+- Current CSV population: **139 unique Master IDs**.
+- Duplicate Master IDs: **0**.
+- Highest current Master ID: **GF-MASTER-0104**.
+- Current CSV OPEN/PARTIAL/BLOCKED/CONFIRMED population: **0**.
+- Historical IDs and dated audit chronology remain preserved.
+
+### Effective corrections
+
+**GF-MASTER-0040 — REMEDIATED — VERIFICATION DEFERRED**  
+Current `SLDCanvasRenderSystem` source records structured render diagnostics, binds an optional diagnostic sink, and realizes nodes through the canonical semantic-realization/item-factory path. Runtime GUI visibility and diagnostic delivery remain deferred.
+
+**GF-SLD-CANVAS-042 — REMEDIATED — VERIFICATION DEFERRED**  
+Current `EquipmentPanelWidget` uses the canonical `EquipmentRegistry` and `PaletteSymbolAdapter`. The adapter now renders canonical SymbolDefinition text primitives and resolves palette stroke/font styling through the existing StyleTokens presentation authority. Runtime GUI/pixel verification remains deferred.
+
+### Historical Dynamics reconciliation
+
+GF-MASTER-0011 and GF-MASTER-0012 retain their historical IDs and current deferred status. Current source inspection confirms that the historical `state_vector.py` / obsolete `DynamicState` / missing `DynamicMachineModel` evidence does not describe files or exports present on current main. No unsupported runtime-import claim is made.
+
+### Final source-level boundary
+
+The effective source-level completion state is **STATIC CORRECTION / RE-AUDIT COMPLETE — RUNTIME VERIFICATION DEFERRED**. Findings that require executable GUI, startup, save/reload, solver, or study evidence remain verification-deferred rather than falsely closed.
