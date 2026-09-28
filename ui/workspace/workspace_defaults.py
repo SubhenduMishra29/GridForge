@@ -11,6 +11,7 @@ from .workspace_definition import WorkspaceDefinition, WorkspacePlacement
 
 SLD_WORKSPACE_ID = "sld"
 CONTROL_WORKSPACE_ID = "control"
+PROTECTION_WORKSPACE_ID = "protection"
 PROJECT_PANEL_ID = "project"
 EQUIPMENT_PANEL_ID = "equipment"
 PROPERTIES_PANEL_ID = "properties"
@@ -44,6 +45,14 @@ SLD_WORKSPACE = WorkspaceDefinition(
 )
 
 
+PROTECTION_WORKSPACE = WorkspaceDefinition(
+    workspace_id=PROTECTION_WORKSPACE_ID,
+    title="Protection Workspace",
+    placements=SLD_WORKSPACE_PLACEMENTS,
+    metadata={"kind": "protection", "description": "Protection engineering/readout workspace.", "central_surface": "protection"},
+)
+
+
 CONTROL_WORKSPACE = WorkspaceDefinition(
     workspace_id=CONTROL_WORKSPACE_ID,
     title="Control Workspace",
@@ -51,7 +60,7 @@ CONTROL_WORKSPACE = WorkspaceDefinition(
     metadata={"kind": "control", "description": "Ladder/control engineering workspace.", "central_surface": "control"},
 )
 
-DEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE, CONTROL_WORKSPACE)
+DEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE, CONTROL_WORKSPACE, PROTECTION_WORKSPACE)
 
 
 def default_workspaces() -> tuple[WorkspaceDefinition, ...]:
@@ -86,6 +95,6 @@ validate_default_workspace()
 __all__ = [
     "SLD_WORKSPACE_ID", "CONTROL_WORKSPACE_ID", "PROJECT_PANEL_ID", "EQUIPMENT_PANEL_ID", "PROPERTIES_PANEL_ID",
     "ELEMENT_LIST_PANEL_ID", "MESSAGES_PANEL_ID", "STUDY_CASES_PANEL_ID", "CANONICAL_PANEL_IDS",
-    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "CONTROL_WORKSPACE", "DEFAULT_WORKSPACES", "default_workspaces",
+    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "CONTROL_WORKSPACE", "PROTECTION_WORKSPACE", "DEFAULT_WORKSPACES", "default_workspaces",
     "default_workspace_ids", "get_default_workspace", "get_initial_workspace", "validate_default_workspace",
 ]
