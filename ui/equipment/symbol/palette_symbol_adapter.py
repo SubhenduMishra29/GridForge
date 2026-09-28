@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import QBrush, QIcon, QPainter, QPen, QPixmap, Qt, QRectF
+from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, Qt, QRectF
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.styling.presentation_style import VisualState, visual_font, visual_pen
