@@ -115,6 +115,18 @@ class SLDDocument(Document):
             model=SLDModel.from_dict(data.get("model", {})),
             default_symbol_presentation_factory=default_symbol_presentation_factory,
         )
+
+        # DraftNetwork entries are not persistent SLD equipment nodes.
+        # Remove only legacy draft placeholders that were previously written
+        # without a canonical equipment_id. Committed Core equipment remains
+        # represented by its canonical equipment_id and is untouched.
+        for node in tuple(document.model.nodes):
+            if (
+                node.equipment_id is None
+                and node.properties.get("lifecycle_state") == "DRAFT"
+            ):
+                document.model.remove_node(node.node_id)
+
         document.materialize_missing_symbol_presentations()
         if bool(data.get("modified", False)):
             document.mark_modified()
