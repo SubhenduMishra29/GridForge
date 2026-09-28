@@ -1428,3 +1428,24 @@ Detailed evidence and the requested STY-001…STY-034 reconciliation are recorde
 
 Runtime GUI rendering, accessibility, theme switching, interaction behavior and pixel-level visual verification remain deferred.
 
+
+## 2026-09-28 — Styling active-theme consumer re-audit
+
+**Finding:** GF-MASTER-0103 / STY-001–STY-034
+
+**Status:** **REMEDIATED — VERIFICATION DEFERRED**
+
+**Static correction:** `StyleManager.apply()` publishes the immutable active `Theme.tokens` on the existing `QApplication` presentation boundary; `presentation_style.resolve_style_tokens()` resolves that active token set for graphics consumers; `GridScene` and `GraphicsView` consume `token_color()` for canvas background/grid colors instead of binding directly to `DEFAULT_STYLE_TOKENS`.
+
+**Consumer evidence:**
+- `ui/styling/style_manager.py` publishes `gridforge.style_tokens` from the active `Theme.tokens` during stylesheet application.
+- `ui/styling/presentation_style.py` resolves explicit tokens first, then the StyleManager-published active token set, with deterministic default-theme fallback.
+- `ui/canvas/grid_scene.py` consumes canonical token resolution for canvas background, minor grid and major grid.
+- `ui/canvas/graphics_view.py` consumes canonical token resolution for the SLD viewport background.
+- Existing equipment, bus, line, control, SLD node, SLD connection and preview graphics consume `visual_pen`/`visual_brush`/`visual_font`; those helpers now resolve the active canonical token set rather than a fixed default token object.
+
+**Architecture impact:** No second theme authority, registry, renderer, Core dependency, or Application mutation path was introduced.
+
+**Verification boundary:** Static source inspection only. No pytest, CI, startup, GUI, screenshot, interaction, or runtime verification was performed.
+
+**Remaining deferred evidence:** Runtime GUI rendering, alternate-theme instantiation/switching, pixel-level contrast and display-environment readability remain runtime/deferred evidence items.
