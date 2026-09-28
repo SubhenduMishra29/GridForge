@@ -10,13 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPen, QPointF
+from ui.core.qt import QGraphicsScene, QPointF
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 
 from .semantic_presentation_realization import SemanticPresentationRealization
 from .sld_canvas_projection import SLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
+from ui.styling.presentation_style import VisualState
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +38,6 @@ class RenderDiagnostic:
 
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
-
-    NODE_PEN_WIDTH = 1.5
-    CONNECTION_PEN_WIDTH = 2.0
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization) -> None:
@@ -110,16 +108,6 @@ class SLDCanvasRenderSystem:
                 if signal is not None and callable(getattr(signal, "connect", None)):
                     signal.connect(controller.handle_route_edit_request)
 
-    @staticmethod
-    def _pen(width: float) -> QPen:
-        pen = QPen()
-        setter = getattr(pen, "setWidthF", None)
-        if callable(setter):
-            setter(float(width))
-        else:
-            pen.setWidth(int(round(width)))
-        return pen
-
     def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
         """Incrementally reconcile the existing scene with one immutable snapshot."""
         if not isinstance(snapshot, SLDCanvasSnapshot):
@@ -170,7 +158,8 @@ class SLDCanvasRenderSystem:
                 if self._diagnostic_sink is not None:
                     self._diagnostic_sink(diagnostic)
                 continue
-            item.set_pen(self._pen(self.NODE_PEN_WIDTH))
+            if callable(getattr(item, "set_visual_state", None)):
+                item.set_visual_state(VisualState.NORMAL)
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
@@ -211,7 +200,8 @@ class SLDCanvasRenderSystem:
                     item.route_edit_requested.connect(
                         self._route_edit_controller.handle_route_edit_request
                     )
-                item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
+                if callable(getattr(item, "set_visual_state", None)):
+                    item.set_visual_state(VisualState.NORMAL)
                 self._scene.addItem(item)
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
