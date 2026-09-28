@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
+from core.application.commands.draft_commands import AddDraftEquipmentCommand, UpdateDraftEquipmentCommand
+from core.application.draft import DraftEndpoint
 from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
@@ -51,6 +53,7 @@ class ModelPlacementTool(ToolBase):
         self._creation_context: CreationContext | None = None
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap: Any | None = None
+        self._active_draft_id: str | None = None
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -113,6 +116,7 @@ class ModelPlacementTool(ToolBase):
             self._position = position
             draft.set_placement(position)
             draft.mark_previewing()
+            self._persist_new_draft(draft)
             self._preview_active = True
             self._endpoint_acquired_this_interaction = False
             self._show_preview(position)
@@ -126,28 +130,66 @@ class ModelPlacementTool(ToolBase):
     def _commit_if_valid(self) -> bool:
         draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
-            if not draft.configuration_complete:
-                self._report_feedback("Required engineering parameter missing.")
-            elif draft.validation_state.get("endpoint"):
-                self._report_feedback("No valid electrical endpoint.")
+            self._report_feedback("Draft configuration or endpoint validation failed.")
             return False
-        intent = self._build_command()
-        prepare = getattr(self.application, "prepare_creation_command", None)
-        if not callable(prepare):
-            raise RuntimeError("Application must provide prepare_creation_command().")
-        command = prepare(intent)
-        self.execute_command(command)
-
-        # Core/Application commit is authoritative. Complete the transient
-        # creation session before synchronous selection projection can run.
-        created_id = command.payload[draft.definition.id_field]
-        self._require_creation_context().complete()
+        self.persist_transient_draft()
+        self._require_creation_context().cancel()
         self._clear_state()
-
-        selector = getattr(self.selection_manager, "select_single", None)
-        if callable(selector):
-            selector(created_id)
+        self._active_draft_id = None
         return True
+
+    def _draft_network(self) -> Any:
+        draft_network = getattr(self.application, "draft_network", None)
+        if draft_network is None:
+            raise RuntimeError("Application DraftNetwork is not configured.")
+        return draft_network
+
+    def _persist_new_draft(self, draft: Any) -> None:
+        if self._active_draft_id is not None:
+            return
+        self._active_draft_id = f"draft-{draft.definition.tool_id}-{uuid4().hex}"
+        item = {
+            "draft_id": self._active_draft_id,
+            "equipment_type": draft.equipment_type,
+            "display_name": draft.equipment_type,
+            "terminal_contract": tuple(r.terminal_name for r in draft.definition.terminal_requirements),
+            "engineering_data": dict(draft.values),
+            "endpoints": {},
+            "placement": tuple(draft.placement_position or (0.0, 0.0)),
+            "presentation": {},
+            "validation_state": dict(draft.validation_state),
+            "command_type": draft.definition.command_type,
+            "id_field": draft.definition.id_field,
+            "parameter_mapping": dict(draft.definition.parameter_mapping),
+            "endpoint_mapping": dict(draft.definition.endpoint_mapping),
+        }
+        self.execute_command(AddDraftEquipmentCommand(equipment=item))
+        sld = getattr(self.application, "sld_service", None)
+        if sld is not None:
+            from core.application.commands.sld_commands import AddSLDNodeCommand
+            self.execute_command(AddSLDNodeCommand(
+                node_id=f"sld-draft-{self._active_draft_id}", equipment_id=None,
+                x=float(item["placement"][0]), y=float(item["placement"][1]),
+                presentation_owner="engineer", element_type=draft.equipment_type,
+                presentation_properties={"draft_id": self._active_draft_id, "lifecycle_state": "DRAFT"},
+            ))
+
+    def persist_transient_draft(self) -> None:
+        if self._active_draft_id is None or self._creation_context is None or self._creation_context.draft is None:
+            return
+        draft = self._creation_context.draft
+        self.execute_command(UpdateDraftEquipmentCommand(
+            draft_id=self._active_draft_id,
+            changes={"engineering_data": dict(draft.values), "placement": draft.placement_position,
+                     "validation_state": dict(draft.validation_state)},
+        ))
+
+    def persist_transient_draft_endpoint(self, endpoint: DraftEndpoint, role: str) -> None:
+        if self._active_draft_id is None:
+            return
+        self.execute_command(UpdateDraftEquipmentCommand(
+            draft_id=self._active_draft_id, changes={"endpoints": {role: endpoint}},
+        ))
 
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
@@ -161,31 +203,32 @@ class ModelPlacementTool(ToolBase):
         return None
 
     def _acquire_terminal(self, draft: CreationDraft, snap: Any) -> bool:
-        """Store an accepted target endpoint under the NEW object's pending role."""
         pending_role = self._pending_creation_role(draft)
         if pending_role is None:
-            self._report_feedback("Another endpoint is not required.")
             return False
-
-        snap_type = getattr(getattr(snap, "snap_type", None), "name", None)
-        if snap_type != "OBJECT":
-            self._report_feedback("No valid electrical endpoint.")
+        endpoint = self._draft_endpoint_from_snap(snap)
+        if endpoint is None:
+            self._report_feedback("Draft equipment can only connect to another draft endpoint.")
             return False
-
-        try:
-            endpoint = EndpointIdentityAdapter.from_snap_result(snap)
-            draft.set_endpoint(pending_role, endpoint)
-        except (TypeError, ValueError, KeyError) as exc:
-            message = str(exc).lower()
-            if "unsupported connection" in message or "incompatible" in message:
-                self._report_feedback("Target endpoint is incompatible.")
-            else:
-                self._report_feedback("No valid electrical endpoint.")
-            return False
-
+        draft.set_endpoint(pending_role, endpoint)
         self._accepted_endpoint_snap = snap
         self._endpoint_acquired_this_interaction = True
+        self.persist_transient_draft_endpoint(endpoint, pending_role)
         return True
+
+    @staticmethod
+    def _draft_endpoint_from_snap(snap: Any) -> DraftEndpoint | None:
+        source = getattr(snap, "source", None)
+        draft_id = getattr(snap, "draft_id", None) or getattr(source, "draft_id", None)
+        properties = getattr(source, "properties", None)
+        if draft_id is None and isinstance(properties, dict):
+            draft_id = properties.get("draft_id")
+        role = getattr(snap, "terminal_name", None)
+        if not isinstance(draft_id, str) or not draft_id or not isinstance(role, str) or not role:
+            return None
+        equipment = getattr(source, "equipment", None)
+        equipment_type = getattr(equipment, "equipment_type", None)
+        return DraftEndpoint(draft_id=draft_id, terminal_role=role, endpoint_kind=str(equipment_type or "terminal").lower())
 
     def _report_feedback(self, message: str) -> None:
         """Use an existing presentation feedback hook when the composition provides one."""
