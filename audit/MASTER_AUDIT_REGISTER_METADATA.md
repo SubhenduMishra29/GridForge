@@ -1,6 +1,6 @@
 # Master Register — Required Field Metadata
 
-**Canonical repository authority:** `pandaraseswari03-collab/GridForge`
+**Canonical repository authority:** `madhuri196mishra-cpu/GridForge`
 **Canonical branch:** `main`
 **Historical repository provenance:** Any other repository identity appearing in historical evidence is provenance only and is not current audit authority.
 
@@ -129,3 +129,23 @@ The current status authority is the Batch 0 effective-status index in `MASTER_AU
 | GF-MASTER-0096 | `main.py`; Protection UI/composition sources | 2026-09-27 | 2026-09-27 | 0027,0029 | Protection Application boundary | Engineer-facing protection workflow | None; finding remains open | New finding | OPEN | Static composition/action tracing; runtime verification deferred |
 | GF-MASTER-0097 | `core/application/application.py`; `ui/control/control_toolbar.py`; `ui/control/control_workspace.py` | 2026-09-27 | 2026-09-27 | 0042; GF-CTRL-ACT-005 | Application control-cycle boundary | Engineer-facing control execution | None; finding remains open | New finding; existing Control runtime remediation records remain preserved | OPEN | Static action-to-execution tracing; runtime verification deferred |
 | GF-MASTER-0098 | `plugins/dynamics/avr/plugin.py`; `plugins/dynamics/governor/plugin.py`; `plugins/dynamics/pss/plugin.py`; `core/model/` | 2026-09-27 | 2026-09-27 | 0011,0012,0013,0015,0030 | Current Core model package | Dynamics plugin loading/execution | None; finding remains open | New finding; historical Dynamics IDs preserved | OPEN | Static import/module existence and dependency tracing; runtime verification deferred |
+
+
+## 2026-09-28 — Current authority and closure addendum
+
+**Implementation/audit repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source inspection only; runtime/GUI/CI execution was not performed.
+
+The current effective closure status for the consolidated OPEN scope is maintained in the 2026-09-28 section of `MASTER_AUDIT_REGISTER.md` and synchronized into `MASTER_AUDIT_REGISTER.csv`.
+
+| ID | Current status | Source disposition |
+|---|---|---|
+| GF-MASTER-0045 | OPEN | Canonical SLD contextual hover/readout interaction remains uncomposed. |
+| GF-MASTER-0047 | OPEN | Historical finding text unavailable; retained without invented closure. |
+| GF-MASTER-0048 | OPEN | Historical finding text unavailable; retained without invented closure. |
+| GF-MASTER-0100 | REMEDIATED — VERIFICATION DEFERRED | Relay selection uses Application ProtectionReadService boundary. |
+| GF-MASTER-0101 | REMEDIATED — VERIFICATION DEFERRED | Property Panel uses explicit engineering parameter metadata and typed Application update preparation. |
+| GF-MASTER-0102 | REMEDIATED — VERIFICATION DEFERRED | Selection deletion reuses existing typed DeleteCommands through Application.execute(). |
+
+All other requested OPEN IDs are recorded as `REMEDIATED — VERIFICATION DEFERRED` where their current source finding is statically reconciled. No runtime verification is implied.
