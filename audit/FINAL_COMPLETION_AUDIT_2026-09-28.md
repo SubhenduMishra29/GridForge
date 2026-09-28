@@ -4,7 +4,7 @@
 
 - Repository: `pandaraseswari03-collab/GridForge`
 - Branch: `main`
-- Final implementation HEAD at closure reconciliation: `7057a0b50df19c78a822ba0d0e5bb50abd51bba2`
+- Final implementation HEAD at latest static re-audit: `f27ef42a39333f5fb35522e5839d23f58a427207`
 - Audit date: 2026-09-28
 - Author/header identity for modified source: `Subhendu Mishra`
 - Verification mode: static source audit/correction plus GitHub Actions runtime/startup verification where available; GUI/pixel-level interaction verification remains deferred.
@@ -115,7 +115,7 @@ No duplicate commit command was introduced.
 
 ## G. Remaining master findings
 
-No current register item remains in OPEN or PARTIAL status after this reconciliation.
+No current CSV register item remains in OPEN or PARTIAL status after this reconciliation; GF-MASTER-0047 and GF-MASTER-0048 remain DEFERRED historical-evidence holdings.
 
 Historical evidence limitations:
 
@@ -155,3 +155,16 @@ Current register status counts contain no OPEN or PARTIAL items. Verification-de
 Reason: the source-level correction and register reconciliation are complete for this pass, but the latest automated runtime workflow had not completed when this report was written, and GUI/pixel-level interaction verification was not executable through the available repository automation.
 
 This report deliberately does not claim runtime closure that was not actually observed.
+
+
+## K. Post-report final static re-audit correction — GF-MASTER-0104
+
+The final re-audit identified one styling consumer defect not fully covered by the earlier styling closure text: `visual_brush()` and `visual_font()` defaulted directly to `DEFAULT_STYLE_TOKENS`, bypassing an active Theme when callers omitted explicit tokens. The SLD canvas also required a persistent white background contract. Both were corrected.
+
+Evidence:
+- `ui/styling/presentation_style.py`: omitted token arguments now resolve through `resolve_style_tokens()`.
+- `ui/styling/style_tokens.py`: `canvas_background = "#FFFFFF"`.
+- `ui/canvas/graphics_view.py` and `ui/canvas/grid_scene.py`: both consume the canonical `canvas_background` token.
+- `audit/MASTER_AUDIT_REGISTER.csv`: GF-MASTER-0104 added as **STATICALLY VERIFIED — RUNTIME DEFERRED**.
+
+No additional architecture, command, identity, persistence, SLD, Control, Protection, or study authority was introduced. Runtime GUI/theme-switch evidence remains deferred.

@@ -17,7 +17,7 @@ class StyleTokens:
     window_background: str = "#171A1F"
     panel_background: str = "#20242A"
     panel_surface: str = "#262B32"
-    canvas_background: str = "#11151A"
+    canvas_background: str = "#FFFFFF"
     panel_border: str = "#39414B"
     separator: str = "#303740"
 

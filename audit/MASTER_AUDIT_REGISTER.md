@@ -1,8 +1,8 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Canonical repository authority:** `madhuri196mishra-cpu/GridForge`
-**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit authority is `madhuri196mishra-cpu/GridForge:main`.
+**Canonical repository authority:** `pandaraseswari03-collab/GridForge`
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit authority is `pandaraseswari03-collab/GridForge:main`.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority
@@ -1473,3 +1473,28 @@ The active Theme/StyleManager/QSS path remains canonical. The presentation-state
 
 ### Current closure boundary
 Static source correction and register reconciliation are complete for the findings corrected in this pass. Runtime verification remains workflow/environment dependent. Historical mandatory IDs GF-MASTER-0047 and GF-MASTER-0048 remain deferred solely because their original technical text is not recoverable from current authoritative evidence.
+
+
+## 2026-09-28 — Current effective register reconciliation after final re-audit
+
+**Implementation repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Current HEAD:** `f27ef42a39333f5fb35522e5839d23f58a427207`  
+**Verification mode:** static source inspection/correction only; no successful current runtime/GUI evidence is claimed.
+
+The CSV and current effective register are reconciled with **GF-MASTER-0104** as the highest current master ID. No duplicate master IDs were found in the current CSV. Historical dated addenda remain historical evidence and do not override this effective state.
+
+| Current status | IDs / disposition |
+|---|---|
+| CLOSED / STATIC CLOSED | Existing statically closed findings remain closed where current source evidence is recorded. |
+| STATICALLY VERIFIED | Existing static findings plus the final styling/draft/SLD corrections remain source-verified. |
+| REMEDIATED — VERIFICATION DEFERRED | Runtime/study/GUI evidence-dependent findings remain explicitly deferred. |
+| DEFERRED | GF-MASTER-0047, GF-MASTER-0048 — historical detailed finding text is not recoverable from current authoritative evidence. |
+| OPEN / PARTIAL / BLOCKED | **None in the current CSV effective population.** |
+
+### GF-MASTER-0104 — final re-audit correction
+
+**Status:** STATICALLY VERIFIED — RUNTIME DEFERRED.  
+**Finding:** graphics helpers could bypass the active Theme because `visual_brush()` and `visual_font()` defaulted directly to `DEFAULT_STYLE_TOKENS`; the SLD canvas token was also dark despite the required white canvas contract.  
+**Correction:** both helpers now resolve `QApplication[gridforge.style_tokens]` when no explicit token set is supplied, and `canvas_background` is now `#FFFFFF`. `GraphicsView` and `GridScene` already consume the canonical canvas token.  
+**Re-audit:** source re-fetch confirms the active-token default is `None → resolve_style_tokens()` and the canvas token is white. Runtime theme switching and GUI rendering remain deferred.
