@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.core.qt import QGraphicsObject, QRectF
+from ui.styling.presentation_style import PresentationState, VisualState
 
 
 class BaseItem(QGraphicsObject):
@@ -26,6 +27,7 @@ class BaseItem(QGraphicsObject):
             raise ValueError("object_id must not be None.")
         super().__init__(parent)
         self._object_id = object_id
+        self._presentation_state = PresentationState(visual_state=VisualState.NORMAL)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsFocusable, False)
 
@@ -85,6 +87,17 @@ class BaseItem(QGraphicsObject):
             raise TypeError("enabled must be a bool.")
         self.setEnabled(enabled)
 
+    @property
+    def presentation_state(self) -> PresentationState:
+        return self._presentation_state
+
+    def set_presentation_state(self, state: PresentationState) -> None:
+        if not isinstance(state, PresentationState):
+            raise TypeError("state must be a PresentationState.")
+        self._presentation_state = state
+        self.setToolTip(state.readout_text)
+        self.update()
+
     def get_state(self) -> dict[str, Any]:
         position = self.scenePos()
         return {
@@ -92,6 +105,8 @@ class BaseItem(QGraphicsObject):
             "selected": bool(self.isSelected()),
             "visible": bool(self.isVisible()),
             "enabled": bool(self.isEnabled()),
+            "presentation_state": self._presentation_state.visual_state.value if self._presentation_state.visual_state else None,
+            "presentation_readout": self._presentation_state.readout_text,
             "x": float(position.x()),
             "y": float(position.y()),
         }
