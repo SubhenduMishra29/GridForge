@@ -195,6 +195,9 @@ class ToolManager:
             and previous_id != tool_id
             and self.creation_context.active
         ):
+            persist = getattr(previous_tool, "persist_transient_draft", None)
+            if callable(persist):
+                persist()
             self.cancel()
 
         # An active creation session may not be destroyed implicitly by a
@@ -207,6 +210,9 @@ class ToolManager:
         requested_tool = self._get_or_create_tool(tool_id) if tool_id is not None else None
 
         if previous_tool is not None:
+            persist = getattr(previous_tool, "persist_transient_draft", None)
+            if callable(persist) and self.creation_context.active:
+                persist()
             previous_tool.deactivate()
 
         try:

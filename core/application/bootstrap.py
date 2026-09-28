@@ -59,6 +59,7 @@ from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
+from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
 
 
 def create_application(network: Any) -> Application:
@@ -95,6 +96,7 @@ def create_application(network: Any) -> Application:
             target[command_type] = handler
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
+    application: Application | None = None
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
@@ -121,6 +123,9 @@ def create_application(network: Any) -> Application:
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
         register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
+        draft_provider = lambda: application.draft_network if application is not None else None
+        register_handlers(handlers, DraftCommandHandlers(draft_provider).handlers(), "draft")
+        register_handlers(handlers, {"network.commit_draft": CommitNetworkHandler(draft_provider)}, "aggregate network commit")
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
@@ -133,6 +138,7 @@ def create_application(network: Any) -> Application:
         control_service=control_service,
     )
 
+    application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
     application._protection_read_service = ProtectionReadService(network)
@@ -183,6 +189,7 @@ def create_application(network: Any) -> Application:
         previous_control_configuration = control_service.configuration
         previous_control_generation = application.control_engine.activation_generation
         previous_control_active = application.control_engine.configuration is not None
+        previous_draft = application.draft_network
 
         def restore_control_runtime() -> None:
             if not previous_control_active:
@@ -202,6 +209,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
                 dynamic_models.replace(())
+                application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
             else:
                 definitions = loaded.measurement_definitions if loaded is not None else ()
                 measurement_channel_service.activate(context, network, definitions, generation)
@@ -246,6 +254,11 @@ def create_application(network: Any) -> Application:
                             for item in loaded.dynamic_models
                         )
                     )
+                loaded_draft = getattr(loaded, "draft_network", None) if loaded is not None else None
+                if loaded_draft is None:
+                    application.set_draft_network(DraftNetwork.empty(context.project_id, generation))
+                else:
+                    application.set_draft_network(DraftNetwork.from_dict(loaded_draft.to_dict(), project_id=context.project_id, activation_generation=generation))
                 application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
                 application.protection_runtime.compose(measurement_channel_service.channels)
 
@@ -264,6 +277,7 @@ def create_application(network: Any) -> Application:
             else:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
+            application.set_draft_network(previous_draft)
             dynamic_models.replace(previous_dynamic_models)
             restore_control_runtime()
             raise
@@ -331,6 +345,7 @@ def create_application(network: Any) -> Application:
             protection_configuration=protection_configuration_service.configuration,
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
+            draft_network=application.draft_network,
         )
 
     def new_network() -> Network:

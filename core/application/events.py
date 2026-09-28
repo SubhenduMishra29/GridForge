@@ -274,3 +274,10 @@ __all__ = [
     "ControlProgramChanged", "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
     "ControlExecutionFailed",
 ]
+
+
+@dataclass(frozen=True)
+class NetworkCommitted(ApplicationEvent):
+    """Semantic completion boundary for one aggregate DraftNetwork commit."""
+    def __init__(self, *, metadata: Mapping[str, Any] | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__("network.committed", dict(metadata or {}), correlation_id=correlation_id, causation_id=causation_id)

@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
+from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
@@ -38,6 +39,7 @@ class LoadedProject:
     protection_configuration: ProtectionProjectConfiguration | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
     control_configuration: ControlConfiguration | None = None
+    draft_network: DraftNetwork | None = None
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -84,6 +86,9 @@ class ProjectPersistenceService:
         measurement_definitions = measurement_data.get("channels", ())
         if not isinstance(measurement_definitions, list) or any(not isinstance(item, dict) for item in measurement_definitions):
             raise ProjectPersistenceError("project.json measurement.channels payload must be an array of objects.")
+        draft_data = project.get("draft_network")
+        if draft_data is not None and not isinstance(draft_data, dict): raise ProjectPersistenceError("project.json draft_network payload must be an object.")
+        draft_network = DraftNetwork.from_dict(draft_data, project_id=project_id, activation_generation=1) if draft_data is not None else DraftNetwork.empty(project_id, 1)
         control_data=project.get("control")
         if control_data is not None and not isinstance(control_data,dict): raise ProjectPersistenceError("project.json control payload must be an object.")
         try: control_configuration=ControlConfiguration.from_dict(control_data) if control_data is not None else ControlConfiguration.empty(project_id)
@@ -98,7 +103,7 @@ class ProjectPersistenceService:
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration, control_configuration)
-        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration)
+        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration, draft_network=draft_network)
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
@@ -106,12 +111,15 @@ class ProjectPersistenceService:
              *, dynamic_models: Sequence[DynamicMachineModelAssociation] = (),
              protection_configuration: ProtectionProjectConfiguration | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
-             control_configuration: ControlConfiguration | None = None) -> None:
+             control_configuration: ControlConfiguration | None = None,
+             draft_network: DraftNetwork | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None
         if path is None: raise TypeError("path is required.")
         if not isinstance(context, ProjectContext): raise TypeError("context must be a ProjectContext.")
+        if draft_network is not None and not isinstance(draft_network, DraftNetwork): raise TypeError("draft_network must be DraftNetwork or None.")
+        if draft_network is not None and draft_network.project_id != context.project_id: raise ProjectPersistenceError("DraftNetwork project_id does not match the project.")
         if not isinstance(network, Network): raise TypeError("network must be a Network.")
         if presentation is not None and not isinstance(presentation, Mapping): raise TypeError("presentation must be a mapping or None.")
         if not isinstance(dynamic_models, Sequence): raise TypeError("dynamic_models must be a sequence.")
@@ -145,6 +153,7 @@ class ProjectPersistenceService:
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
         if control_configuration is not None: project["control"] = control_configuration.to_dict()
+        if draft_network is not None: project["draft_network"] = draft_network.to_dict()
 
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
         backup_dir: Path | None = None

@@ -81,6 +81,7 @@ class ModelPlacementTool(ToolBase):
         return f"Place a {self.MODEL_NAME.lower()} on the SLD canvas."
 
     def on_activate(self) -> None:
+        self._active_draft_id = None
         self._clear_state()
 
     def on_deactivate(self) -> None:
@@ -255,7 +256,9 @@ class ModelPlacementTool(ToolBase):
     def on_cancel(self) -> bool:
         self._ensure_active()
         had_state = self._preview_active or self._position is not None
+        self.persist_transient_draft()
         self._clear_state()
+        self._active_draft_id = None
         return had_state
 
     def on_reset(self) -> None:
