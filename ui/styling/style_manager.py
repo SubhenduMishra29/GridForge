@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/styling/style_manager.py
 # GridForge V2 — UI Style Manager
 # ============================================================
