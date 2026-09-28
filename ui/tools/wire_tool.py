@@ -54,6 +54,8 @@ class WireTool(ToolBase):
         snap_result = self._snap(event)
         if snap_result is None:
             return False
+        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
+            return False
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         if self._preview.source_endpoint is None:
@@ -78,10 +80,26 @@ class WireTool(ToolBase):
         snap_result = self._snap(event)
         if snap_result is None:
             return False
-        self._current_position = self._position_tuple(snap_result.position)
+
+        position = self._position_tuple(snap_result.position)
+        self._current_position = position
+        self._preview.update_cursor(position)
+
+        # Grid/none snaps are valid cursor positions but are not electrical
+        # endpoints. Never pass them to EndpointIdentityAdapter: the adapter
+        # deliberately rejects missing object identity so that presentation
+        # geometry cannot be promoted into an electrical connection.
+        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
+            self._preview.update_target(
+                None,
+                valid=False,
+                reason="Move the cursor onto a stable electrical object endpoint.",
+            )
+            self._show_preview()
+            return True
+
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         self._preview.update_target(endpoint, valid=True)
-        self._preview.update_cursor(self._current_position)
         self._show_preview()
         return True
 
