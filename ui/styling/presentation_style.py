@@ -122,9 +122,9 @@ def visual_brush(
     role: str,
     state: VisualState = VisualState.NORMAL,
     *,
-    tokens: StyleTokens = DEFAULT_STYLE_TOKENS,
+    tokens: StyleTokens | None = None,
 ) -> QBrush:
-    """Build the canonical engineering fill treatment."""
+    """Build the canonical engineering fill treatment from active theme tokens."""
     if state == VisualState.INVALID:
         return QBrush(token_color("state_invalid", tokens))
     if state == VisualState.WARNING:
@@ -145,7 +145,7 @@ def visual_brush(
 def visual_font(
     role: str = "engineering",
     *,
-    tokens: StyleTokens = DEFAULT_STYLE_TOKENS,
+    tokens: StyleTokens | None = None,
 ) -> QFont:
     resolved = resolve_style_tokens(tokens)
     size = {"title": 12, "section": 10, "engineering": 9, "annotation": 8}.get(role, 9)
