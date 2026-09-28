@@ -108,13 +108,18 @@ class Controller(QObject):
     def get_current_tool_id(self) -> str | None:
         return self.tool_id
 
-    def set_tool(self, tool_id: str | None) -> None:
+    def set_tool(
+        self,
+        tool_id: str | None,
+        *,
+        cancel_active_creation: bool = False,
+    ) -> None:
         """Activate the canonical ToolManager tool."""
         self._ensure_active()
         manager = self._tool_manager
         if manager is None:
             raise RuntimeError("Controller requires the canonical ToolManager for tool activation.")
-        manager.activate(tool_id)
+        manager.activate(tool_id, cancel_active_creation=cancel_active_creation)
 
     def commit_creation(self) -> bool:
         """Commit the active equipment creation through ToolManager/Application."""
