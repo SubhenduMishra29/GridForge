@@ -44,6 +44,7 @@ from ui.core.qt import (
 
 from .base_item import BaseItem
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
+from ui.styling.presentation_style import VisualState, visual_brush, visual_pen
 
 
 class BusItem(BaseItem):
@@ -87,8 +88,10 @@ class BusItem(BaseItem):
             True,
         )
 
-        self._pen = QPen(Qt.GlobalColor.black, self.DEFAULT_LINE_WIDTH)
-        self._brush = QBrush(Qt.GlobalColor.white)
+        self._visual_state = VisualState.NORMAL
+        self.setAcceptHoverEvents(True)
+        self._pen = visual_pen("bus", VisualState.NORMAL, width=self.DEFAULT_LINE_WIDTH)
+        self._brush = visual_brush("bus", VisualState.NORMAL)
         self._suppress_position_signal = False
 
         if position is not None:
@@ -200,11 +203,33 @@ class BusItem(BaseItem):
         del option, widget
         if painter is None:
             return
-        painter.setPen(self._pen)
-        painter.setBrush(self._brush)
+        state = self._visual_state
+        if state in {VisualState.NORMAL, VisualState.HOVER}:
+            state = VisualState.SELECTED if self.isSelected() else (
+                VisualState.HOVER if self.isUnderMouse() else VisualState.NORMAL
+            )
+        painter.setPen(visual_pen("bus", state, width=self.DEFAULT_LINE_WIDTH))
+        painter.setBrush(visual_brush("bus", state))
         painter.drawLine(self._start, self._end)
         painter.drawEllipse(self._start.x() - self._radius, self._start.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
         painter.drawEllipse(self._end.x() - self._radius, self._end.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
+
+
+    def set_visual_state(self, state: VisualState | str) -> None:
+        self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
+        self.update()
+
+    def hoverEnterEvent(self, event: Any) -> None:
+        if self._visual_state == VisualState.NORMAL:
+            self._visual_state = VisualState.HOVER
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event: Any) -> None:
+        if self._visual_state == VisualState.HOVER:
+            self._visual_state = VisualState.NORMAL
+        self.update()
+        super().hoverLeaveEvent(event)
 
     def set_radius(self, radius: float) -> None:
         """Change visual Bus radius."""
@@ -262,6 +287,7 @@ class BusItem(BaseItem):
                 "movable": bool(
                     self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
                 ),
+                "visual_state": self._visual_state.value,
                 "selectable": bool(
                     self.flags()
                     & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
