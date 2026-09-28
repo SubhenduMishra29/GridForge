@@ -136,3 +136,48 @@ No Core Qt/QGraphics dependency was added. No Application command path, Core ele
 ## 10. Final static status
 
 **STYLING CORRECTION — STATIC SOURCE VERIFICATION COMPLETE; RUNTIME VERIFICATION DEFERRED.**
+
+
+## 11. 2026-09-28 active-theme consumer re-audit
+
+A remaining static consumer gap was corrected: graphics styling helpers and canvas rendering could otherwise fall back directly to DEFAULT_STYLE_TOKENS instead of the currently applied Theme token set.
+
+Corrected presentation path:
+
+`Theme.tokens → StyleManager.apply() → QApplication[gridforge.style_tokens] → presentation_style.resolve_style_tokens() → graphics consumers`
+
+QSS continues to resolve the same Theme.tokens through StyleManager. GridScene and GraphicsView now consume canonical token resolution for canvas styling. Existing equipment, bus, line, control, SLD node, SLD connection and preview consumers use the same presentation helper family.
+
+**Static result:** active-theme consumer path source-proven.
+**Runtime result:** deferred; no GUI or theme-switch execution performed.
+
+
+## 12. Completion matrix — static re-audit
+
+| Area | Audit | Correction | Re-audit | Status |
+| --- | --- | --- | --- | --- |
+| Theme tokens | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| QSS/style consumption | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Startup theme | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Workspace hierarchy | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Palette | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Icons | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| SLD canvas | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| SLD symbols | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Inspector | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Controls | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Typography | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Spacing | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Menus | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Toolbar | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Control | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Protection | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Studies | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Diagnostics | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Status/readout | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Dialogs/popups | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY — RUNTIME DEFERRED |
+| Accessibility/readability | COMPLETE | COMPLETE | COMPLETE | PARTIAL — PIXEL/RUNTIME DEFERRED |
+| Legacy styling | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+| Register synchronization | COMPLETE | COMPLETE | COMPLETE | VERIFIED STATICALLY |
+
+**Overall static disposition:** styling correction and consumer re-audit are source-complete for the inspected presentation architecture. Runtime GUI, pixel-level accessibility, alternate-theme execution and interaction verification remain deferred and are not claimed as closed.
