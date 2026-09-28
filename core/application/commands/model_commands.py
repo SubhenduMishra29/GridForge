@@ -75,10 +75,14 @@ def _endpoint(value: EndpointReference | None, name: str) -> None:
 class CreateBusCommand(Command):
     def __init__(self, *, bus_id: str, name: str = "", nominal_voltage_kv: float = 0.0, voltage_pu: float = 1.0,
                  angle_deg: float = 0.0, frequency_hz: float = 50.0, in_service: bool = True,
+                 presentation_x: float | None = None, presentation_y: float | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(CREATE_BUS, {"bus_id": bus_id, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
-            "voltage_pu": voltage_pu, "angle_deg": angle_deg, "frequency_hz": frequency_hz, "in_service": in_service},
-            command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_BUS, {
+            "presentation_x": presentation_x, "presentation_y": presentation_y,
+            "bus_id": bus_id, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
+            "voltage_pu": voltage_pu, "angle_deg": angle_deg, "frequency_hz": frequency_hz,
+            "in_service": in_service,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class UpdateBusCommand(Command):
     def __init__(self, *, bus_id: str, name: str | None = None, nominal_voltage_kv: float | None = None,

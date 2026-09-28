@@ -173,16 +173,11 @@ class ModelPlacementTool(ToolBase):
             "parameter_mapping": dict(draft.definition.parameter_mapping),
             "endpoint_mapping": dict(draft.definition.endpoint_mapping),
         }
+        # Draft state belongs to DraftNetwork/Application state only.
+        # Do not create an SLD node here: SLD equipment nodes are persistent
+        # presentation projections and therefore require a canonical Core
+        # equipment_id. The transient symbol is already owned by PreviewLayer.
         self.execute_command(AddDraftEquipmentCommand(equipment=item))
-        sld = getattr(self.application, "sld_service", None)
-        if sld is not None:
-            from core.application.commands.sld_commands import AddSLDNodeCommand
-            self.execute_command(AddSLDNodeCommand(
-                node_id=f"sld-draft-{self._active_draft_id}", equipment_id=None,
-                x=float(item["placement"][0]), y=float(item["placement"][1]),
-                presentation_owner="engineer", element_type=draft.equipment_type,
-                presentation_properties={"draft_id": self._active_draft_id, "lifecycle_state": "DRAFT"},
-            ))
 
     def persist_transient_draft(self) -> None:
         if self._active_draft_id is None or self._creation_context is None or self._creation_context.draft is None:

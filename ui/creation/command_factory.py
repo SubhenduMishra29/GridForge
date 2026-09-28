@@ -24,6 +24,7 @@ class CreationCommandFactory:
         *,
         object_id: str,
         endpoints: Mapping[str, Any] | None = None,
+        position: tuple[float, float] | None = None,
     ) -> CreationCommitIntent:
         if not isinstance(draft, CreationDraft):
             raise TypeError("draft must be a CreationDraft.")
@@ -44,7 +45,7 @@ class CreationCommandFactory:
             endpoint_mapping=draft.definition.endpoint_mapping,
             values=draft.snapshot_values(),
             endpoints=acquired,
-            position=draft.placement_position,
+            position=position if position is not None else draft.placement_position,
         )
 
 
