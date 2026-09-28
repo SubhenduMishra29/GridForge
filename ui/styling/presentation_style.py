@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 from ui.core.qt import QApplication, QBrush, QColor, QFont, QPen
@@ -25,6 +26,25 @@ class VisualState(str, Enum):
     DISABLED = "disabled"
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
+
+@dataclass(frozen=True, slots=True)
+class PresentationState:
+    """Canonical UI/SLD presentation-state and readout contract."""
+    visual_state: VisualState | None = None
+    status: str | None = None
+    tool_state: str | None = None
+    readout: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("status", "tool_state", "readout"):
+            value = getattr(self, name)
+            if value is not None and not str(value).strip():
+                raise ValueError(f"{name} must be non-empty when provided.")
+
+    @property
+    def readout_text(self) -> str:
+        parts = [value for value in (self.readout, self.status, self.tool_state) if value]
+        return " • ".join(parts)
 
 
 def _color(value: str) -> QColor:
@@ -135,4 +155,4 @@ def visual_font(
     return font
 
 
-__all__ = ["VisualState", "resolve_style_tokens", "token_color", "visual_pen", "visual_brush", "visual_font"]
+__all__ = ["VisualState", "PresentationState", "resolve_style_tokens", "token_color", "visual_pen", "visual_brush", "visual_font"]
