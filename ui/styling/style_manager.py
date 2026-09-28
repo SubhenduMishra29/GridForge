@@ -521,10 +521,10 @@ class StyleManager:
         """
 
         stylesheet = self.load_stylesheet()
-
-        return bool(
-            stylesheet.strip()
-        )
+        rendered = self.render_stylesheet(stylesheet)
+        if "{{" in rendered or "}}" in rendered:
+            raise StylesheetLoadError("Stylesheet contains unresolved semantic style tokens.")
+        return bool(rendered.strip())
 
     # ========================================================
     # DIAGNOSTICS
