@@ -1284,3 +1284,32 @@ Historical audit IDs remain preserved. Runtime GUI/startup/repeated-placement be
 **Status:** **REMEDIATED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED**
 
 **Verification:** Source inspection confirms the corrected order: palette selection → compare active tool → explicit `ToolManager.cancel()` when a different tool is active → `ToolManager.activate()` → new CreationContext session. No Core mutation or second lifecycle authority was introduced.
+
+
+## 2026-09-28 — GF-TRACE-003 authoritative boundary refinement
+
+**Refinement:** The first palette-side cancellation check could not guarantee that the state observed by the panel matched the authoritative ToolManager creation state. `ToolManager.activate()` now accepts the explicit `cancel_active_creation` authorization flag; `EquipmentPanelWidget` passes it only when the user selects a different active tool. ToolManager performs the cancellation against its own canonical CreationContext before applying the existing strict guard.
+
+**Status:** **CORRECTED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED**
+
+
+## 2026-09-28 — DraftNetwork → CommitNetwork static remediation
+
+Implementation reference: `audit/DRAFT_NETWORK_COMMIT_REMEDIATION_2026-09-28.md`
+
+| Master ID | Domain | Subsystem | Finding | Severity | Status | Static evidence |
+|---|---|---|---|---|---|---|
+| GF-DRAFT-COMMIT-001 | Application | DraftEquipment | Persistent Application-owned draft equipment aggregate was missing | CRITICAL | **VERIFIED STATIC** | `core/application/draft/network.py` defines `DraftEquipment` with draft identity, terminal contract, engineering data, placement, presentation and validation state; no Core ID is used as draft identity. |
+| GF-DRAFT-COMMIT-002 | Application | DraftConnection | Draft wire state could cross directly into Core | CRITICAL | **VERIFIED STATIC** | `core/application/draft/network.py` defines `DraftConnection`; `ui/tools/wire_tool.py` submits `AddDraftConnectionCommand`, not `CreateSimpleWireConnectionCommand`. |
+| GF-DRAFT-COMMIT-003 | Application | DraftNetwork scope | Draft state lacked explicit project/generation scope | HIGH | **VERIFIED STATIC** | `DraftNetwork.project_id` and `DraftNetwork.activation_generation`; `CommitNetworkHandler` rejects scope mismatch. |
+| GF-DRAFT-COMMIT-004 | Application | Aggregate commit | No single immutable Draft→Core commit boundary | CRITICAL | **VERIFIED STATIC** | `CommitNetworkCommand` is immutable; registered in bootstrap; `CommitNetworkHandler` uses the existing CommandManager Transaction and existing ModelService/SimpleWire service. |
+| GF-DRAFT-COMMIT-005 | Application | Aggregate rollback/history | Aggregate commit needed one undo journal | CRITICAL | **VERIFIED STATIC** | Core child mutations and draft restoration inverse are registered against the same Transaction; CommandManager records one outer command. |
+| GF-DRAFT-COMMIT-006 | SLD | Draft/committed binding | Draft presentation required explicit rebinding | HIGH | **PARTIAL** | Application pre-commit replaces draft-owned SLD nodes/connections with Core-bound projection-owned representations inside the same transaction. Full UI projection/snap closure remains open. |
+| GF-DRAFT-COMMIT-007 | Persistence | DraftNetwork | Unfinished draft state was not part of project persistence | CRITICAL | **VERIFIED STATIC** | `LoadedProject.draft_network`, `ProjectPersistenceService.load/save`, and bootstrap activation/save wiring persist `project.json.draft_network`; absent legacy payload defaults to empty. |
+| GF-DRAFT-COMMIT-008 | UI | Tool switching | Transient CreationContext and persistent engineering draft needed separation | HIGH | **VERIFIED STATIC** | `ToolManager` calls `persist_transient_draft()` before explicit tool-switch cancellation; `ModelPlacementTool` writes DraftNetwork state. |
+| GF-DRAFT-COMMIT-009 | UI | Property panel Draft mode | Explicit draft-id Apply Data editor not yet established | HIGH | **OPEN** | Existing PropertiesPanel remains CreationContext-driven; a dedicated draft editor was not introduced in this pass. |
+| GF-DRAFT-COMMIT-010 | UI | Draft terminal snapping | Draft presentation endpoints need canonical draft identity | CRITICAL | **OPEN** | `ModelPlacementTool` accepts draft endpoint identity only when the snap source exposes draft identity and terminal role; end-to-end draft snap projection is not statically closed. |
+| GF-DRAFT-COMMIT-011 | Application | Draft validation | Full post-load engineering validation contract remains incomplete | HIGH | **PARTIAL** | DraftNetwork validates placement, terminal roles and connection structure; full engineering-parameter revalidation requires the remaining Application validation integration. |
+| GF-DRAFT-COMMIT-012 | UI/Application | Commit action | Visible COMMIT NETWORK workspace action not yet wired | HIGH | **OPEN** | Command and handler exist, but no complete palette/workspace action path was established in this pass. |
+
+**Verification rule:** none of these rows is marked runtime verified. Runtime/GUI/CI evidence remains deferred.
