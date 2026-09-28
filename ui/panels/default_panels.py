@@ -195,6 +195,8 @@ class PropertiesPanelWidget(QWidget):
         self._creation_context: CreationContext | None = None
         self._creation_mode = False
         self._creation_controller: Any | None = None
+        self._apply_changes_connected = True
+        self._commit_creation_connected = False
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -275,15 +277,15 @@ class PropertiesPanelWidget(QWidget):
                 f"{target.display_type} · {target.object_id} · Core validation is authoritative on commit."
             )
         if self._apply_button is not None:
-            try:
-                self._apply_button.clicked.disconnect(self._commit_creation)
-            except (RuntimeError, TypeError):
-                pass
-            try:
-                self._apply_button.clicked.disconnect(self._apply_changes)
-            except (RuntimeError, TypeError):
-                pass
-            self._apply_button.clicked.connect(self._apply_changes)
+            if self._commit_creation_connected:
+                try:
+                    self._apply_button.clicked.disconnect(self._commit_creation)
+                except (RuntimeError, TypeError):
+                    pass
+                self._commit_creation_connected = False
+            if not self._apply_changes_connected:
+                self._apply_button.clicked.connect(self._apply_changes)
+                self._apply_changes_connected = True
             self._apply_button.setText("Apply / Commit")
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
@@ -315,11 +317,15 @@ class PropertiesPanelWidget(QWidget):
                 and draft.placement_position is not None
                 and draft.validate_for_commit()
             )
-            try:
-                self._apply_button.clicked.disconnect(self._apply_changes)
-            except (RuntimeError, TypeError):
-                pass
-            self._apply_button.clicked.connect(self._commit_creation)
+            if self._apply_changes_connected:
+                try:
+                    self._apply_button.clicked.disconnect(self._apply_changes)
+                except (RuntimeError, TypeError):
+                    pass
+                self._apply_changes_connected = False
+            if not self._commit_creation_connected:
+                self._apply_button.clicked.connect(self._commit_creation)
+                self._commit_creation_connected = True
 
     def _commit_creation(self) -> None:
         if not self._creation_mode or self._creation_context is None:
@@ -339,11 +345,15 @@ class PropertiesPanelWidget(QWidget):
         if committed:
             self._creation_mode = False
             if self._apply_button is not None:
-                try:
-                    self._apply_button.clicked.disconnect(self._commit_creation)
-                except (RuntimeError, TypeError):
-                    pass
-                self._apply_button.clicked.connect(self._apply_changes)
+                if self._commit_creation_connected:
+                    try:
+                        self._apply_button.clicked.disconnect(self._commit_creation)
+                    except (RuntimeError, TypeError):
+                        pass
+                    self._commit_creation_connected = False
+                if not self._apply_changes_connected:
+                    self._apply_button.clicked.connect(self._apply_changes)
+                    self._apply_changes_connected = True
                 self._apply_button.setEnabled(False)
                 self._apply_button.setText("Apply / Commit")
             self._render_projection(None)
