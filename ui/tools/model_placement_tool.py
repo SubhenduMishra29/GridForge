@@ -125,6 +125,10 @@ class ModelPlacementTool(ToolBase):
     def _commit_if_valid(self) -> bool:
         draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
+            if not draft.configuration_complete:
+                self._report_feedback("Required engineering parameter missing.")
+            elif draft.validation_state.get("endpoint"):
+                self._report_feedback("No valid electrical endpoint.")
             return False
         intent = self._build_command()
         prepare = getattr(self.application, "prepare_creation_command", None)
