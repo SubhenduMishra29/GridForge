@@ -14,7 +14,6 @@ from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
 from ui.creation.command_factory import CreationCommandFactory
-from core.model import EquipmentType
 from ui.tools.endpoint_identity_adapter import EndpointIdentityAdapter
 
 
