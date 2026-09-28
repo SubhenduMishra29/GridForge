@@ -1,6 +1,8 @@
-"""Presentation-only host for switching the existing SLD and Control surfaces."""
+"""Presentation-only host for GridForge engineering workspace surfaces."""
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from ui.core.qt import QVBoxLayout, QWidget
 
@@ -8,16 +10,21 @@ from ui.core.qt import QVBoxLayout, QWidget
 class ControlSurfaceHost(QWidget):
     """Host mutually exclusive engineering surfaces without owning domain state."""
 
-    def __init__(self, *, sld_surface: QWidget, control_surface: QWidget, parent: QWidget | None = None) -> None:
+    def __init__(self, *, surfaces: Mapping[str, QWidget], parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        if not isinstance(sld_surface, QWidget) or not isinstance(control_surface, QWidget):
-            raise TypeError("Both workspace surfaces must be QWidget instances.")
-        self._surfaces = {"sld": sld_surface, "control": control_surface}
+        if not surfaces:
+            raise ValueError("At least one workspace surface is required.")
+        normalized = dict(surfaces)
+        if any(not isinstance(key, str) or not key.strip() for key in normalized):
+            raise TypeError("Workspace surface IDs must be non-empty strings.")
+        if any(not isinstance(widget, QWidget) for widget in normalized.values()):
+            raise TypeError("All workspace surfaces must be QWidget instances.")
+        self._surfaces = normalized
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(sld_surface)
-        layout.addWidget(control_surface)
-        self.activate("sld")
+        for widget in normalized.values():
+            layout.addWidget(widget)
+        self.activate(next(iter(normalized)))
 
     @property
     def surface_ids(self) -> tuple[str, ...]:

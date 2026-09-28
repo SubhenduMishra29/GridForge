@@ -74,6 +74,7 @@ class ControlWorkspace(QWidget):
             on_toggle_rung=self._toggle_rung,
             on_move_rung_up=self._move_rung_up,
             on_cancel_tool=self._interaction.cancel,
+            on_execute_cycle=self._execute_cycle,
         )
         self._view = _LadderView(interaction=self._interaction, scene=self._canvas)
         self._coordinator = ControlUpdateCoordinator(
@@ -230,7 +231,16 @@ class ControlWorkspace(QWidget):
         from core.application.commands.control_commands import RemoveLadderRung
         self._application.execute(RemoveLadderRung(rung_id=rung.rung_id))
 
-    def _set_editing_enabled(self, enabled: bool) -> None:
+    def _execute_cycle(self) -> None:
+        try:
+            result = self._application.execute_control_cycle()
+        except Exception as exc:
+            self._status.set_status(f"Control execution failed: {exc}")
+            return
+        simulation_time = getattr(result, "simulation_time", None)
+        self._status.set_status("Control cycle completed" if simulation_time is None else f"Control cycle completed at t={simulation_time:g}")
+
+    def _set_editing_enabled(self, enabled: bool) -> None
         self._toolbar.set_editing_enabled(enabled)
         self._palette.setEnabled(bool(enabled))
 

@@ -40,6 +40,11 @@ class YBus:
             raise TypeError("YBus matrix must use a complex dtype.")
         if len(set(self.bus_ids)) != len(self.bus_ids):
             raise ValueError("YBus bus_ids must be unique.")
+        matrix = self.matrix.copy()
+        matrix.data.setflags(write=False)
+        matrix.indices.setflags(write=False)
+        matrix.indptr.setflags(write=False)
+        object.__setattr__(self, "matrix", matrix)
 
     @property
     def shape(self) -> tuple[int, int]:
