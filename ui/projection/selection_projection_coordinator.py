@@ -178,7 +178,34 @@ class SelectionProjectionCoordinator:
                 if not element_type:
                     return None
                 return self.application.read_element(element_type, str(object_id))
-        return None
+
+        try:
+            protection = self.application.read_protection()
+        except (RuntimeError, KeyError):
+            return None
+        relay = next((item for item in protection.relays if item.object_id == str(object_id)), None)
+        if relay is None:
+            return None
+        return type(
+            "_RelayProjectionReadModel",
+            (),
+            {
+                "object_id": relay.object_id,
+                "element_type": "relay",
+                "labels": {"name": relay.name, "function_type": relay.function_type},
+                "connectivity_refs": (),
+                "attributes": {
+                    "relay_type": relay.relay_type,
+                    "plugin_id": relay.plugin_id,
+                    "in_service": relay.in_service,
+                    "enabled": relay.enabled,
+                    "blocked": relay.blocked,
+                    "picked_up": relay.picked_up,
+                    "tripped": relay.tripped,
+                },
+                "engineering_parameters": (),
+            },
+        )()
 
     def _set_panel_target(self, state: ProjectionState) -> None:
         panel = self.properties_panel

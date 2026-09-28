@@ -18,6 +18,7 @@ from ui.canvas.canvas_composition import CanvasComposer
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
 from ui.control.control_surface_host import ControlSurfaceHost
 from ui.control.control_workspace import ControlWorkspace
+from ui.protection.protection_workspace import ProtectionWorkspace
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.controllers.study_case_controller import StudyCaseController
@@ -47,7 +48,7 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, SLD_WORKSPACE_ID, default_workspaces
+from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WORKSPACE_ID, SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
@@ -138,9 +139,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         sld_canvas_render_system=sld_canvas_render_system,
     )
     control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, parent=None)
+    protection_workspace = ProtectionWorkspace(application=gridforge_application, parent=None)
     workspace_surface_host = ControlSurfaceHost(
-        sld_surface=canvas_composition.widget,
-        control_surface=control_workspace,
+        surfaces={
+            "sld": canvas_composition.widget,
+            "control": control_workspace,
+            "protection": protection_workspace,
+        },
         parent=None,
     )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
@@ -232,6 +237,65 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
 
+    def _delete_selection() -> None:
+        selected_ids = tuple(canvas_preparation.selection_manager.get_selected_ids())
+        if not selected_ids:
+            return
+        object_id = str(selected_ids[0])
+        network = gridforge_application.read_network()
+        element = next((item for item in network.elements if str(item.object_id) == object_id), None)
+        command = None
+        if element is not None:
+            element_type = str(element.element_type).lower()
+            from core.application.commands.model_commands import (
+                DeleteBatteryCommand, DeleteBusCommand, DeleteCableCommand,
+                DeleteCapacitorCommand, DeleteDisconnectorCommand, DeleteFuseCommand,
+                DeleteGeneratorCommand, DeleteGridCommand, DeleteLineCommand,
+                DeleteLoadCommand, DeleteMotorCommand, DeleteReactorCommand,
+                DeleteShuntCommand, DeleteSolarCommand, DeleteSwitchCommand,
+                DeleteSynchronousMachineCommand, DeleteTransformerCommand,
+            )
+            from core.application.commands.measurement_commands import (
+                DeleteCapacitiveVoltageTransformerCommand,
+                DeleteCurrentTransformerCommand,
+            )
+            from core.application.commands.pt_commands import DeletePTCommand
+            commands = {
+                "bus": (DeleteBusCommand, "bus_id"),
+                "grid": (DeleteGridCommand, "grid_id"),
+                "generator": (DeleteGeneratorCommand, "generator_id"),
+                "synchronous_machine": (DeleteSynchronousMachineCommand, "synchronous_machine_id"),
+                "load": (DeleteLoadCommand, "load_id"),
+                "motor": (DeleteMotorCommand, "motor_id"),
+                "shunt": (DeleteShuntCommand, "shunt_id"),
+                "capacitor": (DeleteCapacitorCommand, "capacitor_id"),
+                "reactor": (DeleteReactorCommand, "reactor_id"),
+                "solar": (DeleteSolarCommand, "solar_id"),
+                "battery": (DeleteBatteryCommand, "battery_id"),
+                "line": (DeleteLineCommand, "line_id"),
+                "cable": (DeleteCableCommand, "cable_id"),
+                "transformer": (DeleteTransformerCommand, "transformer_id"),
+                "switch": (DeleteSwitchCommand, "switch_id"),
+                "disconnector": (DeleteDisconnectorCommand, "disconnector_id"),
+                "fuse": (DeleteFuseCommand, "fuse_id"),
+                "current_transformer": (DeleteCurrentTransformerCommand, "transformer_id"),
+                "potential_transformer": (DeletePTCommand, "pt_id"),
+                "capacitive_voltage_transformer": (DeleteCapacitiveVoltageTransformerCommand, "transformer_id"),
+            }.get(element_type)
+            if commands is not None:
+                command_class, parameter = commands
+                command = command_class(**{parameter: object_id})
+        else:
+            protection = gridforge_application.read_protection()
+            relay = next((item for item in protection.relays if item.object_id == object_id), None)
+            if relay is not None:
+                from core.application.commands.relay_commands import DeleteRelayCommand
+                command = DeleteRelayCommand(relay_id=object_id)
+        if command is None:
+            raise KeyError(f"No canonical DeleteCommand is registered for selected element '{object_id}'.")
+        gridforge_application.execute(command)
+        canvas_preparation.selection_manager.clear()
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -241,15 +305,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "application.exit": window.close,
         "edit.undo": controller.undo,
         "edit.redo": controller.redo,
+        "edit.delete_selection": _delete_selection,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
+        "view.protection_workspace": lambda: (workspace_controller.activate(PROTECTION_WORKSPACE_ID), workspace_surface_host.activate("protection")),
         "view.equipment_browser": _show_equipment_browser,
         "view.fit": canvas_composition.navigation_controller.fit_content,
         "tool.select": lambda: controller.set_tool("select"),
         "tool.bus": lambda: controller.set_tool("bus"),
         "tool.wire": lambda: controller.set_tool("wire"),
         "study.cases": _show_study_cases,
-        "protection.panel": lambda: _show_unconfigured_surface("Protection"),
+        "protection.panel": lambda: (workspace_controller.activate(PROTECTION_WORKSPACE_ID), workspace_surface_host.activate("protection")),
         "control.panel": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
         "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
     })

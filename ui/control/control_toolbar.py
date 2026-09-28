@@ -20,6 +20,7 @@ class ControlToolbar(QWidget):
         on_toggle_rung: Callable[[], None],
         on_move_rung_up: Callable[[], None],
         on_cancel_tool: Callable[[], None],
+        on_execute_cycle: Callable[[], None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -33,6 +34,7 @@ class ControlToolbar(QWidget):
             ("Remove Rung", on_remove_rung),
             ("Enable/Disable Rung", on_toggle_rung),
             ("Move Rung Up", on_move_rung_up),
+            ("Execute Control Cycle", on_execute_cycle),
         ):
             button = QPushButton(text, self)
             button.clicked.connect(lambda _checked=False, callback=callback: callback())
