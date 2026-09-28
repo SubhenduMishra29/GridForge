@@ -133,6 +133,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
         MenuSpec("edit", "Edit", (
             a("edit.undo", "Undo", "Ctrl+Z"),
             a("edit.redo", "Redo", "Ctrl+Y"),
+            a("edit.delete_selection", "Delete Selection", "Delete", True),
         )),
         MenuSpec("view", "View", (
             a("view.sld_workspace", "SLD Workspace"),
@@ -156,7 +157,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("study.cases", "Study Cases"),
         )),
         MenuSpec("protection", "Protection", (
-            a("protection.panel", "Protection"),
+            a("protection.panel", "Protection Workspace"),
         )),
         MenuSpec("control", "Control", (
             a("control.panel", "Control"),
