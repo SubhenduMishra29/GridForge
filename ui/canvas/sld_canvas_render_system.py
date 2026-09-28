@@ -204,16 +204,22 @@ class SLDCanvasRenderSystem:
             if connection.route.ownership == "auto":
                 route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
                 route_points = tuple(route.points[1:-1])
-            item = self._item_factory.create_connection(connection, source, target)
-            item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
-            if self._route_edit_controller is not None:
-                item.route_edit_requested.connect(
-                    self._route_edit_controller.handle_route_edit_request
+            try:
+                item = self._item_factory.create_connection(connection, source, target)
+                item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
+                if self._route_edit_controller is not None:
+                    item.route_edit_requested.connect(
+                        self._route_edit_controller.handle_route_edit_request
+                    )
+                item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
+                self._scene.addItem(item)
+                self._items[connection.connection_id] = (item,)
+                self._render_signatures[connection.connection_id] = signature
+            except Exception as exc:
+                self._record_connection_failure(
+                    connection, "CONNECTION_REALIZATION_FAILED",
+                    f"{type(exc).__name__}: {exc}"
                 )
-            item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
-            self._scene.addItem(item)
-            self._items[connection.connection_id] = (item,)
-            self._render_signatures[connection.connection_id] = signature
 
     def _record_connection_failure(self, connection: Any, code: str, message: str) -> None:
         """Keep failed connection realization observable through RenderDiagnostic."""
@@ -244,7 +250,9 @@ class SLDCanvasRenderSystem:
         route = getattr(connection.route, "to_dict", lambda: None)()
         properties = tuple(sorted((str(key), repr(value)) for key, value in connection.properties.items()))
         return repr((connection.connection_id, connection.source_node_id, connection.target_node_id,
-                     connection.source_endpoint, connection.target_endpoint, route, properties))
+                     connection.source_endpoint, connection.target_endpoint,
+                     connection.connection_kind, connection.presentation_owner,
+                     connection.projection_source, route, properties))
 
     def _remove_realized(self, item_id: str) -> None:
         items = self._items.pop(item_id, ())
