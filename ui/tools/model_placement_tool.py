@@ -277,7 +277,8 @@ class ModelPlacementTool(ToolBase):
             if pending_role is not None:
                 self._report_feedback(f"Another endpoint is still required: {pending_role}.")
                 return False
-            return self._commit_if_valid()
+            self._report_feedback("Placement and endpoint requirements are complete. Use Create / Commit Equipment.")
+            return True
 
         position = self._snap_position(event)
         if position is None:
@@ -292,7 +293,8 @@ class ModelPlacementTool(ToolBase):
         if pending_role is None:
             self._position = draft.placement_position
             self._show_preview(self._position)
-            return self._commit_if_valid()
+            self._report_feedback("Placement is complete. Use Create / Commit Equipment.")
+            return True
         self._report_feedback(f"Another endpoint is still required: {pending_role}.")
         self._show_preview(self._position or draft.placement_position)
         return False
