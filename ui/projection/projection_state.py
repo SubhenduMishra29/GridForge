@@ -133,7 +133,7 @@ class ProjectionState:
             for parameter in self.engineering_parameters:
                 if parameter.derived:
                     category = PropertyFieldKind.DERIVED
-                elif parameter.editable and parameter.topology_impact:
+                elif parameter.editable and str(parameter.validation.get("category", "")).upper() == PropertyFieldKind.TOPOLOGY_TERMINAL_EDITABLE.value:
                     category = PropertyFieldKind.TOPOLOGY_TERMINAL_EDITABLE
                 elif parameter.editable:
                     category = PropertyFieldKind.ENGINEERING_EDITABLE
