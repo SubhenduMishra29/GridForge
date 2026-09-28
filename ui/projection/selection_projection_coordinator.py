@@ -247,7 +247,7 @@ class SelectionProjectionCoordinator:
         return ProjectionState(
             object_id=relay.object_id,
             display_type="relay",
-            labels=(relay.name,),
+            labels=(),
             status="in_service" if relay.in_service else "out_of_service",
             engineering_parameters=parameters,
         )
