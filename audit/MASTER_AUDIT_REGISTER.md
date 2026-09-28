@@ -1273,3 +1273,14 @@ The repository source also establishes canonical endpoint conversion through `Sn
 Detailed evidence: `audit/GF_TRACE_001_002_REMEDIATION_2026-09-28.md`.
 
 Historical audit IDs remain preserved. Runtime GUI/startup/repeated-placement behavior is not claimed as verified.
+
+
+## 2026-09-28 — Palette tool-switch lifecycle correction
+
+**Finding:** Equipment palette switching raised `RuntimeError: Active equipment creation must be explicitly cancelled before switching tools.` because `EquipmentPanelWidget.activate_equipment()` requested a different ToolManager tool while the shared CreationContext remained active.
+
+**Correction:** `ui/panels/default_panels.py` now treats a different palette selection as an explicit user cancellation of the current transient creation session by calling `ToolManager.cancel()` before `ToolManager.activate(new_tool_id)`. The ToolManager guard remains intact and continues to prevent implicit destruction of active drafts.
+
+**Status:** **REMEDIATED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED**
+
+**Verification:** Source inspection confirms the corrected order: palette selection → compare active tool → explicit `ToolManager.cancel()` when a different tool is active → `ToolManager.activate()` → new CreationContext session. No Core mutation or second lifecycle authority was introduced.

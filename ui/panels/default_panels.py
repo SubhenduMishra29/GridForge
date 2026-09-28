@@ -137,6 +137,19 @@ class EquipmentPanelWidget(QWidget):
         definition = self._equipment_registry.require(equipment_type)
         self._selected_equipment_type = definition.equipment_type
         tool_id = definition.tool_id
+
+        # Palette selection is an explicit user request to change equipment.
+        # If another creation session is active, cancel that transient session
+        # through ToolManager before requesting the new tool.  ToolManager
+        # intentionally rejects implicit destruction of an active draft.
+        active_tool_id = self._tool_manager.active_tool_id
+        if (
+            active_tool_id is not None
+            and active_tool_id != tool_id
+            and self._tool_manager.creation_context.active
+        ):
+            self._tool_manager.cancel()
+
         tool = self._tool_manager.activate(tool_id)
         self._active_tool_id = self._tool_manager.active_tool_id
         if self._properties_panel is not None:
