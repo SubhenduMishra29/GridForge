@@ -136,11 +136,16 @@ class ModelPlacementTool(ToolBase):
             raise RuntimeError("Application must provide prepare_creation_command().")
         command = prepare(intent)
         self.execute_command(command)
-        selector = getattr(self.selection_manager, "select_single", None)
-        if callable(selector):
-            selector(command.payload[draft.definition.id_field])
+
+        # Core/Application commit is authoritative. Complete the transient
+        # creation session before synchronous selection projection can run.
+        created_id = command.payload[draft.definition.id_field]
         self._require_creation_context().complete()
         self._clear_state()
+
+        selector = getattr(self.selection_manager, "select_single", None)
+        if callable(selector):
+            selector(created_id)
         return True
 
     @staticmethod
