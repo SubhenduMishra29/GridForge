@@ -52,6 +52,7 @@ from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WOR
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
+from core.application.commands.draft_commands import CommitNetworkCommand
 Cleanup = Callable[[], None]
 
 
@@ -237,6 +238,28 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
 
+    def _commit_network() -> None:
+        """Commit the active DraftNetwork through the canonical Application command boundary."""
+        draft = gridforge_application.draft_network
+        if draft is None:
+            raise RuntimeError("No active DraftNetwork is available.")
+        errors = tuple(draft.validate())
+        if errors:
+            raise ValueError("Draft validation failed: " + "; ".join(errors))
+        context = gridforge_application.project_lifecycle.context
+        if context is None:
+            raise RuntimeError("COMMIT NETWORK requires an active project.")
+        generation = int(gridforge_application.project_lifecycle.activation_generation)
+        command = CommitNetworkCommand(
+            project_id=context.project_id,
+            activation_generation=generation,
+            draft_network=draft.to_dict(),
+        )
+        result = gridforge_application.execute(command)
+        if not result.success:
+            raise RuntimeError(result.message)
+        _refresh_status()
+
     def _delete_selection() -> None:
         selected_ids = tuple(canvas_preparation.selection_manager.get_selected_ids())
         if not selected_ids:
@@ -306,6 +329,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "edit.undo": controller.undo,
         "edit.redo": controller.redo,
         "edit.delete_selection": _delete_selection,
+        "network.commit_draft": _commit_network,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
         "view.protection_workspace": lambda: (workspace_controller.activate(PROTECTION_WORKSPACE_ID), workspace_surface_host.activate("protection")),

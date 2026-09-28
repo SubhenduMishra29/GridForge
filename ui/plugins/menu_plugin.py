@@ -146,6 +146,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("project.open", "Open Project…"),
             a("project.save", "Save Project"),
             a("project.close", "Close Project"),
+            a("network.commit_draft", "COMMIT NETWORK", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("tools", "Tools", (
             a("tool.select", "Select"),

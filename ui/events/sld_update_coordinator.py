@@ -17,6 +17,7 @@ from core.application.events import (
     ElementRemoved,
     ElementUpdated,
     NetworkChanged,
+    NetworkCommitted,
     ProjectLoaded,
     ProjectClosed,
     ProtectionChanged,
@@ -39,6 +40,7 @@ class SLDUpdateCoordinator:
         ElementRemoved,
         TopologyChanged,
         NetworkChanged,
+        NetworkCommitted,
         ProtectionChanged,
         SLDPresentationChanged,
         ProjectLoaded,
@@ -176,7 +178,7 @@ class SLDUpdateCoordinator:
                         document,
                         self._application.read_network(),
                     )
-            elif isinstance(event, (TopologyChanged, NetworkChanged)):
+            elif isinstance(event, (TopologyChanged, NetworkChanged, NetworkCommitted)):
                 self._synchronizer.synchronize_network(
                     document,
                     self._application.read_network(),
