@@ -299,6 +299,17 @@ class ToolManager:
         result = handler(event)
         return bool(result) if result is not None else True
 
+    def commit_creation(self) -> bool:
+        """Commit the active equipment creation through the active Tool."""
+        self._ensure_active()
+        tool = self._active_tool
+        if tool is None:
+            raise RuntimeError("No active tool is available for equipment creation.")
+        commit = getattr(tool, "commit_creation", None)
+        if not callable(commit):
+            raise RuntimeError(f"Active tool {self._active_tool_id!r} does not support equipment creation commit.")
+        return bool(commit())
+
     def cancel(self) -> bool:
         self._ensure_active()
         if self._active_tool is None:
