@@ -8,13 +8,24 @@ from __future__ import annotations
 from typing import Iterable
 
 from ui.core.qt import QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
+from ui.sld.sld_model import SLDEndpoint
 
 
 class SLDConnectionItem(QGraphicsPathItem):
     route_edit_requested = Signal(object)
     """Render resolved semantic endpoints and engineer-owned route geometry."""
 
-    def __init__(self, object_id: str, source_object_id: str, target_object_id: str) -> None:
+    def __init__(
+        self,
+        object_id: str,
+        source_object_id: str,
+        target_object_id: str,
+        source_endpoint: SLDEndpoint | None = None,
+        target_endpoint: SLDEndpoint | None = None,
+        connection_kind: str | None = None,
+        presentation_owner: str | None = None,
+        projection_source: str | None = None,
+    ) -> None:
         for name, value in (("object_id", object_id), ("source_object_id", source_object_id), ("target_object_id", target_object_id)):
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{name} must be a non-empty string")
@@ -22,6 +33,11 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._object_id = object_id
         self._source_object_id = source_object_id
         self._target_object_id = target_object_id
+        self._source_endpoint = source_endpoint
+        self._target_endpoint = target_endpoint
+        self._connection_kind = connection_kind
+        self._presentation_owner = presentation_owner
+        self._projection_source = projection_source
         self._route_points: tuple[tuple[float, float], ...] = ()
         self._route_ownership = "auto"
         self._visual_source = QPointF()
@@ -38,6 +54,26 @@ class SLDConnectionItem(QGraphicsPathItem):
     @property
     def target_object_id(self) -> str:
         return self._target_object_id
+
+    @property
+    def source_endpoint(self) -> SLDEndpoint | None:
+        return self._source_endpoint
+
+    @property
+    def target_endpoint(self) -> SLDEndpoint | None:
+        return self._target_endpoint
+
+    @property
+    def connection_kind(self) -> str | None:
+        return self._connection_kind
+
+    @property
+    def presentation_owner(self) -> str | None:
+        return self._presentation_owner
+
+    @property
+    def projection_source(self) -> str | None:
+        return self._projection_source
 
     @property
     def route_ownership(self) -> str:
