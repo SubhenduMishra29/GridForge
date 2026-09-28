@@ -1284,3 +1284,10 @@ Historical audit IDs remain preserved. Runtime GUI/startup/repeated-placement be
 **Status:** **REMEDIATED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED**
 
 **Verification:** Source inspection confirms the corrected order: palette selection → compare active tool → explicit `ToolManager.cancel()` when a different tool is active → `ToolManager.activate()` → new CreationContext session. No Core mutation or second lifecycle authority was introduced.
+
+
+## 2026-09-28 — GF-TRACE-003 authoritative boundary refinement
+
+**Refinement:** The first palette-side cancellation check could not guarantee that the state observed by the panel matched the authoritative ToolManager creation state. `ToolManager.activate()` now accepts the explicit `cancel_active_creation` authorization flag; `EquipmentPanelWidget` passes it only when the user selects a different active tool. ToolManager performs the cancellation against its own canonical CreationContext before applying the existing strict guard.
+
+**Status:** **CORRECTED — STATIC VERIFICATION COMPLETE; RUNTIME DEFERRED**
