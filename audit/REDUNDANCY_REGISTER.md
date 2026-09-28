@@ -1,6 +1,6 @@
 # GridForge V2 — Redundancy / Parallel Architecture Register
 
-Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
+Baseline: `main` — current effective re-audit HEAD `f27ef42a39333f5fb35522e5839d23f58a427207`
 
 This is an audit register, not a deletion plan. A parallel-looking implementation is not called redundant without consumer/authority evidence.
 
@@ -31,3 +31,8 @@ This is an audit register, not a deletion plan. A parallel-looking implementatio
 | Dynamic state class vocabulary | `DynamicStateVector` | Current source defines `DynamicStateVector`; package export still references `DynamicState` | Dynamics imports/state | CONFIRMED conflict | GF-MASTER-0012 |
 | Dynamic machine protocol vs concrete machine model | Canonical `DynamicMachineModel` contract if present | Current `machine_models.py` inspected source does not define the imported contract | Dynamics state vector | CONFIRMED conflict | GF-MASTER-0011 |
 | Study results vs equipment persistent state | Study/result provenance | Frozen architecture says calculated study results are not authoritative physical state | Persistence/results | UNVERIFIED | GF-MASTER-0021, 0031 |
+
+
+## 2026-09-28 — Current effective redundancy re-audit
+
+No second theme authority was introduced. `StyleManager` publishes the active immutable Theme token set through the existing QApplication presentation boundary, and graphics helpers resolve that same authority. The white canvas correction changes only the canonical presentation token. No parallel Core/Application/SLD/registry authority was introduced.
