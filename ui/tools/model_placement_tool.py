@@ -14,7 +14,8 @@ from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext
 from ui.creation.command_factory import CreationCommandFactory
-from core.model import EndpointReference, EquipmentType
+from core.model import EquipmentType
+from ui.tools.endpoint_identity_adapter import EndpointIdentityAdapter
 
 
 class ModelPlacementTool(ToolBase):
@@ -50,6 +51,7 @@ class ModelPlacementTool(ToolBase):
         self._symbol_registry = symbol_registry
         self._creation_context: CreationContext | None = None
         self._endpoint_acquired_this_interaction = False
+        self._accepted_endpoint_snap: Any | None = None
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -88,7 +90,11 @@ class ModelPlacementTool(ToolBase):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
-        snap = self._snap_result(event)
+        snap = (
+            self._snap_result(event)
+            if draft.placement_position is None
+            else self._snap_endpoint_result(event)
+        )
         if snap is None:
             return False
 
@@ -107,7 +113,6 @@ class ModelPlacementTool(ToolBase):
 
         if not self._acquire_terminal(draft, snap):
             return False
-        self._endpoint_acquired_this_interaction = True
         self._show_preview(self._position or draft.placement_position)
         return True
 
@@ -128,43 +133,48 @@ class ModelPlacementTool(ToolBase):
         self._clear_state()
         return True
 
+    @staticmethod
+    def _pending_creation_role(draft: CreationDraft) -> str | None:
+        """Return the first missing required role from the canonical definition."""
+        for requirement in draft.definition.terminal_requirements:
+            if requirement.required and draft.endpoints.get(requirement.terminal_name) is None:
+                return requirement.terminal_name
+        return None
+
     def _acquire_terminal(self, draft: CreationDraft, snap: Any) -> bool:
-        terminal_name = getattr(snap, "terminal_name", None)
-        object_id = getattr(snap, "object_id", None)
-        source = getattr(snap, "source", None)
-        semantic_name = terminal_name
-        if semantic_name is None and getattr(snap, "bus_id", None) is not None:
-            # A bus snap is a valid electrical endpoint target for any
-            # creation-contract terminal/topology semantic.
-            pending = [
-                item.terminal_name for item in draft.definition.terminal_requirements
-                if draft.endpoints.get(item.terminal_name) is None
-            ]
-            semantic_name = pending[0] if pending else None
-        if not semantic_name:
+        """Store an accepted target endpoint under the NEW object's pending role."""
+        pending_role = self._pending_creation_role(draft)
+        if pending_role is None:
+            self._report_feedback("Another endpoint is not required.")
             return False
-        requirements = {item.terminal_name: item for item in draft.definition.terminal_requirements}
-        if semantic_name not in requirements or draft.endpoints.get(semantic_name) is not None:
+
+        snap_type = getattr(getattr(snap, "snap_type", None), "name", None)
+        if snap_type != "OBJECT":
+            self._report_feedback("No valid electrical endpoint.")
             return False
+
         try:
-            if getattr(snap, "bus_id", None) is not None:
-                attachment_id = getattr(snap, "attachment_id", None)
-                if not attachment_id:
-                    return False
-                endpoint = EndpointReference.bus(str(snap.bus_id), str(attachment_id))
+            endpoint = EndpointIdentityAdapter.from_snap_result(snap)
+            draft.set_endpoint(pending_role, endpoint)
+        except (TypeError, ValueError, KeyError) as exc:
+            message = str(exc).lower()
+            if "unsupported connection" in message or "incompatible" in message:
+                self._report_feedback("Target endpoint is incompatible.")
             else:
-                element_type = getattr(source, "element_type", None)
-                if not element_type or not object_id or not terminal_name:
-                    return False
-                endpoint = EndpointReference.terminal(
-                    equipment_type=EquipmentType(str(element_type).strip().lower()),
-                    equipment_id=str(object_id),
-                    terminal_role=str(terminal_name),
-                )
-        except (TypeError, ValueError):
+                self._report_feedback("No valid electrical endpoint.")
             return False
-        draft.set_endpoint(semantic_name, endpoint)
+
+        self._accepted_endpoint_snap = snap
+        self._endpoint_acquired_this_interaction = True
         return True
+
+    def _report_feedback(self, message: str) -> None:
+        """Use an existing presentation feedback hook when the composition provides one."""
+        for name in ("show_status_message", "set_status_message", "notify_user"):
+            callback = getattr(self.controller, name, None)
+            if callable(callback):
+                callback(message)
+                return
 
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
@@ -184,6 +194,15 @@ class ModelPlacementTool(ToolBase):
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
+
+        # Endpoint acquisition is press-authoritative: release must not
+        # perform a second snap that can replace the accepted target.
+        if self._endpoint_acquired_this_interaction and self._accepted_endpoint_snap is not None:
+            self._show_preview(self._position or draft.placement_position)
+            self._endpoint_acquired_this_interaction = False
+            self._accepted_endpoint_snap = None
+            return self._commit_if_valid()
+
         position = self._snap_position(event)
         if position is None:
             return False
@@ -193,11 +212,13 @@ class ModelPlacementTool(ToolBase):
             self._preview_active = True
             self._show_preview(position)
             return False
-        if not draft.definition.terminal_requirements or self._endpoint_acquired_this_interaction:
+        if not draft.definition.terminal_requirements:
             self._position = draft.placement_position
             self._show_preview(self._position)
-            self._endpoint_acquired_this_interaction = False
             return self._commit_if_valid()
+        pending_role = self._pending_creation_role(draft)
+        if pending_role is not None:
+            self._report_feedback(f"Another endpoint is still required: {pending_role}.")
         self._show_preview(self._position or draft.placement_position)
         return False
 
@@ -226,6 +247,16 @@ class ModelPlacementTool(ToolBase):
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
         result = snap(scene_position, allow_grid=True, allow_object=True)
+        if getattr(result, "position", None) is None:
+            return None
+        return result
+
+    def _snap_endpoint_result(self, event: Any) -> Any:
+        scene_position = self.event_position(event)
+        snap_endpoint = getattr(self.get_snap_system(), "snap_endpoint", None)
+        if not callable(snap_endpoint):
+            raise TypeError("SnapSystem must provide snap_endpoint().")
+        result = snap_endpoint(scene_position)
         if getattr(result, "position", None) is None:
             return None
         return result
@@ -292,6 +323,7 @@ class ModelPlacementTool(ToolBase):
         self._position = None
         self._preview_active = False
         self._endpoint_acquired_this_interaction = False
+        self._accepted_endpoint_snap = None
         if self._preview_layer is not None:
             clear = getattr(self._preview_layer, "clear", None)
             if callable(clear):
