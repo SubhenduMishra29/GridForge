@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/canvas/grid_scene.py
 # GridForge V2 — Canvas Scene
+# Author: Subhendu Mishra
 # ============================================================
 """
 GridForge V2 canvas scene.
@@ -73,9 +74,14 @@ No direct PySide6/PyQt imports are permitted.
 from __future__ import annotations
 
 from typing import Any, Optional
+from ui.styling.style_tokens import DEFAULT_STYLE_TOKENS
+from .grid_system import GridSystem
 
 from ui.core.qt import (
+    QColor,
     QGraphicsScene,
+    QPen,
+    QPointF,
     QRectF,
 )
 
@@ -117,10 +123,50 @@ class GridScene(QGraphicsScene):
         self._configured_scene_rect = QRectF(
             self.DEFAULT_SCENE_RECT
         )
+        self._grid_system = GridSystem()
 
         self.setSceneRect(
             self._configured_scene_rect
         )
+
+    # ========================================================
+    # GRID PRESENTATION
+    # ========================================================
+
+    @property
+    def grid_system(self) -> GridSystem:
+        """Return the canonical presentation grid geometry service."""
+        return self._grid_system
+
+    def set_grid_system(self, grid_system: GridSystem) -> None:
+        """Replace grid geometry configuration without owning engineering state."""
+        if not isinstance(grid_system, GridSystem):
+            raise TypeError("grid_system must be a GridSystem.")
+        self._grid_system = grid_system
+        self.update()
+
+    def drawBackground(self, painter: Any, rect: QRectF) -> None:
+        """Render a subordinate engineering grid behind projected graphics."""
+        painter.fillRect(rect, QColor(DEFAULT_STYLE_TOKENS.canvas_background))
+        grid = self._grid_system
+        if not grid.visible:
+            return
+        minor_pen = QPen(QColor(DEFAULT_STYLE_TOKENS.canvas_grid_minor))
+        setter = getattr(minor_pen, "setWidthF", None)
+        if callable(setter):
+            setter(0.7)
+        painter.setPen(minor_pen)
+        if grid.minor_visible:
+            for x1, y1, x2, y2 in grid.get_lines(rect, major=False):
+                painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        if grid.major_visible:
+            major_pen = QPen(QColor(DEFAULT_STYLE_TOKENS.canvas_grid_major))
+            setter = getattr(major_pen, "setWidthF", None)
+            if callable(setter):
+                setter(0.9)
+            painter.setPen(major_pen)
+            for x1, y1, x2, y2 in grid.get_lines(rect, major=True):
+                painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
     # ========================================================
     # SCENE RECTANGLE

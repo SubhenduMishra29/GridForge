@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # GridForge V2 — SLD Connection Graphics Projection
 # ============================================================
 """Presentation-only realization of one semantic SLD connection."""
@@ -9,6 +10,7 @@ from typing import Iterable
 
 from ui.core.qt import QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
 from ui.sld.sld_model import SLDEndpoint
+from ui.styling.presentation_style import VisualState, visual_pen
 
 
 class SLDConnectionItem(QGraphicsPathItem):
@@ -42,6 +44,8 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._route_ownership = "auto"
         self._visual_source = QPointF()
         self._visual_target = QPointF()
+        self._visual_state = VisualState.NORMAL
+        self.setAcceptHoverEvents(True)
 
     @property
     def object_id(self) -> str:
@@ -78,6 +82,31 @@ class SLDConnectionItem(QGraphicsPathItem):
     @property
     def route_ownership(self) -> str:
         return self._route_ownership
+
+    def set_visual_state(self, state: VisualState | str) -> None:
+        self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
+        self._refresh_pen()
+
+    def _refresh_pen(self) -> None:
+        role = "cable" if str(self._connection_kind or "").lower() == "cable" else (
+            "line" if str(self._connection_kind or "").lower() == "line" else "connection"
+        )
+        state = self._visual_state
+        if state in {VisualState.NORMAL, VisualState.HOVER}:
+            state = VisualState.SELECTED if self.isSelected() else (VisualState.HOVER if self.isUnderMouse() else VisualState.NORMAL)
+        self.setPen(visual_pen(role, state, width=2.0))
+
+    def hoverEnterEvent(self, event) -> None:
+        if self._visual_state == VisualState.NORMAL:
+            self._visual_state = VisualState.HOVER
+        self._refresh_pen()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        if self._visual_state == VisualState.HOVER:
+            self._visual_state = VisualState.NORMAL
+        self._refresh_pen()
+        super().hoverLeaveEvent(event)
 
     def set_pen(self, pen: QPen) -> None:
         self.setPen(QPen(pen))
@@ -124,6 +153,10 @@ class SLDConnectionItem(QGraphicsPathItem):
             path.lineTo(QPointF(float(x), float(y)))
         path.lineTo(QPointF(self._visual_target))
         self.setPath(path)
+        self._refresh_pen()
+
+    def visual_state(self) -> str:
+        return self._visual_state.value
 
     def route_points(self) -> tuple[tuple[float, float], ...]:
         return self._route_points

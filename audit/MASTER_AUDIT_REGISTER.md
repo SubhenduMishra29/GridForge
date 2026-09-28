@@ -1406,3 +1406,25 @@ No second Core, Application, Study, Power Flow, Protection, Control, Dynamics, S
 **Requested STY-016 through STY-026 and STY-032 through STY-034:** these identifiers are not present in the current implementation or canonical MASTER_AUDIT_REGISTER files inspected during this re-audit. They are therefore not assigned fabricated statuses; the existing GF-/WF-/TRACE register identities above are used for evidence-backed closure.
 
 **Verification boundary:** source inspection only. No pytest, CI, application startup, GUI execution, integration test, or runtime verification was performed.
+
+## 2026-09-28 — Complete Styling / Engineering Visual-System Reconciliation
+
+**Current styling master item:** GF-MASTER-0103  
+**Legacy styling targets:** STY-001 through STY-034  
+**Status:** **REMEDIATED — VERIFICATION DEFERRED**  
+**Verification:** static source inspection only; no pytest, CI, startup, GUI or runtime verification.
+
+The requested STY identifiers were not present in the current `MASTER_AUDIT_REGISTER.md/.csv`. They are preserved under GF-MASTER-0103 without inventing unavailable historical finding text. Current source corrections establish one presentation styling authority:
+
+`Theme → StyleTokens → StyleManager → resolved QSS → QApplication/widgets`
+
+and a shared graphics vocabulary through `ui/styling/presentation_style.py` for SLD/control projections.
+
+Static corrections include semantic theme tokens, token-resolved QSS, canonical engineering panel/action/validation roles, SLD canvas token styling, state-aware equipment/bus/line/cable/connection/preview/control graphics, refined built-in SLD symbol geometry, relay 50/51 numbered-circle artwork, and removal of the hard-coded white canvas / renderer-owned hard-coded pens.
+
+Detailed evidence and the requested STY-001…STY-034 reconciliation are recorded in:
+
+`audit/STYLING_AUDIT_CLOSURE_2026-09-28.md`
+
+Runtime GUI rendering, accessibility, theme switching, interaction behavior and pixel-level visual verification remain deferred.
+

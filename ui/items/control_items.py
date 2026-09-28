@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from ui.core.qt import QFont, QPainter, QPen, QRectF
 from .base_item import BaseItem
+from ui.styling.presentation_style import VisualState, visual_pen, visual_brush, visual_font
 
 
 class ControlPortDirection(str, Enum):
@@ -42,6 +43,8 @@ class ControlLogicItem(BaseItem):
         self._state = bool(state)
         self._inputs: tuple[tuple[str, str], ...] = ()
         self._outputs: tuple[tuple[str, str], ...] = ()
+        self._visual_state = VisualState.NORMAL
+        self.setAcceptHoverEvents(True)
 
     def set_ports(self, *, inputs: tuple[tuple[str, str], ...], outputs: tuple[tuple[str, str], ...]) -> None:
         self._inputs = tuple(inputs)
@@ -91,9 +94,12 @@ class ControlLogicItem(BaseItem):
 
     def paint(self, painter: QPainter, option: Any, widget: Optional[Any] = None) -> None:
         del option, widget
-        painter.setPen(QPen())
+        state = VisualState.SELECTED if self.isSelected() else (VisualState.HOVER if self.isUnderMouse() else self._visual_state)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(visual_pen("control", state, width=1.6))
+        painter.setBrush(visual_brush("control", state))
         painter.drawRect(self.boundingRect())
-        painter.setFont(QFont("Sans", 9))
+        painter.setFont(visual_font("engineering"))
         painter.drawText(self.boundingRect(), 0x84, self._component_type)
         painter.drawText(QRectF(4.0, 4.0, self.WIDTH - 8.0, 16.0), 0x82, str(self.object_id))
         for index, _port in enumerate(self._inputs):
@@ -102,6 +108,20 @@ class ControlLogicItem(BaseItem):
         for index, _port in enumerate(self._outputs):
             y = self._port_local_y(index, len(self._outputs))
             painter.drawEllipse(self.WIDTH - 3.0, y - 3.0, 6.0, 6.0)
+
+    def set_visual_state(self, state: VisualState | str) -> None:
+        self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
+        self.update()
+
+    def hoverEnterEvent(self, event: Any) -> None:
+        self._visual_state = VisualState.HOVER
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event: Any) -> None:
+        self._visual_state = VisualState.NORMAL
+        self.update()
+        super().hoverLeaveEvent(event)
 
 
 class NOContactItem(ControlLogicItem):

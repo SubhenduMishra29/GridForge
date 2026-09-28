@@ -12,9 +12,10 @@ import math
 from typing import Any
 
 from .grid_scene import GridScene
-from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QFont, QRectF, QPointF, QPen
+from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QRectF, QPointF
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ..items.control_items import ControlPortDirection, ControlPortPresentation
+from ui.styling.presentation_style import VisualState, visual_font, visual_pen
 from ..items.control_items import (
     ANDGateItem, CoilItem, ControlLogicItem, InterlockItem, LatchItem,
     NCContactItem, NOContactItem, NOTGateItem, ORGateItem, ResetCoilItem,
@@ -32,7 +33,7 @@ class _RungLabelItem(QGraphicsObject):
 
     def paint(self, painter: QPainter, option: Any, widget: Any = None) -> None:
         del option, widget
-        painter.setFont(QFont("Sans", 9))
+        painter.setFont(visual_font("engineering"))
         painter.drawText(self.boundingRect(), 0x84, self._text)
 
 
@@ -94,7 +95,9 @@ class ControlCanvas(GridScene):
 
         for rung in read_model.rungs:
             y = LadderGeometryPolicy.rung_line_y(rung.order)
-            self.addItem(QGraphicsLineItem(0.0, y, 900.0, y))
+            rung_item = QGraphicsLineItem(0.0, y, 900.0, y)
+            rung_item.setPen(visual_pen("control", VisualState.DISCONNECTED, width=1.0))
+            self.addItem(rung_item)
             label = _RungLabelItem(f"Rung {rung.order + 1:03d}")
             label.setPos(-80.0, y - 14.0)
             self.addItem(label)
@@ -113,7 +116,7 @@ class ControlCanvas(GridScene):
             )
             item = _ControlConnectionItem(identity)
             item.setZValue(-10.0)
-            item.setPen(QPen())
+            item.setPen(visual_pen("control", VisualState.NORMAL, width=1.5))
             self.addItem(item)
 
         for component in read_model.components:

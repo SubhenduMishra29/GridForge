@@ -63,6 +63,7 @@ class EquipmentPanelWidget(QWidget):
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._list.setMovement(QListWidget.Movement.Static)
         self._list.setIconSize(QSize(72, 52))
+        self._list.setObjectName("EquipmentPalette")
         self._list.setGridSize(QSize(112, 88))
         self._list.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -204,9 +205,11 @@ class PropertiesPanelWidget(QWidget):
         self._form_layout = QFormLayout()
         root.addLayout(self._form_layout)
         self._validation_label = QLabel("Select an element to inspect.", self)
+        self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
         root.addWidget(self._validation_label)
         self._apply_button = QPushButton("Apply / Commit", self)
+        self._apply_button.setProperty("role", "primaryAction")
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_changes)
         root.addWidget(self._apply_button)
@@ -287,6 +290,7 @@ class PropertiesPanelWidget(QWidget):
                 self._apply_button.clicked.connect(self._apply_changes)
                 self._apply_changes_connected = True
             self._apply_button.setText("Apply / Commit")
+            self._apply_button.setProperty("role", "primaryAction")
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
@@ -310,8 +314,18 @@ class PropertiesPanelWidget(QWidget):
                 f"Creating {draft.equipment_type}: " +
                 ("Configuration complete." if draft.configuration_complete else "; ".join(errors))
             )
+            self._validation_label.setProperty(
+                "role",
+                "validationSuccess" if draft.configuration_complete else "validationError",
+            )
+            try:
+                self._validation_label.style().unpolish(self._validation_label)
+                self._validation_label.style().polish(self._validation_label)
+            except Exception:
+                pass
         if self._apply_button is not None:
             self._apply_button.setText("Create / Commit Equipment")
+            self._apply_button.setProperty("role", "commitAction")
             self._apply_button.setEnabled(
                 draft.configuration_complete
                 and draft.placement_position is not None

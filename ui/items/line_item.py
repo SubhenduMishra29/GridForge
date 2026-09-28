@@ -37,6 +37,7 @@ from ui.core.qt import (
     QPointF,
     Qt,
 )
+from ui.styling.presentation_style import VisualState, visual_pen
 
 
 class LineItem(QGraphicsLineItem):
@@ -66,7 +67,9 @@ class LineItem(QGraphicsLineItem):
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
             False,
         )
-        self.setPen(QPen(Qt.GlobalColor.black, self.DEFAULT_LINE_WIDTH))
+        self._visual_state = VisualState.NORMAL
+        self.setAcceptHoverEvents(True)
+        self.setPen(visual_pen("line", VisualState.NORMAL, width=self.DEFAULT_LINE_WIDTH))
 
     @property
     def object_id(self) -> Any:
@@ -76,6 +79,27 @@ class LineItem(QGraphicsLineItem):
     def get_object_id(self) -> Any:
         """Return stable represented-object identity."""
         return self._object_id
+
+    def set_visual_state(self, state: VisualState | str) -> None:
+        self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
+        self._refresh_pen()
+
+    def _refresh_pen(self) -> None:
+        state = self._visual_state
+        if state in {VisualState.NORMAL, VisualState.HOVER}:
+            state = VisualState.SELECTED if self.isSelected() else (VisualState.HOVER if self.isUnderMouse() else VisualState.NORMAL)
+        self.setPen(visual_pen("line", state, width=self.DEFAULT_LINE_WIDTH))
+
+    def hoverEnterEvent(self, event: Any) -> None:
+        self._visual_state = VisualState.HOVER if self._visual_state == VisualState.NORMAL else self._visual_state
+        self._refresh_pen()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event: Any) -> None:
+        if self._visual_state == VisualState.HOVER:
+            self._visual_state = VisualState.NORMAL
+        self._refresh_pen()
+        super().hoverLeaveEvent(event)
 
     def set_visual_endpoints(self, start: QPointF, end: QPointF) -> None:
         """Update visual endpoints without changing electrical state."""
@@ -132,6 +156,7 @@ class LineItem(QGraphicsLineItem):
             "end": end,
             "length": self.length(),
             "selected": self.is_visual_selected(),
+            "visual_state": self._visual_state.value,
             "movable": False,
         }
 

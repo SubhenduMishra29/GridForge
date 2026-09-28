@@ -35,7 +35,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QGraphicsScene, QGraphicsView, Qt, Signal
+from ui.core.qt import QBrush, QColor, QGraphicsScene, QGraphicsView, Qt, Signal
+from ui.styling.style_tokens import DEFAULT_STYLE_TOKENS
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
 
@@ -73,8 +74,8 @@ class GraphicsView(QGraphicsView):
         if self._scene.parent() is None:
             self._scene.setParent(self)
         self.setScene(self._scene)
-        # Canvas background is a fixed UI invariant: always render white.
-        self.setBackgroundBrush(Qt.white)
+        self.setObjectName("SLDCanvasView")
+        self.setBackgroundBrush(QBrush(QColor(DEFAULT_STYLE_TOKENS.canvas_background)))
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
