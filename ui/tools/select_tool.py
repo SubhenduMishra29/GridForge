@@ -96,7 +96,7 @@ class SelectTool(ToolBase):
         selected_ids = tuple(self.get_selection_manager().get_selected_ids())
         if not selected_ids:
             return False
-        application = self.get_application()
+        application = self.application
         prepare = getattr(application, "prepare_delete_selection", None)
         execute = getattr(application, "execute", None)
         if not callable(prepare) or not callable(execute):
