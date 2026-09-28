@@ -49,7 +49,7 @@ class CreationRequirements:
     @classmethod
     def from_definition(cls, definition: CreationDefinition) -> "CreationRequirements":
         topology = tuple(item for item in definition.topology_requirements if item.required)
-        terminals = tuple(item for item in definition.terminal_requirements if item.required)
+        terminals = tuple(item for item in definition.terminal_requirements if item.initial_endpoint_required)
         endpoint_required = bool(topology or terminals)
         multi_endpoint_required = (
             len(topology) + len(terminals) > 1
@@ -184,7 +184,7 @@ class CreationDraft:
         self.validation_state["terminal"] = tuple(
             f"Required terminal {item.terminal_name!r} is not acquired."
             for item in self.definition.terminal_requirements
-            if item.required and self.endpoints.get(item.terminal_name) is None
+            if item.initial_endpoint_required and self.endpoints.get(item.terminal_name) is None
         )
         final = (
             tuple(self.validation_state.get("configuration", ()))

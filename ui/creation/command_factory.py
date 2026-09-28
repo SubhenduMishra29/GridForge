@@ -79,8 +79,8 @@ def verify_creation_contracts(definitions: Any) -> tuple[str, ...]:
             for requirement in definition.terminal_requirements:
                 if requirement.terminal_name not in canonical_terminals:
                     errors.append(f"{definition.equipment_type}: terminal requirement references non-canonical terminal {requirement.terminal_name!r}")
-                if requirement.required and requirement.acquisition_state not in {"required", "acquired"}:
-                    errors.append(f"{definition.equipment_type}: required terminal {requirement.terminal_name!r} has invalid acquisition state")
+                if requirement.initial_endpoint_required and requirement.acquisition_state not in {"required", "acquired"}:
+                    errors.append(f"{definition.equipment_type}: required initial endpoint {requirement.terminal_name!r} has invalid acquisition state")
             known = {item.parameter_id for item in definition.parameter_definitions}
             for conditional in definition.conditional_requirements:
                 for key in (*conditional.require_any, *conditional.require_all):

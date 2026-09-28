@@ -95,6 +95,11 @@ class ModelPlacementTool(ToolBase):
             if not draft.configuration_complete:
                 self._report_feedback("Required engineering parameter missing.")
                 return False
+            # A physical terminal does not imply that an initial target
+            # endpoint must be acquired. Only an explicitly required
+            # creation role enters endpoint snapping/progression.
+            if self._pending_creation_role(draft) is None:
+                return False
             snap = self._snap_endpoint_result(event)
         if snap is None:
             return False
@@ -120,6 +125,10 @@ class ModelPlacementTool(ToolBase):
     def _commit_if_valid(self) -> bool:
         draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
+            if not draft.configuration_complete:
+                self._report_feedback("Required engineering parameter missing.")
+            elif draft.validation_state.get("endpoint"):
+                self._report_feedback("No valid electrical endpoint.")
             return False
         intent = self._build_command()
         prepare = getattr(self.application, "prepare_creation_command", None)
@@ -136,9 +145,12 @@ class ModelPlacementTool(ToolBase):
 
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
-        """Return the first missing required role from the canonical definition."""
+        """Return the first missing explicitly required initial endpoint role."""
+        for requirement in draft.definition.topology_requirements:
+            if requirement.required and draft.endpoints.get(requirement.name) is None:
+                return requirement.name
         for requirement in draft.definition.terminal_requirements:
-            if requirement.required and draft.endpoints.get(requirement.terminal_name) is None:
+            if requirement.initial_endpoint_required and draft.endpoints.get(requirement.terminal_name) is None:
                 return requirement.terminal_name
         return None
 
@@ -217,13 +229,12 @@ class ModelPlacementTool(ToolBase):
             self._preview_active = True
             self._show_preview(position)
             return False
-        if not draft.definition.terminal_requirements:
+        pending_role = self._pending_creation_role(draft)
+        if pending_role is None:
             self._position = draft.placement_position
             self._show_preview(self._position)
             return self._commit_if_valid()
-        pending_role = self._pending_creation_role(draft)
-        if pending_role is not None:
-            self._report_feedback(f"Another endpoint is still required: {pending_role}.")
+        self._report_feedback(f"Another endpoint is still required: {pending_role}.")
         self._show_preview(self._position or draft.placement_position)
         return False
 
