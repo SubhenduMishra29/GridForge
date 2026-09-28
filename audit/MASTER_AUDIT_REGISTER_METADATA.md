@@ -149,3 +149,19 @@ The current effective closure status for the consolidated OPEN scope is maintain
 | GF-MASTER-0102 | REMEDIATED — VERIFICATION DEFERRED | Selection deletion reuses existing typed DeleteCommands through Application.execute(). |
 
 All other requested OPEN IDs are recorded as `REMEDIATED — VERIFICATION DEFERRED` where their current source finding is statically reconciled. No runtime verification is implied.
+
+
+## 2026-09-28 — Superseding effective authority addendum
+
+**Implementation repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Source-correction baseline:** `cbe167a533598c63afaba9a30cd10906370548b1`  
+**Verification mode:** static source inspection/correction and register reconciliation only.
+
+Earlier metadata sections are retained as historical chronology. The current effective status is governed by `audit/MASTER_AUDIT_REGISTER.csv` plus the superseding 2026-09-28 section of `MASTER_AUDIT_REGISTER.md`.
+
+Current CSV integrity: **139 unique Master IDs; 0 duplicate IDs; highest ID GF-MASTER-0104; 0 OPEN/PARTIAL/BLOCKED/CONFIRMED rows.** Runtime/GUI-dependent evidence remains explicitly deferred.
+
+The final source correction extended the canonical `PaletteSymbolAdapter` to render SymbolDefinition text primitives and to use the canonical StyleTokens presentation authority. GF-MASTER-0040 and GF-SLD-CANVAS-042 are therefore recorded as **REMEDIATED — VERIFICATION DEFERRED**, not runtime-closed.
+
+Historical OPEN entries in earlier metadata tables are chronology only and do not override the current effective CSV/register state. Historical IDs GF-MASTER-0047 and GF-MASTER-0048 remain DEFERRED because their original technical text is not recoverable from current authoritative evidence.
