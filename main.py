@@ -258,8 +258,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             from core.application.commands.measurement_commands import (
                 DeleteCapacitiveVoltageTransformerCommand,
                 DeleteCurrentTransformerCommand,
-                DeletePotentialTransformerCommand,
             )
+            from core.application.commands.pt_commands import DeletePTCommand
             commands = {
                 "bus": (DeleteBusCommand, "bus_id"),
                 "grid": (DeleteGridCommand, "grid_id"),
@@ -279,7 +279,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 "disconnector": (DeleteDisconnectorCommand, "disconnector_id"),
                 "fuse": (DeleteFuseCommand, "fuse_id"),
                 "current_transformer": (DeleteCurrentTransformerCommand, "transformer_id"),
-                "potential_transformer": (DeletePotentialTransformerCommand, "transformer_id"),
+                "potential_transformer": (DeletePTCommand, "pt_id"),
                 "capacitive_voltage_transformer": (DeleteCapacitiveVoltageTransformerCommand, "transformer_id"),
             }.get(element_type)
             if commands is not None:
