@@ -194,6 +194,7 @@ class PropertiesPanelWidget(QWidget):
         self._form_layout: QFormLayout | None = None
         self._creation_context: CreationContext | None = None
         self._creation_mode = False
+        self._creation_controller: Any | None = None
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -211,6 +212,7 @@ class PropertiesPanelWidget(QWidget):
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._engineering_editor = EngineeringParameterEditor(application)
         self._creation_context = creation_context
+        self._creation_controller = controller
         if controller is not None:
             signal = getattr(controller, "tool_changed", None)
             connect = getattr(signal, "connect", None)
@@ -273,6 +275,15 @@ class PropertiesPanelWidget(QWidget):
                 f"{target.display_type} · {target.object_id} · Core validation is authoritative on commit."
             )
         if self._apply_button is not None:
+            try:
+                self._apply_button.clicked.disconnect(self._commit_creation)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self._apply_button.clicked.disconnect(self._apply_changes)
+            except (RuntimeError, TypeError):
+                pass
+            self._apply_button.clicked.connect(self._apply_changes)
             self._apply_button.setText("Apply / Commit")
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
@@ -298,8 +309,44 @@ class PropertiesPanelWidget(QWidget):
                 ("Configuration complete." if draft.configuration_complete else "; ".join(errors))
             )
         if self._apply_button is not None:
-            self._apply_button.setEnabled(False)
-            self._apply_button.setText("Draft configuration")
+            self._apply_button.setText("Create / Commit Equipment")
+            self._apply_button.setEnabled(
+                draft.configuration_complete
+                and draft.placement_position is not None
+                and draft.validate_for_commit()
+            )
+            try:
+                self._apply_button.clicked.disconnect(self._apply_changes)
+            except (RuntimeError, TypeError):
+                pass
+            self._apply_button.clicked.connect(self._commit_creation)
+
+    def _commit_creation(self) -> None:
+        if not self._creation_mode or self._creation_context is None:
+            return
+        controller = self._creation_controller
+        commit = getattr(controller, "commit_creation", None) if controller is not None else None
+        if not callable(commit):
+            if self._validation_label is not None:
+                self._validation_label.setText("Creation commit runtime is not bound.")
+            return
+        try:
+            committed = bool(commit())
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(str(exc))
+            return
+        if committed:
+            self._creation_mode = False
+            if self._apply_button is not None:
+                try:
+                    self._apply_button.clicked.disconnect(self._commit_creation)
+                except (RuntimeError, TypeError):
+                    pass
+                self._apply_button.clicked.connect(self._apply_changes)
+                self._apply_button.setEnabled(False)
+                self._apply_button.setText("Apply / Commit")
+            self._render_projection(None)
 
     def _create_creation_control(self, definition: Any, value: Any) -> QWidget:
         datatype = str(definition.datatype).strip().lower()
