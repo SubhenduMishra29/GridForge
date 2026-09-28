@@ -156,10 +156,12 @@ class LineTool(ToolBase):
     def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
         draft = self._require_creation_context().require_draft()
         if not draft.validate_for_commit():
-            raise RuntimeError("Line creation draft is invalid: " + "; ".join(
-                draft.validation_state.get("configuration", ()) +
-                draft.validation_state.get("placement", ())
-            ))
+            # Configuration is a user-editable creation concern. Do not raise
+            # from the Qt mouse-event path when required engineering values
+            # are still missing; retain the endpoint preview and let the
+            # Properties projection expose the authoritative validation state.
+            self._preview.update_target(endpoint_to, valid=False)
+            return False
         draft.mark_committing()
         command = CreationCommandFactory.build(
             draft,
