@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from ui.core.qt import QBrush, QColor, QFont, QPen
+from ui.core.qt import QApplication, QBrush, QColor, QFont, QPen
 
 from .style_tokens import DEFAULT_STYLE_TOKENS, StyleTokens
 
@@ -31,10 +31,29 @@ def _color(value: str) -> QColor:
     return QColor(value)
 
 
-def token_color(name: str, tokens: StyleTokens = DEFAULT_STYLE_TOKENS) -> QColor:
-    """Return a defensive QColor from a semantic token name."""
-    value = getattr(tokens, name)
-    return _color(value)
+def resolve_style_tokens(tokens: StyleTokens | None = None) -> StyleTokens:
+    """Resolve the canonical active presentation tokens.
+
+    Explicit tokens are preferred. Otherwise the StyleManager-published
+    immutable token set on QApplication is used, with the default theme as
+    the deterministic fallback.
+    """
+    if tokens is not None:
+        if not isinstance(tokens, StyleTokens):
+            raise TypeError("tokens must be a StyleTokens instance.")
+        return tokens
+    application = QApplication.instance()
+    if application is not None:
+        active = application.property("gridforge.style_tokens")
+        if isinstance(active, StyleTokens):
+            return active
+    return DEFAULT_STYLE_TOKENS
+
+
+def token_color(name: str, tokens: StyleTokens | None = None) -> QColor:
+    """Return a defensive QColor from the canonical active style tokens."""
+    resolved = resolve_style_tokens(tokens)
+    return _color(getattr(resolved, name))
 
 
 def visual_pen(
@@ -42,7 +61,7 @@ def visual_pen(
     state: VisualState = VisualState.NORMAL,
     *,
     width: float = 1.8,
-    tokens: StyleTokens = DEFAULT_STYLE_TOKENS,
+    tokens: StyleTokens | None = None,
 ) -> QPen:
     """Build the canonical pen for an engineering visual role/state."""
     role_token = {
@@ -108,11 +127,12 @@ def visual_font(
     *,
     tokens: StyleTokens = DEFAULT_STYLE_TOKENS,
 ) -> QFont:
+    resolved = resolve_style_tokens(tokens)
     size = {"title": 12, "section": 10, "engineering": 9, "annotation": 8}.get(role, 9)
-    font = QFont(tokens.font_family, size)
+    font = QFont(resolved.font_family, size)
     if role in {"title", "section"}:
         font.setWeight(QFont.Weight.DemiBold)
     return font
 
 
-__all__ = ["VisualState", "token_color", "visual_pen", "visual_brush", "visual_font"]
+__all__ = ["VisualState", "resolve_style_tokens", "token_color", "visual_pen", "visual_brush", "visual_font"]
