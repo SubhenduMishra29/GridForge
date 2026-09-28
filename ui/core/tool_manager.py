@@ -293,11 +293,30 @@ class ToolManager:
         tool = self._active_tool
         if tool is None:
             return False
+
+        # A creation tool may remain selected after a successful commit. The
+        # commit completes and clears the previous CreationDraft, but the tool
+        # itself remains active so repeated placements are still possible.
+        # Re-establish the canonical transient session at the next input
+        # boundary instead of allowing the tool to reach require_draft()
+        # without an active session.
+        self._ensure_creation_session()
+
         handler = getattr(tool, method_name, None)
         if not callable(handler):
             return False
         result = handler(event)
         return bool(result) if result is not None else True
+
+    def _ensure_creation_session(self) -> None:
+        """Ensure an active equipment tool has a canonical CreationDraft."""
+        if self.creation_context.active or self._active_tool_id is None:
+            return
+        if self.equipment_registry is None:
+            return
+        definition = self._definition_for_tool(self._active_tool_id)
+        if definition is not None:
+            self.creation_context.begin(definition)
 
     def commit_creation(self) -> bool:
         """Commit the active equipment creation through the active Tool."""
