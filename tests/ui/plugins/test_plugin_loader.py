@@ -1162,6 +1162,7 @@ def test_create_many_uses_per_plugin_constructor_kwargs(
         make_class_module(
             monkeypatch,
             module_name,
+            plugin_id=module_name[0],
         )
 
     loader = PluginLoader(
