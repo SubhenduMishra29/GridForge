@@ -167,9 +167,23 @@ class TopologyManager:
     @classmethod
     def _reference_for_terminal(cls,e,role):
         from core.model.endpoint_reference import EquipmentType
-        try:et=EquipmentType(str(e.element_type).strip().lower())
-        except ValueError as exc:raise EndpointCompatibilityError(f"Unsupported equipment type '{e.element_type}'.") from exc
-        return EndpointReference.terminal(equipment_type=et,equipment_id=e.id,terminal_role=role)
+        raw_type = str(e.element_type).strip().lower()
+        # Branch inherits the generic ElectricalObject.TYPE. Resolve that
+        # generic inherited value from the concrete Core class name rather
+        # than introducing a second equipment-type registry.
+        if raw_type == "electrical_object":
+            raw_type = type(e).__name__.strip().lower()
+        try:
+            et = EquipmentType(raw_type)
+        except ValueError as exc:
+            raise EndpointCompatibilityError(
+                f"Unsupported equipment type '{e.element_type}'."
+            ) from exc
+        return EndpointReference.terminal(
+            equipment_type=et,
+            equipment_id=e.id,
+            terminal_role=role,
+        )
     def _topology_elements(self):
         out=[];seen=set()
         for name in ("branches","lines","cables","transformers","breakers","switches","disconnectors","fuses"):

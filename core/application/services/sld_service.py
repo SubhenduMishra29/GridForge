@@ -84,7 +84,10 @@ class SLDService:
         self._application = application
         if self._document is not None:
             presentation = getattr(application, "presentation", None)
-            if presentation is not self._document:
+            # Permit composition before the project-lifecycle presentation
+            # contract is wired. Once an Application presentation exists, the
+            # service remains bound to that exact authoritative document.
+            if presentation is not None and presentation is not self._document:
                 raise RuntimeError(
                     "Existing SLD document does not match the Application presentation."
                 )

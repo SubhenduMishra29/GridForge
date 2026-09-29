@@ -364,6 +364,9 @@ def create_application(network: Any) -> Application:
         project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
+    application.revision_service.initialize_from_network(
+        topology_revision=network.state.topology_revision,
+    )
     # The initial project already owns generation 1; establish the same
     # generation-aware runtime invariant used by every later activation.
     application.control_engine.configure(

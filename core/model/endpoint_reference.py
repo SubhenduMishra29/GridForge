@@ -119,20 +119,22 @@ _TERMINAL_OWNER_CLASSES = tuple(
         Reactor, Relay, Shunt, Solar, Switch, SynchronousMachine, Transformer,
     )
     if cls not in (Bus, Branch, Injection)
-    and isinstance(getattr(cls, "terminals", None), property)
 )
 
 EquipmentType = Enum(
     "EquipmentType",
     {
-        cls.__name__.upper(): str(getattr(cls, "TYPE", cls.__name__)).strip().lower()
+        cls.__name__.upper(): (
+            str(getattr(cls, "TYPE", "")).strip().lower()
+            if str(getattr(cls, "TYPE", "")).strip().lower() != "electrical_object"
+            else cls.__name__.lower()
+        )
         for cls in _TERMINAL_OWNER_CLASSES
     },
     type=str,
 )
 
 
-# ============================================================
 # ENDPOINT REFERENCE
 # ============================================================
 

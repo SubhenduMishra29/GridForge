@@ -7,6 +7,8 @@ from core.analysis.transient_stability import TransientStabilityStudyConfigurati
 from core.application.bootstrap import create_application
 from core.application.study import StudyRequest
 from core.network import Network
+from core.model.bus import Bus
+from core.model.synchronous_machine import SynchronousMachine
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.dynamics.machine_models import ClassicalMachineParameters
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
@@ -52,15 +54,24 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         voltage_angles=(0.1, -0.02),
     )
 
-    application = create_application(Network())
+    network = Network()
+    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))
+    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
+    network.add_synchronous_machine(SynchronousMachine("G1", name="G1", endpoint=network.get_by_id("bus", "B1")))
+    application = create_application(network)
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
         bus_id="B1",
         model_type="classical",
         parameters=ClassicalMachineParameters(H=3.0, Xd_prime=0.3, Efd=1.1),
         mechanical_power=0.0,
+        project_id=application.project_lifecycle.context.project_id,
+        activation_generation=application.project_lifecycle.activation_generation,
     ))
     request = StudyRequest(
+        project_id=application.project_lifecycle.context.project_id,
+        activation_generation=application.project_lifecycle.activation_generation,
+        source_revision=application.revision,
         study_type="transient_stability",
         configuration={
             "configuration": TransientStabilityStudyConfiguration(end_time=0.02, dt=0.01),
@@ -72,4 +83,4 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
     result = application.execute_study(request)
 
     assert result.status == "completed"
-    assert result.value.result.number_of_steps >= 1
+    assert result.value.number_of_steps >= 1

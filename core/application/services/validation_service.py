@@ -98,7 +98,7 @@ class ValidationService:
             infos=sum(issue.severity is ValidationSeverity.INFO for issue in issues),
         )
         self._result = ValidationResult(
-            model_revision=self._network.state.model_revision,
+            model_revision=getattr(self._network.state, "model_revision", self._network.state.topology_revision),
             topology_revision=self._network.topology_revision,
             issues=tuple(issues),
             summary=summary,
