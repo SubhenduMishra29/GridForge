@@ -1,5 +1,3 @@
-import pytest
-
 # ============================================================
 # File: tests/ui/tools/test_equipment_tool_command_paths.py
 # GridForge V2 — Equipment Tool Command Path Tests
@@ -7,6 +5,8 @@ import pytest
 # ============================================================
 
 from __future__ import annotations
+
+import pytest
 
 from types import SimpleNamespace
 
