@@ -134,6 +134,10 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("edit.undo", "Undo", "Ctrl+Z"),
             a("edit.redo", "Redo", "Ctrl+Y"),
             a("edit.delete_selection", "Delete Selection", "Delete", True),
+            a("edit.select_all", "Select All", "Ctrl+A"),
+            a("edit.copy", "Copy", "Ctrl+C"),
+            a("edit.paste", "Paste", "Ctrl+V"),
+            a("edit.cut", "Cut", "Ctrl+X"),
         )),
         MenuSpec("view", "View", (
             a("view.sld_workspace", "SLD"),

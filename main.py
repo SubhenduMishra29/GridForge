@@ -53,6 +53,7 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -293,64 +294,86 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             raise RuntimeError(result.message)
         _refresh_status()
 
+    sld_clipboard: list[dict] = []
+
+    def _select_all() -> None:
+        scene = canvas_composition.view.scene()
+        manager = canvas_composition.selection_manager
+        if scene is None:
+            return
+        manager.clear()
+        for item in tuple(scene.items()):
+            object_id = getattr(item, "object_id", None)
+            if object_id is not None:
+                manager.add_to_selection(object_id)
+
+    def _copy_selection() -> None:
+        sld_clipboard.clear()
+        model = getattr(gridforge_application.presentation, "model", None)
+        if model is None:
+            return
+        for selected_id in canvas_composition.selection_manager.get_selected_ids():
+            node = None
+            getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(getter):
+                node = getter(str(selected_id))
+            if node is None:
+                getter = getattr(model, "get_node_optional", None)
+                if callable(getter):
+                    node = getter(str(selected_id))
+            if node is not None:
+                sld_clipboard.append(node.to_dict())
+
+    def _paste_selection() -> None:
+        if not sld_clipboard:
+            return
+        selection = canvas_composition.selection_manager
+        selection.clear()
+        import uuid
+        for source in tuple(sld_clipboard):
+            properties = dict(source.get("properties", {}))
+            properties["clipboard_source_node_id"] = str(source.get("node_id", ""))
+            properties["paste_offset"] = [40.0, 40.0]
+            node_id = str(uuid.uuid4())
+            result = gridforge_application.execute(AddSLDNodeCommand(
+                node_id=node_id, equipment_id=None,
+                x=float(source.get("x", 0.0)) + 40.0,
+                y=float(source.get("y", 0.0)) + 40.0,
+                presentation_owner="engineer",
+                element_type=properties.get("element_type"),
+                presentation=source.get("presentation"),
+                presentation_properties=properties,
+            ))
+            if not result.success:
+                raise RuntimeError(result.message)
+            selection.add_to_selection(node_id)
+
     def _delete_selection() -> None:
-        selected_ids = tuple(canvas_preparation.selection_manager.get_selected_ids())
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
             return
-        object_id = str(selected_ids[0])
-        network = gridforge_application.read_network()
-        element = next((item for item in network.elements if str(item.object_id) == object_id), None)
-        command = None
-        if element is not None:
-            element_type = str(element.element_type).lower()
-            from core.application.commands.model_commands import (
-                DeleteBatteryCommand, DeleteBusCommand, DeleteCableCommand,
-                DeleteCapacitorCommand, DeleteDisconnectorCommand, DeleteFuseCommand,
-                DeleteGeneratorCommand, DeleteGridCommand, DeleteLineCommand,
-                DeleteLoadCommand, DeleteMotorCommand, DeleteReactorCommand,
-                DeleteShuntCommand, DeleteSolarCommand, DeleteSwitchCommand,
-                DeleteSynchronousMachineCommand, DeleteTransformerCommand,
-            )
-            from core.application.commands.measurement_commands import (
-                DeleteCapacitiveVoltageTransformerCommand,
-                DeleteCurrentTransformerCommand,
-            )
-            from core.application.commands.pt_commands import DeletePTCommand
-            commands = {
-                "bus": (DeleteBusCommand, "bus_id"),
-                "grid": (DeleteGridCommand, "grid_id"),
-                "generator": (DeleteGeneratorCommand, "generator_id"),
-                "synchronous_machine": (DeleteSynchronousMachineCommand, "synchronous_machine_id"),
-                "load": (DeleteLoadCommand, "load_id"),
-                "motor": (DeleteMotorCommand, "motor_id"),
-                "shunt": (DeleteShuntCommand, "shunt_id"),
-                "capacitor": (DeleteCapacitorCommand, "capacitor_id"),
-                "reactor": (DeleteReactorCommand, "reactor_id"),
-                "solar": (DeleteSolarCommand, "solar_id"),
-                "battery": (DeleteBatteryCommand, "battery_id"),
-                "line": (DeleteLineCommand, "line_id"),
-                "cable": (DeleteCableCommand, "cable_id"),
-                "transformer": (DeleteTransformerCommand, "transformer_id"),
-                "switch": (DeleteSwitchCommand, "switch_id"),
-                "disconnector": (DeleteDisconnectorCommand, "disconnector_id"),
-                "fuse": (DeleteFuseCommand, "fuse_id"),
-                "current_transformer": (DeleteCurrentTransformerCommand, "transformer_id"),
-                "potential_transformer": (DeletePTCommand, "pt_id"),
-                "capacitive_voltage_transformer": (DeleteCapacitiveVoltageTransformerCommand, "transformer_id"),
-            }.get(element_type)
-            if commands is not None:
-                command_class, parameter = commands
-                command = command_class(**{parameter: object_id})
-        else:
-            protection = gridforge_application.read_protection()
-            relay = next((item for item in protection.relays if item.object_id == object_id), None)
-            if relay is not None:
-                from core.application.commands.relay_commands import DeleteRelayCommand
-                command = DeleteRelayCommand(relay_id=object_id)
-        if command is None:
-            raise KeyError(f"No canonical DeleteCommand is registered for selected element '{object_id}'.")
-        gridforge_application.execute(command)
-        canvas_preparation.selection_manager.clear()
+        model = getattr(gridforge_application.presentation, "model", None)
+        if model is None:
+            return
+        for selected_id in selected_ids:
+            node = None
+            getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(getter):
+                node = getter(str(selected_id))
+            if node is None:
+                getter = getattr(model, "get_node_optional", None)
+                if callable(getter):
+                    node = getter(str(selected_id))
+            if node is None:
+                continue
+            result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
+            if not result.success:
+                raise RuntimeError(result.message)
+        canvas_composition.selection_manager.clear()
+
+    def _cut_selection() -> None:
+        _copy_selection()
+        _delete_selection()
 
     action_router.register_many({
         "project.new": _new_project,
@@ -362,6 +385,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "edit.undo": controller.undo,
         "edit.redo": controller.redo,
         "edit.delete_selection": _delete_selection,
+        "edit.select_all": _select_all,
+        "edit.copy": _copy_selection,
+        "edit.paste": _paste_selection,
+        "edit.cut": _cut_selection,
         "network.commit_draft": _commit_network,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
