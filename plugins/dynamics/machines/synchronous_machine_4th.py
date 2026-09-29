@@ -1,4 +1,3 @@
-```python
 """
 GridForge Synchronous Machine Model
 ===================================
