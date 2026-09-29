@@ -94,9 +94,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     if app is None: app = QApplication(sys.argv)
     branding = BrandingService()
     resources["branding"] = branding
+
+    # Establish the application identity before constructing/showing the splash
+    # or any application window. BrandingService is the single resource authority.
+    branding.apply_application_identity(app)
+
     startup_splash = StartupSplash(app, branding)
     resources["startup_splash"] = startup_splash
-    branding.apply_application_identity(app)
     startup_splash.show(f"Starting {branding.PRODUCT_NAME} {branding.version}…")
     style_manager = StyleManager()
     startup_splash.status("Initializing application style…")
