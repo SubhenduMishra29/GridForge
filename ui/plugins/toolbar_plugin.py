@@ -1254,9 +1254,13 @@ def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
         ToolbarActionSpec(action_id="edit.delete_selection", text="Delete", tooltip="Delete the selected engineering object."),
         ToolbarActionSpec(action_id="study.cases", text="Studies", tooltip="Open Study Cases.", separator_before=True),
         ToolbarActionSpec(action_id="view.sld_workspace", text="SLD", tooltip="Activate the SLD engineering workspace."),
+        ToolbarActionSpec(action_id="view.topology", text="Topology", tooltip="Show the Application topology projection."),
+        ToolbarActionSpec(action_id="view.map", text="Map", tooltip="Show persisted SLD geometry."),
+        ToolbarActionSpec(action_id="view.reports", text="Reports", tooltip="Show published study results."),
         ToolbarActionSpec(action_id="view.control_workspace", text="Control", tooltip="Activate the Control workspace."),
         ToolbarActionSpec(action_id="view.protection_workspace", text="Protection", tooltip="Activate the Protection workspace."),
     )
+
 
 # ============================================================
 # FACTORY
