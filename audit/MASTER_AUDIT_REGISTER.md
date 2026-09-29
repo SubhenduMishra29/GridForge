@@ -1683,3 +1683,26 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 **Batch report:** audit/BATCH26_3_FINAL_WORKSPACE_UI_FUNCTIONAL_CORRECTION_2026-09-29.md  
 **Verification:** **RUNTIME VERIFICATION — DEFERRED**; pytest/CI were not run.  
 **Author:** Subhendu Mishra
+
+## 2026-09-29 — Batch 26.5 Equipment Creation/Core/SLD correction
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source inspection and implementation correction only; pytest, CI, automated suites, and runtime GUI verification were not performed.
+
+### GF-MASTER-0111 — Canonical equipment creation lifecycle
+
+**Legacy IDs:** GF-SLD-WF-TOOL-003; GF-SLD-WF-TOOL-004  
+**Status:** **REMEDIATED — VERIFICATION DEFERRED**  
+**Finding:** ModelPlacementTool previously stopped ordinary equipment placement at transient CreationDraft/preview and required a separate commit action; endpoint acquisition represented snapped endpoints as DraftEndpoint instead of the canonical EndpointReference required by Core create commands.
+
+**Correction:** ModelPlacementTool now performs definition-driven validation, converts presentation snaps through EndpointIdentityAdapter, builds one immutable CreationCommitIntent, prepares the concrete Application command through Application.prepare_creation_command(), and executes it exactly once through Application.execute()/CommandManager. Normal placement commits automatically when all required configuration/placement/endpoint requirements are satisfied. BusTool now checks preparation and execution results before completing its creation context.
+
+**Affected files:** `ui/tools/model_placement_tool.py`; `ui/tools/bus_tool.py`.
+
+**Evidence boundary:** Core/read-model/SLD projection/rendering remains authoritative and no renderer-side persistence was introduced. Runtime GUI confirmation of Transformer, Breaker, measurement equipment, tool switching, selection, Inspector, Element List, wire interaction, undo, and redo remains pending.
+
+**Runtime:** **RUNTIME VERIFICATION — DEFERRED**
+
+**Register integrity:** Historical IDs are preserved; no ID was deleted, renumbered, duplicated, or reused.
+
