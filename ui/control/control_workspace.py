@@ -25,8 +25,13 @@ from ui.events.control_update_coordinator import ControlUpdateCoordinator
 class _LadderView(QGraphicsView):
     def __init__(self, *, interaction: LadderInteraction, scene: ControlCanvas, parent: QWidget | None = None) -> None:
         super().__init__(scene, parent)
+        self.setObjectName("ControlLadderView")
         self._interaction = interaction
         self.setMouseTracking(True)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def mouseMoveEvent(self, event) -> None:
         point = self.mapToScene(event.position().toPoint())

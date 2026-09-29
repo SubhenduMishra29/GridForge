@@ -137,11 +137,11 @@ class SLDUpdateCoordinator:
             return
 
         if isinstance(event, ProjectLoaded):
-            # ProjectLoaded is emitted only after Application activation
-            # succeeds. Reset registry state here for new-project and
-            # project-replacement transitions while preserving old state
-            # during activation rollback (no ProjectLoaded event is emitted).
-            self._projection_manager.clear()
+            # ProjectLoaded is a project-boundary fact, not a presentation
+            # reset instruction. ProjectClosed owns destructive cleanup.
+            # Keeping the registry intact prevents repeated/late
+            # ProjectLoaded delivery from making committed SLD content
+            # disappear during ordinary interaction.
             presentation = self._application.presentation
             if isinstance(presentation, SLDDocument):
                 self.bind_document(presentation)

@@ -24,6 +24,7 @@ class ControlToolbar(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("ControlToolbar")
         self._application = application
         self._editing_widgets: list[QPushButton] = []
         layout = QHBoxLayout(self)

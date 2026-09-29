@@ -29,6 +29,7 @@ _ACTIONS = {
 class ControlInspector(QWidget):
     def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("ControlInspector")
         self._application = application
         self._selected_id: str | None = None
         self._selected_type: str | None = None

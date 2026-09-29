@@ -1669,17 +1669,17 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 **Verification discipline:** pytest, CI, and automated test suites were not run for this pass. No runtime closure is claimed.
 
 
-## 2026-09-29 — Batch 26.2 Property/Event/Workspace/Control static correction
+## 2026-09-29 — Batch 26.3 Final Workspace/UI functional correction
 
 | Master ID | Title | Status | Evidence |
 |---|---|---|---|
-| GF-MASTER-0040 | SLD persistence/render lifecycle | STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED | Incremental SLDCanvasRenderSystem retained; persistent SLD document remains upstream of snapshot/render synchronization; manual Bus → Transformer → Breaker → Wire sequence remains deferred. |
-| GF-MASTER-0042 | Control/Ladder workspace presentation | REMEDIATED — VERIFICATION DEFERRED | Control workspace now uses a resizable splitter; ControlCanvas has explicit ladder geometry/rails/scene rectangle; palette categories expanded. |
-| GF-MASTER-0103 | Engineering visual system | REMEDIATED — VERIFICATION DEFERRED | Semantic editor/table tokens were added without changing the white SLD canvas token. |
-| GF-MASTER-0104 | Theme consumer/canvas contract | STATICALLY VERIFIED — RUNTIME DEFERRED | Properties, lists, tables, and editor controls no longer use light foreground on white editing surfaces. |
-| GF-MASTER-0105 | Engineering workspace tabs | STATICALLY VERIFIED — RUNTIME DEFERRED | WorkspaceRealizer applies initial dock proportions through MainWindow while retaining user-resizable docks. |
-| GF-MASTER-0110 | Element List and Messages / Events projection | STATICALLY CORRECTED | ElementList uses canonical SelectionManager; ApplicationEventMessagesProjection uses the existing UI event ingress; validation and event histories are retained independently. |
+| GF-MASTER-0040 | SLD persistence/render lifecycle | REMEDIATED — VERIFICATION REQUIRED | Removed the destructive SLD projection-manager clear from ProjectLoaded handling; ProjectClosed remains the explicit destructive boundary. Incremental SLDCanvasRenderSystem remains the sole normal reconciliation path. Manual Bus → Transformer → Breaker → Wire verification remains deferred. |
+| GF-MASTER-0042 | Control/Ladder workspace presentation | REMEDIATED — VERIFICATION DEFERRED | Control ladder viewport, palette, inspector and toolbar now have explicit engineering presentation identities, readable semantic styling, stable ladder viewport behavior, and existing resizable splitter composition. |
+| GF-MASTER-0103 | Engineering visual system | REMEDIATED — VERIFICATION DEFERRED | Added semantic list/editor tokens and explicit dark editor/list/table states; the white SLD canvas remains isolated from editor surfaces. |
+| GF-MASTER-0104 | Theme consumer/canvas contract | REMEDIATED — VERIFICATION REQUIRED | QSS now applies editor/list semantic tokens to line edits, text edits, combo boxes, spin boxes, tree/list/table widgets and table headers; runtime contrast confirmation remains pending. |
+| GF-MASTER-0105 | Engineering workspace tabs | REMEDIATED — VERIFICATION REQUIRED | WorkspaceRealizer retains panel/dock bindings during layout changes and applies native QMainWindow dock proportions; panel removal from a layout is presentation-only. |
+| GF-MASTER-0110 | Element List and Messages / Events projection | REMEDIATED — VERIFICATION REQUIRED | Element List remains Application read-model + canonical SelectionManager projection; Messages/Event projection remains on the existing Application event bus and exposes human-readable semantic lifecycle/study/validation events. |
 
-**Batch report:** audit/BATCH26_2_PROPERTY_EVENT_WORKSPACE_CONTROL_STATIC_CORRECTION_2026-09-29.md  
-**Verification:** runtime GUI verification deferred; no pytest/CI/runtime suite executed.  
+**Batch report:** audit/BATCH26_3_FINAL_WORKSPACE_UI_FUNCTIONAL_CORRECTION_2026-09-29.md  
+**Verification:** **RUNTIME VERIFICATION — DEFERRED**; pytest/CI were not run.  
 **Author:** Subhendu Mishra

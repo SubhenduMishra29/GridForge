@@ -26,7 +26,7 @@ from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
-from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget
+from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -445,7 +445,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: workspace_surface_host.activate("reports"),
         "view.equipment_browser": _show_equipment_browser,
+        "view.zoom_in": canvas_composition.navigation_controller.zoom_in,
+        "view.zoom_out": canvas_composition.navigation_controller.zoom_out,
         "view.fit": canvas_composition.navigation_controller.fit_content,
+        "view.pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
         "tool.select": lambda: controller.set_tool("select"),
         "tool.bus": lambda: controller.set_tool("bus"),
         "tool.wire": lambda: controller.set_tool("wire"),
