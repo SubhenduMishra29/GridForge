@@ -1582,3 +1582,21 @@ Evidence boundary:
     verified until those executions are performed.
 
 ======================================================================
+
+
+----------------------------------------------------------------------
+2026-09-29 — STATIC RE-AUDIT ADDENDUM
+----------------------------------------------------------------------
+
+Post-register static re-audit found residual literal Markdown fence lines at
+the ends of several corrected plugin files. Those residual lines were removed
+from the affected plugin modules.
+
+Final affected plugin set now has zero lines whose content is a Markdown
+fence marker by direct source inspection.
+
+Final verification boundary:
+    STATICALLY VERIFIED
+    IMPORT/COMPILE, pytest, Ruff, CI, GUI runtime, persistence runtime, and
+    numerical validation remain DEFERRED.
+
