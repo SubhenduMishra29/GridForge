@@ -1,3 +1,5 @@
+from ui.core.qt import QPointF
+
 # ============================================================
 # File: tests/ui/sld/items/test_sld_connection_item.py
 # GridForge V2 — SLD Connection Item Tests
@@ -20,6 +22,6 @@ def test_connection_item_exposes_stable_connection_identity() -> None:
 def test_connection_item_tracks_visual_endpoints() -> None:
     item = SLDConnectionItem("CONN-001", "BUS-001", "BUS-002")
 
-    item.set_visual_endpoints(10.0, 20.0, 100.0, 200.0)
+    item.set_visual_route(QPointF(10.0, 20.0), QPointF(100.0, 200.0)
 
     assert item.visual_endpoints() == ((10.0, 20.0), (100.0, 200.0))
