@@ -1,6 +1,7 @@
 from uuid import uuid4
 
-from core.application.events import ApplicationEvent, AddControlComponent
+from core.application.events import ApplicationEvent
+from core.application.commands.control_commands import AddControlComponent
 
 
 def test_control_event_contract_is_exposed_by_application_events():
