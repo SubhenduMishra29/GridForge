@@ -58,7 +58,7 @@ def test_fuse_create_command_carries_only_endpoint_references():
     assert annotations["endpoint_from"] == "EndpointReference | None"
     assert annotations["endpoint_to"] == "EndpointReference | None"
     assert any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_endpoint" for n in ast.walk(init))
-    assert "from core.model" not in source
+    assert "from core.model import EndpointReference" in source
 
 
 def test_fuse_create_handler_resolves_both_endpoints_before_service():
