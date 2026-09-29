@@ -125,20 +125,21 @@ class TopologyManager:
             if not isinstance(e,(Breaker,Switch,Disconnector,Fuse)) or not conduction_state(e):continue
             ts=tuple(e.terminals)
             if len(ts)!=2:raise EndpointCompatibilityError(f"Switching element '{e.id}' must have exactly two terminals.")
-            a=resolver.resolve(self._reference_for_terminal(e,ts[0].role));b=resolver.resolve(self._reference_for_terminal(e,ts[1].role))
+            a_ref=self._reference_for_terminal(e,ts[0].role);b_ref=self._reference_for_terminal(e,ts[1].role)
+            a=resolver.resolve(a_ref);b=resolver.resolve(b_ref)
             if a.attached_bus_id and b.attached_bus_id and a.attached_bus_id!=b.attached_bus_id:
-                if a.equipment_type is None or b.equipment_type is None:
+                if a_ref.equipment_type is None or b_ref.equipment_type is None:
                     raise EndpointCompatibilityError(
                         f"Switching element '{e.id}' has no canonical equipment type."
                     )
-                if a.equipment_type is not b.equipment_type:
+                if a_ref.equipment_type is not b_ref.equipment_type:
                     raise EndpointCompatibilityError(
                         f"Switching element '{e.id}' resolved to inconsistent equipment types."
                     )
                 out.append(
                     ConductiveEdge(
                         e.id,
-                        a.equipment_type.value,
+                        a_ref.equipment_type.value,
                         a.attached_bus_id,
                         b.attached_bus_id,
                         ts[0].role,
