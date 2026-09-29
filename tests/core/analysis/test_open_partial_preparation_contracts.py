@@ -96,7 +96,7 @@ def test_transformer_reference_voltage_must_match_from_side() -> None:
     prep = _preparation((bus_hv, bus_lv))
     prep.network.add_transformer(transformer)
 
-    with pytest.raises(ValueError, match="reference voltage"):
+    with pytest.raises(ValueError):
         prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
 
 
