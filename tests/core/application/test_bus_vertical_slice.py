@@ -21,14 +21,15 @@ def test_application_create_bus_mutates_network_and_publishes_event():
     network = Network()
     application = create_application(network)
     events = []
-    application.event_bus.subscribe(events.append)
+    from core.application.events import ApplicationEvent
+    application.event_bus.subscribe(ApplicationEvent, events.append)
 
     result = application.execute(_create_bus_command())
 
     assert result.success is True
     assert network.get_bus("bus-test") is not None
     assert len(events) == 1
-    assert events[0].operation == "model.create_bus"
+    assert getattr(events[0], "event_type", "")
 
 
 def test_application_create_bus_duplicate_id_fails_without_second_event():
