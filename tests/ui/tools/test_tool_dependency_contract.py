@@ -58,7 +58,7 @@ def test_default_registry_uses_application_not_command_manager():
 
 def test_default_bus_factory_constructs_with_application(qapp):
     dependencies = _dependencies(qapp)
-    factories = create_default_tool_factories(**dependencies)
+    factories = create_default_tool_factories(controller=dependencies["controller"], application=dependencies["application"], selection_manager=dependencies["selection_manager"], snap_system=dependencies["snap_system"], preview_layer=dependencies["preview_layer"], symbol_registry=dependencies["symbol_registry"])
 
     tool = factories["bus"]()
     assert isinstance(tool, BusTool)
@@ -88,7 +88,7 @@ def test_default_factories_construct_model_placement_tools_without_command_manag
 
 def test_tool_manager_constructs_registered_tool_with_application(qapp):
     dependencies = _dependencies(qapp)
-    manager = ToolManager(**dependencies)
+    manager = ToolManager(controller=dependencies["controller"], application=dependencies["application"], selection_manager=dependencies["selection_manager"], snap_system=dependencies["snap_system"], preview_layer=dependencies["preview_layer"], equipment_registry=dependencies["equipment_registry"])
 
     created = []
 
