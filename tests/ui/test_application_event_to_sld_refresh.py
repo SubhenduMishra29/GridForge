@@ -27,7 +27,6 @@ def test_application_event_reaches_sld_refresh_path():
         canvas_refresh=lambda: refresh_calls.append(True),
     )
     coordinator.bind_document(document)
-    application.event_bus.subscribe(ApplicationEvent, coordinator.refresh)
 
     application.execute(
         CreateBusCommand(
