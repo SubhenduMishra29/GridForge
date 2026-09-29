@@ -17,6 +17,7 @@ class _WorkspaceControllerStub(WorkspaceController):
     def __init__(self):
         self._workspace_id = None
         self._manager = type("Manager", (), {"active_workspace_id": None, "clear_active": lambda self: None, "state": type("State", (), {"active_workspace_id": None})()})()
+        self._realizer = type("Realizer", (), {"realized_layout": None, "clear_realization": lambda self: None})()
 
     @property
     def active_workspace_id(self):
