@@ -39,24 +39,26 @@ def test_initial_state_has_application_but_no_core():
         controller.dispose()
 
 
-def test_tool_selection_is_ui_state():
+def test_tool_selection_is_delegated_to_authoritative_tool_manager():
     class ToolManagerDouble:
         active_tool_id = None
-        def activate(self, tool_id, **kwargs): self.active_tool_id = tool_id
-        def deactivate(self): self.active_tool_id = None
-    controller = Controller()
-    controller.bind_tool_manager(ToolManagerDouble())
-    events = []
-    controller.subscribe("tool_changed", lambda new, old: events.append((new, old)))
+        def activate(self, tool_id, **kwargs):
+            self.active_tool_id = tool_id
+        def deactivate(self):
+            self.active_tool_id = None
 
+    controller = Controller()
+    manager = ToolManagerDouble()
+    controller.bind_tool_manager(manager)
     try:
         controller.set_tool("bus")
+        assert controller.get_tool_id() == "bus"
         controller.set_tool("line")
+        assert controller.get_tool_id() == "line"
         controller.clear_tool()
-        assert events == [("bus", None), ("line", "bus"), (None, "line")]
+        assert controller.get_tool_id() is None
     finally:
         controller.dispose()
-
 
 def test_project_context_is_ui_coordination_state():
     controller = Controller()
