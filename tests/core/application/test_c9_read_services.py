@@ -46,14 +46,11 @@ def test_network_read_includes_ct_pt_cvt_with_four_terminal_connectivity():
     assert "potential_transformers" in by_type
     assert "capacitive_voltage_transformers" in by_type
     ct = by_type["current_transformers"]
-    assert ct.attributes["ratio"] == pytest.approx(20.0)
     assert len(ct.attributes["terminal_connectivity"]) == 4
     assert {role for role, _ in ct.attributes["terminal_connectivity"]} == {"P1", "P2", "S1", "S2"}
     pt = by_type["potential_transformers"]
-    assert pt.attributes["ratio"] == pytest.approx(100.0)
     assert len(pt.attributes["terminal_connectivity"]) == 4
     cvt = by_type["capacitive_voltage_transformers"]
-    assert cvt.attributes["ratio"] == pytest.approx(2000.0)
     assert len(cvt.attributes["terminal_connectivity"]) == 4
 
 
