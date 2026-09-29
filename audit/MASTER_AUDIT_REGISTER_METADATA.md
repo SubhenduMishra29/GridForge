@@ -165,3 +165,19 @@ Current CSV integrity: **139 unique Master IDs; 0 duplicate IDs; highest ID GF-M
 The final source correction extended the canonical `PaletteSymbolAdapter` to render SymbolDefinition text primitives and to use the canonical StyleTokens presentation authority. GF-MASTER-0040 and GF-SLD-CANVAS-042 are therefore recorded as **REMEDIATED — VERIFICATION DEFERRED**, not runtime-closed.
 
 Historical OPEN entries in earlier metadata tables are chronology only and do not override the current effective CSV/register state. Historical IDs GF-MASTER-0047 and GF-MASTER-0048 remain DEFERRED because their original technical text is not recoverable from current authoritative evidence.
+
+
+## 2026-09-29 — Target workspace current effective reconciliation
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**Source-pass baseline:** `c1eb3494575950231b4931311ed240277f42dd35`  
+**Verification:** static source inspection/correction only.
+
+| ID | Current status | Evidence |
+|---|---|---|
+| GF-MASTER-0045 | STATICALLY VERIFIED | `EquipmentItem` PresentationState/readout and hover path are present; runtime GUI verification deferred. |
+| GF-MASTER-0105 | STATICALLY VERIFIED | `EngineeringWorkspaceTabs` provides SLD/Topology/Map/Reports projections plus existing Control/Protection surfaces. |
+| GF-MASTER-0106 | STATICALLY VERIFIED | `ShellPlugin` provides application header, project context, Application read-model search, notifications, help and user/role presentation. |
+
+Runtime/GUI verification remains deferred. Historical GF-MASTER-0047 and GF-MASTER-0048 remain DEFERRED because their original technical finding text cannot be safely reconstructed.
