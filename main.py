@@ -37,6 +37,7 @@ from ui.plugins.plugin_context import PluginContext
 from ui.styling.style_manager import StyleManager
 from ui.plugins.plugin_manager import PluginManager
 from ui.projection.element_list_projection import ElementListProjection
+from ui.projection.application_event_messages import ApplicationEventMessagesProjection
 from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
 from ui.projection.study_projection import StudyProjection
 from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
@@ -500,8 +501,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_controller.activate_default()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
-    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
-    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
+    element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
+    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
+    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     control_workspace.refresh()
