@@ -4,6 +4,7 @@ import pytest
 
 from core.application.bootstrap import create_application
 from core.network.network import Network
+from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
 from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
 from core.application.events import SLDPresentationChanged
@@ -13,7 +14,9 @@ from ui.sld.sld_document import SLDDocument
 
 
 def _application():
-    application = create_application(Network())
+    network = Network()
+    network.add_bus(Bus("bus-1", nominal_voltage_kv=132.0))
+    application = create_application(network)
     application.attach_sld_service(SLDService(SLDDocument("initial:sld", project_id="initial")))
     application.configure_project_presentation_contract(
         factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
