@@ -1529,3 +1529,29 @@ GF-MASTER-0011 and GF-MASTER-0012 retain their historical IDs and current deferr
 ### Final source-level boundary
 
 The effective source-level completion state is **STATIC CORRECTION / RE-AUDIT COMPLETE — RUNTIME VERIFICATION DEFERRED**. Findings that require executable GUI, startup, save/reload, solver, or study evidence remain verification-deferred rather than falsely closed.
+
+
+## 2026-09-29 — Target workspace static re-audit / effective implementation state
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**Current source HEAD at re-audit:** `c1eb3494575950231b4931311ed240277f42dd35` before audit-document commits  
+**Verification mode:** static source inspection/correction only; no runtime/GUI/CI execution.
+
+### Current target-workspace corrections
+
+- **GF-MASTER-0045 — STATICALLY VERIFIED / RUNTIME DEFERRED:** current `EquipmentItem` owns the canonical `PresentationState` readout and hover state, while `GraphicsView` enables mouse tracking and the presentation contract is shared with SLD graphics.
+- **GF-MASTER-0105 — STATICALLY VERIFIED / RUNTIME DEFERRED:** `EngineeringWorkspaceTabs` now exposes SLD, Topology, Map and Reports as shared project-state projections and retains existing Control/Protection surfaces.
+- **GF-MASTER-0106 — STATICALLY VERIFIED / RUNTIME DEFERRED:** `ShellPlugin` now composes the application header with project context, read-model search, notification/validation summary, help and user/role presentation. Search activates SLD and selects the first canonical match through `SelectionManager`.
+
+### Effective status
+
+| Status | Current disposition |
+|---|---|
+| CLOSED / STATIC CLOSED | Existing source-closed findings remain preserved. |
+| STATICALLY VERIFIED | GF-MASTER-0045, GF-MASTER-0105, GF-MASTER-0106 and existing static findings. |
+| REMEDIATED — VERIFICATION DEFERRED | Existing runtime-dependent remediation findings. |
+| DEFERRED | GF-MASTER-0047, GF-MASTER-0048 because historical technical text is not recoverable. |
+| OPEN / PARTIAL / BLOCKED | **None in the current CSV effective population.** |
+
+The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_REAUDIT_2026-09-29.md`.

@@ -79,7 +79,12 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.core.qt import (
+    QHBoxLayout,
     QLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -136,6 +141,7 @@ class ShellPlugin:
         self._canvas_widget: Optional[QWidget] = None
         self._toolbar_widget: Optional[QWidget] = None
         self._status_widget: Optional[QWidget] = None
+        self._header_widget: Optional[QWidget] = None
 
         self._initialized = False
 
@@ -219,6 +225,7 @@ class ShellPlugin:
         canvas_widget: QWidget,
         toolbar_widget: QWidget,
         status_widget: QWidget,
+        header_widget: QWidget | None = None,
     ) -> None:
         """
         Bind the already-created composition widgets.
@@ -260,9 +267,13 @@ class ShellPlugin:
             "status_widget",
         )
 
+        if header_widget is not None:
+            self._validate_widget(header_widget, "header_widget")
+
         self._canvas_widget = canvas_widget
         self._toolbar_widget = toolbar_widget
         self._status_widget = status_widget
+        self._header_widget = header_widget
 
         self._composition_bound = True
 
@@ -306,6 +317,7 @@ class ShellPlugin:
         previous_context = self._context
         previous_root = self._root_widget
         previous_layout = self._layout
+        previous_header = self._header_widget
         previous_initialized = self._initialized
         root = context.root_widget
         existing_layout = root.layout()
@@ -321,6 +333,8 @@ class ShellPlugin:
         try:
             self._context = context
             self._root_widget = self._resolve_root_widget()
+            if self._header_widget is None:
+                self.create_header_widget()
             self._create_layout()
             self._compose_widgets()
             self._initialized = True
@@ -339,6 +353,7 @@ class ShellPlugin:
             self._context = previous_context
             self._root_widget = previous_root
             self._layout = previous_layout
+            self._header_widget = previous_header
             self._initialized = previous_initialized
             if compensation_error is not None:
                 raise ExceptionGroup(
@@ -383,6 +398,7 @@ class ShellPlugin:
 
         self._layout = None
         self._root_widget = None
+        self._header_widget = None
 
         self._context = None
 
@@ -516,6 +532,13 @@ class ShellPlugin:
             )
 
         # ----------------------------------------------------
+        # Application header
+        # ----------------------------------------------------
+
+        if self._header_widget is not None:
+            self._add_widget_once(self._header_widget)
+
+        # ----------------------------------------------------
         # Toolbar
         # ----------------------------------------------------
 
@@ -575,6 +598,123 @@ class ShellPlugin:
             widget,
             stretch,
         )
+
+    # ========================================================
+    # HEADER
+    # ========================================================
+
+    def create_header_widget(self) -> QWidget:
+        """Create the presentation-only application header from shared context."""
+        if self._context is None:
+            raise RuntimeError("ShellPlugin context is unavailable.")
+        if self._header_widget is not None:
+            return self._header_widget
+
+        header = QWidget(self._root_widget)
+        header.setObjectName("GridForgeApplicationHeader")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(10, 6, 10, 6)
+
+        brand = QLabel("GridForge V2", header)
+        brand.setObjectName("GridForgeBrand")
+        layout.addWidget(brand)
+
+        project_context = getattr(self._context.application, "project_lifecycle", None)
+        project_context = getattr(project_context, "context", None)
+        project_name = getattr(project_context, "name", None) or "No Project"
+        project_label = QLabel(f"Project: {project_name}", header)
+        project_label.setObjectName("GridForgeProjectContext")
+        layout.addWidget(project_label)
+        layout.addStretch(1)
+
+        search = QLineEdit(header)
+        search.setPlaceholderText("Search project elements…")
+        search.setObjectName("GridForgeProjectSearch")
+        search.setClearButtonEnabled(True)
+        layout.addWidget(search)
+
+        notifications = QPushButton("Notifications", header)
+        notifications.setObjectName("GridForgeNotifications")
+        notifications.clicked.connect(
+            lambda: QMessageBox.information(
+                header,
+                "Notifications",
+                self._notification_text(),
+            )
+        )
+        layout.addWidget(notifications)
+
+        help_button = QPushButton("Help", header)
+        help_button.setObjectName("GridForgeHelp")
+        help_button.clicked.connect(
+            lambda: QMessageBox.information(
+                header,
+                "GridForge Help",
+                "Use the Equipment Library to select an engineering tool, "
+                "place equipment on the SLD, then inspect and commit engineering data.",
+            )
+        )
+        layout.addWidget(help_button)
+
+        user_context = getattr(self._context.application, "user_context", None)
+        role = getattr(user_context, "role", None) or "Engineer"
+        user_label = QLabel(f"User / Role: {role}", header)
+        user_label.setObjectName("GridForgeUserContext")
+        layout.addWidget(user_label)
+
+        search.returnPressed.connect(lambda: self._search_project(search.text(), header))
+        self._header_widget = header
+        return header
+
+    def _search_project(self, query: str, parent: QWidget) -> None:
+        """Search canonical Application read models without mutating state."""
+        query = str(query).strip().lower()
+        if not query:
+            return
+        application = self._context.application if self._context is not None else None
+        if application is None or not callable(getattr(application, "read_network", None)):
+            QMessageBox.information(parent, "Project Search", "Project read access is unavailable.")
+            return
+        matches = [
+            element for element in application.read_network().elements
+            if query in str(element.object_id).lower()
+            or query in str(element.element_type).lower()
+            or query in " ".join(str(value).lower() for value in element.labels.values())
+        ]
+        if not matches:
+            QMessageBox.information(parent, "Project Search", f"No project element matches {query!r}.")
+            return
+
+        # Search is read-only, but selecting the first canonical match is a
+        # real navigation action through the existing transient UI selection
+        # authority. The Application/Core model is not mutated.
+        router = getattr(self._context, "action_router", None) if self._context is not None else None
+        if callable(getattr(router, "dispatch", None)):
+            router.dispatch("view.sld_workspace")
+        selection_manager = (
+            self._context.metadata.get("selection_manager")
+            if self._context is not None
+            else None
+        )
+        if callable(getattr(selection_manager, "select_single", None)):
+            selection_manager.select_single(matches[0].object_id)
+
+        lines = [f"{item.object_id} — {item.element_type}" for item in matches[:50]]
+        suffix = "" if len(matches) <= 50 else f"\\n…and {len(matches) - 50} more"
+        QMessageBox.information(
+            parent,
+            "Project Search",
+            "Selected: " + lines[0] + ("\\n\\n" + "\\n".join(lines[1:]) if len(lines) > 1 else ""),
+        )
+
+    def _notification_text(self) -> str:
+        application = self._context.application if self._context is not None else None
+        validation = getattr(application, "read_validation", lambda: None)()
+        if validation is None:
+            return "No validation notifications are currently published."
+        errors = getattr(validation, "errors", ()) or ()
+        warnings = getattr(validation, "warnings", ()) or ()
+        return f"Validation notifications: {len(errors)} error(s), {len(warnings)} warning(s)."
 
     # ========================================================
     # VALIDATION
