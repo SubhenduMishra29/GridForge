@@ -42,5 +42,5 @@ def test_application_event_reaches_sld_refresh_path():
     )
 
     assert refresh_calls == [True]
-    assert coordinator.projection_manager.projection("bus-test") is not None
+    assert coordinator._projection_manager.projection("bus-test") is not None
 
