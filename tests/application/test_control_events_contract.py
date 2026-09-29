@@ -49,7 +49,7 @@ def test_successful_control_command_publishes_control_event_after_commit():
 
     bus = ApplicationEventBus()
     received = []
-    bus.subscribe(lambda event: received.append(event))
+    bus.subscribe(ApplicationEvent, lambda event: received.append(event))
     application = Application(_manager_for(handler), event_bus=bus)
 
     result = application.execute(_add_command())
