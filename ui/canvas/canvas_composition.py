@@ -63,6 +63,7 @@ class SLDCanvasSurface(QWidget):
 
         title = QLabel("SLD (Main)", header)
         title.setObjectName("SLDDocumentTitle")
+        self._title_label = title
         header_layout.addWidget(title)
         header_layout.addStretch(1)
 
@@ -110,6 +111,12 @@ class SLDCanvasSurface(QWidget):
         plus.setToolTip("Additional SLD documents are managed by the project/document lifecycle.")
         tabs.setCornerWidget(plus)
         root.addWidget(tabs, 1)
+
+    def set_document_title(self, title: str | None) -> None:
+        """Update only the visible document-tab title from projected application state."""
+        value = str(title).strip() if title is not None else ""
+        display = f"{value} SLD (Main)" if value else "SLD (Main)"
+        self._title_label.setText(display)
 
 
 class CanvasComposition:
