@@ -15,7 +15,6 @@ from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation
 from core.model.bus import Bus
 from core.model.line import Line
-from core.model.terminal import Terminal
 from core.network.network import Network
 from core.solver.power_flow.input import PowerFlowBusType
 
@@ -37,8 +36,8 @@ def test_analysis_from_network_prepares_before_solver_and_preserves_input_result
         Line(
             id="L1",
             name="L1",
-            from_terminal=Terminal(bus_id="B1"),
-            to_terminal=Terminal(bus_id="B2"),
+            endpoint_from=bus_1,
+            endpoint_to=bus_2,
             resistance_ohm=0.2,
             reactance_ohm=0.4,
             shunt_susceptance_siemens=0.0,
@@ -68,8 +67,8 @@ def test_line_engineering_values_are_converted_once_at_power_flow_preparation() 
         Line(
             id="L1",
             name="L1",
-            from_terminal=Terminal(bus_id="B1"),
-            to_terminal=Terminal(bus_id="B2"),
+            endpoint_from=network.buses[0],
+            endpoint_to=network.buses[1],
             resistance_ohm=0.2,
             reactance_ohm=0.4,
             shunt_susceptance_siemens=0.001,
