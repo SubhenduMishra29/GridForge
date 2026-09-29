@@ -72,6 +72,8 @@ def make_class_module(
     module = types.ModuleType(module_name)
 
     class TestPlugin:
+        plugin_id = "test"
+
         def __init__(self, *args, **kwargs):
             self.args = args
             self.kwargs = kwargs
@@ -206,7 +208,7 @@ def test_plugin_implementation_rejects_empty_plugin_id(
 
 
 def test_plugin_implementation_rejects_non_string_plugin_id():
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         PluginImplementation(
             plugin_id=123,
             module_name="test.module",
@@ -414,6 +416,7 @@ def test_default_plugin_implementations_are_canonical():
         DEFAULT_PLUGIN_IMPLEMENTATIONS.keys()
     ) == (
         "canvas",
+        "menu",
         "panels",
         "toolbar",
         "status",
@@ -465,6 +468,7 @@ def test_loader_uses_default_definitions():
         loader.definitions.keys()
     ) == (
         "canvas",
+        "menu",
         "panels",
         "toolbar",
         "status",
