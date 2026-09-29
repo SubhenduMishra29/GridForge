@@ -22,22 +22,12 @@ class SLDConnectionPresentationAdapter:
         source_snap: Any,
         target_snap: Any,
     ) -> Any:
+        """Reject calls because SLD connection coordination is Application-owned."""
         raise RuntimeError(
             "SLDConnectionPresentationAdapter is retired. "
             "Connection presentation is coordinated by Application._coordinate_pre_commit() "
             "inside the same CommandManager transaction."
         )
-        document = service.document
-        source_endpoint = SLDConnectionPresentationAdapter._endpoint(document, source_snap)
-        target_endpoint = SLDConnectionPresentationAdapter._endpoint(document, target_snap)
-        return execute_command(AddSLDConnectionCommand(
-            connection_id=connection_id,
-            source_node_id=source_endpoint["node_id"],
-            target_node_id=target_endpoint["node_id"],
-            source_endpoint=source_endpoint,
-            target_endpoint=target_endpoint,
-            route={"routing_mode": "orthogonal", "ownership": "auto", "points": []},
-        ))
 
     @staticmethod
     def _endpoint(document: Any, snap: Any) -> dict[str, Any]:
