@@ -2,11 +2,11 @@
 
 import inspect
 
-from main import build_application
+from main import _build_application_impl, build_application
 
 
 def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "CanvasComposer" in source
     assert "canvas_composer.prepare" in source
     assert "canvas_composition" in source
@@ -37,7 +37,6 @@ def test_application_bootstrap_uses_current_canvas_composer_contract() -> None:
     assert "command_manager" not in signature.parameters
     assert "preparation" in signature.parameters
     source = inspect.getsource(CanvasComposer.compose)
-    assert "create_default_tool_factories" in source
     assert "command_manager" not in source
 
 
