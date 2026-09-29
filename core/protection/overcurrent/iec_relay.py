@@ -569,6 +569,20 @@ class IECOvercurrentRelay(RelayBase):
         # Measurement acquisition
         # --------------------------------------------------------------
 
+        relay_input = self.get_input(self.CURRENT_INPUT)
+        if not bool(getattr(relay_input, "usable", False)):
+            self._clear_pickup_timing()
+            self._last_current = None
+            self._last_operating_time = None
+            decision = self.invalid_decision(
+                reason="Current measurement is unavailable or unusable.",
+                timestamp=timestamp,
+                metadata={"input": self.CURRENT_INPUT},
+            )
+            self._last_timestamp = timestamp
+            self._last_decision = decision
+            return decision
+
         try:
             current = self.current_value()
 
