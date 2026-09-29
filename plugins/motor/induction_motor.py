@@ -1,4 +1,3 @@
-```python
 """
 GridForge Induction Motor Plugin
 ================================
