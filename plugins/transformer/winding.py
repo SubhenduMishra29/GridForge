@@ -316,4 +316,3 @@ class Winding(TransformerPlugin):
             f"connection={self.connection}, "
             f"neutral={self.neutral}>"
         )
-```
