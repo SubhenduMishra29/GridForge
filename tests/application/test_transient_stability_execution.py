@@ -8,6 +8,7 @@ from core.application.bootstrap import create_application
 from core.application.study import StudyRequest
 from core.network import Network
 from core.model.bus import Bus
+from core.model.synchronous_machine import SynchronousMachine
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.dynamics.machine_models import ClassicalMachineParameters
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
@@ -56,6 +57,7 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
     network = Network()
     network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))
     network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
+    network.add_synchronous_machine(SynchronousMachine("G1", name="G1", endpoint=network.get_by_id("bus", "B1")))
     application = create_application(network)
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
