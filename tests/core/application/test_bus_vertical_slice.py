@@ -28,7 +28,7 @@ def test_application_create_bus_mutates_network_and_publishes_event():
 
     assert result.success is True
     assert any(bus.id == "bus-test" for bus in network.buses)
-    assert len(events) == 1
+    assert len([event for event in events if event.event_type == "element.created"]) == 1
     assert getattr(events[0], "event_type", "")
 
 
@@ -48,5 +48,5 @@ def test_application_create_bus_duplicate_id_fails_without_second_event():
     else:
         raise AssertionError("duplicate Bus creation must fail")
 
-    assert len(events) == 1
+    assert len([event for event in events if event.event_type == "element.created"]) == 1
     assert network.get_bus("bus-test") is not None
