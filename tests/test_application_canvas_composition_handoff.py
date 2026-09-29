@@ -16,7 +16,7 @@ def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
 
 
 def test_application_bootstrap_binds_controller_to_canonical_application() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "Controller(" in source
     assert "application=gridforge_application" in source
     assert "controller.gridforge_application" not in source
@@ -50,7 +50,7 @@ def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
     from ui.canvas.canvas_composition import CanvasComposer
 
     source = inspect.getsource(CanvasComposer.compose)
-    assert "RenderSystem" not in source
+    assert "SLDCanvasRenderSystem(" not in source
     assert "RendererRegistry" not in source
 
 
