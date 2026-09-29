@@ -4,6 +4,8 @@
 # Author: Subhendu Mishra
 # ============================================================
 
+import pytest
+
 from core.model.cable import Cable
 
 
@@ -39,12 +41,12 @@ def test_cable_engineering_values_are_not_double_converted() -> None:
         b0_us_per_km=2.0,
     )
 
-    assert cable.resistance_ohm == 0.30
-    assert cable.reactance_ohm == 0.60
-    assert cable.shunt_susceptance_siemens == 12.0e-6
-    assert cable.zero_sequence_resistance_ohm == 0.90
-    assert cable.zero_sequence_reactance_ohm == 1.80
-    assert cable.zero_sequence_shunt_susceptance_siemens == 6.0e-6
+    assert cable.resistance_ohm == pytest.approx(0.30)
+    assert cable.reactance_ohm == pytest.approx(0.60)
+    assert cable.shunt_susceptance_siemens == pytest.approx(12.0e-6)
+    assert cable.zero_sequence_resistance_ohm == pytest.approx(0.90)
+    assert cable.zero_sequence_reactance_ohm == pytest.approx(1.80)
+    assert cable.zero_sequence_shunt_susceptance_siemens == pytest.approx(6.0e-6)
 
     # Cable must not expose its engineering quantities as Branch PU values.
     assert cable.r == 0.0
