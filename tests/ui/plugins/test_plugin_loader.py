@@ -86,6 +86,7 @@ def make_class_module(
             return None
 
     TestPlugin.__name__ = class_name
+    TestPlugin.plugin_id = plugin_id
 
     setattr(
         module,
