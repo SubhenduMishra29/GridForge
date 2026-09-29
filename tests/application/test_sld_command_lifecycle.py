@@ -12,16 +12,14 @@ from ui.sld.sld_document import SLDDocument
 
 
 def _application():
-    document = SLDDocument("project-a:sld", project_id="project-a")
     application = create_application(Network())
-
-    application.configure_project_presentation(
-        presentation=document,
+    application.configure_project_presentation_contract(
+        factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
         serializer=lambda value: value.to_dict(),
         deserializer=lambda data: SLDDocument.from_dict(data),
     )
     application.new_project("Project A", project_id="project-a")
-    return application, document
+    return application, application.presentation
 
 def test_sld_command_uses_application_history_and_undo_redo() -> None:
     application, document = _application()
