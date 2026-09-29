@@ -1,4 +1,12 @@
-![Logo](logo.png)
+<p align="center">
+  <img src="splash.png" alt="GridForge" width="600">
+</p>
+
+<h1 align="center">GridForge</h1>
+
+<p align="center">
+  Power System Engineering Platform
+</p>
 # ⚡ GridForge V2
 ### By Engineers. For Engineers.
  One Platform. Infinite Engineering Possibilities.
