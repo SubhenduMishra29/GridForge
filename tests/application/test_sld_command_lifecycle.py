@@ -4,6 +4,7 @@ import pytest
 
 from core.application.bootstrap import create_application
 from core.network.network import Network
+from core.application.services.sld_service import SLDService
 from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
@@ -13,6 +14,7 @@ from ui.sld.sld_document import SLDDocument
 
 def _application():
     application = create_application(Network())
+    application.attach_sld_service(SLDService(SLDDocument("initial:sld", project_id="initial")))
     application.configure_project_presentation_contract(
         factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
         serializer=lambda value: value.to_dict(),
