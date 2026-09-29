@@ -265,4 +265,3 @@ class TransformerPlugin(ABC):
             f"transformer={self.transformer.id}, "
             f"attached={self.is_attached}>"
         )
-```
