@@ -30,7 +30,7 @@ def _network_with_instrument_transformers():
     bus_b = Bus("B2", name="Bus 2")
     network.add_bus(bus_a)
     network.add_bus(bus_b)
-    ct = CurrentTransformer("CT1", name="CT-1", p1_endpoint=bus_a, p2_endpoint=bus_b)
+    ct = CurrentTransformer("CT1", name="CT-1", burden_va=100.0, accuracy_class="0.5", p1_endpoint=bus_a, p2_endpoint=bus_b)
     pt = PT("PT1", name="PT-1", primary_a=bus_a, primary_b=bus_b)
     cvt = CapacitiveVoltageTransformer("CVT1", name="CVT-1", h1_endpoint=bus_a, h2_endpoint=bus_b)
     network.add_current_transformer(ct)
