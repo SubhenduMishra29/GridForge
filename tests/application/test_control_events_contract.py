@@ -1,4 +1,5 @@
 from core.application.events import ApplicationEvent
+    from uuid import uuid4
 
 
 def test_control_event_contract_is_exposed_by_application_events():
@@ -31,7 +32,7 @@ def _manager_for(handler):
 
 def _add_command():
     from core.application.command import Command
-    return Command(command_type="control.add_component", payload={
+    return Command(command_type="control.add_component", command_id=uuid4(), payload={
         "component_id": "c1", "component_type": "normally_open_contact", "rung_id": "r1",
     })
 
@@ -69,7 +70,7 @@ def test_failed_control_command_does_not_publish_control_event():
 
     bus = ApplicationEventBus()
     received = []
-    bus.subscribe(lambda event: received.append(event))
+    bus.subscribe(ApplicationEvent, lambda event: received.append(event))
     application = Application(_manager_for(handler), event_bus=bus)
 
     result = application.execute(_add_command())
