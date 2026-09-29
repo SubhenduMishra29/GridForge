@@ -20,7 +20,7 @@ def test_application_control_event_reaches_control_canvas_refresh_path():
     )
     boundary = UIUpdateBoundary(
         event_bus=application.event_bus,
-        refresh=coordinator.refresh,
+        projection_coordinator=coordinator,
     )
     boundary.subscribe()
 
