@@ -147,6 +147,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             "control": control_workspace,
             "protection": protection_workspace,
         },
+        application=gridforge_application,
         parent=None,
     )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
@@ -174,12 +175,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def create_sld_document(context: object) -> SLDDocument:
         if not hasattr(context, "project_id") or not hasattr(context, "name"):
             raise TypeError("presentation factory requires a ProjectContext")
-        return SLDDocument(
+        document = SLDDocument(
             document_id=f"{context.project_id}:sld",
             name=f"{context.name} SLD",
             project_id=context.project_id,
             default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
         )
+        workspace_surface_host.set_sld_document(document)
+        return document
 
     status_plugin = None
 
@@ -339,6 +342,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
         "view.protection_workspace": lambda: (workspace_controller.activate(PROTECTION_WORKSPACE_ID), workspace_surface_host.activate("protection")),
+        "view.topology": lambda: workspace_surface_host.activate("topology"),
+        "view.map": lambda: workspace_surface_host.activate("map"),
+        "view.reports": lambda: workspace_surface_host.activate("reports"),
         "view.equipment_browser": _show_equipment_browser,
         "view.fit": canvas_composition.navigation_controller.fit_content,
         "tool.select": lambda: controller.set_tool("select"),
