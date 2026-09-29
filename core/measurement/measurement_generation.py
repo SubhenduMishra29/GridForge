@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import sqrt
-from typing import Any, TypeAlias
+from typing import Any, Mapping, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
@@ -188,7 +188,7 @@ class MeasurementGeneration:
                 f"Short-circuit quantity {root_key!r} is not present in the existing result for "
                 f"source_id={context.source_id!r}, source_terminal={context.source_terminal!r}."
             )
-        if isinstance(raw, dict):
+        if isinstance(raw, Mapping):
             if member_key is None:
                 raise UnsupportedMeasurementQuantity(
                     f"Short-circuit quantity family {root_key!r} is aggregate; a specific "
