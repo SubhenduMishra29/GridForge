@@ -332,6 +332,8 @@ class ShellPlugin:
         try:
             self._context = context
             self._root_widget = self._resolve_root_widget()
+            if self._header_widget is None:
+                self.create_header_widget()
             self._create_layout()
             self._compose_widgets()
             self._initialized = True
