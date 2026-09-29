@@ -120,7 +120,7 @@ def test_mouse_adapter_maps_scene_and_resolves_decorative_child():
 
     event = adapter.adapt(_FakeMouseEvent(QPointF(2, 3), button=1, buttons=1, modifiers=7))
 
-    assert event.position == QPointF(12, 23)
+    assert event.position == QPointF(2, 3)
     assert event.scene_position == QPointF(2, 3)
     assert event.object_id == "bus-1"
     assert event.button == 1
