@@ -19,6 +19,12 @@ class FakeApplication:
     def __init__(self, document):
         self.presentation = document
 
+    def read_network(self):
+        return SimpleNamespace(elements=())
+
+    def read_protection(self):
+        return SimpleNamespace(relays=())
+
 
 def _composition(application):
     equipment = EquipmentRegistry.create_default()
