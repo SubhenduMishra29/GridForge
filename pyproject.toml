@@ -30,4 +30,4 @@ testpaths = ["tests"]
 
 
 [tool.setuptools.data-files]
-"share/gridforge" = ["splash.png"]
+"share/gridforge" = ["Logo.png", "splash.png"]
