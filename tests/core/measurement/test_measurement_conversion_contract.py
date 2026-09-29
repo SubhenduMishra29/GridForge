@@ -140,7 +140,6 @@ def test_cvt_uses_declared_voltage_ratio_not_a_pu_ratio_shortcut() -> None:
         message="ok",
         voltage_magnitudes=(1.0,),
         voltage_angles=(0.0,),
-        bus_ids=("BUS-1",),
     )
     prepared = SimpleNamespace(
         base_mva=100.0,
