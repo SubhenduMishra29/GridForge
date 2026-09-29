@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.application.application import Application
-from core.application.command_manager import CommandManager
+from core.application.bootstrap import create_application
+from core.network.network import Network
 from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
@@ -11,12 +11,17 @@ from core.application.services.sld_service import SLDService
 from ui.sld.sld_document import SLDDocument
 
 
-def _application() -> tuple[Application, SLDDocument]:
+def _application():
     document = SLDDocument("project-a:sld", project_id="project-a")
-    service = SLDService(document)
-    application = Application(CommandManager(context=object()), sld_service=service)
-    return application, document
+    application = create_application(Network())
 
+    application.configure_project_presentation(
+        presentation=document,
+        serializer=lambda value: value.to_dict(),
+        deserializer=lambda data: SLDDocument.from_dict(data),
+    )
+    application.new_project("Project A", project_id="project-a")
+    return application, document
 
 def test_sld_command_uses_application_history_and_undo_redo() -> None:
     application, document = _application()
@@ -52,7 +57,7 @@ def test_successful_sld_mutation_publishes_semantic_presentation_event() -> None
     events: list[SLDPresentationChanged] = []
     application.event_bus.subscribe(SLDPresentationChanged, events.append)
 
-    application.execute(AddSLDNodeCommand(node_id="bus-1", x=10, y=20))
+    application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", x=10, y=20))
 
     assert len(events) == 1
     assert events[0].event_type == "sld.presentation.changed"
