@@ -23,7 +23,7 @@ def test_application_bootstrap_binds_controller_to_canonical_application() -> No
 
 
 def test_application_bootstrap_constructs_tool_manager_with_canvas_dependencies() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "ToolManager(" in source
     assert "application=gridforge_application" in source
     assert "selection_manager=canvas_preparation.selection_manager" in source
