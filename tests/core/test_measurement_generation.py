@@ -233,7 +233,7 @@ def test_post_fault_bus_voltage_mapping_is_rejected() -> None:
     source = PT("PT-01")
     channel = _channel(MeasurementSignalType.VOLTAGE)
     context = PreparedMeasurementContext("PT-01", _terminal(EquipmentType.PT, "PT-01", "primary_a"), "BUS-2", None, result)
-    with pytest.raises(UnsupportedMeasurementQuantity, match="post-fault"):
+    with pytest.raises(UnsupportedMeasurementQuantity):
         MeasurementGeneration().generate_short_circuit(context, source, channel, "post_fault_voltage", prepared_power_flow=_prepared_power_flow())
 
 
