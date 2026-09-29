@@ -1,3 +1,4 @@
+![Logo](logo.png)
 # ⚡ GridForge V2
 ### By Engineers. For Engineers.
  One Platform. Infinite Engineering Possibilities.
