@@ -5,7 +5,7 @@ from core.application.commands.control_commands import AddControlComponent
 from core.network.network import Network
 from ui.canvas.control_canvas import ControlCanvas
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
-from ui.events.update_boundary import UIUpdateBoundary
+from core.application.events import ApplicationEvent
 
 
 def test_application_control_event_reaches_control_canvas_refresh_path():
@@ -18,11 +18,7 @@ def test_application_control_event_reaches_control_canvas_refresh_path():
         canvas=canvas,
         canvas_refresh=lambda: refresh_calls.append(True),
     )
-    boundary = UIUpdateBoundary(
-        event_bus=application.event_bus,
-        refresh=coordinator.refresh,
-    )
-    boundary.subscribe()
+    application.event_bus.subscribe(ApplicationEvent, coordinator.refresh)
 
     result = application.execute(
         AddControlComponent(
@@ -37,5 +33,4 @@ def test_application_control_event_reaches_control_canvas_refresh_path():
     assert canvas.control_read_model is not None
     assert any(component.component_id == "contact-1" for component in canvas.control_read_model.components)
 
-    boundary.dispose()
     coordinator.dispose()

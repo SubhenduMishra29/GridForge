@@ -15,6 +15,11 @@ from core.control.logic.contacts import NormallyOpenContact
 from core.control.logic.engine import LogicEngine
 from core.control.logic.ladder import LadderProgram
 from core.control.logic.coils import LogicCoil
+from core.control.configuration import ControlConfiguration
+
+
+def _service():
+    return ControlApplicationService(ControlConfiguration.empty("control"))
 
 
 def test_ladder_program_keeps_engine_as_single_execution_authority():
@@ -35,7 +40,7 @@ def test_control_commands_are_immutable_application_intents():
 
 
 def test_control_service_creates_component_and_rung_through_transaction():
-    service = ControlApplicationService()
+    service = _service()
     transaction = Transaction()
     result = service.add_component(transaction, component_id="c1", component_type="coil", rung_id="r1")
     assert result.success
@@ -46,7 +51,7 @@ def test_control_service_creates_component_and_rung_through_transaction():
 
 
 def test_control_connection_is_semantic_not_graphical():
-    service = ControlApplicationService()
+    service = _service()
     tx = Transaction()
     service.add_component(tx, component_id="c1", component_type="normally_open_contact", rung_id="r1")
     service.add_component(tx, component_id="k1", component_type="coil", rung_id="r1")

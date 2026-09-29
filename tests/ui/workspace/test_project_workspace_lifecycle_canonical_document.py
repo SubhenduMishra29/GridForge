@@ -1,4 +1,6 @@
 from core.application import Application
+from core.application.bootstrap import create_application
+from core.network.network import Network
 from core.application.project import ProjectContext
 from ui.sld.sld_document import SLDDocument
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
@@ -14,6 +16,8 @@ class _ApplicationStub(Application):
 class _WorkspaceControllerStub(WorkspaceController):
     def __init__(self):
         self._workspace_id = None
+        self._manager = type("Manager", (), {"active_workspace_id": None, "clear_active": lambda self: None, "state": type("State", (), {"active_workspace_id": None})()})()
+        self._realizer = type("Realizer", (), {"realized_layout": None, "clear_realization": lambda self: None})()
 
     @property
     def active_workspace_id(self):
@@ -28,7 +32,7 @@ class _WorkspaceControllerStub(WorkspaceController):
 
 def test_new_project_uses_supplied_document_without_replacement():
     lifecycle = ProjectWorkspaceLifecycle(_WorkspaceControllerStub())
-    adapter = ProjectWorkspaceApplicationAdapter(_ApplicationStub.__new__(_ApplicationStub), lifecycle)
+    adapter = ProjectWorkspaceApplicationAdapter(create_application(Network()), lifecycle)
     document = SLDDocument(
         document_id="sld-document",
         project_id="project-1",

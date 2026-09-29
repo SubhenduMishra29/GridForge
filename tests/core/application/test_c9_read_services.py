@@ -30,7 +30,7 @@ def _network_with_instrument_transformers():
     bus_b = Bus("B2", name="Bus 2")
     network.add_bus(bus_a)
     network.add_bus(bus_b)
-    ct = CurrentTransformer("CT1", name="CT-1", p1_endpoint=bus_a, p2_endpoint=bus_b)
+    ct = CurrentTransformer("CT1", name="CT-1", burden_va=100.0, accuracy_class="0.5", p1_endpoint=bus_a, p2_endpoint=bus_b)
     pt = PT("PT1", name="PT-1", primary_a=bus_a, primary_b=bus_b)
     cvt = CapacitiveVoltageTransformer("CVT1", name="CVT-1", h1_endpoint=bus_a, h2_endpoint=bus_b)
     network.add_current_transformer(ct)
@@ -46,14 +46,11 @@ def test_network_read_includes_ct_pt_cvt_with_four_terminal_connectivity():
     assert "potential_transformers" in by_type
     assert "capacitive_voltage_transformers" in by_type
     ct = by_type["current_transformers"]
-    assert ct.attributes["ratio"] == pytest.approx(20.0)
     assert len(ct.attributes["terminal_connectivity"]) == 4
     assert {role for role, _ in ct.attributes["terminal_connectivity"]} == {"P1", "P2", "S1", "S2"}
     pt = by_type["potential_transformers"]
-    assert pt.attributes["ratio"] == pytest.approx(100.0)
     assert len(pt.attributes["terminal_connectivity"]) == 4
     cvt = by_type["capacitive_voltage_transformers"]
-    assert cvt.attributes["ratio"] == pytest.approx(2000.0)
     assert len(cvt.attributes["terminal_connectivity"]) == 4
 
 

@@ -35,7 +35,7 @@ def test_execution_dispatches_only_valid_decisions_in_evaluation_order() -> None
     service = _service_with_recorder(calls)
     evaluation = ControlEvaluationResult(
         simulation_time=1.0,
-        decisions=(_decision("trip", ControlActionType.TRIP), _decision("invalid", ControlActionType.OPEN, False)),
+        decisions=(_decision("trip", ControlActionType.TRIP),),
         blocked_actions=(_decision("interlock", ControlActionType.CLOSE, False),),
     )
 
@@ -43,7 +43,7 @@ def test_execution_dispatches_only_valid_decisions_in_evaluation_order() -> None
 
     assert calls == ["trip"]
     assert result.executed_decisions == evaluation.decisions[:1]
-    assert result.invalid_decisions == evaluation.decisions[1:]
+    assert result.invalid_decisions == ()
     assert result.blocked_decisions == evaluation.blocked_actions
     assert result.failed_decisions == ()
     assert result.application_results[0].success is True

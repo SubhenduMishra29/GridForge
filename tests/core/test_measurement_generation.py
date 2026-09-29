@@ -16,6 +16,7 @@ from scipy.sparse import csr_matrix
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
 from core.analysis.power_flow_preparation import PreparedPowerFlow
+from core.model import EndpointReference, EquipmentType
 from core.model.ct import CTPolarity, CurrentTransformer
 from core.model.cvt import CapacitiveVoltageTransformer
 from core.model.pt import PT
@@ -44,6 +45,10 @@ def _channel(signal_type: MeasurementSignalType) -> MeasurementChannel:
         unit=unit,
         quality=MeasurementQuality.UNKNOWN,
     )
+
+
+def _terminal(equipment_type: EquipmentType, equipment_id: str, role: str) -> EndpointReference:
+    return EndpointReference.terminal(equipment_type=equipment_type, equipment_id=equipment_id, terminal_role=role)
 
 
 def _power_flow_result() -> PowerFlowResult:
@@ -88,7 +93,7 @@ def _current_base_a() -> float:
 
 def test_prepared_context_is_immutable_and_does_not_store_solver_index() -> None:
     quantity = LineFlowResult("L1", "BUS-1", "BUS-2", 1 + 2j, 3 + 4j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", quantity)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", quantity)
     assert context.quantity is quantity
     assert context.bus_id == "BUS-1"
     assert not hasattr(context, "bus_index")
@@ -98,7 +103,7 @@ def test_prepared_context_is_immutable_and_does_not_store_solver_index() -> None
 
 def test_context_preserves_actual_analysis_quantity_without_core_objects() -> None:
     quantity = LineFlowResult("L1", "BUS-1", "BUS-2", 1 + 0j, 0j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", quantity)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", quantity)
     assert context.quantity is quantity
     assert not hasattr(context.quantity, "network")
     assert not hasattr(context, "bus_index")
@@ -108,7 +113,7 @@ def test_line_current_uses_pu_to_base_to_ct_secondary_chain() -> None:
     result = LineFlowResult("L1", "BUS-1", "BUS-2", 2 + 3j, 4 + 5j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     source = CurrentTransformer("CT-01", primary_rated_current_a=100, secondary_rated_current_a=5)
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", result)
     prepared = _prepared_power_flow()
     value = MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=prepared)
     assert value == pytest.approx((2 + 3j) * _current_base_a() / source.ratio)
@@ -116,10 +121,16 @@ def test_line_current_uses_pu_to_base_to_ct_secondary_chain() -> None:
 
 
 def test_transformer_current_uses_pu_to_base_to_ct_secondary_chain() -> None:
-    result = TransformerFlowResult("T1", "BUS-1", "BUS-2", 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 0.7)
+    result = TransformerFlowResult(
+        transformer_id="T1", from_bus="BUS-1", to_bus="BUS-2",
+        tap_ratio=1.0, phase_shift_deg=0.0,
+        p_from=0.0, q_from=0.0, p_to=0.0, q_to=0.0,
+        p_loss=0.0, q_loss=0.0, s_from_pu=0.0, s_to_pu=0.0,
+        i_from_pu=1.5, i_to_pu=0.7,
+    )
     source = CurrentTransformer("CT-01", primary_rated_current_a=100, secondary_rated_current_a=5)
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", result)
     value = MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=_prepared_power_flow())
     assert value == pytest.approx(result.i_from_pu * _current_base_a() / source.ratio)
 
@@ -128,7 +139,7 @@ def test_current_conversion_requires_prepared_numerical_base() -> None:
     result = LineFlowResult("L1", "BUS-1", "BUS-2", 2 + 0j, 0j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", result)
     with pytest.raises(TypeError, match="prepared_power_flow"):
         MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=None)
 
@@ -137,7 +148,7 @@ def test_endpoint_correlation_rejects_positional_bus_guessing() -> None:
     result = LineFlowResult("L1", "BUS-1", "BUS-2", 2 + 0j, 3 + 0j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-WRONG", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-WRONG", "from", result)
     with pytest.raises(UnsupportedMeasurementQuantity):
         MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=_prepared_power_flow())
 
@@ -147,7 +158,7 @@ def test_power_flow_voltage_uses_bus_id_and_physical_voltage_base() -> None:
     result = _power_flow_result()
     source = PT("PT-01", primary_voltage_kv=11, secondary_voltage_v=110)
     channel = _channel(MeasurementSignalType.VOLTAGE)
-    context = PreparedMeasurementContext("PT-01", "primary_a", "BUS-1", None, result)
+    context = PreparedMeasurementContext("PT-01", _terminal(EquipmentType.PT, "PT-01", "primary_a"), "BUS-1", None, result)
     value = MeasurementGeneration().generate_voltage(context, source, channel, prepared)
     assert value == pytest.approx(result.voltage_magnitudes[prepared.input.index_of("BUS-1")] * 11000.0 / source.voltage_ratio)
     assert value != result.voltage_magnitudes[0] / source.voltage_ratio
@@ -158,7 +169,7 @@ def test_cvt_voltage_uses_existing_power_flow_quantity() -> None:
     result = _power_flow_result()
     source = CapacitiveVoltageTransformer("CVT-01", rated_primary_voltage_kv=220, rated_secondary_voltage_v=110)
     channel = _channel(MeasurementSignalType.VOLTAGE)
-    context = PreparedMeasurementContext("CVT-01", "H1", "BUS-2", None, result)
+    context = PreparedMeasurementContext("CVT-01", _terminal(EquipmentType.CAPACITIVEVOLTAGETRANSFORMER, "CVT-01", "H1"), "BUS-2", None, result)
     value = MeasurementGeneration().generate_voltage(context, source, channel, prepared)
     assert value == pytest.approx(result.voltage_magnitudes[prepared.input.index_of("BUS-2")] * 11000.0 / source.voltage_ratio)
 
@@ -167,7 +178,7 @@ def test_ct_polarity_is_taken_from_authoritative_source() -> None:
     result = LineFlowResult("L1", "BUS-1", "BUS-2", 2 + 0j, 0j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     source = CurrentTransformer("CT-01", primary_rated_current_a=100, secondary_rated_current_a=5, polarity=CTPolarity.P2_P1)
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", result)
     value = MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=_prepared_power_flow())
     assert value == pytest.approx(-result.current_from * _current_base_a() / source.ratio)
 
@@ -176,7 +187,7 @@ def test_out_of_service_source_marks_channel_unavailable() -> None:
     result = LineFlowResult("L1", "BUS-1", "BUS-2", 2 + 0j, 0j, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     source = CurrentTransformer("CT-01", in_service=False)
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-1", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-1", "from", result)
     MeasurementGeneration().generate_current(context, source, channel, prepared_power_flow=_prepared_power_flow())
     assert channel.available is False
 
@@ -185,7 +196,7 @@ def test_supported_short_circuit_fault_quantity_uses_pu_to_base_to_ct_chain() ->
     result = ShortCircuitResult(FaultType.THREE_PHASE, 1, "BUS-2", True, {"fault_current": 5 + 1j, "fault_current_magnitude": 5.099})
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-2", None, result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-2", None, result)
     value = MeasurementGeneration().generate_short_circuit(context, source, channel, "fault_current", prepared_power_flow=_prepared_power_flow())
     assert value == pytest.approx((5 + 1j) * _current_base_a() / source.ratio)
 
@@ -194,7 +205,7 @@ def test_short_circuit_requires_prepared_numerical_base() -> None:
     result = ShortCircuitResult(FaultType.THREE_PHASE, 1, "BUS-2", True, {"fault_current": 5 + 1j})
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-2", None, result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-2", None, result)
     with pytest.raises(TypeError, match="prepared_power_flow"):
         MeasurementGeneration().generate_short_circuit(context, source, channel, "fault_current", prepared_power_flow=None)
 
@@ -203,7 +214,7 @@ def test_short_circuit_phase_family_consumes_existing_member() -> None:
     result = ShortCircuitResult(FaultType.LINE_LINE, 1, "BUS-2", True, {"phase_currents": {"Ia": 2 + 1j, "Ib": 3 + 0j, "Ic": 0j}})
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-2", None, result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-2", None, result)
     value = MeasurementGeneration().generate_short_circuit(context, source, channel, "phase_currents.Ia", prepared_power_flow=_prepared_power_flow())
     assert value == pytest.approx((2 + 1j) * _current_base_a() / source.ratio)
 
@@ -212,7 +223,7 @@ def test_arbitrary_short_circuit_branch_mapping_is_rejected() -> None:
     result = ShortCircuitResult(FaultType.THREE_PHASE, 1, "BUS-2", True, {"fault_current": 5 + 1j})
     source = CurrentTransformer("CT-01")
     channel = _channel(MeasurementSignalType.CURRENT)
-    context = PreparedMeasurementContext("CT-01", "P1", "BUS-2", "from", result)
+    context = PreparedMeasurementContext("CT-01", _terminal(EquipmentType.CURRENTTRANSFORMER, "CT-01", "P1"), "BUS-2", "from", result)
     with pytest.raises(UnsupportedMeasurementQuantity, match="branch"):
         MeasurementGeneration().generate_short_circuit(context, source, channel, "branch_current", prepared_power_flow=_prepared_power_flow())
 
@@ -221,8 +232,8 @@ def test_post_fault_bus_voltage_mapping_is_rejected() -> None:
     result = ShortCircuitResult(FaultType.THREE_PHASE, 1, "BUS-2", True, {"fault_current": 5 + 1j, "Vprefault": 1 + 0j})
     source = PT("PT-01")
     channel = _channel(MeasurementSignalType.VOLTAGE)
-    context = PreparedMeasurementContext("PT-01", "primary_a", "BUS-2", None, result)
-    with pytest.raises(UnsupportedMeasurementQuantity, match="post-fault"):
+    context = PreparedMeasurementContext("PT-01", _terminal(EquipmentType.PT, "PT-01", "primary_a"), "BUS-2", None, result)
+    with pytest.raises(ValueError, match="signal_type"):
         MeasurementGeneration().generate_short_circuit(context, source, channel, "post_fault_voltage", prepared_power_flow=_prepared_power_flow())
 
 

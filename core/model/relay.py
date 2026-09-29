@@ -133,6 +133,7 @@ class Relay:
             "DIFFERENTIAL",
             "VOLTAGE",
             "FREQUENCY",
+            "THERMAL",
         }
     )
 

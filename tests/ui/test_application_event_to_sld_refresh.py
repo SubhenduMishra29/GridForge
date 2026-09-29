@@ -4,7 +4,7 @@ from core.application.bootstrap import create_application
 from core.application.commands.model_commands import CreateBusCommand
 from core.network.network import Network
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
-from ui.events.update_boundary import UIUpdateBoundary
+from core.application.events import ElementCreated
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
@@ -23,15 +23,11 @@ def test_application_event_reaches_sld_refresh_path():
 
     coordinator = SLDUpdateCoordinator(
         application=application,
-        document=document,
         synchronizer=synchronizer,
         canvas_refresh=lambda: refresh_calls.append(True),
     )
-    boundary = UIUpdateBoundary(
-        event_bus=application.event_bus,
-        refresh=coordinator.refresh,
-    )
-    boundary.subscribe()
+    coordinator.bind_document(document)
+    application.event_bus.subscribe(ElementCreated, coordinator.refresh)
 
     application.execute(
         CreateBusCommand(
@@ -46,9 +42,5 @@ def test_application_event_reaches_sld_refresh_path():
     )
 
     assert refresh_calls == [True]
-    assert any(
-        node.equipment_id == "bus-test"
-        for node in document.model.nodes
-    )
+    assert coordinator._projection_manager.projection("bus-test") is not None
 
-    boundary.dispose()

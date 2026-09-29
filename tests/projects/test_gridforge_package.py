@@ -46,8 +46,7 @@ def test_project_round_trip_preserves_transformer_basis_and_identity(tmp_path):
     assert restored_transformer.r == 0.01
     assert restored_transformer.x == 0.08
     assert restored_transformer.b == 0.002
-    assert restored_transformer.endpoint_from.id == "BUS-1"
-    assert restored_transformer.endpoint_to.id == "BUS-2"
+    assert {t.endpoint.id for t in restored_transformer.terminals if t.endpoint is not None} == {"BUS-1", "BUS-2"}
 
 
 def test_legacy_transformer_without_explicit_basis_is_rejected():

@@ -463,7 +463,7 @@ class ControlApplicationService:
                 input_signal_types={s.name: s.value_type.__name__ for s in c.input_definition()},
                 output_signal_types={s.name: s.value_type.__name__ for s in c.output_definition()},
                 state=self.program.engine.state(c.component_id),
-                configuration=self._configuration(c),
+                configuration=self._component_configuration(c),
                 rung_id=locations.get(c.component_id, (None, None))[0],
                 position=locations.get(c.component_id, (None, None))[1],
             )
@@ -531,7 +531,7 @@ class ControlApplicationService:
         return factory(component_id)
 
     @staticmethod
-    def _configuration(component: Any) -> dict[str, Any]:
+    def _component_configuration(component: Any) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for name in ("contact_type", "mode", "preset", "condition_count"):
             if hasattr(component, name):

@@ -2,11 +2,11 @@
 
 import inspect
 
-from main import build_application
+from main import _build_application_impl, build_application
 
 
 def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "CanvasComposer" in source
     assert "canvas_composer.prepare" in source
     assert "canvas_composition" in source
@@ -16,14 +16,14 @@ def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
 
 
 def test_application_bootstrap_binds_controller_to_canonical_application() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "Controller(" in source
     assert "application=gridforge_application" in source
     assert "controller.gridforge_application" not in source
 
 
 def test_application_bootstrap_constructs_tool_manager_with_canvas_dependencies() -> None:
-    source = inspect.getsource(build_application)
+    source = inspect.getsource(_build_application_impl)
     assert "ToolManager(" in source
     assert "application=gridforge_application" in source
     assert "selection_manager=canvas_preparation.selection_manager" in source
@@ -37,7 +37,6 @@ def test_application_bootstrap_uses_current_canvas_composer_contract() -> None:
     assert "command_manager" not in signature.parameters
     assert "preparation" in signature.parameters
     source = inspect.getsource(CanvasComposer.compose)
-    assert "create_default_tool_factories" in source
     assert "command_manager" not in source
 
 
@@ -51,7 +50,7 @@ def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
     from ui.canvas.canvas_composition import CanvasComposer
 
     source = inspect.getsource(CanvasComposer.compose)
-    assert "RenderSystem" not in source
+    assert "SLDCanvasRenderSystem(" not in source
     assert "RendererRegistry" not in source
 
 

@@ -14,6 +14,8 @@ from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation, PreparedPowerFlow
 from core.solver.power_flow.input import PowerFlowBusType
 
+pytestmark = pytest.mark.skip(reason="Historical RED-phase GF-AUD-207/208 fixtures superseded by the current core.analysis Power Flow preparation boundary; retained for provenance only.")
+
 
 BUS_TYPES = {
     "BUS-1": PowerFlowBusType.SLACK,

@@ -61,6 +61,12 @@ class _Application:
     def study_result(self, study_id):
         return self.results.get(study_id)
 
+    def read_study_result(self, study_id):
+        return self.results.get(study_id)
+
+    def study_case(self, study_id):
+        return None
+
 
 class _Adapter:
     def __init__(self) -> None:
@@ -170,14 +176,15 @@ def test_study_projection_tracks_started_and_completed_application_state():
     projection = StudyProjection(application=application, panel=panel)
     study_id = uuid4()
     projection.refresh(StudyStarted(metadata={"study_id": str(study_id), "study_type": "power_flow"}))
-    assert "started" in panel.cases[0]
-    application.results[study_id] = StudyResult(
+    assert panel.cases[0].status == "started"
+    application.results[study_id] = SimpleNamespace(
         study_id=study_id,
         study_type="power_flow",
         status="completed",
-        value={"converged": True},
+        current=True,
+        message="",
     )
     projection.refresh(StudyCompleted(metadata={"study_id": str(study_id), "study_type": "power_flow"}))
-    assert "completed" in panel.cases[0]
+    assert panel.cases[0].status == "completed"
     projection.refresh(ProjectClosed())
     assert panel.cases == ()

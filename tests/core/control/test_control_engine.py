@@ -7,11 +7,21 @@ from core.control.engine import ControlEngine
 from core.control.interlock import ControlInterlock
 from core.control.logic.coils import LogicCoil
 from core.control.logic.engine import LogicEngine
+from core.control.configuration import ControlConfiguration
+from core.control.logic.ladder import LadderProgram
+
+
+def _configured_engine(*components):
+    program = LadderProgram("test-control")
+    program.add_rung("r1")
+    for component in components:
+        program.add_component(component, rung_id="r1")
+    return ControlEngine(configuration=ControlConfiguration(project_id="PROJECT-1", program=program))
 
 
 def test_asserted_logic_output_produces_typed_trip_decision() -> None:
     logic = LogicEngine([LogicCoil("UV_TRIP")])
-    engine = ControlEngine(logic)
+    engine = _configured_engine(LogicCoil("UV_TRIP"))
     engine.bind_action(ControlActionBinding(
         control_id="UV-101", source_component="UV_TRIP", source_output="OUT",
         target_equipment_id="BRK-101", action_type=ControlActionType.TRIP,
@@ -28,7 +38,7 @@ def test_asserted_logic_output_produces_typed_trip_decision() -> None:
 
 def test_trip_wins_deterministically_over_close_for_same_target() -> None:
     logic = LogicEngine([LogicCoil("CLOSE"), LogicCoil("TRIP")])
-    engine = ControlEngine(logic)
+    engine = _configured_engine(LogicCoil("CLOSE"), LogicCoil("TRIP"))
     engine.bind_action(ControlActionBinding(
         control_id="CLOSE-101", source_component="CLOSE", source_output="OUT",
         target_equipment_id="BRK-101", action_type=ControlActionType.CLOSE,
@@ -50,7 +60,7 @@ def test_trip_wins_deterministically_over_close_for_same_target() -> None:
 
 def test_asserted_action_is_blocked_by_interlock() -> None:
     logic = LogicEngine([LogicCoil("UV_TRIP")])
-    engine = ControlEngine(logic)
+    engine = _configured_engine(LogicCoil("UV_TRIP"))
     engine.bind_interlock(ControlInterlock("INT-101", required_inputs=("SAFE",)))
     engine.bind_action(ControlActionBinding(
         control_id="UV-101", source_component="UV_TRIP", source_output="OUT",
@@ -70,7 +80,7 @@ def test_asserted_action_is_blocked_by_interlock() -> None:
 
 def test_asserted_action_passes_interlock() -> None:
     logic = LogicEngine([LogicCoil("UV_TRIP")])
-    engine = ControlEngine(logic)
+    engine = _configured_engine(LogicCoil("UV_TRIP"))
     engine.bind_interlock(ControlInterlock("INT-101", required_inputs=("SAFE",)))
     engine.bind_action(ControlActionBinding(
         control_id="UV-101", source_component="UV_TRIP", source_output="OUT",

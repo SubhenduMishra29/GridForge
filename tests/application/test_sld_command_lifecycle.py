@@ -2,21 +2,32 @@ from __future__ import annotations
 
 import pytest
 
-from core.application.application import Application
-from core.application.command_manager import CommandManager
+from core.application.bootstrap import create_application
+from core.network.network import Network
+from core.model.bus import Bus
+from core.application.services.sld_service import SLDService
 from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
+from core.application.commands.model_commands import CreateBusCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
 from core.application.services.sld_service import SLDService
 from ui.sld.sld_document import SLDDocument
 
 
-def _application() -> tuple[Application, SLDDocument]:
-    document = SLDDocument("project-a:sld", project_id="project-a")
-    service = SLDService(document)
-    application = Application(CommandManager(context=object()), sld_service=service)
-    return application, document
-
+def _application():
+    network = Network()
+    network.add_bus(Bus("bus-1", nominal_voltage_kv=132.0))
+    application = create_application(network)
+    application.attach_sld_service(SLDService(SLDDocument("initial:sld", project_id="initial")))
+    application.configure_project_presentation_contract(
+        factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
+        serializer=lambda value: value.to_dict(),
+        deserializer=lambda data: SLDDocument.from_dict(data),
+    )
+    application.new_project("Project A", project_id="project-a")
+    application.execute(CreateBusCommand(bus_id="bus-1", name="Bus 1", nominal_voltage_kv=132.0, voltage_pu=1.0, angle_deg=0.0, frequency_hz=50.0, in_service=True))
+    application.clear_history()
+    return application, application.presentation
 
 def test_sld_command_uses_application_history_and_undo_redo() -> None:
     application, document = _application()
@@ -52,7 +63,7 @@ def test_successful_sld_mutation_publishes_semantic_presentation_event() -> None
     events: list[SLDPresentationChanged] = []
     application.event_bus.subscribe(SLDPresentationChanged, events.append)
 
-    application.execute(AddSLDNodeCommand(node_id="bus-1", x=10, y=20))
+    application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", x=10, y=20))
 
     assert len(events) == 1
     assert events[0].event_type == "sld.presentation.changed"

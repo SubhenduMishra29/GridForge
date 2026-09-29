@@ -8,14 +8,13 @@ from types import SimpleNamespace
 import numpy as np
 
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
+from core.model.bus import Bus
+from core.network.network import Network
 from core.solver.short_circuit.fault_types import FaultType
 
 
 def test_short_circuit_preparation_returns_detached_sequence_snapshot():
-    buses = (
-        SimpleNamespace(id="B1", V=1.0, theta=0.0),
-        SimpleNamespace(id="B2", V=1.0, theta=0.0),
-    )
+    buses = (Bus("B1", voltage_pu=1.0), Bus("B2", voltage_pu=1.0))
     sequence_network = SimpleNamespace(
         positive={"G1": 0.2 + 0.1j},
         negative={"G1": 0.2 + 0.1j},
@@ -23,7 +22,10 @@ def test_short_circuit_preparation_returns_detached_sequence_snapshot():
         has_matrix=lambda name: name == "positive",
         get_matrix=lambda name: np.eye(2, dtype=complex) * (0.1 + 0.05j),
     )
-    network = SimpleNamespace(buses=buses)
+    network = Network()
+    network.add_bus(buses[0])
+    network.add_bus(buses[1])
+    network.rebuild_topology()
     preparation = ShortCircuitPreparation(network, sequence_network)
 
     prepared = preparation.prepare(FaultType.THREE_PHASE, buses[0])
@@ -35,12 +37,15 @@ def test_short_circuit_preparation_returns_detached_sequence_snapshot():
 
 
 def test_short_circuit_preparation_requires_sequence_network_for_unbalanced_faults():
-    bus = SimpleNamespace(id="B1", V=1.0, theta=0.0)
-    preparation = ShortCircuitPreparation(SimpleNamespace(buses=(bus,)), None)
+    bus = Bus("B1", voltage_pu=1.0)
+    network = Network()
+    network.add_bus(bus)
+    network.rebuild_topology()
+    preparation = ShortCircuitPreparation(network, None)
 
     try:
         preparation.prepare(FaultType.SINGLE_LINE_GROUND, bus)
     except ValueError as exc:
-        assert "SequenceNetwork" in str(exc)
+        assert "sequence" in str(exc).lower()
     else:
         raise AssertionError("Unbalanced faults must require sequence-network preparation data.")

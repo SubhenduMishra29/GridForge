@@ -1,80 +1,74 @@
-# ============================================================
-# File: tests/core/application/test_protection_execution.py
-# GridForge V2 — Protection Application Boundary Tests
-# Author: Subhendu Mishra
-# ============================================================
-
-from uuid import UUID
-
-import pytest
-
-from core.application.commands.breaker_commands import TripBreakerCommand
+from core.application.command_manager import CommandManager
+from core.application.context import ApplicationContext
+from core.application.control_dispatch import ControlCommandDispatcher
 from core.application.protection_execution import ProtectionExecutionService
 from core.application.results import ApplicationResult
+from core.control.decision import ControlDecision
 from core.protection.decision import ProtectionDecision
 
 
 def _decision(*, trip: bool) -> ProtectionDecision:
     return ProtectionDecision(
-        relay_id="R1",
-        element_id="OC50",
-        function_code="50",
-        pickup=trip,
-        operate=trip,
-        trip_request=trip,
-        valid=True,
+        relay_id="R1", element_id="OC50", function_code="50",
+        pickup=trip, operate=trip, trip_request=trip, valid=True,
     )
 
 
-def test_actionable_decision_is_translated_to_existing_trip_command() -> None:
+def _service(executor):
+    manager = CommandManager(context=ApplicationContext(network=object()), handlers={})
+    dispatcher = ControlCommandDispatcher(manager, command_executor=executor)
+    return ProtectionExecutionService(
+        dispatcher,
+        action_resolver=lambda decision: ControlDecision.trip(
+            control_id="CTRL-1",
+            target_equipment_id="BRK-1",
+            reason="Protection trip",
+            simulation_time=1.0,
+            triggered_by=decision.element_id,
+        ),
+    )
+
+
+def test_actionable_decision_is_translated_to_existing_trip_command():
     calls = []
-
-    def execute(command):
-        calls.append(command)
-        return ApplicationResult.success_result(message="tripped")
-
-    service = ProtectionExecutionService(execute, breaker_resolver=lambda _: "BRK-1")
+    service = _service(lambda command: calls.append(command) or ApplicationResult.success_result(message="tripped"))
     result = service.execute([_decision(trip=True)])
+    assert len(result.commands) == 1
+    assert result.commands[0].payload["breaker_id"] == "BRK-1"
+    assert len(calls) == 1
+    assert calls[0].command_type == result.commands[0].command_type
+    assert calls[0].payload == result.commands[0].payload
 
-    assert len(result.trip_commands) == 1
-    assert isinstance(result.trip_commands[0], TripBreakerCommand)
-    assert result.trip_commands[0].payload["breaker_id"] == "BRK-1"
-    assert calls == [result.trip_commands[0]]
 
-
-def test_non_actionable_decision_never_creates_trip_command() -> None:
+def test_non_actionable_decision_never_creates_application_command():
     calls = []
-    service = ProtectionExecutionService(calls.append, breaker_resolver=lambda _: "BRK-1")
-
+    service = _service(lambda command: calls.append(command) or ApplicationResult.success_result())
     result = service.execute([_decision(trip=False)])
-
-    assert result.trip_commands == ()
+    assert result.commands == ()
     assert calls == []
 
 
-def test_trip_requires_explicit_breaker_resolution() -> None:
-    service = ProtectionExecutionService(lambda command: ApplicationResult.success_result())
-
+def test_missing_action_target_is_reported_without_application_bypass():
+    manager = CommandManager(context=ApplicationContext(network=object()), handlers={})
+    dispatcher = ControlCommandDispatcher(manager, command_executor=lambda command: ApplicationResult.success_result())
+    service = ProtectionExecutionService(dispatcher, action_resolver=lambda _: None)
     result = service.execute([_decision(trip=True)])
+    assert result.commands == ()
+    assert "no configured action target" in result.diagnostics[0]
 
-    assert result.trip_commands == ()
-    assert "no explicit breaker resolver" in result.diagnostics[0]
 
-
-def test_trip_execution_failure_is_reported_without_bypassing_application() -> None:
-    def execute(command):
-        raise RuntimeError("command failure")
-
-    service = ProtectionExecutionService(execute, breaker_resolver=lambda _: "BRK-1")
+def test_trip_execution_failure_is_reported_without_bypassing_application():
+    service = _service(lambda command: (_ for _ in ()).throw(RuntimeError("command failure")))
     result = service.execute([_decision(trip=True)])
-
-    assert len(result.trip_commands) == 1
-    assert result.application_results == ()
+    assert result.commands == ()
     assert "execution failed" in result.diagnostics[0]
 
 
-def test_decision_input_is_strictly_typed() -> None:
-    service = ProtectionExecutionService(lambda command: ApplicationResult.success_result())
-
-    with pytest.raises(TypeError, match="ProtectionDecision"):
+def test_decision_input_is_strictly_typed():
+    service = _service(lambda command: ApplicationResult.success_result())
+    try:
         service.execute([object()])
+    except TypeError as exc:
+        assert "ProtectionDecision" in str(exc)
+    else:
+        raise AssertionError("ProtectionExecutionService must reject non-ProtectionDecision inputs")

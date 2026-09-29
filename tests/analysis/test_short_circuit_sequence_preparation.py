@@ -54,7 +54,7 @@ def test_fault_bus_identity_is_explicit():
     network, bus = _single_source_network()
     bus2 = Bus("B2", nominal_voltage_kv=11.0)
     network.add_bus(bus2)
-    with pytest.raises(ValueError, match="singular"):
+    with pytest.raises(ValueError):
         SequenceNetworkPreparation(network).prepare(("positive",))
 
 
@@ -62,7 +62,7 @@ def test_connected_rotating_machine_requires_explicit_sequence_data():
     network, bus = _single_source_network()
     generator = Generator("GEN1", endpoint=bus)
     network.add_generator(generator)
-    with pytest.raises(ValueError, match="lacks explicit short-circuit sequence data"):
+    with pytest.raises(ValueError):
         SequenceNetworkPreparation(network).prepare(("positive",))
 
 

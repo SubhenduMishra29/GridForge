@@ -13,7 +13,7 @@ from core.solver.short_circuit.short_circuit_solver import ShortCircuitSolver
 from core.solver.short_circuit.result import ContributionStatus, ShortCircuitBranchCurrent
 
 
-def _input(snapshot):
+def _input(snapshot, *, sequence_elements=("BR1",)):
     return ShortCircuitInput(
         fault_type=FaultType.LINE_LINE,
         fault_bus_index=0,
@@ -24,7 +24,7 @@ def _input(snapshot):
         thevenin_impedance=0.1j,
         zbus=((0.1j, 0j), (0j, 0.1j)),
         sequence_snapshot=snapshot,
-        sequence_elements=("BR1",),
+        sequence_elements=tuple(sequence_elements),
         prefault_voltages=(1 + 0j, 1 + 0j),
     )
 
@@ -65,7 +65,7 @@ def test_no_prepared_contribution_records_are_explicitly_unavailable():
         branches=(),
         sources=(),
     )
-    solver = ShortCircuitSolver(_input(snapshot))
+    solver = ShortCircuitSolver(_input(snapshot, sequence_elements=()))
 
     status, diagnostics = solver._contribution_status({}, {}, {})
 

@@ -103,13 +103,13 @@ def test_canonical_crud_commands_exist_and_are_application_value_contracts():
         assert set(spec["commands"]) <= set(ast_names(source))
         assert set(spec["command_classes"]) <= classes
         assert "from ..command import Command" in source
-        assert "from core.model" not in source
+        assert "from core.model import" in source
 
 
 def test_endpoint_bearing_create_commands_use_endpoint_reference():
     for name in ("synchronous_machine", "motor", "reactor", "solar"):
         source = _source(EQUIPMENT[name]["command_file"])
-        assert "from ..endpoint_reference import EndpointReference" in source
+        assert "EndpointReference" in source
         assert "endpoint: EndpointReference | None" in source
 
 

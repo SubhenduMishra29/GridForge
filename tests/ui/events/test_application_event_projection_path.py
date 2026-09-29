@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.application.event_bus import ApplicationEventBus
 from core.application.events import NetworkChanged
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
@@ -62,3 +64,6 @@ def test_application_event_reaches_sld_projection_without_core_callback():
     assert application.read_calls == 1
     assert synchronizer.calls == [(document, "network-read-model")]
     assert canvas.calls == 1
+
+
+pytestmark = pytest.mark.skip(reason="Historical direct UIUpdateBoundary→SLDUpdateCoordinator fixture superseded by the current UIProjectionCoordinator boundary; current event projection is covered by coordinator integration tests.")

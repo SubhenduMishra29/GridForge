@@ -1,46 +1,33 @@
-# ============================================================
-# File: tests/ui/sld/test_sld_projection_manager.py
-# GridForge V2 — SLD Projection Manager Tests
-# Author: Subhendu Mishra
-# ============================================================
-
 from __future__ import annotations
 
+from core.application.read_models import ElementReadModel
+from ui.projection.projection_registry import ProjectionDomain
 from ui.sld.sld_projection_manager import SLDProjectionManager
 
 
-class ModelObject:
-    def __init__(self, object_id: str) -> None:
-        self.id = object_id
+def _model(object_id="BUS-001"):
+    return ElementReadModel(object_id, "BUS", {"name": "Bus"}, (), {})
 
 
-def test_manager_creates_and_registers_projection() -> None:
+def test_manager_creates_and_registers_projection():
     manager = SLDProjectionManager()
-    model = ModelObject("BUS-001")
-
-    projection = manager.project(model)
-
+    projection = manager.project(_model())
     assert projection.object_id == "BUS-001"
     assert manager.projection("BUS-001") is projection
 
 
-def test_manager_refreshes_existing_projection_without_replacing_it() -> None:
+def test_manager_refreshes_existing_projection_without_replacing_it():
     manager = SLDProjectionManager()
-    first = ModelObject("BUS-001")
-    second = ModelObject("BUS-001")
-
-    projection = manager.project(first)
-    refreshed = manager.project(second)
-
+    projection = manager.project(_model())
+    refreshed = manager.project(ElementReadModel("BUS-001", "BUS", {"name": "Updated"}, (), {}))
     assert refreshed is projection
-    assert projection.model_object is second
+    assert projection.state is not None
+    assert projection.state.labels == ("Updated",)
 
 
-def test_manager_removes_projection() -> None:
+def test_manager_removes_projection():
     manager = SLDProjectionManager()
-    manager.project(ModelObject("BUS-001"))
-
-    removed = manager.remove("BUS-001")
-
+    manager.project(_model())
+    removed = manager.remove("BUS-001", domain=ProjectionDomain.NETWORK)
     assert removed is not None
     assert manager.projection("BUS-001") is None

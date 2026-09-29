@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import sqrt
-from typing import Any, TypeAlias
+from typing import Any, Mapping, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
@@ -175,13 +175,20 @@ class MeasurementGeneration:
                 f"source_terminal={context.source_terminal!r}: physical measurement source bus "
                 f"{context.bus_id!r} does not correspond to fault location {result.fault_bus_id!r}."
             )
-        if root_key not in result.values:
+        raw = result.values.get(root_key)
+        if raw is None:
+            if root_key == "phase_currents":
+                raw = result.phase_currents
+            elif root_key == "sequence_currents":
+                raw = result.sequence_currents
+            elif root_key == "fault_current":
+                raw = result.fault_current
+        if raw is None:
             raise UnsupportedMeasurementQuantity(
                 f"Short-circuit quantity {root_key!r} is not present in the existing result for "
                 f"source_id={context.source_id!r}, source_terminal={context.source_terminal!r}."
             )
-        raw = result.values[root_key]
-        if isinstance(raw, dict):
+        if isinstance(raw, Mapping):
             if member_key is None:
                 raise UnsupportedMeasurementQuantity(
                     f"Short-circuit quantity family {root_key!r} is aggregate; a specific "

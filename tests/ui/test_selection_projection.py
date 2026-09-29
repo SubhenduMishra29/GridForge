@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
-from ui.core.qt import QPointF
+from ui.core.qt import QPointF, QGraphicsItem, QTransform
 from ui.core.selection_manager import SelectionManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
 from core.application.events import ElementUpdated
@@ -32,7 +32,10 @@ class _FakeMouseEvent:
 
 class _FakeView:
     def mapToScene(self, position):
-        return QPointF(position.x() + 10, position.y() + 20)
+        return QPointF(position.x(), position.y())
+
+    def viewportTransform(self):
+        return QTransform()
 
 
 class _FakeItem:
@@ -51,15 +54,15 @@ class _FakeItem:
         return True
 
     def flags(self):
-        return self._selectable
+        return QGraphicsItem.GraphicsItemFlag.ItemIsSelectable if self._selectable else QGraphicsItem.GraphicsItemFlag(0)
 
 
 class _FakeScene:
     def __init__(self, items):
         self._items = items
 
-    def items(self, _position):
-        return tuple(self._items)
+    def itemAt(self, x, y, transform=None):
+        return self._items[0] if self._items else None
 
 
 class _FakeSignal:
@@ -117,8 +120,8 @@ def test_mouse_adapter_maps_scene_and_resolves_decorative_child():
 
     event = adapter.adapt(_FakeMouseEvent(QPointF(2, 3), button=1, buttons=1, modifiers=7))
 
-    assert event.position == QPointF(12, 23)
-    assert event.scene_position == QPointF(12, 23)
+    assert event.position == QPointF(2, 3)
+    assert event.scene_position == QPointF(2, 3)
     assert event.object_id == "bus-1"
     assert event.button == 1
     assert event.buttons == 1

@@ -101,6 +101,6 @@ def test_breaker_handlers_delegate_to_switching_service() -> None:
 
 def test_breaker_create_handler_uses_canonical_endpoint_resolver() -> None:
     source = inspect.getsource(ModelCommandHandlers.create_breaker)
-    assert "EndpointResolver.resolve" in source
+    assert "_resolve" in source
     assert "endpoint_from" in source
     assert "endpoint_to" in source

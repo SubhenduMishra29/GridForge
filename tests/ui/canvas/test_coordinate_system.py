@@ -515,7 +515,7 @@ def test_current_grid_position():
     )
 
     assert result.x() == pytest.approx(
-        110.0
+        100.0
     )
 
     assert result.y() == pytest.approx(

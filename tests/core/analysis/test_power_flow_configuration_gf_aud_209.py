@@ -23,7 +23,7 @@ BUS_TYPES = {
 def test_from_mapping_accepts_only_authoritative_study_inputs() -> None:
     signature = inspect.signature(PowerFlowStudyConfiguration.from_mapping)
 
-    assert tuple(signature.parameters) == ("bus_types", "base_mva")
+    assert tuple(signature.parameters) == ("bus_types", "base_mva", "tolerance", "max_iterations", "voltage_bases_kv", "numerical_options")
     assert "slack_bus_id" not in signature.parameters
 
 

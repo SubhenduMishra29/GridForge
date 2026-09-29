@@ -16,6 +16,15 @@ from __future__ import annotations
 import pytest
 
 from ui.canvas.grid_scene import GridScene
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    import os
+    from ui.core.qt import QApplication
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance()
+    return app if app is not None else QApplication([])
 from ui.core.qt import (
     QGraphicsRectItem,
     QPointF,
