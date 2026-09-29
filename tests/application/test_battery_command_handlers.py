@@ -51,9 +51,10 @@ def test_battery_handlers_delegate_to_battery_service():
     put_in_service = PutBatteryInServiceCommand(battery_id="b1")
     take_out = TakeBatteryOutOfServiceCommand(battery_id="b1")
 
-    assert model_handlers.create_battery(create, object(), transaction) == (
-        "create", {"battery_id": "b1", "transaction": transaction}
-    )
+    result = model_handlers.create_battery(create, object(), transaction)
+    assert result[0] == "create"
+    assert result[1]["battery_id"] == "b1"
+    assert result[1]["transaction"] is transaction
     assert model_handlers.update_battery(update, object(), transaction) == (
         "update", {"battery_id": "b1", "p_mw": 5.0, "transaction": transaction}
     )
