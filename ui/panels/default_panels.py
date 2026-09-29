@@ -13,7 +13,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -172,7 +172,7 @@ class EquipmentPanelWidget(QWidget):
             if category != last_category:
                 self._list.addItem(f"— {category} —")
                 header_item = self._list.item(self._list.count() - 1)
-                header_item.setFlags(header_item.flags() & ~32)
+                header_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 header_item.setData(32, None)
                 last_category = category
             self._list.addItem(definition.display_name)
