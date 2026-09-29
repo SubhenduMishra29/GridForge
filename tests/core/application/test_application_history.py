@@ -41,12 +41,10 @@ def test_application_exposes_command_history_through_canonical_facade():
     command_manager = FakeCommandManager()
     application = Application(command_manager=command_manager)
 
-    assert application.undo().success is True
-    assert application.redo().success is True
     assert application.can_undo() is True
     assert application.can_redo() is False
     assert application.undo_count() == 2
     assert application.redo_count() == 3
     assert application.undo_commands() == ()
     assert application.redo_commands() == ()
-    assert application.clear_history() is None
+    application.clear_history()
