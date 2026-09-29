@@ -73,7 +73,7 @@ def main_smoke() -> None:
         network = controller.application.read_network()
         buses = tuple(
             element for element in network.elements
-            if str(getattr(element, "element_type", "")).lower() == "bus"
+            if str(getattr(element, "element_type", "")).lower() in {"bus", "buses"}
         )
         if not buses:
             raise SystemExit("Runtime smoke: committed Bus is absent from Application read model.")
