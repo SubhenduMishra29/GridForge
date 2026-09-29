@@ -614,12 +614,12 @@ class PropertiesPanelWidget(QWidget):
             )
 
 
-PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer")
-EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser")
-PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties")
-ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List")
-MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events")
-STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases")
+PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})
+EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser", metadata={"minimum_width": 230})
+PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties", metadata={"minimum_width": 300})
+ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List", metadata={"minimum_height": 180})
+MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events", metadata={"minimum_height": 150})
+STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases", metadata={"minimum_height": 150})
 
 DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     PROJECT_PANEL,
