@@ -64,6 +64,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
 
 from .base import (
@@ -695,7 +696,7 @@ class ControlController:
             time
         )
 
-        if not _is_finite(
+        if not isfinite(
             normalized_time
         ):
             raise ControllerEvaluationError(
