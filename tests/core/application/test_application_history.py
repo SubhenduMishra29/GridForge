@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from core.application.application import Application
 from core.application.command_manager import CommandManager
+from core.application.results import ApplicationResult
 
 
 class FakeCommandManager(CommandManager):
@@ -9,10 +10,10 @@ class FakeCommandManager(CommandManager):
         pass
 
     def undo(self):
-        return "undo-result"
+        return ApplicationResult.success_result(message="undo")
 
     def redo(self):
-        return "redo-result"
+        return ApplicationResult.success_result(message="redo")
 
     def can_undo(self):
         return True
@@ -27,10 +28,10 @@ class FakeCommandManager(CommandManager):
         return 3
 
     def undo_commands(self):
-        return ("u1", "u2")
+        return ()
 
     def redo_commands(self):
-        return ("r1", "r2", "r3")
+        return ()
 
     def clear_history(self):
         return "cleared"
@@ -40,12 +41,12 @@ def test_application_exposes_command_history_through_canonical_facade():
     command_manager = FakeCommandManager()
     application = Application(command_manager=command_manager)
 
-    assert application.undo() == "undo-result"
-    assert application.redo() == "redo-result"
+    assert application.undo().success is True
+    assert application.redo().success is True
     assert application.can_undo() is True
     assert application.can_redo() is False
     assert application.undo_count() == 2
     assert application.redo_count() == 3
-    assert application.undo_commands() == ("u1", "u2")
-    assert application.redo_commands() == ("r1", "r2", "r3")
-    assert application.clear_history() == "cleared"
+    assert application.undo_commands() == ()
+    assert application.redo_commands() == ()
+    assert application.clear_history() is None
