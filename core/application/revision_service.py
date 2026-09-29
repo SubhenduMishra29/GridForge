@@ -209,6 +209,17 @@ class RevisionService:
         self._undo.append(transition)
         return self._current
 
+    def initialize_from_network(self, *, topology_revision: int) -> ProjectRevision:
+        """Initialize the active project's revision from pre-existing Core state."""
+        if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
+            raise ValueError("topology_revision must be a non-negative integer.")
+        self._current = ProjectRevision(topology_revision=topology_revision)
+        self._persisted_state = self._current
+        self._undo.clear()
+        self._redo.clear()
+        self._persisted_generation = 0
+        return self._current
+
     def reset_for_project(self) -> ProjectRevision:
         """Reset revision/history state only after successful project activation."""
         self._current = ProjectRevision()
