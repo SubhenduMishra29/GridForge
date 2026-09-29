@@ -72,6 +72,9 @@ def test_shutdown_continues_after_failure_and_raises_first_error():
 
 def test_failed_workspace_activation_clears_partial_document_state():
     workspace = object.__new__(WorkspaceController)
+    workspace._manager = type("Manager", (), {"clear_active": lambda self: None})()
+    workspace._realizer = type("Realizer", (), {"clear_realization": lambda self: None})()
+    workspace._closed = False
     _stub(workspace, "deactivate", lambda: None)
     _stub(
         workspace,
@@ -110,6 +113,7 @@ def test_open_without_saved_presentation_creates_canonical_sld_document():
 
     class StubApplication:
         presentation = None
+        is_dirty = False
 
         def open_project(self, path):
             return ProjectContext(project_id="project-2", name="Opened", path=path)
@@ -149,6 +153,7 @@ def test_ui_activation_failure_closes_new_application_project():
 
     class StubApplication:
         presentation = None
+        is_dirty = False
         closed = False
 
         def new_project(self, name, *, project_id=None):
