@@ -65,7 +65,7 @@ def test_explicit_projection_covers_required_canonical_fields(element_type, valu
 
 
 def test_fuse_conducts_is_derived_not_independent_state():
-    read = NetworkReadService._to_read_model("fuses", model(in_service=True, blown=False))
+    read = NetworkReadService._to_read_model("fuses", model(in_service=True, blown=False, rated_current_a=100.0, rated_voltage_v=415.0, interrupting_rating_ka=10.0))
     assert read.attributes["conducts"] is True
 
 
