@@ -64,6 +64,7 @@ def main_smoke() -> None:
             app.processEvents()
 
         tool_manager.activate("bus", cancel_active_creation=True)
+        tool_manager.creation_context.update_many({"nominal_voltage_kv": 132.0, "frequency_hz": 50.0})
         tool_manager.mouse_move(_event(200.0, 160.0))
         if not tool_manager.mouse_release(_event(200.0, 160.0)):
             raise SystemExit("Runtime smoke: Bus placement did not commit.")
