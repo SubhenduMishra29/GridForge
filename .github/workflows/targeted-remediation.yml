@@ -30,6 +30,23 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python scripts/verify_startup.py
 
+      - name: Run actual application startup
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          timeout 12s python main.py
+          rc=$?
+          if [ "$rc" -ne 124 ]; then
+            exit "$rc"
+          fi
+          echo "RUNTIME VERIFIED: main.py remained alive through the Qt event loop for 12 seconds."
+
+      - name: Run runtime engineering workflow smoke
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/runtime_engineering_smoke.py
+
       - name: Run targeted startup regression tests
         env:
           QT_QPA_PLATFORM: offscreen
