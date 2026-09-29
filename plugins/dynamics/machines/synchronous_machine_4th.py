@@ -1,4 +1,3 @@
-```python
 """
 GridForge Synchronous Machine Model
 ===================================
@@ -1088,4 +1087,3 @@ class SynchronousMachine:
             f"xq={self.xq:.4f}, "
             f"state={state}>"
         )
-```

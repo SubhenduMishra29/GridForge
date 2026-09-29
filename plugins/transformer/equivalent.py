@@ -1,4 +1,3 @@
-```python
 # plugins/transformer/equivalent.py
 
 """
@@ -363,4 +362,3 @@ class TransformerEquivalent(TransformerPlugin):
             f"Gm={self.g_magnetizing:.6f} pu, "
             f"Bm={self.b_magnetizing:.6f} pu>"
         )
-```

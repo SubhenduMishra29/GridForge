@@ -1,4 +1,3 @@
-```python id="5v0q8m"
 # plugins/transformer/grounding.py
 
 """
@@ -402,4 +401,3 @@ class Grounding(TransformerPlugin):
             f"R={self.resistance_ohm:.6f} Ω, "
             f"X={self.reactance_ohm:.6f} Ω>"
         )
-```

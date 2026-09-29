@@ -1437,3 +1437,166 @@ GF-MASTER-0038 / GF-MASTER-0041 / GF-MASTER-0043 — Batch 1E SLD connection mig
     - Did not introduce TopologyAdapter or a parallel topology authority.
     - Historical audit evidence remains preserved.
     - Runtime verification deferred by frozen static-only audit mode.
+
+
+======================================================================
+2026-09-29 — REPOSITORY INTEGRITY CORRECTION PASS
+======================================================================
+
+Repository authority:
+    madhuri196mishra-cpu/GridForge
+    branch: main
+
+Author:
+    Subhendu Mishra
+
+Execution mode:
+    FETCH → AUDIT → CORRECT → STATIC RE-AUDIT → REGISTER
+
+Runtime/test limitation:
+    Full local pytest/Ruff execution was not available in this environment.
+    GitHub repository writes were verified, but test execution, CI execution,
+    application startup, GUI execution, and runtime verification remain
+    deferred. No test count is claimed from this pass.
+
+Corrections:
+    Plugin syntax:
+        Removed accidental Markdown fences from:
+        plugins/transformer/__init__.py
+        plugins/transformer/base.py
+        plugins/transformer/equivalent.py
+        plugins/transformer/winding.py
+        plugins/transformer/tap_changer.py
+        plugins/transformer/grounding.py
+        plugins/transformer/vector_group.py
+        plugins/motor/induction_motor.py
+        plugins/dynamics/machines/synchronous_machine_4th.py
+        Status: REMEDIATED — IMPORT/COMPILE VERIFICATION DEFERRED
+
+    Controller finite-time validation:
+        Replaced undefined _is_finite reference with math.isfinite.
+        Focused regression tests added for finite, NaN, +inf, and -inf.
+        Status: REMEDIATED — TEST VERIFICATION DEFERRED
+
+    Application event exports:
+        Verified exported Control* names are provided lazily by
+        core.application.control_events through events.__getattr__.
+        No dummy exports were introduced.
+        Status: STATICALLY VERIFIED
+
+    Retired SLD adapter:
+        Removed unreachable code after the unconditional retirement raise.
+        The module remains only as an explicit compatibility/retirement stub.
+        Status: REMEDIATED — IMPORT VERIFICATION DEFERRED
+
+    Duplicate frequency_hz:
+        Consolidated duplicate entries in read_service parameter metadata into
+        one canonical metadata definition.
+        Status: REMEDIATED — TEST VERIFICATION DEFERRED
+
+    Duplicate EquipmentType:
+        Removed the shadowed placeholder class declaration. The dynamically
+        derived Enum is now the sole EquipmentType definition.
+        Serialized enum values remain derived from Core TYPE values.
+        Status: REMEDIATED — IMPORT/IDENTITY VERIFICATION DEFERRED
+
+    Annotation resolution:
+        EngineeringParameterReadModel is imported from
+        core.application.read_models.
+        CreationDraft is imported from ui.creation.creation_context.
+        Status: REMEDIATED — get_type_hints VERIFICATION DEFERRED
+
+    ui.sld.__all__:
+        Static inspection confirms __all__ contains strings sourced from
+        _EXPORTS plus the two explicit public helpers.
+        Status: STATICALLY VERIFIED
+
+    ToolResult redefinition:
+        Direct inspection of the reported region found class factory methods
+        handled()/changed() rather than a confirmed semantic variable
+        redefinition defect. No semantics-changing rename was made.
+        Status: NO CONFIRMED DEFECT
+
+    Invalid escape sequences:
+        Converted the PT and CVT module-level documentation strings to raw
+        strings so the documented terminal diagrams no longer contain invalid
+        backslash escapes.
+        Status: REMEDIATED — WARNING EXECUTION DEFERRED
+
+    Repository hygiene:
+        Added a Python/tooling .gitignore.
+        Removed verification-marker.txt as an obsolete verification artifact.
+        core/solver/short_circuit/balance.txt was retained as explicit future
+        scope documentation rather than deleted.
+        Status: REMEDIATED / RETAINED-BY-DESIGN
+
+    Focused regression coverage:
+        Added tests/test_repository_integrity_control.py covering controller
+        finite-time behavior, Application event export resolution, and the
+        two affected public annotation types.
+        Status: TEST ADDED — EXECUTION DEFERRED
+
+Test-contract reconciliation:
+    The supplied baseline of approximately 1081 passed / 32 skipped was not
+    re-executed in this environment. A repository-wide audit of all 32 skips,
+    including STALE_CONTRACT and TEST_FIXTURE_DEFECT categories, therefore
+    remains OPEN and is not represented as closed by this pass.
+
+Static-analysis baseline:
+    The supplied first-pass audit reported approximately 358 Ruff issues,
+    including approximately 209 unused imports and 15 unused variables.
+    Ruff was not executable in the current environment, so no after-count is
+    claimed. No blind repository-wide auto-fix was performed.
+
+Python/tooling configuration:
+    pyproject.toml retains requires-python >=3.12,<3.13 and pytest>=8,<10
+    in the dev extra. No unsupported Python-version widening was introduced.
+    No new Ruff/type-checking gate was invented without executable
+    verification.
+
+README:
+    Current README inspection did not find GPU/CUDA capability claims requiring
+    correction in the inspected current text.
+
+GF-AUD-019 — transient-stability network coupling:
+    Current source shows TransientStabilitySolver receiving a configured
+    DAESolver, while DAESolver requires an externally supplied NetworkSolver
+    callback of signature (state, time) -> bus-voltage mapping.
+    The current source does not establish a canonical Core Network coupling
+    contract at the transient-stability boundary.
+    Status: OPEN — RE-AUDIT / ARCHITECTURAL COUPLING CONTRACT REQUIRED
+
+Remaining open verification:
+    - Full pytest execution and complete skip reconciliation.
+    - Ruff/static-analysis before/after measurement.
+    - Independent plugin compile/import execution.
+    - Runtime verification.
+    - GUI workflow verification.
+    - Persistence round-trip verification.
+    - Numerical solver validation.
+    - GF-AUD-019 network-coupling correction.
+
+Evidence boundary:
+    Corrections above are repository-source corrections. They must not be
+    described as runtime verified, numerically validated, or fully test
+    verified until those executions are performed.
+
+======================================================================
+
+
+----------------------------------------------------------------------
+2026-09-29 — STATIC RE-AUDIT ADDENDUM
+----------------------------------------------------------------------
+
+Post-register static re-audit found residual literal Markdown fence lines at
+the ends of several corrected plugin files. Those residual lines were removed
+from the affected plugin modules.
+
+Final affected plugin set now has zero lines whose content is a Markdown
+fence marker by direct source inspection.
+
+Final verification boundary:
+    STATICALLY VERIFIED
+    IMPORT/COMPILE, pytest, Ruff, CI, GUI runtime, persistence runtime, and
+    numerical validation remain DEFERRED.
+

@@ -1,4 +1,3 @@
-```python id="w6r4p2"
 # plugins/transformer/vector_group.py
 
 """
@@ -374,4 +373,3 @@ class VectorGroup(TransformerPlugin):
             f"group={self.group}, "
             f"clock={self.clock_position}>"
         )
-```

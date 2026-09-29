@@ -20,6 +20,7 @@ from core.model.cvt import CVTPolarity
 
 from .read_models import (
     ElementReadModel,
+    EngineeringParameterReadModel,
     NetworkReadModel,
     ProtectionReadModel,
     RelayInputBindingReadModel,
@@ -97,7 +98,7 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "nominal_voltage_kv": {"unit": "kV", "datatype": "float"},
     "voltage_pu": {"unit": "pu", "datatype": "float"},
     "angle_deg": {"unit": "deg", "datatype": "float"},
-    "frequency_hz": {"unit": "Hz", "datatype": "float"},
+
     "resistance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
     "reactance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
     "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "study_impact": True},

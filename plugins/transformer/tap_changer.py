@@ -1,4 +1,3 @@
-```python
 # plugins/transformer/tap_changer.py
 
 """
@@ -471,4 +470,3 @@ class TapChanger(TransformerPlugin):
             f"range={self.min_ratio:.6f}-"
             f"{self.max_ratio:.6f}>"
         )
-```
