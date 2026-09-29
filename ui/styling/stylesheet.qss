@@ -468,6 +468,40 @@ QListWidget#EquipmentPalette::item:selected {
     border-left: 3px solid {{accent_active}};
 }
 
+/* Control/Ladder engineering workspace. */
+QWidget#ControlToolPalette,
+QWidget#ControlInspector,
+QWidget#ControlToolbar {
+    background: {{panel_background}};
+    color: {{text_primary}};
+}
+QWidget#ControlToolPalette QLabel,
+QWidget#ControlInspector QLabel,
+QWidget#ControlToolbar QLabel {
+    color: {{text_primary}};
+}
+QPushButton#ControlToolButton {
+    text-align: left;
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 6px 8px;
+    min-height: 28px;
+}
+QPushButton#ControlToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QPushButton#ControlToolButton:pressed,
+QPushButton#ControlToolButton:checked {
+    background: {{selection_background}};
+    border-color: {{selection_border}};
+}
+QGraphicsView#ControlLadderView {
+    background: {{canvas_background}};
+    border: 1px solid {{panel_border}};
+}
+
 /* Canvas host. */
 QGraphicsView#SLDCanvasView {
     background: {{canvas_background}};
