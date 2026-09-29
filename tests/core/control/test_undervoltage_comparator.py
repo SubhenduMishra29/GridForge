@@ -8,6 +8,8 @@ from core.control.decision import ControlActionType
 from core.control.engine import ControlEngine
 from core.control.logic.comparators import UndervoltageComparator
 from core.control.logic.engine import LogicEngine
+from core.control.configuration import ControlConfiguration
+from core.control.logic.ladder import LadderProgram
 from core.control.measurement_input import ControlInput
 from core.measurement.measurement_channel import MeasurementQuality
 
@@ -49,7 +51,7 @@ def test_undervoltage_comparator_rejects_unusable_control_input() -> None:
         value=0.8,
         unit="pu",
         timestamp=10.0,
-        quality=MeasurementQuality.BAD,
+        quality=MeasurementQuality.INVALID,
         available=True,
     )
     with pytest.raises(ValueError, match="not usable"):
@@ -57,8 +59,10 @@ def test_undervoltage_comparator_rejects_unusable_control_input() -> None:
 
 
 def test_undervoltage_comparator_drives_bound_trip_decision() -> None:
-    logic = LogicEngine([UndervoltageComparator("UV-CMP-101", pickup=0.9)])
-    engine = ControlEngine(logic)
+    program = LadderProgram("test-control")
+    program.add_rung("r1")
+    program.add_component(UndervoltageComparator("UV-CMP-101", pickup=0.9), rung_id="r1")
+    engine = ControlEngine(configuration=ControlConfiguration(project_id="PROJECT-1", program=program))
     engine.bind_action(
         ControlActionBinding(
             control_id="UV-101",
