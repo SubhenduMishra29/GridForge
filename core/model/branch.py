@@ -278,6 +278,11 @@ class Branch(ElectricalObject):
     # ============================================================
 
     @property
+    def terminals(self) -> tuple[Terminal, Terminal]:
+        """Return the two authoritative Branch terminals in semantic order."""
+        return (self._from_terminal, self._to_terminal)
+
+    @property
     def from_terminal(self) -> Terminal:
         """
         Return the authoritative FROM terminal.
