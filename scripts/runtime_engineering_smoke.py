@@ -8,7 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import main
-from ui.core.qt import QListWidget, QPointF
+from ui.core.qt import QListWidget, QPointF, QTabWidget
 
 
 TARGET_TOOL_IDS = (
@@ -77,6 +77,20 @@ def main_smoke() -> None:
         )
         if not buses:
             raise SystemExit("Runtime smoke: committed Bus is absent from Application read model.")
+
+        if not tool_manager.preview_layer.scene.items():
+            raise SystemExit("Runtime smoke: committed Bus did not produce a permanent SLD graphics item.")
+
+        tabs = window.findChild(QTabWidget, "EngineeringWorkspaceTabs")
+        if tabs is None:
+            raise SystemExit("Runtime smoke: engineering workspace tabs are missing.")
+        engineering_tabs = tabs.parentWidget()
+        for surface_id in ("sld", "topology", "map", "reports", "control", "protection"):
+            activate = getattr(engineering_tabs, "activate", None)
+            if not callable(activate):
+                raise SystemExit("Runtime smoke: canonical engineering tab host is not activatable.")
+            activate(surface_id)
+            app.processEvents()
 
         selected_ids = tuple(tool_manager.selection_manager.get_selected_ids())
         if str(buses[-1].object_id) not in selected_ids:
