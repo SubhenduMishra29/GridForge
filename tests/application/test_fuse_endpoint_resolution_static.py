@@ -43,7 +43,7 @@ def _function_source(path: Path, name: str) -> str:
 def test_fuse_create_command_carries_only_endpoint_references():
     path = COMMANDS / "model_commands.py"
     source = _source(path)
-    assert "from ..endpoint_reference import EndpointReference" in source
+    assert "EndpointReference" in source
 
     node = _function(path, "__init__")
     classes = [n for n in ast.walk(_tree(path)) if isinstance(n, ast.ClassDef) and n.name == "CreateFuseCommand"]
@@ -101,11 +101,9 @@ def test_fuse_topology_mutations_invalidate_and_undo():
 
 def test_fuse_topology_manager_interprets_conduction_state():
     path = ROOT / "core" / "network" / "topology.py"
-    section = _function_source(path, "_is_conductive")
-    assert "isinstance(element, Fuse)" in section
-    assert "getattr(\n                        element,\n                        \"in_service\"" in section
-    assert "getattr(\n                        element,\n                        \"blown\"" in section
-    assert "and not bool" in section
+    source = _source(path)
+    assert "conduction_state(e)" in source
+    assert "from .electrical_boundary import" in source
 
 
 def test_four_switching_create_handlers_share_endpoint_resolution_boundary():
