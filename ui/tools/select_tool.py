@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 
+from core.application.commands.sld_commands import SetSLDNodePositionCommand
 from .tool_base import ToolBase
 
 
@@ -32,6 +33,7 @@ class SelectTool(ToolBase):
         self._pressed_object_id: Any = None
         self._pressed_position: Optional[Tuple[float, float]] = None
         self._dragging = False
+        self._drag_origin: Optional[Tuple[float, float]] = None
 
     @property
     def tool_id(self) -> str:
@@ -58,6 +60,7 @@ class SelectTool(ToolBase):
         modifiers = self._event_modifiers(event)
         self._pressed_object_id = object_id
         self._pressed_position = position
+        self._drag_origin = position
         self._dragging = False
         if object_id is None:
             self._handle_empty_canvas_click(modifiers)
@@ -76,7 +79,12 @@ class SelectTool(ToolBase):
 
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
-        handled = self._pressed_object_id is not None or self._pressed_position is not None or self._dragging
+        object_id = self._pressed_object_id
+        position = self.event_position(event)
+        was_dragging = self._dragging
+        handled = object_id is not None or self._pressed_position is not None or was_dragging
+        if was_dragging and object_id is not None:
+            self._move_presentation_node(object_id, position)
         self._clear_pointer_state()
         return handled
 
@@ -181,6 +189,27 @@ class SelectTool(ToolBase):
         self._pressed_object_id = None
         self._pressed_position = None
         self._dragging = False
+        self._drag_origin = None
+
+    def _move_presentation_node(self, object_id: Any, position: Tuple[float, float]) -> None:
+        """Persist a dragged SLD node through the Application command boundary."""
+        application = self.application
+        presentation = getattr(application, "presentation", None)
+        model = getattr(presentation, "model", None)
+        if model is None:
+            return
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        node = getter(str(object_id)) if callable(getter) else None
+        if node is None:
+            node_getter = getattr(model, "get_node_optional", None)
+            node = node_getter(str(object_id)) if callable(node_getter) else None
+        if node is None:
+            return
+        result = application.execute(SetSLDNodePositionCommand(
+            node_id=str(node.node_id), x=float(position[0]), y=float(position[1])
+        ))
+        if not getattr(result, "success", False):
+            raise RuntimeError(getattr(result, "message", "Failed to move SLD node."))
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
