@@ -67,7 +67,7 @@ def test_default_bus_factory_constructs_with_application(qapp):
 
 def test_default_factories_construct_model_placement_tools_without_command_manager(qapp):
     dependencies = _dependencies(qapp)
-    factories = create_default_tool_factories(**dependencies)
+    factories = create_default_tool_factories(controller=dependencies["controller"], application=dependencies["application"], selection_manager=dependencies["selection_manager"], snap_system=dependencies["snap_system"], preview_layer=dependencies["preview_layer"], symbol_registry=dependencies["symbol_registry"])
 
     transformer = factories["transformer"]()
     breaker = factories["breaker"]()
