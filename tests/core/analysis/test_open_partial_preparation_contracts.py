@@ -71,8 +71,7 @@ def test_engineering_transformer_ohms_are_converted_in_preparation() -> None:
         rate_mva=100.0,
         impedance_base_voltage_kv=132.0,
     )
-    prep = _preparation((bus_hv, bus_lv))
-    prep.network.add_transformer(transformer)
+    prep = _preparation((bus_hv, bus_lv), transformers=(transformer,))
 
     prepared = prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
 
