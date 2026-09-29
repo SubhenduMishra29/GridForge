@@ -91,11 +91,13 @@ class UndervoltageComparator(LogicControlComponent):
         diagnostics = dict(result.diagnostics)
         diagnostics["source_id"] = control_input.source_id
         diagnostics["unit"] = control_input.unit
+        logic_state = dict(diagnostics.pop("logic_state", {}))
+        logic_events = tuple(diagnostics.pop("logic_events", ()))
         return LogicControlResult(
             outputs=result.outputs,
-            state=result.state,
+            state=logic_state,
             time=result.time,
-            events=result.events,
+            events=logic_events,
             diagnostics=diagnostics,
         )
 
