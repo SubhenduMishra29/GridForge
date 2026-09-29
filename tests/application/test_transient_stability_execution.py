@@ -83,4 +83,4 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
     result = application.execute_study(request)
 
     assert result.status == "completed"
-    assert result.value.result.number_of_steps >= 1
+    assert result.value.number_of_steps >= 1
