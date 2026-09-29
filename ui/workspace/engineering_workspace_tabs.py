@@ -1,3 +1,9 @@
+# ============================================================
+# File: ui/workspace/engineering_workspace_tabs.py
+# GridForge V2 — Engineering Workspace Tabs
+# Author: Subhendu Mishra
+# ============================================================
+
 """Read-only engineering workspace projections sharing Application state.
 
 These views are presentation projections only. They do not own Core,
