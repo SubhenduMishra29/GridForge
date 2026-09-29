@@ -1620,3 +1620,35 @@ The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_RE
 - GUI/runtime verification was **not performed** in the available execution environment, so no runtime closure is claimed.
 
 > Note: the task instruction referred to a 9-column schema, but the authoritative current repository header is 14 columns. Collapsing the established 14-column register to 9 columns would alter the existing register schema and risk loss of existing evidence, so the correction preserves the actual repository-authoritative schema.
+
+## 2026-09-29 — Palette Symbol Adapter runtime blocker correction
+
+### Requested finding: GF-MASTER-0073
+
+The requested runtime finding identifier **GF-MASTER-0073** is already occupied by the canonical historical/current register finding **RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation**, which remains **STATIC CLOSED**. That existing ID is preserved unchanged; no duplicate ID or silent renumbering was introduced.
+
+### GF-MASTER-0108 — Palette Symbol Adapter runtime blocker
+
+- **Requested legacy/reference ID:** GF-MASTER-0073-RUNTIME
+- **Title:** Palette Symbol Adapter — undefined visual_state causes plugin initialization failure
+- **Status:** **CORRECTED — VERIFICATION PENDING**
+- **Affected file:** `ui/equipment/symbol/palette_symbol_adapter.py`
+- **Related contracts inspected:** `ui/styling/presentation_style.py` (`VisualState`, `visual_pen()`), `ui/equipment/symbol/symbol_definition.py`, `ui/equipment/symbol/symbol_registry.py`, `ui/panels/default_panels.py`, `ui/plugins/panels_plugin.py`.
+
+**Root cause:** the demonstrated failure was an undefined `visual_state` value in the palette primitive-rendering path. The existing presentation API already defines `VisualState` as the enum/value contract expected by `visual_pen()`; the correction therefore uses that existing contract rather than introducing another state system.
+
+**Correction:** `_render(definition, state)` resolves the existing `VisualState` member for each palette state and passes the resolved value explicitly to `_draw_primitive(painter, primitive, visual_state)`. Text primitives use the same value when calling `visual_pen()`. The canonical `SymbolRegistry → SymbolDefinition → PaletteSymbolAdapter` path is unchanged.
+
+**Painter lifecycle hardening:** `QPainter` is now enclosed in a `try/finally` block so `painter.end()` executes even when primitive rendering raises. This directly protects the paint-device lifecycle rather than suppressing Qt warnings.
+
+**Static result:** the undefined-variable pattern is absent from the current adapter; `visual_state` is locally resolved in `_render()`, explicitly passed to `_draw_primitive()`, and consumed by `visual_pen()`. No second symbol registry, semantic mapping, renderer authority, or Core dependency was introduced.
+
+**Runtime command:** `python main.py`
+
+**Runtime result:** **PENDING**. The available execution environment cannot execute the user's Windows/PySide6 desktop runtime, so no startup, palette-icon, or QPaintDevice runtime closure is claimed.
+
+**Secondary QPaintDevice result:** the prior warning is not independently declared resolved without runtime evidence. The affected painter boundary is now exception-safe; runtime confirmation remains pending.
+
+**Remaining dependencies:** Windows/PySide6 application startup, plugin initialization, equipment palette construction, representative icon generation, and downstream SLD workspace reachability.
+
+**Next verification boundary:** run `python main.py` in the user's GridForge Windows environment. First confirm plugin initialization and palette icon construction; then inspect the QPaintDevice warning and only after those succeed continue to SLD workspace/tool/canvas verification. Existing SLD/canvas/placement findings remain independently verification-deferred.
