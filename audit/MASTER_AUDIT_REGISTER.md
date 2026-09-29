@@ -751,7 +751,7 @@ This is the baseline effective-status index for the **75 active Master IDs**. Th
 | GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
 | GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
-| GF-MASTER-0040 | SLD | Projection-rendering | Rendering separation exists but coverage and runtime unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0040 | SLD | Projection-rendering | Non-Bus SLD realization requires canonical Application read-model identity referenced by SLDNode.equipment_id; Bus uses a dedicated presentation path | HIGH | **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0042 | Control | Control-automation | Control and ladder command integration incomplete | HIGH | **OPEN** | Yes |
 | GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
@@ -1574,3 +1574,28 @@ The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_RE
 - **Dependency:** Qt/PySide6 presentation bootstrap and setuptools package-data installation.
 - **Verification level:** STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED.
 - **Remaining issue:** GUI startup, installed-distribution execution, alternate-working-directory execution, and binary pixel-dimension inspection remain deferred in the current environment.
+
+
+## 2026-09-29 — Batch 26 — SLD Canvas Functional Audit, Root-Cause Correction & Master Register Reconciliation
+
+**Repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**Batch:** 26  
+**Correction baseline:** `258e968b246d9dc36bc236942beabfc96892664d`  
+**Evidence report:** `audit/BATCH26_SLD_CANVAS_CORRECTION_2026-09-29.md`
+
+### GF-MASTER-0040 — Batch 26 disposition
+
+**Finding:** Non-Bus SLD equipment could fail during graphics realization because `SLDGraphicsItemFactory.create_node()` requires `SLDNode.equipment_id` to resolve to the canonical Application read model, while Bus realization follows the dedicated `BusItem` path and does not require `EquipmentFactory.create_from_read_model()`.
+
+**Root cause:** A non-Bus node with no canonical Core equipment identity, or an identity absent from Application read state, reaches the generic realization path and fails at the read-model boundary. The renderer intentionally catches the exception so the authored SLD node remains intact; before explicit diagnostic classification, the visible symptom could be a missing/blank non-Bus item while Bus continued to render.
+
+**Correction:** The authoritative Application pre-commit path already binds a newly created Core identity to exactly one persistent SLD node only after the Application read model confirms the same `object_id`. The SLD node keeps an independent `node_id`, preserves committed presentation coordinates, and flows through `SLDCanvasProjection → SLDCanvasSnapshot → SLDCanvasRenderSystem → SemanticPresentationRealization → SLDGraphicsItemFactory → EquipmentFactory → EquipmentItem`. Batch 26 additionally hardens node realization diagnostics with explicit failure codes and adds regression coverage for all built-in network equipment types, Relay, valid non-Bus realization, invalid/missing identity, and committed position preservation.
+
+**Dependency:** `Core equipment identity → Application read model → persistent SLD node → SLDCanvasProjection → SemanticPresentationRealization → SLDGraphicsItemFactory → EquipmentFactory → EquipmentItem`.
+
+**Status:** **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED**
+
+**Runtime limitation:** Runtime GUI confirmation pending.
+
+**Architecture disposition:** No second SLD model, renderer, symbol registry, topology authority, equipment identity authority, or Core/UI mutation path was introduced.
