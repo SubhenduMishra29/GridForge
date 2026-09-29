@@ -85,3 +85,5 @@ def test_undervoltage_comparator_drives_bound_trip_decision() -> None:
     assert result.decisions[0].action_type is ControlActionType.TRIP
     assert result.decisions[0].target_equipment_id == "BRK-101"
     assert result.decisions[0].simulation_time == 25.0
+
+# Current V2 fixture contract synchronized 2026-09-29.
