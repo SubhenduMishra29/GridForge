@@ -1,4 +1,3 @@
-```python id="5v0q8m"
 # plugins/transformer/grounding.py
 
 """
