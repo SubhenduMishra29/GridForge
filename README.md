@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="splash.png" alt="GridForge" width="600">
+  <img src="Logo.png" alt="GridForge" width="600">
 </p>
 
 <h1 align="center">GridForge V2</h1>
