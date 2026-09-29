@@ -1,4 +1,3 @@
-```python
 # plugins/transformer/equivalent.py
 
 """
