@@ -684,9 +684,28 @@ class ShellPlugin:
         if not matches:
             QMessageBox.information(parent, "Project Search", f"No project element matches {query!r}.")
             return
+
+        # Search is read-only, but selecting the first canonical match is a
+        # real navigation action through the existing transient UI selection
+        # authority. The Application/Core model is not mutated.
+        router = getattr(self._context, "action_router", None) if self._context is not None else None
+        if callable(getattr(router, "dispatch", None)):
+            router.dispatch("view.sld_workspace")
+        selection_manager = (
+            self._context.metadata.get("selection_manager")
+            if self._context is not None
+            else None
+        )
+        if callable(getattr(selection_manager, "select_single", None)):
+            selection_manager.select_single(matches[0].object_id)
+
         lines = [f"{item.object_id} — {item.element_type}" for item in matches[:50]]
         suffix = "" if len(matches) <= 50 else f"\\n…and {len(matches) - 50} more"
-        QMessageBox.information(parent, "Project Search", "\\n".join(lines) + suffix)
+        QMessageBox.information(
+            parent,
+            "Project Search",
+            "Selected: " + lines[0] + ("\\n\\n" + "\\n".join(lines[1:]) if len(lines) > 1 else ""),
+        )
 
     def _notification_text(self) -> str:
         application = self._context.application if self._context is not None else None
