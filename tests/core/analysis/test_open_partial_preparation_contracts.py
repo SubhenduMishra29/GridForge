@@ -44,6 +44,7 @@ def test_pu_transformer_is_converted_once_to_system_base() -> None:
     )
     prep = _preparation((bus_hv, bus_lv))
     prep.network.add_transformer(transformer)
+    prep.network.rebuild_topology()
 
     prepared = prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
 
@@ -65,7 +66,7 @@ def test_engineering_transformer_ohms_are_converted_in_preparation() -> None:
         impedance_base_voltage_kv=132.0,
     )
     prep = _preparation((bus_hv, bus_lv))
-    prep.network.transformers = (transformer,)
+    prep.network.add_transformer(transformer)
 
     prepared = prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
 
@@ -87,7 +88,7 @@ def test_transformer_reference_voltage_must_match_from_side() -> None:
         impedance_base_voltage_kv=11.0,
     )
     prep = _preparation((bus_hv, bus_lv))
-    prep.network.transformers = (transformer,)
+    prep.network.add_transformer(transformer)
 
     with pytest.raises(ValueError, match="reference voltage"):
         prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
@@ -103,6 +104,7 @@ def test_capacitor_and_reactor_become_prepared_shunts() -> None:
     prep.network.add_shunt(generic)
     prep.network.add_capacitor(capacitor)
     prep.network.add_reactor(reactor)
+    prep.network.rebuild_topology()
 
     prepared = prep._prepare_shunts({"B1": 11.0, "B2": 11.0})
     by_id = {item.shunt_id: item for item in prepared}
