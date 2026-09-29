@@ -51,7 +51,6 @@ class ModelPlacementTool(ToolBase):
         self._creation_context: CreationContext | None = None
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap: Any | None = None
-        self._active_draft_id: str | None = None
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -82,7 +81,6 @@ class ModelPlacementTool(ToolBase):
         return f"Place a {self.MODEL_NAME.lower()} on the SLD canvas."
 
     def on_activate(self) -> None:
-        self._active_draft_id = None
         self._clear_state()
 
     def on_deactivate(self) -> None:
