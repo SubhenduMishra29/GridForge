@@ -2,13 +2,13 @@ from core.application.commands.pt_commands import (
     CREATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE, UPDATE_PT,
     CreatePTCommand, UpdatePTCommand, DeletePTCommand, PutPTInServiceCommand, TakePTOutOfServiceCommand,
 )
-from core.application.endpoint_reference import EndpointReference
+from core.model import EndpointReference, EquipmentType
 from core.application.command_handlers import ModelCommandHandlers
 
 
 def test_pt_commands_use_endpoint_references_for_create_only():
-    a = EndpointReference("bus", "B1")
-    b = EndpointReference("bus", "B2")
+    a = EndpointReference.terminal(equipment_type=EquipmentType.PT, equipment_id="PT1", terminal_role="primary_a")
+    b = EndpointReference.terminal(equipment_type=EquipmentType.PT, equipment_id="PT1", terminal_role="primary_b")
     create = CreatePTCommand(pt_id="PT1", primary_a=a, primary_b=b)
     update = UpdatePTCommand(pt_id="PT1", burden_va=50.0)
     assert create.command_type == CREATE_PT
