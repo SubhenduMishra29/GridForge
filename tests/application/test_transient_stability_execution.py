@@ -54,7 +54,8 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
     )
 
     network = Network()
-    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))\n    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
+    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))
+    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
     application = create_application(network)
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
