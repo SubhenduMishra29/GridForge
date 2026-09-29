@@ -73,7 +73,11 @@ def test_registered_tool_receives_one_canonical_dependency_contract(dependencies
     manager.register_tool("test", factory)
     manager.activate("test")
 
-    assert created == [dependencies]
+    assert len(created) == 1
+    assert created[0]["controller"] is dependencies["controller"]
+    assert created[0]["application"] is dependencies["application"]
+    assert created[0]["selection_manager"] is dependencies["selection_manager"]
+    assert created[0]["snap_system"] is dependencies["snap_system"]
     assert manager.get_current_tool().active is True
 
 
