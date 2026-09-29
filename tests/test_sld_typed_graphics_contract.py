@@ -34,6 +34,7 @@ def test_sld_canvas_render_system_realizes_typed_graphics_items() -> None:
     """The unified SLD render boundary must own typed-item realization."""
     source = inspect.getsource(sld_canvas_render_system.SLDCanvasRenderSystem)
 
-    assert "BusItem" in source
-    assert "LineItem" in source
+    assert "item_factory" in source
+    assert "create_node" in source
+    assert "create_connection" in source
     assert "SLDCanvasSnapshot" in source
