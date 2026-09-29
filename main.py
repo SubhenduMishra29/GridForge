@@ -53,6 +53,8 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
+from ui.branding import BrandingService
+from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
 
 
@@ -62,7 +64,11 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
-    errors: list[BaseException] = []; ui_lifecycle = resources.get("ui_lifecycle"); workspace_controller = resources.get("workspace_controller")
+    errors: list[BaseException] = []
+    startup_splash = resources.get("startup_splash")
+    if isinstance(startup_splash, StartupSplash):
+        _invoke_cleanup(startup_splash.close, errors)
+    ui_lifecycle = resources.get("ui_lifecycle"); workspace_controller = resources.get("workspace_controller")
     if isinstance(ui_lifecycle, UILifecycle):
         _invoke_cleanup(ui_lifecycle.close, errors)
         if not ui_lifecycle.closed and isinstance(workspace_controller, WorkspaceController): _invoke_cleanup(workspace_controller.close, errors)
@@ -86,9 +92,18 @@ def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: Wor
 def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
     app = QApplication.instance()
     if app is None: app = QApplication(sys.argv)
+    branding = BrandingService()
+    resources["branding"] = branding
+    startup_splash = StartupSplash(app, branding)
+    resources["startup_splash"] = startup_splash
+    branding.apply_application_identity(app)
+    startup_splash.show(f"Starting {branding.PRODUCT_NAME} {branding.version}…")
     style_manager = StyleManager()
+    startup_splash.status("Initializing application style…")
     style_manager.apply(app)
+    startup_splash.status("Initializing engineering application…")
     network = Network(); gridforge_application = create_application(network)
+    startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
     sld_controller: SLDController
 
@@ -104,6 +119,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if not isinstance(document, SLDDocument): raise TypeError("Persistent presentation must deserialize to an SLDDocument")
         return document
 
+    startup_splash.status("Preparing workspaces and engineering tools…")
     workspace_manager = WorkspaceManager(definitions={definition.workspace_id: definition for definition in default_workspaces()}, default_workspace_id=SLD_WORKSPACE_ID)
     presentation_bootstrap = PresentationBootstrap.create(workspace_manager=workspace_manager, application=gridforge_application, sld_read_synchronizer=sld_read_synchronizer)
     equipment_registry = presentation_bootstrap.equipment_registry
@@ -167,6 +183,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     root_widget = QWidget()
     root_widget.setObjectName("GridForgeShellRoot")
     window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
+    icon = branding.icon()
+    if icon is not None:
+        window.setWindowIcon(icon)
+    window.setWindowTitle(branding.DEFAULT_TITLE)
 
     workspace_realizer = WorkspaceRealizer(main_window=window); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
     action_router = UIActionRouter()
@@ -190,7 +210,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         project_context = getattr(gridforge_application.project_lifecycle, "context", None)
         project_name = getattr(project_context, "name", None)
         window.setWindowTitle(
-            f"GridForge V2 — {project_name}" if project_name else "GridForge V2"
+            f"{branding.PRODUCT_NAME} — {project_name}" if project_name else branding.DEFAULT_TITLE
         )
         canvas_composition.surface.set_document_title(project_name)
         if status_plugin is not None:
@@ -505,7 +525,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     controller.bind_status_plugin(status_plugin)
 
+    startup_splash.status("GridForge is ready.")
     ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
+    app.processEvents()
+    startup_splash.finish(window)
+    resources.pop("startup_splash", None)
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
 
 
