@@ -1706,3 +1706,23 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 **Register integrity:** Historical IDs are preserved; no ID was deleted, renumbered, duplicated, or reused.
 
+
+## 2026-09-29 — Batch 26.6 Wire activation / committed SLD lifecycle correction
+
+### GF-MASTER-0112 — Wire activation must not clear committed SLD graphics
+
+**Legacy IDs:** GF-MASTER-0040; affected Batch 26 SLD lifecycle findings  
+**Status:** **REMEDIATED — VERIFICATION REQUIRED**  
+**Finding:** Static transition tracing showed Wire activation enters WireTool.on_activate() and clears the shared PreviewLayer. The activation path contains no SLDDocument.clear(), SLDProjectionManager.clear(), QGraphicsScene.clear(), scene replacement, or renderer-wide clear. The destructive presentation operation reachable from tool switching was therefore preview-layer cleanup; the preview boundary did not defensively distinguish transient graphics from committed graphics carrying canonical object/equipment identity.
+
+**Correction:** PreviewLayer.clear_preview() is now the explicit transient cleanup boundary. It retains any graphics item exposing canonical committed object/equipment identity even if such an item was accidentally registered in preview bookkeeping, while removing only transient preview graphics. WireTool, BusTool, and ModelPlacementTool now prefer clear_preview() for lifecycle cleanup. The renderer remains incremental and authoritative; no renderer-side never-remove exception was added.
+
+**Call-chain evidence:** toolbar/menu tool.wire -> UIActionRouter -> Controller.set_tool() -> ToolManager.activate() -> previous tool deactivation / WireTool.on_activate() -> preview cleanup. Controller._on_tool_manager_changed() emits only tool/state signals. SLDUpdateCoordinator clears the projection manager only for ProjectClosed; ordinary tool changes are not Application lifecycle events.
+
+**State authority:** Core/Application read state remains authoritative for engineering objects; SLDDocument remains the committed presentation document; SLDCanvasProjection projects the complete document; SLDCanvasRenderSystem remains incremental. Wire preview remains transient.
+
+**Evidence boundary:** Static source inspection and implementation correction only. No pytest, CI, automated test suite, or runtime GUI verification was performed.
+
+**Runtime:** **RUNTIME VERIFICATION — DEFERRED**
+
+**Author:** Subhendu Mishra
