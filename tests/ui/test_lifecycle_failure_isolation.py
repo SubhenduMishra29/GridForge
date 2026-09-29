@@ -73,7 +73,7 @@ def test_shutdown_continues_after_failure_and_raises_first_error():
 def test_failed_workspace_activation_clears_partial_document_state():
     workspace = object.__new__(WorkspaceController)
     workspace._manager = type("Manager", (), {"clear_active": lambda self: None, "active_workspace_id": "sld", "state": type("State", (), {"active_workspace_id": "sld"})(), "prepare_activate": lambda self, workspace_id: self.state, "commit_activate": lambda self, state: None})()
-    workspace._realizer = type("Realizer", (), {"realized_layout": None, "clear_realization": lambda self: None})()
+    workspace._realizer = type("Realizer", (), {"realized_layout": None, "realize": lambda self, *args, **kwargs: None, "clear_realization": lambda self: None})()
     workspace._closed = False
     _stub(workspace, "deactivate", lambda: None)
     _stub(
