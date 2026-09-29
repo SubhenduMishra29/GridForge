@@ -335,9 +335,13 @@ class ModelPlacementTool(ToolBase):
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap = None
         if self._preview_layer is not None:
-            clear = getattr(self._preview_layer, "clear", None)
-            if callable(clear):
-                clear()
+            clear_preview = getattr(self._preview_layer, "clear_preview", None)
+            if callable(clear_preview):
+                clear_preview()
+            else:
+                clear = getattr(self._preview_layer, "clear", None)
+                if callable(clear):
+                    clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
