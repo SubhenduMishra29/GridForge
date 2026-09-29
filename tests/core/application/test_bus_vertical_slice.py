@@ -49,4 +49,4 @@ def test_application_create_bus_duplicate_id_fails_without_second_event():
         raise AssertionError("duplicate Bus creation must fail")
 
     assert len([event for event in events if event.event_type == "element.created"]) == 1
-    assert network.get_bus("bus-test") is not None
+    assert network.get_by_identity("bus-test") is not None
