@@ -590,16 +590,43 @@ class WorkspaceRealizer:
     # ========================================================
 
     def _realize_default_proportions(self, layout: WorkspaceLayout) -> None:
-        """Apply comfortable initial dock proportions without fixing user geometry."""
-        left = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.LEFT and p.panel_id in self._bindings]
-        right = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.RIGHT and p.panel_id in self._bindings]
-        bottom = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.BOTTOM and p.panel_id in self._bindings]
+        """Apply adaptive first-use dock proportions without resetting user resizing.
+
+        Workspace activation is a presentation-mode change, not a geometry reset.
+        Once a layout has been realized, Qt's current dock sizes are user-owned
+        and must survive SLD/Control/Protection switching.
+        """
+        if self._realized_layout is not None:
+            return
+
+        left = [
+            self._bindings[p.panel_id].dock_widget
+            for p in layout.visible_panels()
+            if p.area == PanelArea.LEFT and p.panel_id in self._bindings
+        ]
+        right = [
+            self._bindings[p.panel_id].dock_widget
+            for p in layout.visible_panels()
+            if p.area == PanelArea.RIGHT and p.panel_id in self._bindings
+        ]
+        bottom = [
+            self._bindings[p.panel_id].dock_widget
+            for p in layout.visible_panels()
+            if p.area == PanelArea.BOTTOM and p.panel_id in self._bindings
+        ]
+
+        width = max(1000, int(self._main_window.width()))
+        height = max(700, int(self._main_window.height()))
+        left_size = max(210, min(320, int(width * 0.18)))
+        right_size = max(280, min(380, int(width * 0.22)))
+        bottom_size = max(120, min(220, int(height * 0.18)))
+
         if left:
-            self._main_window.resize_docks(left, [240 for _ in left], Qt.Horizontal)
+            self._main_window.resize_docks(left, [left_size for _ in left], Qt.Horizontal)
         if right:
-            self._main_window.resize_docks(right, [330 for _ in right], Qt.Horizontal)
+            self._main_window.resize_docks(right, [right_size for _ in right], Qt.Horizontal)
         if bottom:
-            self._main_window.resize_docks(bottom, [110 for _ in bottom], Qt.Vertical)
+            self._main_window.resize_docks(bottom, [bottom_size for _ in bottom], Qt.Vertical)
 
     # ========================================================
     # Clear

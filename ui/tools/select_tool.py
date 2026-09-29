@@ -142,21 +142,40 @@ class SelectTool(ToolBase):
         model = getattr(presentation, "model", None)
         if model is None:
             return
-        node = None
-        getter = getattr(model, "get_node_by_equipment_id_optional", None)
-        if callable(getter):
-            node = getter(str(object_id))
-        if node is None:
-            getter = getattr(model, "get_node_optional", None)
-            if callable(getter):
-                node = getter(str(object_id))
-        if node is None:
+
+        start = self._pressed_scene_position
+        if start is None:
             return
-        result = application.execute(SetSLDNodePositionCommand(
-            node_id=str(node.node_id), x=end[0], y=end[1]
-        ))
-        if not getattr(result, "success", False):
-            raise RuntimeError(getattr(result, "message", "Failed to move SLD node."))
+        delta_x = end[0] - start[0]
+        delta_y = end[1] - start[1]
+
+        selected_ids = tuple(self.get_selection_manager().get_selected_ids())
+        if object_id not in selected_ids:
+            selected_ids = (object_id,)
+
+        for selected_id in selected_ids:
+            node = None
+            getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(getter):
+                node = getter(str(selected_id))
+            if node is None:
+                getter = getattr(model, "get_node_optional", None)
+                if callable(getter):
+                    node = getter(str(selected_id))
+            if node is None:
+                continue
+
+            result = application.execute(
+                SetSLDNodePositionCommand(
+                    node_id=str(node.node_id),
+                    x=float(node.x) + delta_x,
+                    y=float(node.y) + delta_y,
+                )
+            )
+            if not getattr(result, "success", False):
+                raise RuntimeError(
+                    getattr(result, "message", "Failed to move SLD node.")
+                )
 
     def _scene(self) -> Any:
         return getattr(self.get_selection_manager(), "scene", None)

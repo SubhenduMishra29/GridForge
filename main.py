@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from uuid import uuid4
 
 from core.application.bootstrap import create_application
 from core.application.events import ProjectLoaded
@@ -55,6 +56,9 @@ from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
+from core.application.commands.model_commands import CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
+from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
+from core.application.commands.simple_wire_commands import RemoveSimpleWireConnectionCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -295,7 +299,33 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             raise RuntimeError(result.message)
         _refresh_status()
 
-    sld_clipboard: list[dict] = []
+    # Clipboard contains semantic Application read data plus the authored SLD
+    # presentation payload. QGraphicsItems are never copied as project truth.
+    sld_clipboard: list[dict[str, object]] = []
+
+    def _find_sld_node(selected_id: object) -> object | None:
+        model = getattr(gridforge_application.presentation, "model", None)
+        if model is None:
+            return None
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        if callable(getter):
+            node = getter(str(selected_id))
+            if node is not None:
+                return node
+        getter = getattr(model, "get_node_optional", None)
+        if callable(getter):
+            return getter(str(selected_id))
+        return None
+
+    def _find_network_element(selected_id: object) -> object | None:
+        try:
+            network = gridforge_application.read_network()
+        except RuntimeError:
+            return None
+        return next(
+            (element for element in network.elements if str(getattr(element, "object_id", "")) == str(selected_id)),
+            None,
+        )
 
     def _select_all() -> None:
         scene = canvas_composition.view.scene()
@@ -310,66 +340,142 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     def _copy_selection() -> None:
         sld_clipboard.clear()
-        model = getattr(gridforge_application.presentation, "model", None)
-        if model is None:
-            return
         for selected_id in canvas_composition.selection_manager.get_selected_ids():
-            node = None
-            getter = getattr(model, "get_node_by_equipment_id_optional", None)
-            if callable(getter):
-                node = getter(str(selected_id))
-            if node is None:
-                getter = getattr(model, "get_node_optional", None)
-                if callable(getter):
-                    node = getter(str(selected_id))
-            if node is not None:
-                sld_clipboard.append(node.to_dict())
+            element = _find_network_element(selected_id)
+            node = _find_sld_node(selected_id)
+            if element is None or node is None:
+                continue
+            read_model = gridforge_application.read_element(
+                str(element.element_type),
+                str(element.object_id),
+            )
+            sld_clipboard.append({
+                "element_type": str(read_model.element_type),
+                "attributes": dict(getattr(read_model, "attributes", {}) or {}),
+                "labels": dict(getattr(read_model, "labels", {}) or {}),
+                "position": (float(node.x), float(node.y)),
+                "presentation": None if node.presentation is None else node.presentation.to_dict(),
+            })
 
     def _paste_selection() -> None:
         if not sld_clipboard:
             return
         selection = canvas_composition.selection_manager
         selection.clear()
-        import uuid
+        offset_x, offset_y = 40.0, 40.0
+
         for source in tuple(sld_clipboard):
-            properties = dict(source.get("properties", {}))
-            properties["clipboard_source_node_id"] = str(source.get("node_id", ""))
-            properties["paste_offset"] = [40.0, 40.0]
-            node_id = str(uuid.uuid4())
-            result = gridforge_application.execute(AddSLDNodeCommand(
-                node_id=node_id, equipment_id=None,
-                x=float(source.get("x", 0.0)) + 40.0,
-                y=float(source.get("y", 0.0)) + 40.0,
-                presentation_owner="engineer",
-                element_type=properties.get("element_type"),
-                presentation=source.get("presentation"),
-                presentation_properties=properties,
-            ))
+            element_type = str(source["element_type"]).strip().lower()
+            attributes = dict(source.get("attributes", {}))
+            labels = dict(source.get("labels", {}))
+            source_x, source_y = source["position"]
+            name = str(labels.get("name") or attributes.get("name") or element_type.title())
+            new_id = f"{element_type}-copy-{uuid4().hex[:8]}"
+            x = float(source_x) + offset_x
+            y = float(source_y) + offset_y
+            in_service = bool(attributes.get("in_service", True))
+
+            if element_type == "bus":
+                result = gridforge_application.execute(CreateBusCommand(
+                    bus_id=new_id, name=name,
+                    nominal_voltage_kv=float(attributes.get("nominal_voltage_kv", attributes.get("nominalVoltage", 0.0)) or 0.0),
+                    voltage_pu=float(attributes.get("voltage_pu", 1.0) or 1.0),
+                    angle_deg=float(attributes.get("angle_deg", 0.0) or 0.0),
+                    frequency_hz=float(attributes.get("frequency_hz", 50.0) or 50.0),
+                    in_service=in_service, presentation_x=x, presentation_y=y,
+                ))
+            elif element_type == "transformer":
+                result = gridforge_application.execute(CreateTransformerCommand(
+                    transformer_id=new_id, name=name,
+                    r=float(attributes.get("r", 0.0) or 0.0),
+                    x=float(attributes.get("x", 0.0) or 0.0),
+                    b=float(attributes.get("b", 0.0) or 0.0),
+                    impedance_basis=attributes.get("impedance_basis", "engineering"),
+                    impedance_base_mva=attributes.get("impedance_base_mva"),
+                    impedance_base_voltage_kv=attributes.get("impedance_base_voltage_kv"),
+                    tap=float(attributes.get("tap", 1.0) or 1.0),
+                    shift=float(attributes.get("shift", 0.0) or 0.0),
+                    rate_mva=attributes.get("rate_mva"),
+                    presentation_x=x, presentation_y=y,
+                ))
+            elif element_type == "breaker":
+                result = gridforge_application.execute(CreateBreakerCommand(
+                    breaker_id=new_id, name=name, in_service=in_service,
+                    closed=bool(attributes.get("closed", True)),
+                    failed=bool(attributes.get("failed", False)),
+                    voltage_kv=attributes.get("voltage_kv"),
+                    current_a=attributes.get("current_a"),
+                    interrupting_ka=attributes.get("interrupting_ka"),
+                    presentation_x=x, presentation_y=y,
+                ))
+            else:
+                messages_panel.append_message(
+                    f"Paste skipped: semantic clone is not defined for {element_type}."
+                )
+                continue
+
             if not result.success:
                 raise RuntimeError(result.message)
-            selection.add_to_selection(node_id)
+
+            new_node = _find_sld_node(new_id)
+            presentation = source.get("presentation")
+            if new_node is not None and presentation is not None:
+                presentation_result = gridforge_application.execute(
+                    SetSLDNodePresentationCommand(
+                        node_id=str(new_node.node_id),
+                        presentation=dict(presentation),
+                    )
+                )
+                if not presentation_result.success:
+                    raise RuntimeError(presentation_result.message)
+            selection.add_to_selection(new_id)
 
     def _delete_selection() -> None:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
             return
-        model = getattr(gridforge_application.presentation, "model", None)
-        if model is None:
-            return
+
         for selected_id in selected_ids:
-            node = None
-            getter = getattr(model, "get_node_by_equipment_id_optional", None)
-            if callable(getter):
-                node = getter(str(selected_id))
-            if node is None:
-                getter = getattr(model, "get_node_optional", None)
-                if callable(getter):
-                    node = getter(str(selected_id))
-            if node is None:
+            element = _find_network_element(selected_id)
+            if element is not None:
+                element_type = str(element.element_type).strip().lower()
+                if element_type == "bus":
+                    result = gridforge_application.execute(DeleteBusCommand(bus_id=str(element.object_id)))
+                elif element_type == "transformer":
+                    result = gridforge_application.execute(DeleteTransformerCommand(transformer_id=str(element.object_id)))
+                elif element_type == "breaker":
+                    result = gridforge_application.execute(DeleteBreakerCommand(breaker_id=str(element.object_id)))
+                else:
+                    raise RuntimeError(
+                        f"Delete is not semantically mapped for {element_type!r}; refusing to hide the object."
+                    )
+                if not result.success:
+                    raise RuntimeError(result.message)
                 continue
-            result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
-            if not result.success:
-                raise RuntimeError(result.message)
+
+            try:
+                wire = gridforge_application.read_simple_wire(str(selected_id))
+            except (KeyError, RuntimeError):
+                wire = None
+            if wire is not None:
+                result = gridforge_application.execute(
+                    RemoveSimpleWireConnectionCommand(connection_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            node = _find_sld_node(selected_id)
+            if node is not None and getattr(node, "equipment_id", None) is None:
+                result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            raise RuntimeError(
+                f"Selection {selected_id!r} is not mapped to an authoritative delete command."
+            )
+
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
@@ -377,22 +483,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _delete_selection()
 
     def _selected_sld_nodes() -> tuple[object, ...]:
-        model = getattr(gridforge_application.presentation, "model", None)
-        if model is None:
-            return ()
-        nodes = []
-        for selected_id in canvas_composition.selection_manager.get_selected_ids():
-            node = None
-            getter = getattr(model, "get_node_by_equipment_id_optional", None)
-            if callable(getter):
-                node = getter(str(selected_id))
-            if node is None:
-                getter = getattr(model, "get_node_optional", None)
-                if callable(getter):
-                    node = getter(str(selected_id))
-            if node is not None:
-                nodes.append(node)
-        return tuple(nodes)
+        return tuple(
+            node for node in (
+                _find_sld_node(selected_id)
+                for selected_id in canvas_composition.selection_manager.get_selected_ids()
+            )
+            if node is not None
+        )
 
     def _transform_selected_symbols(*, rotation_delta: float = 0.0, mirror: str | None = None) -> None:
         nodes = _selected_sld_nodes()
@@ -445,9 +542,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: workspace_surface_host.activate("reports"),
         "view.equipment_browser": _show_equipment_browser,
-        "view.zoom_in": canvas_composition.navigation_controller.zoom_in,
-        "view.zoom_out": canvas_composition.navigation_controller.zoom_out,
-        "view.fit": canvas_composition.navigation_controller.fit_content,
+        "view.zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
+        "view.zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
+        "view.fit": lambda: canvas_composition.navigation_controller.fit_content(50.0),
         "view.pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
         "tool.select": lambda: controller.set_tool("select"),
         "tool.bus": lambda: controller.set_tool("bus"),

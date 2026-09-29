@@ -5,6 +5,7 @@
 """Project concise semantic Application events into Messages / Events."""
 from __future__ import annotations
 from collections import deque
+from datetime import datetime
 from typing import Any
 from core.application.events import (
     ApplicationEvent, ElementCreated, ElementUpdated, ElementRemoved,
@@ -41,22 +42,52 @@ class ApplicationEventMessagesProjection:
         self._disposed=True
     @staticmethod
     def _format(event: ApplicationEvent) -> str:
-        p=getattr(event,"payload",{}) or {}
-        if isinstance(event,ElementCreated): return f"Element created: {p.get('element_type','element')} {p.get('element_id','')}".strip()
-        if isinstance(event,ElementUpdated): return f"Element updated: {p.get('element_type','element')} {p.get('element_id','')}".strip()
-        if isinstance(event,ElementRemoved): return f"Element removed: {p.get('element_type','element')} {p.get('element_id','')}".strip()
-        if isinstance(event,SimpleWireConnectionCreated): return f"Connection created: {p.get('connection_id','wire')}"
-        if isinstance(event,SimpleWireConnectionRemoved): return f"Connection removed: {p.get('connection_id','wire')}"
-        if isinstance(event,SLDPresentationChanged): return f"SLD presentation: {p.get('operation','updated')}"
-        if isinstance(event,ValidationChanged): return "Validation state updated"
-        if isinstance(event,ProjectLoaded): return f"Project loaded: {p.get('name') or p.get('project_id','project')}"
-        if isinstance(event,ProjectSaved): return "Project saved"
-        if isinstance(event,ProjectClosed): return "Project closed"
-        if isinstance(event,StudyStarted): return f"Study started: {p.get('study_type',p.get('study_id','study'))}"
-        if isinstance(event,StudyCompleted): return f"Study completed: {p.get('study_type',p.get('study_id','study'))}"
-        if isinstance(event,StudyFailed): return f"Study failed: {p.get('study_type',p.get('study_id','study'))}"
-        if isinstance(event,StudyCancelled): return f"Study cancelled: {p.get('study_type',p.get('study_id','study'))}"
-        if isinstance(event,TopologyChanged): return f"Topology changed: {p.get('operation','updated')}"
-        if isinstance(event,NetworkChanged): return f"Network changed: {p.get('operation','updated')}"
-        return event.event_type
+        p = getattr(event, "payload", {}) or {}
+        metadata = getattr(event, "metadata", {}) or {}
+        severity = str(metadata.get("severity") or p.get("severity") or "INFO").upper()
+        timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
+        event_type = str(getattr(event, "event_type", type(event).__name__))
+        identity = (
+            p.get("element_id")
+            or p.get("connection_id")
+            or p.get("project_id")
+            or p.get("study_id")
+            or ""
+        )
+        if isinstance(event, ElementCreated):
+            message = f"Element created: {p.get('element_type','element')}"
+        elif isinstance(event, ElementUpdated):
+            message = f"Element updated: {p.get('element_type','element')}"
+        elif isinstance(event, ElementRemoved):
+            message = f"Element removed: {p.get('element_type','element')}"
+        elif isinstance(event, SimpleWireConnectionCreated):
+            message = "Connection created"
+        elif isinstance(event, SimpleWireConnectionRemoved):
+            message = "Connection removed"
+        elif isinstance(event, SLDPresentationChanged):
+            message = f"SLD presentation: {p.get('operation','updated')}"
+        elif isinstance(event, ValidationChanged):
+            message = "Validation state updated"
+        elif isinstance(event, ProjectLoaded):
+            message = f"Project loaded: {p.get('name') or p.get('project_id','project')}"
+        elif isinstance(event, ProjectSaved):
+            message = "Project saved"
+        elif isinstance(event, ProjectClosed):
+            message = "Project closed"
+        elif isinstance(event, StudyStarted):
+            message = f"Study started: {p.get('study_type',p.get('study_id','study'))}"
+        elif isinstance(event, StudyCompleted):
+            message = f"Study completed: {p.get('study_type',p.get('study_id','study'))}"
+        elif isinstance(event, StudyFailed):
+            message = f"Study failed: {p.get('study_type',p.get('study_id','study'))}"
+        elif isinstance(event, StudyCancelled):
+            message = f"Study cancelled: {p.get('study_type',p.get('study_id','study'))}"
+        elif isinstance(event, TopologyChanged):
+            message = f"Topology changed: {p.get('operation','updated')}"
+        elif isinstance(event, NetworkChanged):
+            message = f"Network changed: {p.get('operation','updated')}"
+        else:
+            message = event_type
+        suffix = f" [{identity}]" if identity else ""
+        return f"{timestamp} | {severity:<7} | {event_type} | {message}{suffix}"
 __all__=["ApplicationEventMessagesProjection"]
