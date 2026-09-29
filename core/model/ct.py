@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
+# """
 GridForge V2 — Current Transformer Model
 ========================================
 
@@ -114,7 +114,7 @@ It does not replace the inherited validate() contract.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
-"""
+# """
 
 from __future__ import annotations
 
