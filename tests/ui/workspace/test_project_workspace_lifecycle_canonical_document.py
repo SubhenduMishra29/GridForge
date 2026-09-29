@@ -16,6 +16,7 @@ class _ApplicationStub(Application):
 class _WorkspaceControllerStub(WorkspaceController):
     def __init__(self):
         self._workspace_id = None
+        self._manager = type("Manager", (), {"active_workspace_id": None, "clear_active": lambda self: None})()
 
     @property
     def active_workspace_id(self):
