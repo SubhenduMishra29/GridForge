@@ -115,6 +115,10 @@ def model_to_dto(model: Any) -> ModelDTO:
     for name, value in attributes.items():
         if name in terminal_attributes:
             continue
+        # Network membership tokens are runtime-only identity guards. They
+        # must never become persisted engineering state.
+        if name == "_gridforge_network_token":
+            continue
         # RelayInput/MeasurementChannel binding is a protection runtime concern.
         # The project-scoped protection configuration persists channel IDs; the
         # physical Relay must not persist a second authoritative binding graph.
