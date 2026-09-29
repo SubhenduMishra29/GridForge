@@ -82,8 +82,8 @@ def test_default_factories_construct_model_placement_tools_without_command_manag
     assert breaker.controller is dependencies["controller"]
     assert breaker.selection_manager is dependencies["selection_manager"]
     assert breaker.snap_system is dependencies["snap_system"]
-    assert transformer.get_state()["has_command_manager"] is False
-    assert breaker.get_state()["has_command_manager"] is False
+    assert "command_manager" not in transformer.get_state()
+    assert "command_manager" not in breaker.get_state()
 
 
 def test_tool_manager_constructs_registered_tool_with_application(qapp):
