@@ -74,6 +74,8 @@ class EndpointCompatibility:
             raise EndpointCompatibilityError(f"Terminal equipment '{reference.object_id}' is not registered.") from exc
         expected = reference.equipment_type.value.strip().lower()
         actual = str(getattr(equipment, "element_type", "")).strip().lower()
+        if actual == "electrical_object":
+            actual = type(equipment).__name__.strip().lower()
         if actual != expected:
             raise EndpointCompatibilityError(f"Endpoint '{reference.object_id}' declares '{expected}' but resolves to '{actual}'.")
         matches = [t for t in getattr(equipment, "terminals", ()) if t.owner is equipment and t.role == reference.terminal_role]
@@ -133,8 +135,11 @@ class ElectricalBoundaryResolver:
         if len(candidates) != 1:
             raise EndpointCompatibilityError(f"Equipment '{equipment.id}' does not expose exactly one authoritative opposite terminal.")
         from core.model.endpoint_reference import EquipmentType
+        raw_type = str(equipment.element_type).strip().lower()
+        if raw_type == "electrical_object":
+            raw_type = type(equipment).__name__.strip().lower()
         try:
-            equipment_type = EquipmentType(str(equipment.element_type).strip().lower())
+            equipment_type = EquipmentType(raw_type)
         except ValueError as exc:
             raise EndpointCompatibilityError(f"Unsupported switching equipment type '{equipment.element_type}'.") from exc
         return EndpointReference.terminal(equipment_type=equipment_type, equipment_id=equipment.id, terminal_role=candidates[0].role)
