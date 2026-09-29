@@ -1,5 +1,6 @@
 from core.application.bootstrap import create_application
 from core.network import Network
+from ui.sld.sld_document import SLDDocument
 
 
 def test_close_project_deactivates_protection_runtime_and_configuration():
@@ -17,6 +18,11 @@ def test_close_project_deactivates_protection_runtime_and_configuration():
 
 def test_new_project_recreates_protection_state_after_close():
     application = create_application(Network())
+    application.configure_project_presentation_contract(
+        factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
+        serializer=lambda value: value.to_dict(),
+        deserializer=lambda data: SLDDocument.from_dict(data),
+    )
     first = application.project_lifecycle.context
 
     application.close_project()
