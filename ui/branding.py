@@ -117,7 +117,14 @@ class BrandingService:
 
     def icon(self) -> QIcon | None:
         if self.icon_path is None:
-            return None
+            pixmap = self.splash_pixmap()
+            width, height = pixmap.width(), pixmap.height()
+            if width <= 0 or height <= 0:
+                return None
+            aspect = max(width, height) / min(width, height)
+            if aspect > 1.5:
+                return None
+            return QIcon(pixmap)
         icon = QIcon(str(self.icon_path))
         if icon.isNull():
             raise BrandingAssetError(
