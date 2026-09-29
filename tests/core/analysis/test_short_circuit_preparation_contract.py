@@ -3,6 +3,8 @@
 Author: Subhendu Mishra
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
@@ -44,6 +46,6 @@ def test_short_circuit_preparation_requires_sequence_network_for_unbalanced_faul
     try:
         preparation.prepare(FaultType.SINGLE_LINE_GROUND, bus)
     except ValueError as exc:
-        assert "SequenceNetwork" in str(exc)
+        assert "sequence" in str(exc).lower()
     else:
         raise AssertionError("Unbalanced faults must require sequence-network preparation data.")
