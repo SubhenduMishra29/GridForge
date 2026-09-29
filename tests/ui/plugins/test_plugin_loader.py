@@ -73,7 +73,7 @@ def make_class_module(
     module = types.ModuleType(module_name)
 
     class TestPlugin:
-        plugin_id = plugin_id
+        pass
 
         def __init__(self, *args, **kwargs):
             self.args = args
