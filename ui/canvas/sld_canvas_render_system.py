@@ -144,6 +144,7 @@ class SLDCanvasRenderSystem:
                 item = self._item_factory.create_node(node, selection)
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
+                code = self._node_failure_code(node, exc)
                 self._unsupported_presentations[node.node_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=node.node_id,
@@ -153,6 +154,7 @@ class SLDCanvasRenderSystem:
                     requested_presentation=getattr(node.presentation, "representation_id", None),
                     category="presentation_realization",
                     message=message,
+                    code=code,
                 )
                 self._render_diagnostics = (*self._render_diagnostics, diagnostic)
                 if self._diagnostic_sink is not None:
@@ -228,6 +230,16 @@ class SLDCanvasRenderSystem:
         self._render_diagnostics = (*self._render_diagnostics, diagnostic)
         if self._diagnostic_sink is not None:
             self._diagnostic_sink(diagnostic)
+
+    @staticmethod
+    def _node_failure_code(node: Any, exc: Exception) -> str:
+        """Classify node realization failures without hiding the underlying error."""
+        message = str(exc)
+        if node.equipment_id is None:
+            return "MISSING_EQUIPMENT_ID"
+        if "absent from Application read state" in message:
+            return "EQUIPMENT_READ_MODEL_NOT_FOUND"
+        return "PRESENTATION_REALIZATION_FAILED"
 
     @staticmethod
     def _node_signature(node: Any) -> str:
