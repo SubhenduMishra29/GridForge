@@ -23,13 +23,13 @@ def test_application_event_reaches_sld_refresh_path():
 
     coordinator = SLDUpdateCoordinator(
         application=application,
-        document=document,
         synchronizer=synchronizer,
         canvas_refresh=lambda: refresh_calls.append(True),
     )
+    coordinator.bind_document(document)
     boundary = UIUpdateBoundary(
         event_bus=application.event_bus,
-        refresh=coordinator.refresh,
+        projection_coordinator=coordinator,
     )
     boundary.subscribe()
 
