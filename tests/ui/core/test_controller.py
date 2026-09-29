@@ -40,7 +40,12 @@ def test_initial_state_has_application_but_no_core():
 
 
 def test_tool_selection_is_ui_state():
+    class ToolManagerDouble:
+        active_tool_id = None
+        def activate(self, tool_id, **kwargs): self.active_tool_id = tool_id
+        def deactivate(self): self.active_tool_id = None
     controller = Controller()
+    controller.bind_tool_manager(ToolManagerDouble())
     events = []
     controller.subscribe("tool_changed", lambda new, old: events.append((new, old)))
 
