@@ -6,7 +6,7 @@ from core.analysis.power_flow_preparation import PreparedBranch, PreparedPowerFl
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
 from core.application.bootstrap import create_application
 from core.application.study import StudyRequest
-from core.network import Network
+from core.network import Network\nfrom core.model.bus import Bus
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.dynamics.machine_models import ClassicalMachineParameters
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
@@ -52,7 +52,7 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         voltage_angles=(0.1, -0.02),
     )
 
-    application = create_application(Network())
+    network = Network()\n    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))\n    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))\n    application = create_application(network)
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
         bus_id="B1",
