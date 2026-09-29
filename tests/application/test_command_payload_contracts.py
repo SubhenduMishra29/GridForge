@@ -5,12 +5,12 @@ from core.application.commands.model_commands import (
     UpdateGeneratorCommand,
     UpdateShuntCommand,
 )
-from core.application.endpoint_reference import EndpointReference
+from core.model.endpoint_reference import EndpointReference
 
 
 def test_two_terminal_create_commands_carry_endpoint_references():
-    endpoint_from = EndpointReference("bus", "B1")
-    endpoint_to = EndpointReference("bus", "B2")
+    endpoint_from = EndpointReference.bus("B1", "B1-terminal")
+    endpoint_to = EndpointReference.bus("B2", "B2-terminal")
 
     cable = CreateCableCommand(cable_id="C1", endpoint_from=endpoint_from, endpoint_to=endpoint_to)
     switch = CreateSwitchCommand(switch_id="SW1", endpoint_a=endpoint_from, endpoint_b=endpoint_to)
