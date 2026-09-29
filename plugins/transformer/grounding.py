@@ -401,4 +401,3 @@ class Grounding(TransformerPlugin):
             f"R={self.resistance_ohm:.6f} Ω, "
             f"X={self.reactance_ohm:.6f} Ω>"
         )
-```
