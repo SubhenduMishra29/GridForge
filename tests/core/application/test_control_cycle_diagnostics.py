@@ -24,12 +24,12 @@ def _decision(
 
 
 def test_cycle_keeps_evaluation_and_execution_diagnostics_separate() -> None:
+    failed = _decision("failed")
     evaluation = ControlEvaluationResult(
         simulation_time=1.0,
         decisions=(failed,),
         diagnostics=("evaluation failed: missing input",),
     )
-    failed = _decision("failed")
     execution = ControlExecutionResult(
         failed_decisions=(failed,),
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
