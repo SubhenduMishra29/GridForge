@@ -1,6 +1,7 @@
 # ⚡ GridForge V2
-
-### Power-System Digital Twin, Engineering, Simulation & Automation Platform
+### By Engineers. For Engineers.
+ One Platform. Infinite Engineering Possibilities.
+ Power-System Digital Twin, Engineering, Simulation & Automation Platform
 
 **Author:** Subhendu Mishra
 
