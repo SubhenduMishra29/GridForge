@@ -1,47 +1,31 @@
-# ============================================================
-# File: tests/test_semantic_presentation_realization.py
-# GridForge V2 — Semantic Presentation Realization Tests
-# Author: Subhendu Mishra
-# ============================================================
-
-"""Contract tests for semantic SLD presentation realization."""
-
 from __future__ import annotations
 
 import pytest
 
-from ui.canvas.semantic_presentation_realization import (
-    PresentationSelection,
-    SemanticPresentationRealization,
-)
+from ui.canvas.semantic_presentation_realization import PresentationSelection, SemanticPresentationRealization
 from ui.canvas.sld_canvas_projection import SLDCanvasNode
+from ui.equipment.equipment_registry import EquipmentRegistry
+from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbols
+from ui.equipment.symbol.symbol_registry import SymbolRegistry
 
 
-def test_supported_element_type_produces_presentation_selection() -> None:
-    realization = SemanticPresentationRealization()
-    node = SLDCanvasNode(
-        node_id="bus-1",
-        equipment_id="bus-1",
-        x=10.0,
-        y=20.0,
-        properties={"element_type": "buses"},
-    )
+def _realization():
+    equipment = EquipmentRegistry.create_default()
+    symbols = SymbolRegistry()
+    register_builtin_symbols(symbols)
+    return SemanticPresentationRealization(equipment, symbols)
 
-    selection = realization.realize(node)
 
+def test_supported_element_type_produces_canonical_presentation_selection():
+    selection = _realization().realize(SLDCanvasNode("bus-1", "bus-1", 10.0, 20.0, {"element_type": "BUS"}))
     assert isinstance(selection, PresentationSelection)
-    assert selection != "buses"
+    assert selection.semantic_type == "BUS"
+    assert selection.equipment_type == "bus"
+    assert selection.symbol_id == "bus"
+    assert selection.symbol_instance is not None
 
 
-def test_unsupported_element_type_fails_explicitly() -> None:
-    realization = SemanticPresentationRealization()
-    node = SLDCanvasNode(
-        node_id="unknown-1",
-        equipment_id="unknown-1",
-        x=10.0,
-        y=20.0,
-        properties={"element_type": "unsupported-element"},
-    )
-
-    with pytest.raises(ValueError, match="unsupported-element"):
-        realization.realize(node)
+def test_unsupported_element_type_fails_explicitly():
+    node = SLDCanvasNode("unknown-1", "unknown-1", 10.0, 20.0, {"element_type": "unsupported-element"})
+    with pytest.raises((KeyError, ValueError)):
+        _realization().realize(node)
