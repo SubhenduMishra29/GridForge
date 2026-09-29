@@ -57,7 +57,7 @@ def test_dispatcher_uses_application_command_executor_for_translated_control_int
 
 
 def test_control_decision_rejects_non_breaker_target_type() -> None:
-    with pytest.raises(ValueError, match="target_equipment_type"):
+    with pytest.raises(ValueError, match="Unsupported Control target equipment type"):
         _decision(ControlActionType.OPEN, target_type="line")
 
 
@@ -87,5 +87,5 @@ def test_translator_rejects_non_breaker_control_target() -> None:
     object.__setattr__(decision, "valid", True)
     object.__setattr__(decision, "diagnostic", None)
 
-    with pytest.raises(ValueError, match="breaker"):
+    with pytest.raises(ValueError, match="No Application command contract"):
         ControlCommandTranslator.to_command(decision)
