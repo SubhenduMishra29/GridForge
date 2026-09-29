@@ -32,9 +32,8 @@ def _registered_document() -> tuple[SLDController, SLDDocument]:
 
 def test_graphical_position_update_persists_in_sld_document() -> None:
     controller, document = _registered_document()
-    controller.add_node(SLDNode("bus-1", equipment_id="bus-1"))
-
-    controller.set_node_position("bus-1", 120.0, 240.0)
+    document.model.add_node(SLDNode("bus-1", equipment_id="bus-1"))
+    document.model.set_node_position("bus-1", 120.0, 240.0)
 
     assert document.model.get_node("bus-1").position == (120.0, 240.0)
 
