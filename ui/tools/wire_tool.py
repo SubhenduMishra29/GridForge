@@ -10,7 +10,9 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 
 from core.application.commands.draft_commands import AddDraftConnectionCommand
+from core.application.commands.simple_wire_commands import CreateSimpleWireConnectionCommand
 from core.application.draft import DraftEndpoint
+from core.model import EndpointReference
 
 from ui.connections.connection_preview import ConnectionPreview
 
@@ -137,10 +139,24 @@ class WireTool(ToolBase):
         return result
 
     def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
+        # Prefer the canonical committed endpoint path whenever the snapped
+        # objects are already committed. Draft-to-draft wiring remains available
+        # for the DraftNetwork workflow.
+        if isinstance(endpoint_from, EndpointReference) and isinstance(endpoint_to, EndpointReference):
+            return self.execute_command(
+                CreateSimpleWireConnectionCommand(
+                    endpoint_a=endpoint_from,
+                    endpoint_b=endpoint_to,
+                )
+            )
+
         source = self._draft_endpoint(source_snap)
         target = self._draft_endpoint(target_snap)
         if source is None or target is None:
-            raise ValueError("WireTool requires DraftNetwork endpoints during engineering draft.")
+            raise ValueError(
+                "WireTool requires either canonical EndpointReference snaps "
+                "or DraftNetwork endpoints."
+            )
         connection = {
             "connection_id": f"draft-wire-{__import__('uuid').uuid4().hex}",
             "source_draft_id": source.draft_id,

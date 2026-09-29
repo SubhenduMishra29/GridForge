@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt
+from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt, QColor
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
-from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen
+from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen, token_color
 
 from .base_item import BaseItem
 
@@ -150,6 +150,10 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
+                # SLD canvas is deliberately white; engineering annotations must
+                # use the canonical dark-on-light text token rather than the
+                # light symbol stroke used for geometry.
+                painter.setPen(QPen(token_color("text_inverse")))
                 painter.setFont(visual_font("engineering"))
                 painter.drawText(
                     QRectF(
