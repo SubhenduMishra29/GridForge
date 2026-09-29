@@ -11,11 +11,10 @@ from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from .tool_base import ToolBase
-from .endpoint_identity_adapter import EndpointIdentityAdapter
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.creation.command_factory import CreationCommandFactory
-from ui.tools.endpoint_identity_adapter import EndpointIdentityAdapter
+from .endpoint_identity_adapter import EndpointIdentityAdapter
 
 
 class ModelPlacementTool(ToolBase):
@@ -115,7 +114,7 @@ class ModelPlacementTool(ToolBase):
             self._position = position
             draft.set_placement(position)
             draft.mark_previewing()
-                self._preview_active = True
+            self._preview_active = True
             self._endpoint_acquired_this_interaction = False
             self._show_preview(position)
             return True
@@ -186,7 +185,6 @@ class ModelPlacementTool(ToolBase):
         draft.set_endpoint(pending_role, endpoint)
         self._accepted_endpoint_snap = snap
         self._endpoint_acquired_this_interaction = True
-        self.persist_transient_draft_endpoint(endpoint, pending_role)
         return True
 
     def _report_feedback(self, message: str) -> None:
@@ -313,18 +311,6 @@ class ModelPlacementTool(ToolBase):
         if not callable(replace):
             raise TypeError("PreviewLayer must provide replace().")
         replace((item,))
-
-    def _build_command(self) -> Any:
-        draft = self._require_creation_context().require_draft()
-        if draft.placement_position is None:
-            raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
-        draft.mark_committing()
-        return self.application.prepare_creation_command(
-            CreationCommandFactory.build(
-                draft,
-                object_id=f"{draft.definition.tool_id}-{uuid4().hex}",
-            )
-        )
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
