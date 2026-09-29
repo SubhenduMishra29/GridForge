@@ -18,7 +18,7 @@ from core.model import EndpointReference, EquipmentType
 
 
 def test_create_commands_keep_endpoint_references_and_domain_ids():
-    endpoint = EndpointReference.terminal(equipment_type=EquipmentType.CT, equipment_id="CT1", terminal_role="P1")
+    endpoint = EndpointReference.terminal(equipment_type=EquipmentType.CURRENTTRANSFORMER, equipment_id="CT1", terminal_role="P1")
     ct = CreateCurrentTransformerCommand(transformer_id="CT1", p1_endpoint=endpoint)
     cvt = CreateCapacitiveVoltageTransformerCommand(transformer_id="CVT1", h1_endpoint=endpoint)
 
