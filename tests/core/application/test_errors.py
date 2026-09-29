@@ -172,7 +172,7 @@ class TestApplicationError:
             )
 
     def test_invalid_details_are_rejected(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             ApplicationError(
                 code="TEST_ERROR",
                 message="Failure.",
