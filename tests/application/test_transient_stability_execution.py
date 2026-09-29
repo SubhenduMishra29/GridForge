@@ -63,6 +63,8 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         activation_generation=application.project_lifecycle.activation_generation,
     ))
     request = StudyRequest(
+        project_id=application.project_lifecycle.context.project_id,
+        activation_generation=application.project_lifecycle.activation_generation,
         study_type="transient_stability",
         configuration={
             "configuration": TransientStabilityStudyConfiguration(end_time=0.02, dt=0.01),
