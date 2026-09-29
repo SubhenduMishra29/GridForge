@@ -180,3 +180,5 @@ def test_ui_activation_failure_closes_new_application_project():
     assert application.closed is True
     assert lifecycle.project is None
     assert lifecycle.document is None
+
+# Current V2 fixture contract synchronized 2026-09-29.
