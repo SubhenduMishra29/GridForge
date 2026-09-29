@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from core.application.events import ApplicationEvent
+from core.application.events import ApplicationEvent, AddControlComponent
 
 
 def test_control_event_contract_is_exposed_by_application_events():
@@ -23,13 +23,12 @@ def test_control_component_created_has_stable_semantic_event_type():
     assert event.payload["component_type"] == "normally_open_contact"
 
 
-def _manager_for(handler):
-    from core.application.command_manager import CommandManager
-    from core.application.context import ApplicationContext
-    return CommandManager(
-        context=ApplicationContext(network=object()),
-        handlers={"control.add_component": handler},
-    )
+def _application():
+    from core.application.bootstrap import create_application
+    from core.network.network import Network
+    application = create_application(Network())
+    application.new_project("Control Test")
+    return application
 
 
 def _add_command():
@@ -44,18 +43,9 @@ def _add_command():
 def test_successful_control_command_publishes_control_event_after_commit():
     from core.application.application import Application
     from core.application.event_bus import ApplicationEventBus
-    from core.application.results import ApplicationResult
-
-    def handler(command, context, transaction):
-        return ApplicationResult.success_result(
-            message="created",
-            metadata={"component_id": "c1", "component_type": "normally_open_contact"},
-        )
-
-    bus = ApplicationEventBus()
     received = []
-    bus.subscribe(ApplicationEvent, received.append)
-    application = Application(_manager_for(handler), event_bus=bus)
+    application = _application()
+    application.event_bus.subscribe(ApplicationEvent, received.append)
     result = application.execute(_add_command())
     assert result.success
     control_events = [e for e in received if e.event_type == "control.component.created"]
@@ -66,15 +56,14 @@ def test_successful_control_command_publishes_control_event_after_commit():
 def test_failed_control_command_does_not_publish_control_event():
     from core.application.application import Application
     from core.application.event_bus import ApplicationEventBus
-    from core.application.results import ApplicationResult
-
-    def handler(command, context, transaction):
-        return ApplicationResult(False, None, "rejected", {})
-
-    bus = ApplicationEventBus()
     received = []
-    bus.subscribe(ApplicationEvent, received.append)
-    application = Application(_manager_for(handler), event_bus=bus)
-    result = application.execute(_add_command())
+    application = _application()
+    application.event_bus.subscribe(ApplicationEvent, received.append)
+    try:
+        application.execute(AddControlComponent(component_id="c1", component_type="", rung_id="r1"))
+    except Exception:
+        pass
+    else:
+        raise AssertionError("invalid control command must be rejected")
     assert not result.success
     assert not [e for e in received if e.event_type == "control.component.created"]
