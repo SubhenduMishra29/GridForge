@@ -67,7 +67,7 @@ def test_save_open_restores_sld_and_reopens_clean(tmp_path):
 
 def test_failed_presentation_serialization_does_not_mark_project_clean(tmp_path):
     application = create_application(_network())
-    presentation = _presentation()
+    presentation = _presentation(application.project_lifecycle.context.project_id)
     application.attach_sld_service(SLDService(presentation))
     application.configure_project_presentation(
         presentation=presentation,
