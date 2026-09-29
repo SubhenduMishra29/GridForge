@@ -28,7 +28,13 @@ def _application():
     from core.application.bootstrap import create_application
     from core.network.network import Network
     application = create_application(Network())
-    application.new_project("Control Test")
+    from ui.sld.sld_document import SLDDocument
+    application.configure_project_presentation_contract(
+        factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
+        serializer=lambda value: value.to_dict(),
+        deserializer=lambda data: SLDDocument.from_dict(data),
+    )
+    application.new_project("Control Test", project_id="control-test")
     return application
 
 
