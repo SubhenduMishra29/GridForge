@@ -222,8 +222,8 @@ QSpinBox:disabled, QDoubleSpinBox:disabled, QDateEdit:disabled, QTimeEdit:disabl
 }
 
 QListWidget, QListView, QTreeWidget, QTreeView, QTableWidget, QTableView {
-    background: {{table_background}};
-    color: {{editor_foreground}};
+    background: {{list_background}};
+    color: {{list_foreground}};
     border: 1px solid {{editor_border}};
     alternate-background-color: {{table_alternate_background}};
     selection-background-color: {{selection_background}};
