@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
+r"""
 GridForge V2 — Potential Transformer Model
 ==========================================
 
