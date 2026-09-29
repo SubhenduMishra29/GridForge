@@ -27,3 +27,7 @@ include = ["core*", "ui*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+
+[tool.setuptools.data-files]
+"share/gridforge" = ["splash.png"]
