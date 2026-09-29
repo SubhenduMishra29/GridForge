@@ -8,7 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import main
-from ui.core.qt import QListWidget
+from ui.core.qt import QListWidget, QPointF
 
 
 TARGET_TOOL_IDS = (
@@ -23,7 +23,7 @@ TARGET_TOOL_IDS = (
 
 
 def _event(x: float, y: float) -> SimpleNamespace:
-    return SimpleNamespace(scene_position=(x, y))
+    return SimpleNamespace(scene_position=QPointF(x, y))
 
 
 def main_smoke() -> None:
