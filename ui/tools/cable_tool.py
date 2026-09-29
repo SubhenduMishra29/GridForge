@@ -143,11 +143,16 @@ class CableTool(ToolBase):
 
     def _snap(self, event: Any) -> Any:
         scene_position = self.event_position(event)
-        snap = getattr(self.get_snap_system(), "snap", None)
-        if not callable(snap):
-            raise TypeError("SnapSystem must provide snap().")
-        result = snap(scene_position, allow_grid=True, allow_object=True)
+        snap_system = self.get_snap_system()
+        endpoint_snap = getattr(snap_system, "snap_endpoint", None)
+        if not callable(endpoint_snap):
+            raise TypeError("SnapSystem must provide snap_endpoint().")
+        result = endpoint_snap(scene_position)
         if getattr(result, "position", None) is None:
+            return None
+        if getattr(getattr(result, "snap_type", None), "name", None) != "OBJECT":
+            return None
+        if getattr(result, "object_id", None) is None:
             return None
         return result
 
