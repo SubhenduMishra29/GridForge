@@ -65,7 +65,7 @@ def test_no_prepared_contribution_records_are_explicitly_unavailable():
         branches=(),
         sources=(),
     )
-    solver = ShortCircuitSolver(_input(snapshot))
+    solver = ShortCircuitSolver(_input(snapshot)._replace(sequence_elements=())) if hasattr(_input(snapshot), "_replace") else ShortCircuitSolver(ShortCircuitInput(**{**_input(snapshot).__dict__, "sequence_elements": ()}))
 
     status, diagnostics = solver._contribution_status({}, {}, {})
 
