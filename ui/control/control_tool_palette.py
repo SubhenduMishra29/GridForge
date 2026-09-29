@@ -86,6 +86,7 @@ class ControlToolPalette(QWidget):
 
     def __init__(self, *, application: Any, on_selected: Callable[[ControlToolDescriptor], None], parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("ControlToolPalette")
         if application is None:
             raise ValueError("application is required.")
         if not callable(on_selected):
@@ -103,8 +104,10 @@ class ControlToolPalette(QWidget):
         for category, descriptors in categories.items():
             layout.addWidget(QLabel(category, self))
             for descriptor in descriptors:
-                button = QPushButton(descriptor.display_name, self)
-                button.setToolTip(descriptor.icon)
+                button = QPushButton(f"{descriptor.icon}  {descriptor.display_name}", self)
+                button.setObjectName("ControlToolButton")
+                button.setMinimumHeight(30)
+                button.setToolTip(f"{descriptor.display_name} ({descriptor.icon})")
                 button.clicked.connect(lambda _checked=False, d=descriptor: self._on_selected(d))
                 layout.addWidget(button)
                 self._buttons[descriptor.tool_id] = button
