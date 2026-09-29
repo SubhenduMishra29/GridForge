@@ -42,7 +42,7 @@ def test_measurement_current_uses_pu_to_primary_to_secondary_chain():
     )
     context = PreparedMeasurementContext(
         source_id="ct-1",
-        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CT, equipment_id="ct-1", terminal_role="P1"),
+        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CURRENTTRANSFORMER, equipment_id="ct-1", terminal_role="P1"),
         bus_id="bus-1",
         electrical_side="from",
         quantity=_line_result(2.0 + 0.0j),
