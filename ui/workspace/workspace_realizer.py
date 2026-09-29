@@ -508,6 +508,7 @@ class WorkspaceRealizer:
         self._realize_tab_groups(
             layout
         )
+        self._realize_default_proportions(layout)
 
         # ----------------------------------------------------
         # Commit the realized-layout marker only after every
@@ -583,6 +584,22 @@ class WorkspaceRealizer:
                     first_dock,
                     second_dock,
                 )
+
+    # ========================================================
+    # Default Geometry
+    # ========================================================
+
+    def _realize_default_proportions(self, layout: WorkspaceLayout) -> None:
+        """Apply comfortable initial dock proportions without fixing user geometry."""
+        left = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.LEFT and p.panel_id in self._bindings]
+        right = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.RIGHT and p.panel_id in self._bindings]
+        bottom = [self._bindings[p.panel_id].dock_widget for p in layout.visible_panels() if p.area == PanelArea.BOTTOM and p.panel_id in self._bindings]
+        if left:
+            self._main_window.resize_docks(left, [240 for _ in left], Qt.Horizontal)
+        if right:
+            self._main_window.resize_docks(right, [330 for _ in right], Qt.Horizontal)
+        if bottom:
+            self._main_window.resize_docks(bottom, [110 for _ in bottom], Qt.Vertical)
 
     # ========================================================
     # Clear

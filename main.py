@@ -37,6 +37,7 @@ from ui.plugins.plugin_context import PluginContext
 from ui.styling.style_manager import StyleManager
 from ui.plugins.plugin_manager import PluginManager
 from ui.projection.element_list_projection import ElementListProjection
+from ui.projection.application_event_messages import ApplicationEventMessagesProjection
 from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
 from ui.projection.study_projection import StudyProjection
 from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
@@ -53,7 +54,7 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
-from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -375,6 +376,47 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _copy_selection()
         _delete_selection()
 
+    def _selected_sld_nodes() -> tuple[object, ...]:
+        model = getattr(gridforge_application.presentation, "model", None)
+        if model is None:
+            return ()
+        nodes = []
+        for selected_id in canvas_composition.selection_manager.get_selected_ids():
+            node = None
+            getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(getter):
+                node = getter(str(selected_id))
+            if node is None:
+                getter = getattr(model, "get_node_optional", None)
+                if callable(getter):
+                    node = getter(str(selected_id))
+            if node is not None:
+                nodes.append(node)
+        return tuple(nodes)
+
+    def _transform_selected_symbols(*, rotation_delta: float = 0.0, mirror: str | None = None) -> None:
+        nodes = _selected_sld_nodes()
+        for node in nodes:
+            if node.presentation is None:
+                continue
+            presentation = node.presentation.to_dict()
+            if rotation_delta:
+                presentation["rotation"] = float(presentation.get("rotation", 0.0)) + rotation_delta
+            properties = dict(presentation.get("properties", {}))
+            if mirror == "horizontal":
+                properties["mirror_x"] = not bool(properties.get("mirror_x", False))
+            elif mirror == "vertical":
+                properties["mirror_y"] = not bool(properties.get("mirror_y", False))
+            presentation["properties"] = properties
+            result = gridforge_application.execute(
+                SetSLDNodePresentationCommand(node_id=str(node.node_id), presentation=presentation)
+            )
+            if not result.success:
+                raise RuntimeError(result.message)
+
+    def _activate_select_for_editing() -> None:
+        controller.set_tool("select", cancel_active_creation=True)
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -389,6 +431,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "edit.copy": _copy_selection,
         "edit.paste": _paste_selection,
         "edit.cut": _cut_selection,
+        "edit.box_select": _activate_select_for_editing,
+        "edit.move": _activate_select_for_editing,
+        "edit.drag_move": _activate_select_for_editing,
+        "edit.rotate": lambda: _transform_selected_symbols(rotation_delta=90.0),
+        "edit.mirror_horizontal": lambda: _transform_selected_symbols(mirror="horizontal"),
+        "edit.mirror_vertical": lambda: _transform_selected_symbols(mirror="vertical"),
         "network.commit_draft": _commit_network,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
@@ -500,12 +548,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_controller.activate_default()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
-    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
-    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
+    element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
+    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
+    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     control_workspace.refresh()
-    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
+    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); event_messages_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
     # Project close is already completed by MainWindow.closeEvent before
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
     # document state; it must never re-run the Application project transition

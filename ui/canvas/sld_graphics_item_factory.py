@@ -70,7 +70,8 @@ class SLDGraphicsItemFactory:
                 attachment_count=definition.attachment_count,
             )
             item.setScale(symbol_instance.scale)
-            item.setRotation(definition.orientation_deg)
+            item.setRotation(definition.orientation_deg + symbol_instance.rotation)
+            item.setScale(symbol_instance.scale * (-1.0 if symbol_instance.get_property("mirror_x", False) else 1.0))
             item.setVisible(symbol_instance.visible)
             return item
 

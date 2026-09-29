@@ -93,6 +93,19 @@ class ControlCanvas(GridScene):
         self._preview_item = None
         self._connection_preview = None
 
+        rung_count = len(read_model.rungs)
+        max_order = max((int(r.order) for r in read_model.rungs), default=0)
+        scene_height = max(320.0, LadderGeometryPolicy.rung_y(max_order) + LadderGeometryPolicy.RUNG_HEIGHT + 60.0)
+        self.set_canvas_rect(QRectF(-110.0, -40.0, 1080.0, scene_height))
+        if read_model.rungs:
+            top_y = LadderGeometryPolicy.rung_line_y(0) - 26.0
+            bottom_y = LadderGeometryPolicy.rung_line_y(max_order) + 26.0
+            left_rail = QGraphicsLineItem(0.0, top_y, 0.0, bottom_y)
+            right_rail = QGraphicsLineItem(900.0, top_y, 900.0, bottom_y)
+            rail_pen = visual_pen("control", VisualState.NORMAL, width=2.5)
+            left_rail.setPen(rail_pen); right_rail.setPen(rail_pen)
+            left_rail.setZValue(-5.0); right_rail.setZValue(-5.0)
+            self.addItem(left_rail); self.addItem(right_rail)
         for rung in read_model.rungs:
             y = LadderGeometryPolicy.rung_line_y(rung.order)
             rung_item = QGraphicsLineItem(0.0, y, 900.0, y)
