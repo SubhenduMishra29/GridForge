@@ -317,6 +317,7 @@ class ShellPlugin:
         previous_context = self._context
         previous_root = self._root_widget
         previous_layout = self._layout
+        previous_header = self._header_widget
         previous_initialized = self._initialized
         root = context.root_widget
         existing_layout = root.layout()
@@ -352,6 +353,7 @@ class ShellPlugin:
             self._context = previous_context
             self._root_widget = previous_root
             self._layout = previous_layout
+            self._header_widget = previous_header
             self._initialized = previous_initialized
             if compensation_error is not None:
                 raise ExceptionGroup(
