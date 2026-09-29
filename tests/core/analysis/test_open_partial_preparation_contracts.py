@@ -17,10 +17,18 @@ from core.network.network import Network
 from core.solver.power_flow.input import PowerFlowBusType
 
 
-def _preparation(buses) -> PowerFlowPreparation:
+def _preparation(buses, *, transformers=(), shunts=(), capacitors=(), reactors=()) -> PowerFlowPreparation:
     network = Network()
     for bus in buses:
         network.add_bus(bus)
+    for transformer in transformers:
+        network.add_transformer(transformer)
+    for shunt in shunts:
+        network.add_shunt(shunt)
+    for capacitor in capacitors:
+        network.add_capacitor(capacitor)
+    for reactor in reactors:
+        network.add_reactor(reactor)
     network.rebuild_topology()
     configuration = PowerFlowStudyConfiguration(
         bus_types={str(buses[0].id): PowerFlowBusType.SLACK, str(buses[1].id): PowerFlowBusType.PQ},
@@ -42,9 +50,7 @@ def test_pu_transformer_is_converted_once_to_system_base() -> None:
         rate_mva=50.0,
         impedance_base_voltage_kv=132.0,
     )
-    prep = _preparation((bus_hv, bus_lv))
-    prep.network.add_transformer(transformer)
-    prep.network.rebuild_topology()
+    prep = _preparation((bus_hv, bus_lv), transformers=(transformer,))
 
     prepared = prep._prepare_transformers({"B-HV": 132.0, "B-LV": 11.0})
 
@@ -100,11 +106,7 @@ def test_capacitor_and_reactor_become_prepared_shunts() -> None:
     reactor = Reactor("R1", bus=bus, reactive_power_injection_mvar=-5.0)
     generic = Shunt("S1", bus=bus, g_pu=0.01, b_pu=0.02)
 
-    prep = _preparation((bus, Bus("B2", nominal_voltage_kv=11.0)))
-    prep.network.add_shunt(generic)
-    prep.network.add_capacitor(capacitor)
-    prep.network.add_reactor(reactor)
-    prep.network.rebuild_topology()
+    prep = _preparation((bus, Bus("B2", nominal_voltage_kv=11.0)), shunts=(generic,), capacitors=(capacitor,), reactors=(reactor,))
 
     prepared = prep._prepare_shunts({"B1": 11.0, "B2": 11.0})
     by_id = {item.shunt_id: item for item in prepared}
