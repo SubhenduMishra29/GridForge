@@ -1,157 +1,166 @@
-# GridForge V2 — Functional Completion Reconciliation
-# Date: 2026-09-29
-# Implementation repository: madhuri196mishra-cpu/GridForge
-# Branch: main
+# GridForge V2 — Phase 3 Functional Completion Reconciliation
 
-## 1. Repository and provenance
+Date: 2026-09-29
 
-- Implementation authority: `madhuri196mishra-cpu/GridForge:main`
-- Audit/register authority: `SubhenduMishra29/GridForge:main`
+## Authority
+
+- Implementation: `madhuri196mishra-cpu/GridForge:main`
+- Audit/Register: `SubhenduMishra29/GridForge:main`
 - Historical/provenance only: `pandaraseswari03-collab/GridForge`
-- User-specified source/test baseline: `c860eeb0407aafb7d8a51fa291106f2e4f510046`
-- Audit repository asset-only commit: `95866bd1e7e97f68c4f928ff0f35320d14633b29`
-- Current implementation HEAD after corrective commit: `9501d11b5fd3b300d519d2a270fe9ee074ae4d33`
 
-The asset-only audit-repository commit was not treated as a source correction.
+## 1. Current implementation and CI evidence
 
-## 2. Corrective implementation
+- Source-correction baseline requested for this phase: `c4bb4cdd28b73aa9c7b811588ebad9a083cdc295`.
+- Previous documented green CI source head: `9501d11b5fd3b300d519d2a270fe9ee074ae4d33`.
+- Documentation-only authority correction after the source baseline: `282ad5fc53e20bbfc264171df28fbe1a90d21226`.
+- Current evidence/documentation tip after skip reconciliation: `aaf94ce5c683dd2f793f49311cc2762f32dccf75`.
+- Fresh CI for `282ad5fc...`: run **36552235260**, success.
+- That run checked out `282ad5fc...` exactly and completed startup, runtime smoke, startup regression, targeted regression, and full suite.
 
-Two concrete failures remained after the previous full-suite run:
-
-1. `core/control/logic/comparators.py`
-   - `UndervoltageComparator.evaluate_input()` called the common `ControlResult` as if it exposed LogicControlResult's `state` and `events` fields.
-   - Corrected the adapter to recover `logic_state` and `logic_events` from the canonical common-result diagnostics and return a valid `LogicControlResult`.
-   - No architecture boundary was changed.
-
-2. `tests/ui/test_lifecycle_failure_isolation.py`
-   - The workspace rollback test double omitted the current `WorkspaceManager.prepare_layout()` protocol and returned `None` from the current commit hook.
-   - Corrected the fixture to represent the current manager prepare/commit contract.
-   - No production compatibility API was added.
-
-## 3. GitHub Actions evidence
-
-Workflow:
-`.github/workflows/targeted-remediation.yml`
-
-Run:
-`36550650420`
-
-Head:
-`9501d11b5fd3b300d519d2a270fe9ee074ae4d33`
-
-All workflow steps completed successfully:
-
-- source integrity/syntax: PASS
-- actual application startup: PASS
-- runtime engineering workflow smoke: PASS
-- startup regression: PASS
-- relevant regression set: PASS
-- full test suite: PASS
-
-### Exact results
+### Exact fresh CI results at 282ad5fc
 
 - startup regression: **3 passed**
-- required targeted regression set: **17 passed / 0 failed**
+- targeted regression: **17 passed / 0 failed**
 - full suite: **1081 passed / 32 skipped / 0 failed / 0 errors**
+- application startup: **PASS**
+- Qt event-loop gate: **PASS** — `main.py` remained alive for 12 seconds in the headless CI environment.
+- runtime engineering smoke: **PASS** — palette discovery, canonical definitions, tool activation, live previews, Bus placement, read-model visibility, permanent SLD graphics and SelectionManager selection.
 
-The application remained alive through the configured 12-second Qt event-loop startup gate.
+The exact-current-source correction `c4bb4cdd...` itself also has fresh successful CI run **36551594010**, which checked out that SHA exactly and reported the same 3/17/full-suite gates.
 
-The runtime engineering smoke verified:
+The current documentation tip `aaf94ce5...` contains audit evidence only after the verified source state; a fresh CI run for that final documentation tip is required before claiming the final branch tip is CI-verified.
 
-- Equipment Library discovery;
-- canonical equipment definitions;
-- Bus/Breaker/Transformer/Generator/Load/CT/Relay tool activation;
-- live preview graphics;
-- Bus placement through the Application command path;
-- Application read-model visibility;
-- permanent SLD graphics;
-- SelectionManager selection;
-- SLD/Topology/Map/Reports/Control/Protection workspace activation.
+## 2. 32 skipped tests
 
-## 4. 310-case reconciliation artifact
+The exact skip inventory was recovered from a collection-only diagnostic hook. It reported **SKIP_COUNT 32** and printed every node ID and reason.
 
-The requested files:
+The complete inventory and disposition are recorded in:
+
+`audit/SKIPPED_TESTS_RECONCILIATION_2026-09-29.md`
+
+Summary:
+
+| Classification | Count |
+|---|---:|
+| STALE_CONTRACT | 17 |
+| HISTORICAL_TEST | 11 |
+| TEST_FIXTURE_DEFECT | 4 |
+| VALID_CURRENT_SKIP | 0 |
+| REQUIRED_BEHAVIOR_WITH_MISSING_COVERAGE | 0 |
+| **TOTAL** | **32** |
+
+The fixture-defect group is explicitly retained as active coverage attention; it is not treated as proof that the exact legacy assertion has been reimplemented one-for-one.
+
+## 3. 310-case reconciliation evidence
+
+The requested historical artifacts are absent from both authoritative repositories:
 
 - `audit/TEST_RECONCILIATION_310_CASES_2026-09-29.csv`
 - `audit/TEST_RECONCILIATION_310_CASES_2026-09-29.md`
 
-were searched for in both authoritative repositories and are not present at those paths. GitHub code search also returned no matching artifact.
+No individual 310-case reconstruction is claimed. The previously supplied aggregate population remains historical context only: 87 TEST_FIXTURE_DEFECT, 76 STALE_CONTRACT, 8 HISTORICAL_TEST, 4 LIVE_DEFECT, 135 UNRESOLVED, total 310. Those aggregate numbers are not converted into fabricated record-level dispositions.
 
-Therefore the previously supplied aggregate classification:
+Current executable evidence supersedes the historical population for present-day suite status: 1081 passed / 32 skipped / 0 failed / 0 errors on the verified source heads above.
 
-- TEST_FIXTURE_DEFECT: 87
-- STALE_CONTRACT: 76
-- HISTORICAL_TEST: 8
-- LIVE_DEFECT: 4
-- UNRESOLVED: 135
-- TOTAL: 310
+## 4. Current reconciliation clusters
 
-cannot be converted into truthful record-by-record final dispositions from repository evidence available to this pass.
+Current repository coverage reviewed for the formerly failing clusters includes SelectionManager, GridScene, GraphicsView, Measurement Generation, Plugin Loader, Power Flow, Protection, Control, Measurement Conversion, Thermal 49, Open/Partial preparation, SLDGraphicsItemFactory, CanvasComposition and Transformer/tool dependency contracts. The current suite and targeted regression use the current V2 contracts rather than restoring obsolete APIs.
 
-The current repository-wide executable suite is nevertheless clean at **1081 passed / 32 skipped**, independently of that missing historical 310-case artifact.
+## 5. Production corrections
 
-No fabricated 310-case records or classifications were created.
+### UndervoltageComparator
 
-## 5. GUI/runtime acceptance boundary
+Current `core/control/logic/comparators.py` adapts the canonical common `ControlResult` diagnostics into the `LogicControlResult` state/event contract: `logic_state` and `logic_events` are recovered from diagnostics while source/unit diagnostics remain preserved. This is the production correction present at `c4bb4cdd...`.
 
-Runtime evidence now exists for startup and the critical palette/preview/placement/read-model/selection/workspace smoke path.
+### Thermal 49
 
-The following were not demonstrated by the available runtime smoke and therefore remain acceptance-pending:
+The current Relay taxonomy includes `THERMAL`, with the protection/49 contract retained in the current protection test architecture. No compatibility-only Relay taxonomy was introduced by this phase.
 
-- visible Property Panel editing/Apply interaction;
-- interactive terminal-to-terminal connection;
-- invalid/duplicate connection rejection through pointer interaction;
-- delete through the visible GUI;
-- interactive undo/redo;
-- move/reconnect interaction;
-- save/close/reopen through the visible GUI;
-- header search interaction;
-- hover/readout interaction;
-- Study Case execution through the visible GUI;
-- full multi-equipment visual target-image acceptance.
+### IEC 51
 
-The green full suite and the runtime smoke must not be represented as proof of those unexercised interactions.
+The current IEC overcurrent boundary validates usable RelayInput measurement before the protection function produces a ProtectionDecision; invalid/unusable measurement is handled through the protection contract rather than an uncontrolled exception.
 
-## 6. Architecture gate
+### Topology endpoint resolution
 
-The corrective commit introduced no new:
+The current architecture uses canonical EndpointReference-based endpoint resolution rather than duplicated derived identity fields. No second terminal/topology identity authority was introduced.
 
-- Core/UI mutation shortcut;
-- CommandManager;
-- transaction/history authority;
-- topology authority;
-- endpoint identity authority;
-- EquipmentRegistry;
-- SymbolRegistry;
-- SLD synchronizer;
-- SLD document authority;
-- persistence of QGraphics objects as engineering truth.
+## 6. Runtime/GUI acceptance boundary
 
-Core/Application/UI boundaries remain as specified by V2.
+The existing CI runtime smoke does **not** constitute full GUI acceptance. Its source script programmatically activates tools, moves the mouse through the tool API, commits a Bus, inspects the read model, checks permanent graphics and selection, and activates workspace surfaces. It does not exercise the requested pointer-driven Property Panel editing, terminal-to-terminal connection, delete, undo/redo, move, reconnect, save/close/reopen, search click path, hover/readout, Study Case GUI execution, or target-image comparison.
 
-## 7. Master Register synchronization
+## 7. Acceptance matrix
 
-The canonical audit/register repository is `SubhenduMishra29/GridForge`.
+| Capability | Static | CI | Runtime | Final |
+|---|---|---|---|---|
+| Startup | PASS | PASS | PASS | PASS |
+| Qt event loop | PASS | PASS | PASS | PASS |
+| Palette | PASS | PASS | PASS | PASS |
+| Tool activation | PASS | PASS | PASS | PASS |
+| Live preview | PASS | PASS | PASS | PASS |
+| Bus placement | PASS | PASS | PASS | PASS |
+| Equipment placement | PASS | PASS | PARTIAL | DEFERRED |
+| Property Panel | PASS | PASS | DEFERRED | DEFERRED |
+| Terminal identity | PASS | PASS | DEFERRED | DEFERRED |
+| Terminal connection | PASS | PASS | DEFERRED | DEFERRED |
+| Invalid connection | PASS | PASS | DEFERRED | DEFERRED |
+| Delete | PASS | PASS | DEFERRED | DEFERRED |
+| Undo | PASS | PASS | DEFERRED | DEFERRED |
+| Redo | PASS | PASS | DEFERRED | DEFERRED |
+| Move | PASS | PASS | DEFERRED | DEFERRED |
+| Reconnect | PASS | PASS | DEFERRED | DEFERRED |
+| Save | PASS | PASS | DEFERRED | DEFERRED |
+| Close | PASS | PASS | DEFERRED | DEFERRED |
+| Reopen | PASS | PASS | DEFERRED | DEFERRED |
+| Search | PASS | PASS | DEFERRED | DEFERRED |
+| Hover/readout | PASS | PASS | DEFERRED | DEFERRED |
+| Study Case | PASS | PASS | DEFERRED | DEFERRED |
+| Multi-equipment SLD | PASS | PASS | DEFERRED | DEFERRED |
+| Professional symbols | PASS | PASS | DEFERRED | DEFERRED |
+| Target visual acceptance | PASS | PASS | DEFERRED | DEFERRED |
+| Architecture | PASS | PASS | DEFERRED | DEFERRED |
+| Register | PARTIAL | — | — | BLOCKED |
 
-Its current repository permissions expose pull access but not push access to this integration. Register-write attempts are therefore not evidence-backed and were not performed.
+Static/CI PASS in this table means the repository contracts and automated coverage are present; it does not mean that an interactive GUI requirement was visually exercised.
 
-Status:
-**REGISTER WRITE BLOCKED — PERMISSION BOUNDARY**
+## 8. Persistence
 
-No claim is made that the canonical Master Register has been synchronized.
+Static and CI persistence coverage establishes the `.gridforge` project/presentation contract without persisting QGraphics runtime objects as engineering truth. Actual GUI save → close → reopen reconstruction, including visual geometry, symbol realization, selection and property inspection, remains runtime-deferred.
 
-## 8. Final status
+## 9. Architecture gate
+
+The current source remains aligned with the frozen V2 ownership boundary: Core is Qt/QGraphics-free and authoritative for engineering/topology state; Application owns UI↔Core mutation through immutable commands, CommandManager/history and transactions; UI/SLD are read/projection/presentation layers; EndpointReference/Terminal/TopologyManager remain canonical; EquipmentRegistry/SymbolRegistry remain canonical; persistence does not use QGraphics objects as engineering truth.
+
+No parallel SLD synchronizer, topology authority, terminal identity authority, generic Port authority or compatibility API was introduced to satisfy the historical suite.
+
+## 10. Master Register
+
+Canonical register authority is `SubhenduMishra29/GridForge:main`.
+
+Repository permissions currently report:
+
+- pull: **true**
+- push: **false**
+- maintain: **false**
+- admin: **false**
+
+Status: **REGISTER WRITE BLOCKED — PERMISSION BOUNDARY**.
+
+The implementation-side register authority wording has been corrected to distinguish current implementation/audit repositories from the historical provenance repository. No claim is made that the canonical Master Register repository has been synchronized.
+
+## 11. Final status
 
 **IMPLEMENTATION STABILIZED — GUI ACCEPTANCE PENDING**
 
 Reason:
 
-- the current full executable suite is green;
-- the 17/17 targeted regression gate is green;
-- startup and the existing engineering runtime smoke are green;
-- the two remaining full-suite defects were corrected;
-- record-level reconciliation of the historical 310-case artifact cannot be claimed because the artifact is absent from both authoritative repositories;
-- the complete interactive GUI acceptance matrix has not been demonstrated;
-- canonical Master Register synchronization is blocked by repository permissions.
+- current source correction has fresh green CI at `c4bb4cdd...`;
+- subsequent documentation-only authority correction has fresh green CI at `282ad5fc...`;
+- the full suite is 1081 passed / 32 skipped / 0 failed / 0 errors;
+- all 32 skips have an explicit evidence-backed classification;
+- the historical 310 individual artifact remains unavailable, so record-level historical closure is not claimed;
+- the required pointer-driven GUI workflow has not been demonstrated;
+- save/close/reopen GUI persistence has not been demonstrated;
+- multi-equipment target visual acceptance has not been demonstrated;
+- canonical Master Register write access is unavailable.
 
-This report deliberately separates demonstrated evidence from remaining acceptance and permission limitations.
+The evidence boundary therefore remains stabilization rather than functional closure. No runtime GUI or pixel-level claim is inferred from unit tests, headless smoke, or static source inspection.
