@@ -7,6 +7,7 @@ from core.network.network import Network
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
 from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
+from core.application.commands.model_commands import CreateBusCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
 from core.application.services.sld_service import SLDService
@@ -24,6 +25,7 @@ def _application():
         deserializer=lambda data: SLDDocument.from_dict(data),
     )
     application.new_project("Project A", project_id="project-a")
+    application.execute(CreateBusCommand(bus_id="bus-1", name="Bus 1", nominal_voltage_kv=132.0, voltage_pu=1.0, angle_deg=0.0, frequency_hz=50.0, in_service=True))
     return application, application.presentation
 
 def test_sld_command_uses_application_history_and_undo_redo() -> None:
