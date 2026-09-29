@@ -64,10 +64,22 @@ class ElementListProjection:
             name = labels.get("type") if hasattr(labels, "get") else None
         if name is None or not str(name).strip():
             name = getattr(element, "element_type", "element")
+        attributes = getattr(element, "attributes", {})
+        nominal_voltage = None
+        status = None
+        if hasattr(attributes, "get"):
+            nominal_voltage = attributes.get("nominal_voltage", attributes.get("nominalVoltage"))
+            status = attributes.get("status")
+        if nominal_voltage is None and hasattr(labels, "get"):
+            nominal_voltage = labels.get("nominal_voltage", labels.get("nominalVoltage"))
+        if status is None and hasattr(labels, "get"):
+            status = labels.get("status")
         return {
             "id": str(element.object_id),
             "type": str(element.element_type),
             "name": str(name),
+            "nominal_voltage": "" if nominal_voltage is None else str(nominal_voltage),
+            "status": "Normal" if status is None else str(status),
         }
 
     def dispose(self) -> None:
