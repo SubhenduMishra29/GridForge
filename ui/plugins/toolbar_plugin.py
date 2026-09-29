@@ -1246,9 +1246,16 @@ def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
     return (
         ToolbarActionSpec(action_id="tool.select", text="Select", tool_id="select", tooltip="Select and inspect objects.", checkable=True, checked=True),
         ToolbarActionSpec(action_id="tool.bus", text="Bus", tool_id="bus", tooltip="Create a bus.", checkable=True),
-        ToolbarActionSpec(action_id="tool.wire", text="Wire", tool_id="wire", tooltip="Create a simple terminal-to-terminal connection.", checkable=True),
+        ToolbarActionSpec(action_id="tool.wire", text="Wire", tool_id="wire", tooltip="Create a terminal-to-terminal connection.", checkable=True),
         ToolbarActionSpec(action_id="view.equipment_browser", text="Equipment", tooltip="Open the catalogue-driven Equipment Browser.", separator_before=True),
         ToolbarActionSpec(action_id="view.fit", text="Fit", tooltip="Fit the SLD view."),
+        ToolbarActionSpec(action_id="edit.undo", text="Undo", tooltip="Undo the last application command.", separator_before=True),
+        ToolbarActionSpec(action_id="edit.redo", text="Redo", tooltip="Redo the last application command."),
+        ToolbarActionSpec(action_id="edit.delete_selection", text="Delete", tooltip="Delete the selected engineering object."),
+        ToolbarActionSpec(action_id="study.cases", text="Studies", tooltip="Open Study Cases.", separator_before=True),
+        ToolbarActionSpec(action_id="view.sld_workspace", text="SLD", tooltip="Activate the SLD engineering workspace."),
+        ToolbarActionSpec(action_id="view.control_workspace", text="Control", tooltip="Activate the Control workspace."),
+        ToolbarActionSpec(action_id="view.protection_workspace", text="Protection", tooltip="Activate the Protection workspace."),
     )
 
 # ============================================================
