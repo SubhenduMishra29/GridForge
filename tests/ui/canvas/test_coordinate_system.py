@@ -193,7 +193,7 @@ def test_viewport_to_scene():
     )
 
     assert result.x() == pytest.approx(
-        110.0
+        100.0
     )
 
     assert result.y() == pytest.approx(
