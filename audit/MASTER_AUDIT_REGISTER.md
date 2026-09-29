@@ -1599,3 +1599,24 @@ The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_RE
 **Runtime limitation:** Runtime GUI confirmation pending.
 
 **Architecture disposition:** No second SLD model, renderer, symbol registry, topology authority, equipment identity authority, or Core/UI mutation path was introduced.
+
+
+## 2026-09-29 — Batch 26 final register-integrity reconciliation
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**CSV correction commit:** `c25b531467e91439dd4197e56e97edde42cb9060`
+
+### GF-MASTER-0040
+
+**Status:** **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED**. The malformed CSV row was reconstructed against the repository's existing canonical register header without changing the finding identity or its static Batch 26 evidence. The Markdown disposition remains synchronized with the CSV disposition.
+
+### CSV integrity
+
+- Existing canonical CSV header: **14 columns**.
+- Data rows after reconciliation: **142**.
+- Master IDs: **unique**; duplicate count **0**.
+- Malformed rows were normalized to the existing 14-column register schema; no new register schema was introduced.
+- GUI/runtime verification was **not performed** in the available execution environment, so no runtime closure is claimed.
+
+> Note: the task instruction referred to a 9-column schema, but the authoritative current repository header is 14 columns. Collapsing the established 14-column register to 9 columns would alter the existing register schema and risk loss of existing evidence, so the correction preserves the actual repository-authoritative schema.

@@ -224,3 +224,20 @@ The repository source now demonstrates the required connected non-Bus realizatio
 No GUI startup, live palette interaction, cursor-preview observation, click-to-place observation, QGraphics repaint observation, save/reopen observation, or runtime test execution was used as closure evidence.
 
 **Remaining open item:** Runtime GUI confirmation pending.
+
+
+## 13. Final register-integrity and runtime-verification state — 2026-09-29
+
+### Register integrity
+
+The malformed `GF-MASTER-0040` CSV record was reconstructed and the existing register-wide malformed rows were normalized to the repository's current canonical **14-column** header. Final validation reports **142 data rows, 0 duplicate Master IDs, and 0 rows with a column-count mismatch**.
+
+The repository currently uses a 14-column header; the task wording referred to a 9-column schema. No destructive 9-column rewrite was performed because that would replace the established current register schema and risk loss of existing evidence.
+
+### Runtime / GUI verification
+
+**RUNTIME VERIFICATION — DEFERRED.** No GUI startup, palette interaction, live preview, placement, engineering-property edit, connection creation, save/reopen, or executed Batch 26 test run is claimed from this environment. Static source evidence remains separate from runtime evidence.
+
+### GF-MASTER-0040 final state
+
+**STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED.** Batch 26 static correction remains intact; the renderer/read-model identity path and explicit diagnostics are source-verified, while actual canvas visibility and persistence workflow remain unverified.
