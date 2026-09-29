@@ -125,14 +125,18 @@ _TERMINAL_OWNER_CLASSES = tuple(
 EquipmentType = Enum(
     "EquipmentType",
     {
-        cls.__name__.upper(): (\n            str(getattr(cls, "TYPE", "")).strip().lower()\n            if str(getattr(cls, "TYPE", "")).strip().lower() != "electrical_object"\n            else cls.__name__.lower()\n        )
+        cls.__name__.upper(): (
+            str(getattr(cls, "TYPE", "")).strip().lower()
+            if str(getattr(cls, "TYPE", "")).strip().lower() != "electrical_object"
+            else cls.__name__.lower()
+        )
         for cls in _TERMINAL_OWNER_CLASSES
     },
     type=str,
 )
 
 
-# ============================================================
+=============================
 # ENDPOINT REFERENCE
 # ============================================================
 
