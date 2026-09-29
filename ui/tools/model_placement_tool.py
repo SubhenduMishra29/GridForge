@@ -12,10 +12,9 @@ from uuid import uuid4
 
 from core.application.commands.draft_commands import AddDraftEquipmentCommand, UpdateDraftEquipmentCommand
 from core.application.draft import DraftEndpoint
-from ui.creation.creation_context import CreationDraft
 from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
-from ui.creation.creation_context import CreationContext
+from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.creation.command_factory import CreationCommandFactory
 from ui.tools.endpoint_identity_adapter import EndpointIdentityAdapter
 
