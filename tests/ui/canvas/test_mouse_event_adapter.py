@@ -16,8 +16,8 @@ class _ViewProbe:
 
 
 class _SceneProbe:
-    def items(self, position):
-        return []
+    def itemAt(self, position, transform=None):
+        return None
 
 
 def _adapter() -> MouseEventAdapter:
