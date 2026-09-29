@@ -68,11 +68,12 @@ def make_class_module(
     monkeypatch,
     module_name: str,
     class_name: str = "TestPlugin",
+    plugin_id: str = "test",
 ):
     module = types.ModuleType(module_name)
 
     class TestPlugin:
-        plugin_id = "test"
+        plugin_id = plugin_id
 
         def __init__(self, *args, **kwargs):
             self.args = args
@@ -109,6 +110,8 @@ def make_factory_module(
     module = types.ModuleType(module_name)
 
     class TestPlugin:
+        plugin_id = "test"
+
         def __init__(self, *args, **kwargs):
             self.args = args
             self.kwargs = kwargs
@@ -884,6 +887,7 @@ def test_load_many_preserves_input_order(
         make_class_module(
             monkeypatch,
             module_name,
+            plugin_id=module_name[0],
         )
 
     definitions = {
@@ -930,6 +934,7 @@ def test_load_all_preserves_definition_order(
         make_class_module(
             monkeypatch,
             module_name,
+            plugin_id=module_name[0],
         )
 
     definitions = {
@@ -1118,6 +1123,7 @@ def test_create_many_uses_per_plugin_constructor_args(
         make_class_module(
             monkeypatch,
             module_name,
+            plugin_id=module_name[0],
         )
 
     loader = PluginLoader(
@@ -1578,6 +1584,7 @@ def test_create_default_plugin_loader_returns_loader():
         loader.definitions.keys()
     ) == (
         "canvas",
+        "menu",
         "panels",
         "toolbar",
         "status",
@@ -1593,6 +1600,7 @@ def test_load_default_plugins_resolves_all_canonical_plugins():
         for descriptor in loaded
     ) == (
         "canvas",
+        "menu",
         "panels",
         "toolbar",
         "status",
