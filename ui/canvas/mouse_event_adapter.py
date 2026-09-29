@@ -115,9 +115,12 @@ class MouseEventAdapter:
         # PySide6's generated isinstance() machinery; the scalar overload
         # avoids that path while preserving Qt's indexed topmost hit test.
         item = item_at(x, y, transform)
-        if not self._is_selectable(item):
-            return None
-        return getattr(item, "object_id", None)
+        while item is not None:
+            if self._is_selectable(item):
+                return getattr(item, "object_id", None)
+            parent = getattr(item, "parentItem", None)
+            item = parent() if callable(parent) else None
+        return None
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
