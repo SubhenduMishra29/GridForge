@@ -731,5 +731,4 @@ class InductionMotor:
             f"poles={self.poles}, "
             f"frequency={self.frequency_hz:.2f} Hz>"
         )
-```
 
