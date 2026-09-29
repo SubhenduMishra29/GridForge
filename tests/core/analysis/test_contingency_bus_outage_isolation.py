@@ -1,5 +1,3 @@
-import pytest
-
 # ============================================================
 # File: tests/core/analysis/test_contingency_bus_outage_isolation.py
 # GridForge V2 — Contingency Bus-Outage Isolation Tests
@@ -7,6 +5,8 @@ import pytest
 # ============================================================
 
 from __future__ import annotations
+
+import pytest
 
 from types import SimpleNamespace
 
