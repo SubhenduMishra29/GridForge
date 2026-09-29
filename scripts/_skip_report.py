@@ -1,3 +1,5 @@
+import os, sys
+sys.path.insert(0, os.getcwd())
 import pytest
 
 class SkipReporter:
