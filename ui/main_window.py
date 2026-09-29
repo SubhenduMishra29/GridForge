@@ -194,5 +194,16 @@ class MainWindow(QMainWindow):
         """Tabify two existing docks through the Qt host API."""
         self.tabifyDockWidget(first, second)
 
+    def resize_docks(
+        self,
+        docks: list[QDockWidget],
+        sizes: list[int],
+        orientation: Qt.Orientation,
+    ) -> None:
+        """Apply user-resizable default dock proportions through the Qt host."""
+        if len(docks) != len(sizes):
+            raise ValueError("docks and sizes must have equal lengths.")
+        self.resizeDocks(docks, sizes, orientation)
+
 
 __all__ = ["MainWindow"]
