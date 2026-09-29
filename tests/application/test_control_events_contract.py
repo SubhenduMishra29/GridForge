@@ -72,5 +72,4 @@ def test_failed_control_command_does_not_publish_control_event():
         pass
     else:
         raise AssertionError("invalid control command must be rejected")
-    assert not result.success
     assert not [e for e in received if e.event_type == "control.component.created"]
