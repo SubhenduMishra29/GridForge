@@ -1,4 +1,3 @@
-```python id="w6r4p2"
 # plugins/transformer/vector_group.py
 
 """
