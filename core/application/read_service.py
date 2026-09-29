@@ -20,6 +20,7 @@ from core.model.cvt import CVTPolarity
 
 from .read_models import (
     ElementReadModel,
+    EngineeringParameterReadModel,
     NetworkReadModel,
     ProtectionReadModel,
     RelayInputBindingReadModel,
