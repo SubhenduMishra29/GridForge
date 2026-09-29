@@ -443,3 +443,71 @@ QGraphicsView#SLDCanvasView {
     background: {{canvas_background}};
     border: none;
 }
+
+
+/* SLD document/editor chrome. */
+QWidget#SLDCanvasSurface {
+    background: {{canvas_background}};
+}
+QWidget#SLDCanvasHeader {
+    background: {{panel_surface}};
+    border-bottom: 1px solid {{panel_border}};
+}
+QLabel#SLDDocumentTitle {
+    color: {{text_primary}};
+    font-weight: 600;
+    padding: 2px 8px;
+}
+QComboBox#SLDModeSelector {
+    min-width: 120px;
+}
+QPushButton#SLDZoomOut,
+QPushButton#SLDZoomIn,
+QPushButton#SLDFit,
+QPushButton#SLDNewDocumentButton {
+    min-width: 30px;
+    padding: 4px 8px;
+}
+QLabel#SLDZoomValue {
+    color: {{text_secondary}};
+    min-width: 42px;
+    qproperty-alignment: AlignCenter;
+}
+QTabWidget#SLDDocumentTabs::pane {
+    border: none;
+}
+QTabWidget#SLDDocumentTabs QTabBar::tab {
+    padding: 7px 14px;
+}
+
+/* Project explorer hierarchy. */
+QTreeWidget#ProjectHierarchyTree {
+    background: {{panel_surface}};
+    border: 1px solid {{panel_border}};
+}
+QTreeWidget#ProjectHierarchyTree::item {
+    padding: 3px 4px;
+}
+QTreeWidget#ProjectHierarchyTree::item:selected {
+    background: {{selection_background}};
+    border-left: 2px solid {{accent_active}};
+}
+
+/* Structured engineering element list. */
+QTableWidget#ElementListTable {
+    background: {{canvas_background}};
+    border: 1px solid {{panel_border}};
+    gridline-color: {{separator}};
+}
+QTableWidget#ElementListTable::item:selected {
+    background: {{selection_background}};
+}
+
+/* Equipment search/category presentation. */
+QLineEdit#EquipmentSearch {
+    background: {{canvas_background}};
+}
+QListWidget#EquipmentPalette::item {
+    min-height: 38px;
+    padding: 5px 7px;
+}
