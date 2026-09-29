@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from uuid import uuid4
 
 from core.application.bootstrap import create_application
 from core.application.events import ProjectLoaded
