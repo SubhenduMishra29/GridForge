@@ -119,7 +119,6 @@ _TERMINAL_OWNER_CLASSES = tuple(
         Reactor, Relay, Shunt, Solar, Switch, SynchronousMachine, Transformer,
     )
     if cls not in (Bus, Branch, Injection)
-    and isinstance(getattr(cls, "terminals", None), property)
 )
 
 EquipmentType = Enum(
