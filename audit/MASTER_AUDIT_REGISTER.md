@@ -1560,3 +1560,17 @@ The effective source-level completion state is **STATIC CORRECTION / RE-AUDIT CO
 | OPEN / PARTIAL / BLOCKED | **None in the current CSV effective population.** |
 
 The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_REAUDIT_2026-09-29.md`.
+
+
+### GF-MASTER-0107 — Branding resource discovery, application icon, splash lifecycle, and packaging
+
+- **Domain:** UI / Application bootstrap
+- **Subsystem:** Branding / Startup
+- **Finding:** The existing BrandingService did not explicitly resolve the authoritative case-sensitive Logo.png, Logo.png was omitted from setuptools data-files, and startup created the splash before installing the application identity.
+- **Severity:** HIGH
+- **Status:** **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED**
+- **Correction:** BrandingService now resolves exact Logo.png and splash.png through one source-tree/installed-resource resolver; Logo.png is the sole application icon; splash substitution was removed; missing/corrupt visual assets emit diagnostics without becoming an application-startup-only failure; main.py installs application identity before constructing/showing StartupSplash; pyproject.toml packages both assets.
+- **Evidence:** audit/BRANDING_SPLASH_CORRECTION_2026-09-29.md; ui/branding.py; ui/splash_screen.py; main.py; pyproject.toml; Logo.png; splash.png.
+- **Dependency:** Qt/PySide6 presentation bootstrap and setuptools package-data installation.
+- **Verification level:** STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED.
+- **Remaining issue:** GUI startup, installed-distribution execution, alternate-working-directory execution, and binary pixel-dimension inspection remain deferred in the current environment.
