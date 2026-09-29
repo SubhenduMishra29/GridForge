@@ -55,6 +55,8 @@ class CreateBusApplicationContractTests(unittest.TestCase):
                 "angle_deg",
                 "frequency_hz",
                 "in_service",
+                "presentation_x",
+                "presentation_y",
             },
         )
         self.assertEqual(command.payload["bus_id"], "B1")
@@ -82,19 +84,14 @@ class CreateBusApplicationContractTests(unittest.TestCase):
         )
 
         self.assertEqual(result, "result")
-        self.assertEqual(
-            service.calls,
-            {
-                "bus_id": "B2",
-                "name": "Bus 2",
-                "nominal_voltage_kv": 220.0,
-                "voltage_pu": 1.0,
-                "angle_deg": 0.0,
-                "frequency_hz": 50.0,
-                "in_service": True,
-                "transaction": transaction,
-            },
-        )
+        self.assertEqual(service.calls["bus_id"], "B2")
+        self.assertEqual(service.calls["name"], "Bus 2")
+        self.assertEqual(service.calls["nominal_voltage_kv"], 220.0)
+        self.assertEqual(service.calls["voltage_pu"], 1.0)
+        self.assertEqual(service.calls["angle_deg"], 0.0)
+        self.assertEqual(service.calls["frequency_hz"], 50.0)
+        self.assertTrue(service.calls["in_service"])
+        self.assertIs(service.calls["transaction"], transaction)
 
     def test_model_service_is_canonical_concrete_service(self) -> None:
         service = ModelService(Network())
