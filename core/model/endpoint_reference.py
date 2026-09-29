@@ -103,14 +103,6 @@ class EndpointReferenceKind(str, Enum):
 # EQUIPMENT TYPE
 # ============================================================
 
-class EquipmentType(str, Enum):
-    """Canonical terminal-owning Core model families.
-
-    Values are derived from the Core model TYPE contract rather than a
-    manually maintained second manually maintained list.
-    """
-
-
 _TERMINAL_OWNER_CLASSES = tuple(
     cls
     for cls in (
