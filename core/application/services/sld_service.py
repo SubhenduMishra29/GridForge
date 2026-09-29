@@ -226,7 +226,10 @@ class SLDService:
         if any(element.object_id == equipment_id for element in read_model.elements):
             return
         protection = self._application.read_protection()
-        if any(element.object_id == equipment_id for element in protection.elements):
+        protection_elements = getattr(protection, "elements", None)
+        if protection_elements is None:
+            protection_elements = getattr(protection, "relays", ())
+        if any(element.object_id == equipment_id for element in protection_elements):
             return
         raise ValueError(
             f"SLD node equipment reference {equipment_id!r} does not resolve to current Application read state."
