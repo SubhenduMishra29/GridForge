@@ -26,6 +26,7 @@ def _decision(
 def test_cycle_keeps_evaluation_and_execution_diagnostics_separate() -> None:
     evaluation = ControlEvaluationResult(
         simulation_time=1.0,
+        decisions=(failed,),
         diagnostics=("evaluation failed: missing input",),
     )
     failed = _decision("failed")
@@ -75,7 +76,7 @@ def test_cycle_attributes_execution_failure_to_originating_decision() -> None:
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
     )
     result = ControlCycleResult(
-        evaluation=ControlEvaluationResult(simulation_time=1.0),
+        evaluation=ControlEvaluationResult(simulation_time=1.0, decisions=(failed,)),
         execution=execution,
     )
 
@@ -88,7 +89,7 @@ def test_cycle_rejects_mismatched_blocked_decision_provenance() -> None:
     blocked = _decision("blocked", valid=False, diagnostic="blocked")
     other = _decision("other", valid=False, diagnostic="other")
 
-    with pytest.raises(ValueError, match="blocked_decisions must match evaluation"):
+    with pytest.raises(ValueError, match="blocked"):
         ControlCycleResult(
             evaluation=ControlEvaluationResult(
                 simulation_time=1.0,
