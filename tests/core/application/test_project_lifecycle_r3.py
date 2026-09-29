@@ -17,8 +17,8 @@ def _network() -> Network:
     return network
 
 
-def _presentation() -> SLDDocument:
-    document = SLDDocument(document_id="SLD-001", name="Main SLD", project_id="PROJECT-001")
+def _presentation(project_id: str = "PROJECT-001") -> SLDDocument:
+    document = SLDDocument(document_id="SLD-001", name="Main SLD", project_id=project_id)
     document.model.create_node("SLD-NODE-001", "BUS-001", 100.0, 200.0)
     document.model.create_node("SLD-NODE-002", "BUS-002", 400.0, 300.0)
     return document
@@ -36,7 +36,7 @@ def _deserializer(data: dict) -> SLDDocument:
 
 def test_save_open_restores_sld_and_reopens_clean(tmp_path):
     application = create_application(_network())
-    presentation = _presentation()
+    presentation = _presentation(application.project_lifecycle.context.project_id)
     application.attach_sld_service(SLDService(presentation))
     application.configure_project_presentation(
         presentation=presentation,
