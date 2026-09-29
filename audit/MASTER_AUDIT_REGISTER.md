@@ -1,8 +1,13 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Canonical repository authority:** `pandaraseswari03-collab/GridForge`
-**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit authority is `pandaraseswari03-collab/GridForge:main`.
+**Current effective authority (2026-09-29):**
+- Implementation: `madhuri196mishra-cpu/GridForge:main`
+- Audit/Register: `SubhenduMishra29/GridForge:main`
+- Historical/provenance only: `pandaraseswari03-collab/GridForge`
+
+Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation authority is `madhuri196mishra-cpu/GridForge:main`; current audit/register authority is `SubhenduMishra29/GridForge:main`; `pandaraseswari03-collab/GridForge` is historical/provenance only.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority
@@ -338,7 +343,7 @@ Static remediation and static self-review were performed against the current wor
 
 ## 2026-09-28 — SLD connection projection / endpoint identity static correction
 
-**Implementation repository:** `pandaraseswari03-collab/GridForge`  
+**Historical snapshot — implementation repository at that dated audit:** `pandaraseswari03-collab/GridForge`  
 **Verification mode:** static source inspection only. Tests, CI, startup, GUI execution, and runtime verification were not performed.
 
 | Existing Master ID | Scope | Status | Static evidence |
@@ -1502,7 +1507,7 @@ The CSV and current effective register are reconciled with **GF-MASTER-0104** as
 
 ## 2026-09-28 — Superseding effective full-completion static re-audit
 
-**Current implementation/audit authority:** `pandaraseswari03-collab/GridForge:main`  
+**Current effective authorities:** implementation `madhuri196mishra-cpu/GridForge:main`; audit/register `SubhenduMishra29/GridForge:main`; historical/provenance `pandaraseswari03-collab/GridForge`  
 **Current source HEAD:** `bf6027972e4b0fa88bbe453b4be02cd80ab70fb9` at the time this register addendum was prepared; subsequent audit-only documentation commits do not alter the implementation conclusions.  
 **Verification:** static source inspection/correction only; no current runtime/GUI completion claim.
 
