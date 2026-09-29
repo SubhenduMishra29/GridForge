@@ -7,12 +7,15 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
-from ui.core.qt import QPointF, Qt
+from ui.core.qt import QPointF, QTransform, Qt
 
 
 class _ViewProbe:
     def mapToScene(self, position):
         return QPointF(position.x(), position.y())
+
+    def viewportTransform(self):
+        return QTransform()
 
 
 class _SceneProbe:
