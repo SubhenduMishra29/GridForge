@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from ui.core.qt import QVBoxLayout, QWidget
+from ui.workspace.engineering_workspace_tabs import EngineeringWorkspaceTabs
 
 
 class ControlSurfaceHost(QWidget):
-    """Host mutually exclusive engineering surfaces without owning domain state."""
+    """Host shared project-state engineering surfaces in one tabbed presentation."""
 
-    def __init__(self, *, surfaces: Mapping[str, QWidget], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        surfaces: Mapping[str, QWidget],
+        application: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         if not surfaces:
             raise ValueError("At least one workspace surface is required.")
@@ -19,22 +27,27 @@ class ControlSurfaceHost(QWidget):
             raise TypeError("Workspace surface IDs must be non-empty strings.")
         if any(not isinstance(widget, QWidget) for widget in normalized.values()):
             raise TypeError("All workspace surfaces must be QWidget instances.")
+        if application is None:
+            raise ValueError("application is required for shared read-model workspace projections.")
         self._surfaces = normalized
+        self._tabs = EngineeringWorkspaceTabs(
+            application=application,
+            surfaces=normalized,
+            parent=self,
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        for widget in normalized.values():
-            layout.addWidget(widget)
-        self.activate(next(iter(normalized)))
+        layout.addWidget(self._tabs)
 
     @property
     def surface_ids(self) -> tuple[str, ...]:
-        return tuple(self._surfaces)
+        return self._tabs.surface_ids
 
     def activate(self, surface_id: str) -> None:
-        if surface_id not in self._surfaces:
-            raise KeyError(f"Unknown workspace surface: {surface_id!r}")
-        for key, widget in self._surfaces.items():
-            widget.setVisible(key == surface_id)
+        self._tabs.activate(surface_id)
+
+    def set_sld_document(self, document: Any | None) -> None:
+        self._tabs.set_sld_document(document)
 
 
 __all__ = ["ControlSurfaceHost"]
