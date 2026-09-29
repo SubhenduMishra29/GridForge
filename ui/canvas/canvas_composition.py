@@ -119,6 +119,7 @@ class SLDCanvasSurface(QWidget):
         self._title_label.setText(display)
 
 
+@dataclass
 class CanvasComposition:
     """Fully composed Canvas viewport and interaction services."""
 
