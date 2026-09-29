@@ -2,17 +2,16 @@
   <img src="splash.png" alt="GridForge" width="600">
 </p>
 
-<h1 align="center">GridForge</h1>
+<h1 align="center">GridForge V2</h1>
 
 <p align="center">
   Power System Engineering Platform
 </p>
-# ⚡ GridForge V2
-### By Engineers. For Engineers.
- One Platform. Infinite Engineering Possibilities.
- Power-System Digital Twin, Engineering, Simulation & Automation Platform
+<p align="center"> By Engineers. For Engineers.</p>
+<p align="center">One Platform. Infinite Engineering Possibilities.</p>
+<p align="center">Power-System Digital Twin, Engineering, Simulation & Automation Platform</p>
 
-**Author:** Subhendu Mishra
+<p align="center"><b>Author:</b> Subhendu Mishra</p>
 
 ---
 
