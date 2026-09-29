@@ -19,7 +19,7 @@ class _ViewProbe:
 
 
 class _SceneProbe:
-    def itemAt(self, position, transform=None):
+    def itemAt(self, x, y, transform=None):
         return None
 
 
