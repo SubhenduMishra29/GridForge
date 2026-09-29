@@ -143,6 +143,12 @@ class PanelsPlugin(QObject):
             dock.setObjectName(spec.panel_id)
             dock.setWidget(widget)
             dock.setFeatures(self._dock_features(spec))
+            minimum_width = spec.metadata.get("minimum_width") if isinstance(spec.metadata, dict) else None
+            minimum_height = spec.metadata.get("minimum_height") if isinstance(spec.metadata, dict) else None
+            if isinstance(minimum_width, int) and minimum_width > 0:
+                dock.setMinimumWidth(minimum_width)
+            if isinstance(minimum_height, int) and minimum_height > 0:
+                dock.setMinimumHeight(minimum_height)
             self._panels[spec.panel_id] = widget
             self._dock_widgets[spec.panel_id] = dock
             self._panel_specs[spec.panel_id] = spec
