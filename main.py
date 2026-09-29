@@ -184,6 +184,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     status_plugin = None
 
     def _refresh_status() -> None:
+        project_context = getattr(gridforge_application.project_lifecycle, "context", None)
+        project_name = getattr(project_context, "name", None)
+        window.setWindowTitle(
+            f"GridForge V2 — {project_name}" if project_name else "GridForge V2"
+        )
+        canvas_composition.surface.set_document_title(project_name)
         if status_plugin is not None:
             status_plugin.refresh_authoritative_state()
 

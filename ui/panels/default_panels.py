@@ -13,7 +13,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
-    QListWidget, QPushButton, QVBoxLayout, QWidget, QSize,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -27,10 +27,21 @@ from .study_cases_panel import StudyCasesPanelWidget
 class ProjectPanelWidget(QWidget):
     """Presentation surface for the Application project hierarchy projection."""
 
+    _SYSTEM_GROUPS = (
+        "Buses", "Equipment", "Lines", "Transformers", "Loads",
+        "Generators", "Shunts", "Measurements", "Protection", "Scenarios",
+    )
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GridForgePanel_project")
         self._hierarchy: Any | None = None
+        self._tree = QTreeWidget(self)
+        self._tree.setHeaderHidden(True)
+        self._tree.setObjectName("ProjectHierarchyTree")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(self._tree)
 
     @property
     def hierarchy(self) -> Any | None:
@@ -38,9 +49,44 @@ class ProjectPanelWidget(QWidget):
 
     def set_hierarchy(self, hierarchy: Any | None) -> None:
         self._hierarchy = hierarchy
+        self._render_hierarchy()
 
     def clear_hierarchy(self) -> None:
         self._hierarchy = None
+        self._tree.clear()
+
+    def _render_hierarchy(self) -> None:
+        self._tree.clear()
+        if not isinstance(self._hierarchy, dict):
+            return
+        project = self._hierarchy.get("project") or {}
+        root = QTreeWidgetItem([str(project.get("name") or "Project")])
+        root.setData(0, 32, str(project.get("id") or ""))
+        self._tree.addTopLevelItem(root)
+
+        system = QTreeWidgetItem(["System"])
+        root.addChild(system)
+        for group_name in self._SYSTEM_GROUPS:
+            system.addChild(QTreeWidgetItem([group_name]))
+
+        documents_node = QTreeWidgetItem(["Documents"])
+        root.addChild(documents_node)
+        for document in project.get("documents") or ():
+            if isinstance(document, dict):
+                documents_node.addChild(QTreeWidgetItem([
+                    str(document.get("name") or document.get("type") or "Document")
+                ]))
+
+        studies = QTreeWidgetItem(["Study Cases"])
+        root.addChild(studies)
+        workspace_id = self._hierarchy.get("workspace_id")
+        if workspace_id:
+            studies.addChild(QTreeWidgetItem([f"Workspace: {workspace_id}"]))
+
+        root.setExpanded(True)
+        system.setExpanded(True)
+        documents_node.setExpanded(True)
+        studies.setExpanded(True)
 
 
 class EquipmentPanelWidget(QWidget):
@@ -52,12 +98,16 @@ class EquipmentPanelWidget(QWidget):
         self._equipment_registry: Any | None = None
         self._tool_manager: Any | None = None
         self._definitions: tuple[Any, ...] = ()
+        self._visible_definitions: tuple[Any, ...] = ()
         self._selected_equipment_type: str | None = None
         self._active_tool_id: str | None = None
         self._properties_panel: Any | None = None
         self._symbol_registry: Any | None = None
         self._palette_symbol_adapter: PaletteSymbolAdapter | None = None
 
+        self._search = QLineEdit(self)
+        self._search.setPlaceholderText("Search components…")
+        self._search.setObjectName("EquipmentSearch")
         self._list = QListWidget(self)
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
@@ -67,7 +117,11 @@ class EquipmentPanelWidget(QWidget):
         self._list.setGridSize(QSize(112, 88))
         self._list.setWordWrap(True)
         layout = QVBoxLayout(self)
-        layout.addWidget(self._list)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(QLabel("Equipment Library", self))
+        layout.addWidget(self._search)
+        layout.addWidget(self._list, 1)
+        self._search.textChanged.connect(self._filter_equipment)
         self._list.itemClicked.connect(self._on_item_clicked)
 
     @property
@@ -100,8 +154,27 @@ class EquipmentPanelWidget(QWidget):
         self._tool_manager = tool_manager
         self._properties_panel = properties_panel
         self._definitions = tuple(equipment_registry.catalogue())
+        self._rebuild_equipment_list()
+
+    def _rebuild_equipment_list(self) -> None:
+        query = self._search.text().strip().lower()
+        self._visible_definitions = tuple(
+            definition for definition in self._definitions
+            if not query
+            or query in str(definition.display_name).lower()
+            or query in str(definition.category).lower()
+            or query in str(definition.equipment_type).lower()
+        )
         self._list.clear()
-        for definition in self._definitions:
+        last_category: str | None = None
+        for definition in self._visible_definitions:
+            category = str(definition.category)
+            if category != last_category:
+                self._list.addItem(f"— {category} —")
+                header_item = self._list.item(self._list.count() - 1)
+                header_item.setFlags(header_item.flags() & ~32)
+                header_item.setData(32, None)
+                last_category = category
             self._list.addItem(definition.display_name)
             item = self._list.item(self._list.count() - 1)
             if self._palette_symbol_adapter is None:
@@ -109,11 +182,15 @@ class EquipmentPanelWidget(QWidget):
             item.setIcon(self._palette_symbol_adapter.icon_for(definition.symbol_id))
             item.setToolTip(
                 f"{definition.display_name}\n"
-                f"Category: {definition.category}\n"
+                f"Category: {category}\n"
                 f"Tool: {definition.tool_id}\n"
                 f"Symbol: {definition.symbol_id}"
             )
             item.setData(32, definition.equipment_type)
+
+    def _filter_equipment(self, _text: str) -> None:
+        if self._equipment_registry is not None:
+            self._rebuild_equipment_list()
 
     def select_equipment_type(self, equipment_type: str | None) -> None:
         if equipment_type is None:
@@ -173,10 +250,10 @@ class EquipmentPanelWidget(QWidget):
                 setter(self._tool_manager.creation_context.draft)
 
     def _on_item_clicked(self, item: Any) -> None:
-        row = self._list.row(item)
-        if row < 0 or row >= len(self._definitions):
+        equipment_type = item.data(32)
+        if not equipment_type:
             return
-        self.activate_equipment(self._definitions[row].equipment_type)
+        self.activate_equipment(str(equipment_type))
 
 
 class PropertiesPanelWidget(QWidget):
@@ -537,12 +614,12 @@ class PropertiesPanelWidget(QWidget):
             )
 
 
-PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer")
-EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser")
-PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties")
-ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List")
-MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events")
-STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases")
+PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})
+EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser", metadata={"minimum_width": 230})
+PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties", metadata={"minimum_width": 300})
+ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List", metadata={"minimum_height": 180})
+MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events", metadata={"minimum_height": 150})
+STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases", metadata={"minimum_height": 150})
 
 DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     PROJECT_PANEL,
