@@ -1206,6 +1206,7 @@ def test_create_many_preserves_plugin_order(
         make_class_module(
             monkeypatch,
             module_name,
+            plugin_id=module_name[0],
         )
 
     loader = PluginLoader(
