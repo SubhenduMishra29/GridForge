@@ -59,6 +59,8 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         model_type="classical",
         parameters=ClassicalMachineParameters(H=3.0, Xd_prime=0.3, Efd=1.1),
         mechanical_power=0.0,
+        project_id=application.project_lifecycle.context.project_id,
+        activation_generation=application.project_lifecycle.activation_generation,
     ))
     request = StudyRequest(
         study_type="transient_stability",
