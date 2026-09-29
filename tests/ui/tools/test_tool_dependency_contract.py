@@ -99,11 +99,8 @@ def test_tool_manager_constructs_registered_tool_with_application(qapp):
     manager.register_tool("test", factory)
     manager.activate("test")
 
-    assert created == [
-        {
-            "controller": manager.controller,
-            "application": manager.application,
-            "selection_manager": manager.selection_manager,
-            "snap_system": manager.snap_system,
-        }
-    ]
+    assert len(created) == 1
+    assert created[0]["controller"] is manager.controller
+    assert created[0]["application"] is manager.application
+    assert created[0]["selection_manager"] is manager.selection_manager
+    assert created[0]["snap_system"] is manager.snap_system
