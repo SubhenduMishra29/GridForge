@@ -554,7 +554,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     control_workspace.refresh()
-    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
+    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); event_messages_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
     # Project close is already completed by MainWindow.closeEvent before
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
     # document state; it must never re-run the Application project transition
