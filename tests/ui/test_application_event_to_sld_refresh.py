@@ -4,7 +4,7 @@ from core.application.bootstrap import create_application
 from core.application.commands.model_commands import CreateBusCommand
 from core.network.network import Network
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
-from core.application.events import ApplicationEvent
+from core.application.events import ElementCreated
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
@@ -27,7 +27,7 @@ def test_application_event_reaches_sld_refresh_path():
         canvas_refresh=lambda: refresh_calls.append(True),
     )
     coordinator.bind_document(document)
-    application.event_bus.subscribe(ApplicationEvent, coordinator.refresh)
+    application.event_bus.subscribe(ElementCreated, coordinator.refresh)
 
     application.execute(
         CreateBusCommand(
