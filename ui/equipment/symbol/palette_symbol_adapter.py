@@ -68,13 +68,13 @@ class PaletteSymbolAdapter:
         painter.scale(transform_scale, transform_scale)
 
         for primitive in definition.primitives:
-            self._draw_primitive(painter, primitive)
+            self._draw_primitive(painter, primitive, visual_state)
 
         painter.end()
         return pixmap
 
     @staticmethod
-    def _draw_primitive(painter: QPainter, primitive: Any) -> None:
+    def _draw_primitive(painter: QPainter, primitive: Any, visual_state: VisualState) -> None:
         kind = primitive.get("kind")
         if kind == "line":
             painter.drawLine(
