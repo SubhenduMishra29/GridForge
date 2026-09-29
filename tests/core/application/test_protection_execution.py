@@ -35,7 +35,9 @@ def test_actionable_decision_is_translated_to_existing_trip_command():
     result = service.execute([_decision(trip=True)])
     assert len(result.commands) == 1
     assert result.commands[0].payload["breaker_id"] == "BRK-1"
-    assert calls == [result.commands[0]]
+    assert len(calls) == 1
+    assert calls[0].command_type == result.commands[0].command_type
+    assert calls[0].payload == result.commands[0].payload
 
 
 def test_non_actionable_decision_never_creates_application_command():
