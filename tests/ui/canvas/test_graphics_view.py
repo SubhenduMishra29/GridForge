@@ -6,6 +6,15 @@ from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.grid_scene import GridScene
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    import os
+    from ui.core.qt import QApplication
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance()
+    return app if app is not None else QApplication([])
+
+
 class FakeController:
     pass
 
