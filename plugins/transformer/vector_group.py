@@ -373,4 +373,3 @@ class VectorGroup(TransformerPlugin):
             f"group={self.group}, "
             f"clock={self.clock_position}>"
         )
-```
