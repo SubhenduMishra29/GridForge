@@ -505,7 +505,9 @@ QTableWidget#ElementListTable::item:selected {
 
 /* Equipment search/category presentation. */
 QLineEdit#EquipmentSearch {
-    background: {{canvas_background}};
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border-color: {{editor_border}};
 }
 QListWidget#EquipmentPalette::item {
     min-height: 38px;
