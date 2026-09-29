@@ -74,7 +74,7 @@ def test_ct_conversion_is_pu_to_base_current_to_primary_to_secondary() -> None:
     )
     context = PreparedMeasurementContext(
         source_id="CT-1",
-        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CT, equipment_id="CT-1", terminal_role="P1"),
+        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CURRENTTRANSFORMER, equipment_id="CT-1", terminal_role="P1"),
         bus_id="BUS-1",
         electrical_side="from",
         quantity=quantity,
@@ -149,7 +149,7 @@ def test_cvt_uses_declared_voltage_ratio_not_a_pu_ratio_shortcut() -> None:
     )
     context = PreparedMeasurementContext(
         source_id="CVT-1",
-        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CVT, equipment_id="CVT-1", terminal_role="H1"),
+        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CAPACITIVEVOLTAGETRANSFORMER, equipment_id="CVT-1", terminal_role="H1"),
         bus_id="BUS-1",
         electrical_side=None,
         quantity=quantity,
@@ -169,7 +169,7 @@ def test_measurement_source_binding_rejects_mismatched_source_identity() -> None
     source = CurrentTransformer("CT-actual")
     context = PreparedMeasurementContext(
         source_id="CT-requested",
-        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CT, equipment_id="CT-requested", terminal_role="P1"),
+        source_terminal=EndpointReference.terminal(equipment_type=EquipmentType.CURRENTTRANSFORMER, equipment_id="CT-requested", terminal_role="P1"),
         bus_id="BUS-1",
         electrical_side="from",
         quantity=LineFlowResult(
