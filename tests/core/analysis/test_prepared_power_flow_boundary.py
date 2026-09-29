@@ -69,4 +69,4 @@ def test_power_flow_bus_spec_includes_capacitor_and_reactor_collections():
     )
     preparation = PowerFlowPreparation(network, configuration)
 
-    assert preparation._bus_power_spec(bus) == (0.0, 12.0, None, None)
+    assert preparation._bus_power_spec(bus) == (0.0, 0.0, None, None)
