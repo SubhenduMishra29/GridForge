@@ -136,17 +136,22 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("edit.delete_selection", "Delete Selection", "Delete", True),
         )),
         MenuSpec("view", "View", (
-            a("view.sld_workspace", "SLD Workspace"),
-            a("view.control_workspace", "Control Workspace"),
-            a("view.equipment_browser", "Equipment Browser"),
+            a("view.sld_workspace", "SLD"),
+            a("view.topology", "Topology"),
+            a("view.map", "Map"),
+            a("view.reports", "Reports"),
+            a("view.control_workspace", "Control", None, True),
+            a("view.protection_workspace", "Protection"),
+            a("view.equipment_browser", "Equipment Browser", None, True),
             a("view.fit", "Fit SLD View"),
         )),
         MenuSpec("project", "Project", (
             a("project.new", "New Project"),
             a("project.open", "Open Project…"),
             a("project.save", "Save Project"),
-            a("project.close", "Close Project"),
-            a("network.commit_draft", "COMMIT NETWORK", "Ctrl+Shift+Enter", True),
+            a("project.save_as", "Save Project As…"),
+            a("project.close", "Close Project", None, True),
+            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("tools", "Tools", (
             a("tool.select", "Select"),
@@ -154,14 +159,16 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("tool.wire", "Simple Wired Connection"),
             a("view.equipment_browser", "Equipment Browser", None, True),
         )),
-        MenuSpec("study", "Study", (
+        MenuSpec("analysis", "Analysis", (
             a("study.cases", "Study Cases"),
         )),
-        MenuSpec("protection", "Protection", (
+        MenuSpec("extensions", "Extensions", (
             a("protection.panel", "Protection Workspace"),
+            a("control.panel", "Control Workspace"),
         )),
-        MenuSpec("control", "Control", (
-            a("control.panel", "Control"),
+        MenuSpec("window", "Window", (
+            a("view.equipment_browser", "Equipment Browser"),
+            a("study.cases", "Study Cases"),
         )),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
