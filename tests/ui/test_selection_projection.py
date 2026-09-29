@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
-from ui.core.qt import QPointF
+from ui.core.qt import QPointF, QGraphicsItem, QTransform
 from ui.core.selection_manager import SelectionManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
 from core.application.events import ElementUpdated
@@ -34,6 +34,9 @@ class _FakeView:
     def mapToScene(self, position):
         return QPointF(position.x() + 10, position.y() + 20)
 
+    def viewportTransform(self):
+        return QTransform()
+
 
 class _FakeItem:
     def __init__(self, object_id=None, parent=None, selectable=True):
@@ -51,15 +54,15 @@ class _FakeItem:
         return True
 
     def flags(self):
-        return self._selectable
+        return QGraphicsItem.GraphicsItemFlag.ItemIsSelectable if self._selectable else QGraphicsItem.GraphicsItemFlag(0)
 
 
 class _FakeScene:
     def __init__(self, items):
         self._items = items
 
-    def items(self, _position):
-        return tuple(self._items)
+    def itemAt(self, x, y, transform=None):
+        return self._items[0] if self._items else None
 
 
 class _FakeSignal:
