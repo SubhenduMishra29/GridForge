@@ -87,6 +87,7 @@ class MenuPlugin(QObject):
                         menu.addSeparator()
                     action = QAction(action_spec.text, self)
                     action.setObjectName(action_spec.action_id)
+                    action.setEnabled(router.is_enabled(action_spec.action_id))
                     if action_spec.shortcut:
                         action.setShortcut(action_spec.shortcut)
                     action.triggered.connect(lambda _checked=False, action_id=action_spec.action_id: router.dispatch(action_id))
@@ -107,6 +108,13 @@ class MenuPlugin(QObject):
         self._menu_bar = None
         self._context = None
         self._initialized = False
+
+    def refresh_enabled_states(self) -> None:
+        if self._context is None:
+            return
+        router = self._context.action_router
+        for action_id, action in tuple(self._actions.items()):
+            action.setEnabled(router.is_enabled(action_id))
 
     def action(self, action_id: str) -> QAction | None:
         return self._actions.get(action_id)
