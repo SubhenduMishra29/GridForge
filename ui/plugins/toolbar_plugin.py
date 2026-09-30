@@ -65,7 +65,7 @@ Canonical identifiers:
 
     select
     bus
-    line
+    wire
 
 Qt boundary
 -----------
@@ -1210,7 +1210,7 @@ class ToolbarPlugin(QObject):
 
             select
             bus
-            line
+            wire
         """
 
         if (
