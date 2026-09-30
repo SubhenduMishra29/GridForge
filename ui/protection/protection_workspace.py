@@ -68,7 +68,10 @@ class ProtectionWorkspace(QWidget):
     def __init__(self,*,application:Any,selection_manager:SelectionManager|None=None,parent:QWidget|None=None):
         super().__init__(parent)
         if application is None: raise ValueError("application is required.")
-        self._application=application; self._selection_manager=selection_manager if selection_manager is not None else SelectionManager(); self._state_machine=CanvasStateMachine(workspace_id="protection")
+        self._application=application
+        if selection_manager is None:
+            raise ValueError("ProtectionWorkspace requires the canonical SelectionManager.")
+        self._selection_manager=selection_manager; self._state_machine=CanvasStateMachine(workspace_id="protection")
         self._explorer=ProtectionExplorer(application,self._selection_manager,self)
         self._canvas=ProtectionCanvas(application=application,selection_manager=self._selection_manager,state_machine=self._state_machine,parent=self)
         self._inspector=ProtectionInspector(application=application,selection_manager=self._selection_manager,parent=self)
