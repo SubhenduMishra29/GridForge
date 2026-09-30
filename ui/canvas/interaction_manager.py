@@ -166,7 +166,11 @@ class InteractionManager:
             return
 
         if method_name == "mouse_release":
+            # The tool return value is the authoritative creation outcome:
+            # commit state is a milestone, then the shared interaction state
+            # returns immediately to the stable idle state.
             self._force_transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
+            self._state_machine.cancel()
 
     def _force_transition(self, target: CanvasInteractionState) -> None:
         if self._state_machine.state is target:
