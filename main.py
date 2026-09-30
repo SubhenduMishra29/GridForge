@@ -165,8 +165,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
     )
-    control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, parent=None)
-    protection_workspace = ProtectionWorkspace(application=gridforge_application, parent=None)
+    control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, selection_manager=canvas_preparation.selection_manager, parent=None)
+    protection_workspace = ProtectionWorkspace(application=gridforge_application, selection_manager=canvas_preparation.selection_manager, parent=None)
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
             "sld": canvas_composition.widget,
