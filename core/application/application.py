@@ -709,6 +709,12 @@ class Application:
 
         source = self._sld_endpoint_for_reference(source_ref)
         target = self._sld_endpoint_for_reference(target_ref)
+        # Equipment creation is independent from wiring. Line/Cable creation
+        # may therefore have no endpoints yet; only project an SLD connection
+        # when both semantic endpoint references were supplied by the command.
+        if source_ref is None or target_ref is None:
+            return
+
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
                 connection_id=connection_id,
