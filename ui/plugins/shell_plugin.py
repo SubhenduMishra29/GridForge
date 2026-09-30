@@ -142,6 +142,8 @@ class ShellPlugin:
         self._toolbar_widget: Optional[QWidget] = None
         self._status_widget: Optional[QWidget] = None
         self._header_widget: Optional[QWidget] = None
+        self._engineering_context_store: Any = None
+        self._engineering_context_label: Optional[QLabel] = None
 
         self._initialized = False
 
@@ -400,6 +402,10 @@ class ShellPlugin:
         self._root_widget = None
         self._header_widget = None
 
+        if self._engineering_context_store is not None and callable(getattr(self._engineering_context_store, "unsubscribe", None)):
+            self._engineering_context_store.unsubscribe(self._refresh_engineering_context_label)
+        self._engineering_context_store = None
+        self._engineering_context_label = None
         self._context = None
 
         self._initialized = False
@@ -619,12 +625,22 @@ class ShellPlugin:
         brand.setObjectName("GridForgeBrand")
         layout.addWidget(brand)
 
+        context_store = self._context.metadata.get("engineering_context_store") if self._context is not None else None
+        self._engineering_context_store = context_store
+        if context_store is not None and callable(getattr(context_store, "subscribe", None)):
+            context_store.subscribe(self._refresh_engineering_context_label)
+
         project_context = getattr(self._context.application, "project_lifecycle", None)
         project_context = getattr(project_context, "context", None)
         project_name = getattr(project_context, "name", None) or "No Project"
         project_label = QLabel(f"Project: {project_name}", header)
         project_label.setObjectName("GridForgeProjectContext")
         layout.addWidget(project_label)
+
+        context_label = QLabel(self._format_engineering_context(), header)
+        context_label.setObjectName("GridForgeEngineeringContext")
+        self._engineering_context_label = context_label
+        layout.addWidget(context_label)
         layout.addStretch(1)
 
         search = QLineEdit(header)
@@ -665,6 +681,19 @@ class ShellPlugin:
         search.returnPressed.connect(lambda: self._search_project(search.text(), header))
         self._header_widget = header
         return header
+
+    def _format_engineering_context(self) -> str:
+        context = getattr(self._engineering_context_store, "current", None)
+        if context is None:
+            return "Engineering: SLD"
+        discipline = str(getattr(context, "discipline", "sld")).upper()
+        study = getattr(context, "study_id", None) or "No Study"
+        state = getattr(context, "system_state", None) or "Not provided"
+        return f"Engineering: {discipline} · Study: {study} · State: {state}"
+
+    def _refresh_engineering_context_label(self, _context: Any) -> None:
+        if self._engineering_context_label is not None:
+            self._engineering_context_label.setText(self._format_engineering_context())
 
     def _search_project(self, query: str, parent: QWidget) -> None:
         """Search canonical Application read models without mutating state."""

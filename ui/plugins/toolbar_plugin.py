@@ -311,6 +311,7 @@ class ToolbarPlugin(QObject):
         ] = None
 
         self._initialized = False
+        self._enabled_state_provider: Any = None
 
     # ========================================================
     # PROPERTIES
@@ -1093,6 +1094,28 @@ class ToolbarPlugin(QObject):
             )
 
         self._actions[action_id].setChecked(checked)
+
+    def bind_enabled_state_provider(self, provider: Any) -> None:
+        """Bind one presentation capability provider for contextual actions."""
+        if provider is not None and not callable(provider):
+            raise TypeError("provider must be callable or None.")
+        self._enabled_state_provider = provider
+        self.refresh_enabled_states()
+
+    def refresh_enabled_states(self) -> None:
+        """Project application/workspace capability state into QAction enabled state."""
+        provider = self._enabled_state_provider
+        if provider is None and self._context is not None:
+            router = self._context.action_router
+            provider = getattr(router, "is_enabled", None)
+        if provider is None:
+            return
+        for action_id, action in tuple(self._actions.items()):
+            try:
+                enabled = bool(provider(action_id))
+            except (RuntimeError, TypeError, ValueError):
+                enabled = False
+            action.setEnabled(enabled)
 
     # ========================================================
     # CAPABILITIES

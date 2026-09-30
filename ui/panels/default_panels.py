@@ -36,12 +36,21 @@ class ProjectPanelWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("GridForgePanel_project")
         self._hierarchy: Any | None = None
+        self._selection_manager: Any | None = None
+        self._updating_selection = False
         self._tree = QTreeWidget(self)
         self._tree.setHeaderHidden(True)
         self._tree.setObjectName("ProjectHierarchyTree")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(self._tree)
+        self._tree.itemSelectionChanged.connect(self._on_tree_selection)
+
+    def bind_selection_manager(self, selection_manager: Any) -> None:
+        if selection_manager is None or not callable(getattr(selection_manager, "select_single", None)):
+            raise TypeError("selection_manager must provide select_single().")
+        self._selection_manager = selection_manager
+        selection_manager.selection_changed.connect(self._on_canonical_selection)
 
     @property
     def hierarchy(self) -> Any | None:
@@ -55,6 +64,32 @@ class ProjectPanelWidget(QWidget):
         self._hierarchy = None
         self._tree.clear()
 
+    def _on_tree_selection(self) -> None:
+        if self._updating_selection or self._selection_manager is None:
+            return
+        items = self._tree.selectedItems()
+        if not items:
+            return
+        object_id = items[0].data(0, 32)
+        if object_id:
+            self._selection_manager.select_single(str(object_id))
+
+    def _on_canonical_selection(self, ids: object) -> None:
+        selected = {str(value) for value in (ids or ())}
+        self._updating_selection = True
+        try:
+            self._tree.clearSelection()
+            if not selected:
+                return
+            iterator = self._tree.findItems("", Qt.MatchFlag.MatchContains | Qt.MatchFlag.MatchRecursive, 0)
+            for item in iterator:
+                if str(item.data(0, 32) or "") in selected:
+                    item.setSelected(True)
+                    self._tree.scrollToItem(item)
+                    break
+        finally:
+            self._updating_selection = False
+
     def _render_hierarchy(self) -> None:
         self._tree.clear()
         if not isinstance(self._hierarchy, dict):
@@ -64,10 +99,18 @@ class ProjectPanelWidget(QWidget):
         root.setData(0, 32, str(project.get("id") or ""))
         self._tree.addTopLevelItem(root)
 
-        system = QTreeWidgetItem(["System"])
-        root.addChild(system)
-        for group_name in self._SYSTEM_GROUPS:
-            system.addChild(QTreeWidgetItem([group_name]))
+        network = QTreeWidgetItem(["Network Elements"])
+        root.addChild(network)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for element in self._hierarchy.get("network_elements") or ():
+            grouped.setdefault(str(element.get("type") or "Other"), []).append(element)
+        for element_type, elements in sorted(grouped.items()):
+            group = QTreeWidgetItem([element_type.title()])
+            network.addChild(group)
+            for element in elements:
+                item = QTreeWidgetItem([str(element.get("name") or element.get("id"))])
+                item.setData(0, 32, str(element.get("id") or ""))
+                group.addChild(item)
 
         documents_node = QTreeWidgetItem(["Documents"])
         root.addChild(documents_node)
@@ -84,7 +127,9 @@ class ProjectPanelWidget(QWidget):
             studies.addChild(QTreeWidgetItem([f"Workspace: {workspace_id}"]))
 
         root.setExpanded(True)
-        system.setExpanded(True)
+        network.setExpanded(True)
+        for group in (network.child(i) for i in range(network.childCount())):
+            group.setExpanded(True)
         documents_node.setExpanded(True)
         studies.setExpanded(True)
 
@@ -347,6 +392,16 @@ class PropertiesPanelWidget(QWidget):
                 self._validation_label.setText("Select an element to inspect.")
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
+        assert self._form_layout is not None
+        self._form_layout.addRow(QLabel("Identity", self), QLabel(str(target.object_id), self))
+        self._form_layout.addRow(QLabel("Type", self), QLabel(str(target.display_type), self))
+        self._form_layout.addRow(QLabel("Status", self), QLabel(str(target.status or "Unknown"), self))
+        if target.connectivity_refs:
+            self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
+        self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
+            f"{len(target.engineering_parameters)} projected parameter(s); Core validation remains authoritative.",
+            self,
+        ))
         for parameter in target.engineering_parameters:
             control = self._create_parameter_control(parameter)
             self._parameter_controls[parameter.parameter_id] = control

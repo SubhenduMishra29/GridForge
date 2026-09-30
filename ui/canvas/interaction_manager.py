@@ -25,6 +25,8 @@ class InteractionManager:
         preview_layer: Any = None,
         selection_manager: Any = None,
         command_manager: Any = None,
+        workspace_id: str = "sld",
+        discipline: str | None = None,
         input_adapter: Optional[MouseEventAdapter] = None,
     ) -> None:
         if tool_manager is None:
@@ -39,8 +41,18 @@ class InteractionManager:
         self.selection_manager = selection_manager
         self.command_manager = command_manager
         self.input_adapter = input_adapter
+        if not isinstance(workspace_id, str) or not workspace_id.strip():
+            raise ValueError("workspace_id must be a non-empty string.")
+        self.workspace_id = workspace_id.strip()
+        self.discipline = (discipline or self.workspace_id).strip()
+        if not self.discipline:
+            raise ValueError("discipline must be a non-empty string.")
         self._disposed = False
-        self._state_machine = CanvasStateMachine(workspace_id="sld")
+        self._state_machine = CanvasStateMachine(workspace_id=self.workspace_id)
+
+    @property
+    def context(self) -> dict[str, str]:
+        return {"workspace_id": self.workspace_id, "discipline": self.discipline}
 
     @property
     def disposed(self) -> bool:
