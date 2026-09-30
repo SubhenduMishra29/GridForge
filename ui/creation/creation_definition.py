@@ -334,7 +334,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_line", "line_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_line", "line_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "cable": _definition("cable", "cable", (
             _p("length_km", unit="km", required=True, minimum=0.0),
             _p("r1_ohm_per_km", unit="ohm/km", required=True),
@@ -346,7 +346,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_cable", "cable_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_cable", "cable_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "transformer": _definition("transformer", "transformer", (
             _p("r", "Resistance", required=True),
             _p("x", "Reactance", required=True),
@@ -373,15 +373,15 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("interrupting_ka", unit="kA", required=True, minimum=0.0),
             _p("closed", "Closed", "bool", default=True),
             _p("in_service", "In service", "bool", default=True),
-        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "disconnector": _definition("disconnector", "disconnector", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
-        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
             _p("secondary_rated_current_a", unit="A", required=True, minimum=0.0),
