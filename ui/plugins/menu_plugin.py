@@ -118,6 +118,7 @@ class MenuPlugin(QObject):
 
 
 def default_menus() -> tuple[MenuSpec, ...]:
+    """Return the canonical, non-duplicated application menu taxonomy."""
     def a(action_id: str, text: str, shortcut: str | None = None, separator_before: bool = False) -> MenuActionSpec:
         return MenuActionSpec(action_id, text, shortcut, separator_before)
 
@@ -140,40 +141,32 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("edit.cut", "Cut", "Ctrl+X"),
         )),
         MenuSpec("view", "View", (
+            a("view.fit", "Fit SLD View"),
+            a("view.zoom_in", "Zoom In"),
+            a("view.zoom_out", "Zoom Out"),
+            a("view.pan", "Pan"),
+        )),
+        MenuSpec("project", "Project", (
+            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter"),
+        )),
+        MenuSpec("engineering", "Engineering", (
             a("view.sld_workspace", "SLD"),
+            a("view.control_workspace", "Control"),
+            a("view.protection_workspace", "Protection"),
             a("view.topology", "Topology"),
             a("view.map", "Map"),
             a("view.reports", "Reports"),
-            a("view.control_workspace", "Control", None, True),
-            a("view.protection_workspace", "Protection"),
             a("view.equipment_browser", "Equipment Browser", None, True),
-            a("view.fit", "Fit SLD View"),
         )),
-        MenuSpec("project", "Project", (
-            a("project.new", "New Project"),
-            a("project.open", "Open Project…"),
-            a("project.save", "Save Project"),
-            a("project.save_as", "Save Project As…"),
-            a("project.close", "Close Project", None, True),
-            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter", True),
+        MenuSpec("study", "Study", (
+            a("study.cases", "Study Cases"),
         )),
         MenuSpec("tools", "Tools", (
             a("tool.select", "Select"),
             a("tool.bus", "Bus"),
             a("tool.wire", "Simple Wired Connection"),
-            a("view.equipment_browser", "Equipment Browser", None, True),
         )),
-        MenuSpec("analysis", "Analysis", (
-            a("study.cases", "Study Cases"),
-        )),
-        MenuSpec("extensions", "Extensions", (
-            a("protection.panel", "Protection Workspace"),
-            a("control.panel", "Control Workspace"),
-        )),
-        MenuSpec("window", "Window", (
-            a("view.equipment_browser", "Equipment Browser"),
-            a("study.cases", "Study Cases"),
-        )),
+        MenuSpec("window", "Window", ()),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
         )),
