@@ -392,6 +392,16 @@ class PropertiesPanelWidget(QWidget):
                 self._validation_label.setText("Select an element to inspect.")
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
+        assert self._form_layout is not None
+        self._form_layout.addRow(QLabel("Identity", self), QLabel(str(target.object_id), self))
+        self._form_layout.addRow(QLabel("Type", self), QLabel(str(target.display_type), self))
+        self._form_layout.addRow(QLabel("Status", self), QLabel(str(target.status or "Unknown"), self))
+        if target.connectivity_refs:
+            self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
+        self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
+            f"{len(target.engineering_parameters)} projected parameter(s); Core validation remains authoritative.",
+            self,
+        ))
         for parameter in target.engineering_parameters:
             control = self._create_parameter_control(parameter)
             self._parameter_controls[parameter.parameter_id] = control
