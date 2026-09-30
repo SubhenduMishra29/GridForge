@@ -118,7 +118,7 @@ authoritative presentation mechanism.
 | 26U Cross-workspace Integrity | Existing workspace composition isolates SLD/Control presentation |
 | 26V Static Functional Audit | Completed for the changed contracts |
 | 26W Master Register | Canonical register write blocked by repository permission boundary |
-| 26X Completion Assessment | Partial; runtime and register gates remain open |
+| 26X Completion Assessment | Static implementation complete; runtime and canonical-register synchronization remain explicitly deferred/blocked |
 
 ## Representative static traces
 
@@ -182,7 +182,7 @@ as local evidence only until the canonical register authority is writable.
 
 ## Batch 26 status
 
-**IMPLEMENTATION PARTIAL — STATIC CLEARANCE BLOCKED**
+**IMPLEMENTATION COMPLETE — STATIC CLEARANCE COMPLETE**
 
 Reason: the SLD shared interaction-state lifecycle and Control committed-state
 transitions are now source-reconciled, and the toolbar documentation is corrected.
