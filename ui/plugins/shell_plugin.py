@@ -688,7 +688,7 @@ class ShellPlugin:
             return "Engineering: SLD"
         discipline = str(getattr(context, "discipline", "sld")).upper()
         study = getattr(context, "study_id", None) or "No Study"
-        state = getattr(context, "system_state", None) or "Normal"
+        state = getattr(context, "system_state", None) or "Not provided"
         return f"Engineering: {discipline} · Study: {study} · State: {state}"
 
     def _refresh_engineering_context_label(self, _context: Any) -> None:
