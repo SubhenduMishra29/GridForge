@@ -35,11 +35,11 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
             raise TypeError("endpoint_a must be an EndpointReference.")
         if not isinstance(endpoint_b, EndpointReference):
             raise TypeError("endpoint_b must be an EndpointReference.")
-        self._connection_id = connection_id or f"SWC-{uuid4().hex}"
+        resolved_connection_id = connection_id or f"SWC-{uuid4().hex}"
         super().__init__(
             command_type=CREATE_SIMPLE_WIRE,
             payload={
-                "connection_id": self._connection_id,
+                "connection_id": resolved_connection_id,
                 "endpoint_a": endpoint_a,
                 "endpoint_b": endpoint_b,
             },
@@ -50,7 +50,7 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
 
     @property
     def connection_id(self) -> str:
-        return self._connection_id
+        return str(self.payload["connection_id"])
 
     def inverse(self) -> Command:
         return RemoveSimpleWireConnectionCommand(
