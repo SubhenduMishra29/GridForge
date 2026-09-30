@@ -564,6 +564,27 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
     })
 
+    def _action_enabled(action_id: str) -> bool:
+        project_active = gridforge_application.project_lifecycle.context is not None
+        selected = bool(canvas_composition.selection_manager.selected_ids)
+        if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
+                         "study.cases", "view.sld_workspace", "view.control_workspace",
+                         "view.protection_workspace", "view.topology", "view.map", "view.reports",
+                         "tool.bus", "tool.wire"}:
+            return project_active
+        if action_id in {"edit.undo"}:
+            return bool(getattr(controller, "can_undo", lambda: True)())
+        if action_id in {"edit.redo"}:
+            return bool(getattr(controller, "can_redo", lambda: True)())
+        if action_id in {"edit.delete_selection", "edit.copy", "edit.cut", "edit.rotate",
+                         "edit.mirror_horizontal", "edit.mirror_vertical"}:
+            return selected
+        if action_id == "edit.paste":
+            return bool(sld_clipboard) and project_active
+        return True
+
+    action_router.set_enabled_provider(_action_enabled)
+
     lifecycle_service = project_workspace_adapter.application.project_lifecycle
     lifecycle_service.configure_presentation_factory(create_sld_document)
     # The lifecycle service starts with an internal bootstrap context, but the
