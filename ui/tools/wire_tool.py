@@ -148,7 +148,13 @@ class WireTool(ToolBase):
         if endpoint_from is None or endpoint_to is None:
             raise ValueError("WireTool requires two canonical electrical endpoint references.")
         if endpoint_from == endpoint_to:
-            raise ValueError("WireTool endpoints must be distinct.")
+            self._preview.update_target(
+                endpoint_to,
+                valid=False,
+                reason="Choose a different electrical endpoint.",
+            )
+            self._show_preview()
+            return None
         command = CreateSimpleWireConnectionCommand(
             endpoint_a=endpoint_from,
             endpoint_b=endpoint_to,
