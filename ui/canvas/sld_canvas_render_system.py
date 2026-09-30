@@ -239,7 +239,6 @@ class SLDCanvasRenderSystem:
     def _create_degraded_realization(self, node: Any, message: str, code: str) -> Any:
         """Create a visible/selectable presentation fallback without Core mutation."""
         item = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
-        item.setObjectName("SLDDegradedRealization")
         item.object_id = node.equipment_id or node.node_id
         item.node_id = node.node_id
         try:
