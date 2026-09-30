@@ -5,7 +5,6 @@
 """Project concise semantic Application events into Messages / Events."""
 from __future__ import annotations
 from collections import deque
-from datetime import datetime
 from typing import Any
 from core.application.events import (
     ApplicationEvent, ElementCreated, ElementUpdated, ElementRemoved,
@@ -45,10 +44,15 @@ class ApplicationEventMessagesProjection:
         p = getattr(event, "payload", {}) or {}
         metadata = getattr(event, "metadata", {}) or {}
         severity = str(metadata.get("severity") or p.get("severity") or "INFO").upper()
-        timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
+        occurred_at = getattr(event, "occurred_at", None)
+        if occurred_at is not None and getattr(occurred_at, "tzinfo", None) is not None:
+            timestamp = occurred_at.astimezone().strftime("%H:%M:%S")
+        else:
+            timestamp = "time-unavailable"
         event_type = str(getattr(event, "event_type", type(event).__name__))
         identity = (
-            p.get("element_id")
+            p.get("object_id")
+            or p.get("element_id")
             or p.get("connection_id")
             or p.get("project_id")
             or p.get("study_id")
