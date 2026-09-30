@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
+from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachine
 
 
 class InteractionManager:
@@ -41,10 +42,15 @@ class InteractionManager:
         self.command_manager = command_manager
         self.input_adapter = input_adapter
         self._disposed = False
+        self._state_machine = CanvasStateMachine(workspace_id="sld")
 
     @property
     def disposed(self) -> bool:
         return self._disposed
+
+    @property
+    def state(self) -> CanvasInteractionState:
+        return self._state_machine.state
 
     @property
     def active_tool(self) -> Optional[Any]:
@@ -90,8 +96,28 @@ class InteractionManager:
         handler = getattr(manager, method_name, None)
         if not callable(handler):
             return False
+        if method_name == "key_press" and self._is_escape(event):
+            self._state_machine.cancel()
+        elif method_name == "mouse_press":
+            tool_id = str(getattr(manager, "active_tool_id", "") or "")
+            target = CanvasInteractionState.WIRE_START if tool_id == "wire" else CanvasInteractionState.PLACING_PREVIEW
+            if tool_id:
+                try:
+                    self._state_machine.transition(target)
+                except ValueError:
+                    self._state_machine.cancel()
+                    self._state_machine.transition(target)
         result = handler(event)
         return bool(result) if result is not None else True
+
+    @staticmethod
+    def _is_escape(event: Any) -> bool:
+        key = getattr(event, "key", None)
+        if callable(key):
+            key = key()
+        if isinstance(event, dict):
+            key = event.get("key", key)
+        return key in ("Escape", "escape", 0x01000000)
 
     def dispose(self) -> None:
         if self._disposed:
@@ -107,6 +133,7 @@ class InteractionManager:
         self.preview_layer = None
         self.selection_manager = None
         self.command_manager = None
+        self._state_machine.cancel()
 
 
 __all__ = ["InteractionManager"]
