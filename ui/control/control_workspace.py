@@ -61,12 +61,14 @@ class ControlWorkspace(QWidget):
 
     workspace_id = "control"
 
-    def __init__(self, *, application: Any, controller: Any = None, parent: QWidget | None = None) -> None:
+    def __init__(self, *, application: Any, controller: Any = None, selection_manager: SelectionManager | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         if application is None:
             raise ValueError("application is required.")
         self._application = application
         self._controller = controller
+        if selection_manager is None:
+            raise ValueError("ControlWorkspace requires the canonical SelectionManager.")
         self._selection_manager = selection_manager
         self._canvas = ControlCanvas()
         self._inspector = ControlInspector(application=application)
@@ -91,6 +93,7 @@ class ControlWorkspace(QWidget):
             on_execute_cycle=self._execute_cycle,
         )
         self._view = _LadderView(interaction=self._interaction, scene=self._canvas)
+        self._selection_manager.selection_changed.connect(self._on_canonical_selection)
         self._coordinator = ControlUpdateCoordinator(
             application=application,
             canvas=self._canvas,
@@ -184,6 +187,27 @@ class ControlWorkspace(QWidget):
             return
         self._interaction.activate(descriptor)
 
+    def _on_canonical_selection(self, ids: object) -> None:
+        """Project canonical selection into the Control presentation when mapped."""
+        selected = {str(value) for value in (ids or ())}
+        try:
+            model = self._application.read_control()
+        except RuntimeError:
+            return
+        component_ids = {str(component.component_id) for component in model.components}
+        component_id = next((value for value in selected if value in component_ids), None)
+        if component_id is None:
+            return
+        self._interaction._selected_component_id = component_id
+        component = next((item for item in model.components if str(item.component_id) == component_id), None)
+        self._canvas.clear_graphical_selection()
+        item = self._canvas.find_item_by_object_id(component_id)
+        if item is not None:
+            item.setSelected(True)
+        self._inspector.show_read_model(model, component_id)
+        if component is not None and component.rung_id is not None:
+            self._interaction._selected_rung_id = str(component.rung_id)
+
     def _on_rung_selected(self, rung_id: str | None) -> None:
         try:
             model = self._application.read_control()
@@ -276,6 +300,10 @@ class ControlWorkspace(QWidget):
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)
         self._subscriptions.clear()
+        try:
+            self._selection_manager.selection_changed.disconnect(self._on_canonical_selection)
+        except (RuntimeError, TypeError):
+            pass
         self._coordinator.dispose()
 
 

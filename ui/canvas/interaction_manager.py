@@ -25,7 +25,7 @@ class InteractionManager:
         preview_layer: Any = None,
         selection_manager: Any = None,
         command_manager: Any = None,
-        workspace_id: str = "sld",
+        workspace_id: str,
         discipline: str | None = None,
         input_adapter: Optional[MouseEventAdapter] = None,
     ) -> None:

@@ -57,9 +57,9 @@ from ui.workspace.engineering_context import EngineeringContextStore
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
-from core.application.commands.model_commands import CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
+from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
-from core.application.commands.simple_wire_commands import RemoveSimpleWireConnectionCommand
+from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -565,22 +565,30 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     })
 
     def _action_enabled(action_id: str) -> bool:
-        project_active = gridforge_application.project_lifecycle.context is not None
-        selected = bool(canvas_composition.selection_manager.selected_ids)
+        context = engineering_context.current
+        project_active = context.project_id is not None and gridforge_application.project_lifecycle.context is not None
+        selected = bool(context.selected_ids)
+        active_tool = context.active_tool
+        discipline = context.discipline
         if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
-                         "view.protection_workspace", "view.topology", "view.map", "view.reports",
-                         "tool.bus", "tool.wire"}:
+                         "view.protection_workspace", "view.topology", "view.map", "view.reports"}:
             return project_active
-        if action_id in {"edit.undo"}:
-            return bool(getattr(controller, "can_undo", lambda: True)())
-        if action_id in {"edit.redo"}:
-            return bool(getattr(controller, "can_redo", lambda: True)())
+        if action_id == "tool.bus":
+            return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
+        if action_id == "tool.wire":
+            return project_active and discipline == "sld" and gridforge_application.supports(CREATE_SIMPLE_WIRE)
+        if action_id == "edit.undo":
+            return project_active and bool(getattr(controller, "can_undo", lambda: False)())
+        if action_id == "edit.redo":
+            return project_active and bool(getattr(controller, "can_redo", lambda: False)())
         if action_id in {"edit.delete_selection", "edit.copy", "edit.cut", "edit.rotate",
                          "edit.mirror_horizontal", "edit.mirror_vertical"}:
-            return selected
+            return project_active and selected
         if action_id == "edit.paste":
-            return bool(sld_clipboard) and project_active
+            return project_active and bool(sld_clipboard) and discipline == "sld"
+        if action_id in {"edit.box_select", "edit.move", "edit.drag_move"}:
+            return project_active and discipline == "sld" and active_tool in {None, "select"}
         return True
 
     action_router.set_enabled_provider(_action_enabled)
