@@ -178,6 +178,8 @@ class CanvasComposer:
         tool_manager: ToolManager,
         preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
+        workspace_id: str = "sld",
+        discipline: str | None = None,
         properties_panel: Any = None,
         sld_canvas_projection: SLDCanvasProjection | None = None,
         sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
@@ -234,6 +236,8 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             selection_manager=selection_manager,
+            workspace_id=workspace_id,
+            discipline=discipline or workspace_id,
             input_adapter=input_adapter,
         )
         navigation_controller = NavigationController(view=view)
