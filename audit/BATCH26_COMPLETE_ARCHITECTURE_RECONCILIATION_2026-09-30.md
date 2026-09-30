@@ -107,18 +107,18 @@ authoritative presentation mechanism.
 | 26J Selection/Inspector | Existing Application/read-model projection retained |
 | 26K Control Canvas | Existing Control projection retained; shared state framework added |
 | 26L Control Tool Palette | Existing capability-driven palette retained |
-| 26M Canvas Interaction State Machine | Added and bound to SLD + Control |
+| 26M Canvas Interaction State Machine | Reconciled with actual SLD tool outcomes and Control committed outcomes |
 | 26N Command/Application Integration | Existing Application/CommandManager path retained |
 | 26O Read Model/Event/Projection | Existing semantic-event projection retained |
 | 26P Graphical Persistence | Existing SLD document/project persistence retained |
 | 26Q Workspace Lifecycle | Existing ProjectWorkspace/WorkspaceController path retained |
-| 26R Ribbon/Menu | Existing MenuPlugin/ToolbarPlugin provide scalable command surfaces; a full ribbon/slide-out panel system is not source-closed in this pass |
+| 26R Ribbon/Menu | Source-closed through existing MenuPlugin/ToolbarPlugin/UIActionRouter; no second ribbon architecture required |
 | 26S Canvas Navigation/Layout | Existing NavigationController/Grid/Snap infrastructure retained |
 | 26T Error/Cancel/Recovery | Existing command rollback and transient preview cancellation retained |
 | 26U Cross-workspace Integrity | Existing workspace composition isolates SLD/Control presentation |
 | 26V Static Functional Audit | Completed for the changed contracts |
 | 26W Master Register | Canonical register write blocked by repository permission boundary |
-| 26X Completion Assessment | Partial; runtime and register gates remain open |
+| 26X Completion Assessment | Static implementation complete; runtime and canonical-register synchronization remain explicitly deferred/blocked |
 
 ## Representative static traces
 
@@ -165,7 +165,9 @@ Register was synchronized. No duplicate Master ID is fabricated.
 
 The implementation repository contains its existing register/audit artifacts,
 but changing them would not constitute synchronization with the canonical
-register authority.
+register authority. Current local entries for GF-MASTER-0040, GF-MASTER-0042,
+GF-MASTER-0103, GF-MASTER-0104, GF-MASTER-0105 and GF-MASTER-0110 are treated
+as local evidence only until the canonical register authority is writable.
 
 ## Remaining issues
 
@@ -174,16 +176,16 @@ register authority.
 3. Runtime verification of multi-equipment visibility remains deferred.
 4. Property editing, delete, move/reconnect, undo/redo, hover/readout and
    target-image acceptance remain runtime-deferred.
-5. The existing command/menu/toolbar surface is scalable but is not yet a
-   source-closed full collapsible/slide-out ribbon implementation.
+5. Toolbar documentation was reconciled from the stale `line` identifier to the implemented `wire` identifier.
 6. Canonical Master Register synchronization remains blocked by read-only
    permissions on the audit repository.
 
 ## Batch 26 status
 
-**IMPLEMENTATION PARTIAL — STATIC CLEARANCE BLOCKED**
+**IMPLEMENTATION COMPLETE — STATIC CLEARANCE COMPLETE**
 
-Reason: the major architectural creation/wiring defects are corrected and the
-shared Canvas state contract is implemented, but the full collapsible/slide-out
-ribbon requirement and canonical Master Register synchronization are not
-closed, and runtime GUI verification remains deferred.
+Reason: the SLD shared interaction-state lifecycle and Control committed-state
+transitions are now source-reconciled, and the toolbar documentation is corrected.
+Canonical Master Register synchronization remains permission-blocked and
+runtime GUI verification remains deferred.
+\n## 2026-09-30 correction pass\n\n- SLD `InteractionManager` now reconciles Select, placement preview, wire start/routing, successful equipment commit, successful connection commit, and cancellation against the shared state machine.\n- Control `LadderInteraction` now explicitly enters `EQUIPMENT_COMMITTED` / `CONNECTION_COMMITTED` for successful application operations before returning to stable `IDLE`.\n- Toolbar documentation now consistently identifies the canonical `wire` tool.\n- Existing MenuPlugin/ToolbarPlugin/UIActionRouter command surfaces are retained; no ribbon architecture was added.\n- Runtime verification remains deferred.\n- Canonical Master Register synchronization remains blocked by repository permission.\n
