@@ -8,7 +8,7 @@ truth and never performs mutations.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,4 +51,33 @@ class EngineeringContext:
         )
 
 
-__all__ = ["EngineeringContext"]
+class EngineeringContextStore:
+    """Single presentation-side context store with explicit change observers."""
+
+    def __init__(self, context: EngineeringContext | None = None) -> None:
+        self._current = context or EngineeringContext()
+        self._observers: list[Callable[[EngineeringContext], None]] = []
+
+    @property
+    def current(self) -> EngineeringContext:
+        return self._current
+
+    def update(self, **changes: Any) -> EngineeringContext:
+        self._current = self._current.with_updates(**changes)
+        for observer in tuple(self._observers):
+            observer(self._current)
+        return self._current
+
+    def subscribe(self, observer: Callable[[EngineeringContext], None]) -> None:
+        if not callable(observer):
+            raise TypeError("observer must be callable.")
+        if observer not in self._observers:
+            self._observers.append(observer)
+
+    def unsubscribe(self, observer: Callable[[EngineeringContext], None]) -> None:
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+
+__all__ = ["EngineeringContext", "EngineeringContextStore"]
+
