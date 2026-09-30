@@ -6,8 +6,8 @@
 **Branch:** `main`  
 **Reference/Audit Repository:** `SubhenduMishra29/GridForge`  
 **Audit Mode:** Static repository inspection only  
-**Assessment:** COMPLETE  
-**Correction:** PARTIAL  
+**Assessment:** SUPERSEDED BY FINAL STATIC RE-AUDIT  
+**Correction:** COMPLETE — STATIC ARCHITECTURAL CLOSURE  
 **Runtime:** NOT VERIFIED  
 **CI:** NOT RUN
 
@@ -69,7 +69,7 @@ In particular, `SLDGraphicsItemFactory` now treats Application network state as 
 
 ## Batch 27 correction disposition
 
-**Assessment:** COMPLETE — static re-audit completed.
+**Assessment:** SUPERSEDED — final static re-audit completed in `BATCH27_FINAL_COMPLETE_STATIC_REAUDIT_2026-09-30.md`.
 
 **Correction:** PARTIAL — static architectural reconciliation is materially advanced, but the explicitly residual workstation-context, feedback timestamp/association, menu/action inventory, Explorer/List/Inspector synchronization, and full SLD visual-coverage areas are not all statically closed.
 
@@ -77,8 +77,4 @@ In particular, `SLDGraphicsItemFactory` now treats Application network state as 
 
 **CI:** NOT RUN.
 
-Batch 27 therefore must **not** be represented as runtime-closed. The appropriate state is:
-
-`REMEDIATED — RUNTIME VERIFICATION DEFERRED`
-
-for corrected families, and `PARTIAL` for the residual static areas listed above.
+This historical report is retained for provenance. The authoritative current Batch 27 static closure is `audit/BATCH27_FINAL_COMPLETE_STATIC_REAUDIT_2026-09-30.md`.
