@@ -22,6 +22,7 @@ from ui.control.control_tool_palette import ControlToolDescriptor
 from ui.items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachine
+from ui.canvas.engineering_canvas_contract import CanvasInteractionAdapter
 
 
 class LadderInteraction:
@@ -48,6 +49,7 @@ class LadderInteraction:
         self._on_connection_selected = on_connection_selected
         self._on_status = on_status
         self._state_machine = CanvasStateMachine(workspace_id="control")
+        self._canvas_contract = CanvasInteractionAdapter(workspace_id="control", discipline="control", on_feedback=lambda _state, message: self._status(message))
 
     @property
     def state(self) -> CanvasInteractionState:
@@ -68,6 +70,7 @@ class LadderInteraction:
     def activate(self, descriptor: ControlToolDescriptor) -> None:
         self.cancel()
         self._active = descriptor
+        self._canvas_contract.set_tool(descriptor.tool_id)
         target = CanvasInteractionState.WIRE_START if descriptor.tool_id == "signal.connect" else CanvasInteractionState.PLACING_PREVIEW
         self._state_machine.transition(target)
         self._status(f"Tool: {descriptor.display_name}")
@@ -75,6 +78,7 @@ class LadderInteraction:
     def cancel(self) -> None:
         self._canvas.clear_transient_preview()
         self._active = None
+        self._canvas_contract.cancel()
         self._signal_source = None
         self._move_source = None
         self._state_machine.cancel()
