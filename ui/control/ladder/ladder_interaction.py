@@ -22,6 +22,8 @@ from ui.control.control_tool_palette import ControlToolDescriptor
 from ui.items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachine
+from ui.canvas.engineering_canvas_contract import CanvasInteractionAdapter
+from ui.core.selection_manager import SelectionManager
 
 
 class LadderInteraction:
@@ -34,6 +36,7 @@ class LadderInteraction:
         on_component_selected: Callable[[str | None], None] | None = None,
         on_connection_selected: Callable[[tuple[str, str, str, str] | None], None] | None = None,
         on_status: Callable[[str], None] | None = None,
+        selection_manager: SelectionManager | None = None,
     ) -> None:
         self._application = application
         self._canvas = canvas
@@ -47,7 +50,9 @@ class LadderInteraction:
         self._on_component_selected = on_component_selected
         self._on_connection_selected = on_connection_selected
         self._on_status = on_status
+        self._selection_manager = selection_manager
         self._state_machine = CanvasStateMachine(workspace_id="control")
+        self._canvas_contract = CanvasInteractionAdapter(workspace_id="control", discipline="control", on_feedback=lambda _state, message: self._status(message))
 
     @property
     def state(self) -> CanvasInteractionState:
@@ -68,6 +73,7 @@ class LadderInteraction:
     def activate(self, descriptor: ControlToolDescriptor) -> None:
         self.cancel()
         self._active = descriptor
+        self._canvas_contract.set_tool(descriptor.tool_id)
         target = CanvasInteractionState.WIRE_START if descriptor.tool_id == "signal.connect" else CanvasInteractionState.PLACING_PREVIEW
         self._state_machine.transition(target)
         self._status(f"Tool: {descriptor.display_name}")
@@ -75,6 +81,7 @@ class LadderInteraction:
     def cancel(self) -> None:
         self._canvas.clear_transient_preview()
         self._active = None
+        self._canvas_contract.cancel()
         self._signal_source = None
         self._move_source = None
         self._state_machine.cancel()
@@ -276,6 +283,8 @@ class LadderInteraction:
 
     def _select_component(self, component_id: str | None) -> None:
         self._selected_component_id = component_id
+        if component_id is not None and self._selection_manager is not None:
+            self._selection_manager.select_single(component_id)
         if component_id is not None:
             self._selected_connection = None
             if self._on_connection_selected:

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF
+from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 
@@ -157,6 +157,11 @@ class SLDCanvasRenderSystem:
                     code=code,
                 )
                 self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+                degraded = self._create_degraded_realization(node, message, code)
+                self._scene.addItem(degraded)
+                self._items[node.node_id] = (degraded,)
+                self._render_signatures[node.node_id] = signature
+                realized[node.node_id] = degraded
                 if self._diagnostic_sink is not None:
                     self._diagnostic_sink(diagnostic)
                 continue
@@ -230,6 +235,20 @@ class SLDCanvasRenderSystem:
         self._render_diagnostics = (*self._render_diagnostics, diagnostic)
         if self._diagnostic_sink is not None:
             self._diagnostic_sink(diagnostic)
+
+    def _create_degraded_realization(self, node: Any, message: str, code: str) -> Any:
+        """Create a visible/selectable presentation fallback without Core mutation."""
+        item = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
+        item.object_id = node.equipment_id or node.node_id
+        item.node_id = node.node_id
+        try:
+            item.setToolTip(f"Unsupported presentation [{code}]\\n{message}")
+        except Exception:
+            pass
+        text = QGraphicsTextItem(f"Unsupported Symbol\\n{item.object_id}", item)
+        text.setPos(-62.0, -24.0)
+        item.setPos(float(node.x), float(node.y))
+        return item
 
     @staticmethod
     def _node_failure_code(node: Any, exc: Exception) -> str:

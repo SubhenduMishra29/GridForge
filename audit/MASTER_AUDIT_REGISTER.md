@@ -748,7 +748,7 @@ This is the baseline effective-status index for the **75 active Master IDs**. Th
 | GF-MASTER-0034 | Persistence | Protection serialization | Relay and protection persistence reconstruction unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0035 | Application | Events | Semantic event propagation unverified | HIGH | **OPEN** | Yes |
 | GF-MASTER-0036 | Application | Revision-validation | RevisionService is not integrated with project activation/replacement lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Application remains the sole project-transition revision coordinator via `_run_project_transition()`: it snapshots `RevisionService` before lifecycle transition, restores the exact prior revision state on failure, and resets revision only after successful activation; `bootstrap.activate_project_state()` no longer snapshots/restores/resets revision state; execute/undo/redo/presentation/save revision paths remain intact; runtime verification deferred | Yes |
-| GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0037 | Application | Command-transaction-history | Application mutation, transaction, SLD reconciliation, and undo-redo ordering | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Creation pre-commit reconciliation now consumes the transaction-visible Core object returned by ApplicationResult.value instead of depending on a read model that is refreshed after semantic commit; CommandManager remains the sole command/history boundary; rollback, redo re-execution, and post-commit semantic publication remain ordered correctly | Prevents pre-commit SLD creation from treating post-commit read state as transaction evidence; runtime GUI verification remains deferred | One Command → one Transaction → coordinated Core/SLD mutation → commit → history → semantic event/read projection | Yes |
 | GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0040 | SLD | Projection-rendering | Non-Bus SLD realization requires canonical Application read-model identity referenced by SLDNode.equipment_id; Bus uses a dedicated presentation path | HIGH | **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED** | Yes |
@@ -1726,3 +1726,28 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 **Runtime:** **RUNTIME VERIFICATION — DEFERRED**
 
 **Author:** Subhendu Mishra
+
+
+## 2026-09-30 — Batch 27 Final Consolidated Correction
+
+**Current implementation/audit authority:** `madhuri196mishra-cpu/GridForge:main`  
+**Verification mode:** static source inspection and correction only. Runtime/GUI/CI execution was not performed.
+
+| ID | Correction family | Status | Static evidence | Runtime |
+|---|---|---|---|---|
+| B27-FINAL-001 | Unified Workstation | PARTIAL | Existing MainWindow/ShellPlugin/WorkspaceRealizer and engineering tabs remain authoritative; full active-context contract remains follow-up. | Deferred |
+| B27-FINAL-002 | Common Canvas Contract | REMEDIATED — STATICALLY VERIFIED | Added common presentation contract and consumed it from SLD, Control and Protection. | Deferred |
+| B27-FINAL-003 | Place/Connect Lifecycle | REMEDIATED — STATICALLY VERIFIED; RUNTIME VERIFICATION DEFERRED | Existing Application/SLD placement lifecycle remains connection-independent. | Deferred |
+| B27-FINAL-004 | Renderer Degradation | REMEDIATED — STATICALLY VERIFIED | Failed semantic realization now produces a visible/selectable degraded symbol while retaining identity and RenderDiagnostic. | Deferred |
+| B27-FINAL-005 | Engineering Selection | REMEDIATED — STATICALLY VERIFIED | Main composition shares one SelectionManager with SLD, Control and Protection. | Deferred |
+| B27-FINAL-006 | Control UX | REMEDIATED — STATICALLY VERIFIED | Control toolbar is grouped; palette no longer depends on ASCII engineering glyphs; shared canvas contract is consumed. | Deferred |
+| B27-FINAL-007 | Protection Workspace | REMEDIATED — STATICALLY VERIFIED | Protection now has Explorer, scheme surface, Inspector and toolbar over Application read state. | Deferred |
+| B27-FINAL-008 | Feedback System | PARTIAL | Existing validation/event/status authorities preserved; complete timestamp/context sweep remains outstanding. | Deferred |
+| B27-FINAL-009 | Menu/Toolbar | PARTIAL | Control action taxonomy improved without bypassing UIActionRouter; full menu inventory remains outstanding. | Deferred |
+| B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current authority is explicitly `madhuri196mishra-cpu/GridForge:main`; historical repositories remain provenance only. | Deferred |
+
+**Batch report:** `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md`
+
+**Final disposition:** Batch 27 correction was applied, but the batch is **not** marked `CORRECTION COMPLETE — STATIC ARCHITECTURAL CLOSURE` because B27-FINAL-001, B27-FINAL-008 and B27-FINAL-009 remain PARTIAL.
+
+Runtime and CI remain explicitly unverified/not run.

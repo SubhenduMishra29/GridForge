@@ -17,6 +17,7 @@ from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
 from ui.canvas.navigation_controller import NavigationController
+from ui.canvas.engineering_canvas_contract import CanvasInteractionContract
 from ui.canvas.preview_layer import PreviewLayer
 from ui.core.controller import Controller
 from ui.core.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
@@ -137,6 +138,7 @@ class CanvasComposition:
     sld_canvas_projection: SLDCanvasProjection
     sld_canvas_render_system: SLDCanvasRenderSystem
     selection_projection: SelectionProjectionCoordinator
+    interaction_contract: CanvasInteractionContract
 
     @property
     def widget(self) -> QWidget:
@@ -199,6 +201,7 @@ class CanvasComposer:
             raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
 
         application = tool_manager.application
+        interaction_contract = CanvasInteractionContract()
         if application is None:
             raise ValueError("tool_manager must retain the canonical Application.")
 
@@ -263,6 +266,7 @@ class CanvasComposer:
             sld_canvas_projection=sld_canvas_projection,
             sld_canvas_render_system=sld_canvas_render_system,
             selection_projection=selection_projection,
+            interaction_contract=interaction_contract,
         )
 
     def bind_selection_projection(

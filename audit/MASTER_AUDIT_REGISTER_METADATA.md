@@ -181,3 +181,14 @@ Historical OPEN entries in earlier metadata tables are chronology only and do no
 | GF-MASTER-0106 | STATICALLY VERIFIED | `ShellPlugin` provides application header, project context, Application read-model search, notifications, help and user/role presentation. |
 
 Runtime/GUI verification remains deferred. Historical GF-MASTER-0047 and GF-MASTER-0048 remain DEFERRED because their original technical finding text cannot be safely reconstructed.
+
+
+## 2026-09-30 — Batch 27 Current Authority Reconciliation
+
+**Current implementation/audit authority:** `madhuri196mishra-cpu/GridForge:main`
+
+Historical references to `pandaraseswari03-collab/GridForge` and other prior repositories are retained as historical/provenance evidence only. They do not supersede the current implementation authority.
+
+Batch 27 corrections are recorded in `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md` and synchronized into the current Master Audit Register Markdown and CSV.
+
+**Verification discipline:** static source inspection only. Runtime GUI verification and CI/test execution were not performed.

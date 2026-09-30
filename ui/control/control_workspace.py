@@ -20,6 +20,7 @@ from .control_toolbar import ControlToolbar
 from .control_status_bar import ControlStatusBar
 from .ladder.ladder_interaction import LadderInteraction
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
+from ui.core.selection_manager import SelectionManager
 
 
 class _LadderView(QGraphicsView):
@@ -66,6 +67,7 @@ class ControlWorkspace(QWidget):
             raise ValueError("application is required.")
         self._application = application
         self._controller = controller
+        self._selection_manager = selection_manager
         self._canvas = ControlCanvas()
         self._inspector = ControlInspector(application=application)
         self._status = ControlStatusBar()
@@ -76,6 +78,7 @@ class ControlWorkspace(QWidget):
             on_component_selected=self._on_component_selected,
             on_connection_selected=self._on_connection_selected,
             on_status=self._status.set_status,
+            selection_manager=selection_manager,
         )
         self._palette = ControlToolPalette(application=application, on_selected=self._tool_selected)
         self._toolbar = ControlToolbar(
