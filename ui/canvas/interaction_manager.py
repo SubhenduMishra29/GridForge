@@ -1,4 +1,7 @@
-"""Central presentation-side routing for Canvas interaction input."""
+"""Central presentation-side routing for Canvas interaction input.
+
+Author: Subhendu Mishra
+"""
 
 from __future__ import annotations
 
@@ -9,12 +12,7 @@ from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachin
 
 
 class InteractionManager:
-    """Route semantic Canvas events to the active UI ToolManager.
-
-    Native Qt mouse events are translated here, before tools see them. This
-    keeps QGraphicsScene knowledge at the Canvas boundary and leaves tools
-    responsible only for interaction semantics.
-    """
+    """Route semantic Canvas events to the active UI ToolManager."""
 
     def __init__(
         self,
@@ -63,6 +61,20 @@ class InteractionManager:
         getter = getattr(manager, "get_active_tool", None)
         return getter() if callable(getter) else None
 
+    def synchronize_tool_state(self) -> CanvasInteractionState:
+        """Reconcile presentation state with the authoritative active tool."""
+        tool_id = str(getattr(self.tool_manager, "active_tool_id", "") or "")
+        if not tool_id:
+            return self._state_machine.cancel()
+        if tool_id == "wire":
+            target = CanvasInteractionState.WIRE_START
+        elif tool_id == "select":
+            target = CanvasInteractionState.SELECTING
+        else:
+            target = CanvasInteractionState.PLACING_PREVIEW
+        self._force_transition(target)
+        return self._state_machine.state
+
     def mouse_press(self, event: Any) -> bool:
         return self._mouse_dispatch("mouse_press", event)
 
@@ -96,28 +108,83 @@ class InteractionManager:
         handler = getattr(manager, method_name, None)
         if not callable(handler):
             return False
+
+        tool_id = str(getattr(manager, "active_tool_id", "") or "")
+        tool = getattr(manager, "active_tool", None)
+        wire_has_source = (
+            tool_id == "wire"
+            and tool is not None
+            and getattr(getattr(tool, "_preview", None), "source_endpoint", None) is not None
+        )
+
         if method_name == "key_press" and self._is_escape(event):
             self._state_machine.cancel()
         elif method_name == "mouse_press":
-            tool_id = str(getattr(manager, "active_tool_id", "") or "")
-            target = CanvasInteractionState.WIRE_START if tool_id == "wire" else CanvasInteractionState.PLACING_PREVIEW
-            if tool_id:
-                try:
-                    self._state_machine.transition(target)
-                except ValueError:
-                    self._state_machine.cancel()
-                    self._state_machine.transition(target)
+            self._transition_for_press(tool_id, wire_has_source)
+
         result = handler(event)
-        return bool(result) if result is not None else True
+        accepted = bool(result) if result is not None else True
+        self._reconcile_outcome(method_name, tool_id, accepted, wire_has_source)
+        return accepted
+
+    def _transition_for_press(self, tool_id: str, wire_has_source: bool) -> None:
+        if not tool_id:
+            self._state_machine.cancel()
+            return
+        if tool_id == "select":
+            target = CanvasInteractionState.SELECTING
+        elif tool_id == "wire":
+            target = CanvasInteractionState.WIRE_ROUTING if wire_has_source else CanvasInteractionState.WIRE_START
+        else:
+            target = CanvasInteractionState.PLACING_PREVIEW
+        self._force_transition(target)
+
+    def _reconcile_outcome(
+        self,
+        method_name: str,
+        tool_id: str,
+        accepted: bool,
+        wire_had_source: bool,
+    ) -> None:
+        if method_name == "key_press":
+            return
+        if not accepted:
+            return
+
+        if tool_id == "wire":
+            if method_name == "mouse_press":
+                if wire_had_source:
+                    self._force_transition(CanvasInteractionState.CONNECTION_COMMITTED)
+                    self._state_machine.cancel()
+                else:
+                    self._force_transition(CanvasInteractionState.WIRE_ROUTING)
+            return
+
+        if tool_id == "select":
+            if method_name == "mouse_release":
+                self._force_transition(CanvasInteractionState.IDLE)
+            return
+
+        if method_name == "mouse_release":
+            self._force_transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
+
+    def _force_transition(self, target: CanvasInteractionState) -> None:
+        if self._state_machine.state is target:
+            return
+        try:
+            self._state_machine.transition(target)
+        except ValueError:
+            self._state_machine.cancel()
+            self._state_machine.transition(target)
 
     @staticmethod
     def _is_escape(event: Any) -> bool:
-        key = getattr(event, "key", None)
+        key = getattr(event, "key", None) if event is not None else None
         if callable(key):
             key = key()
         if isinstance(event, dict):
             key = event.get("key", key)
-        return key in ("Escape", "escape", 0x01000000)
+        return key in ("Escape", "escape", 0x01000000, 16777216, "Key_Escape")
 
     def dispose(self) -> None:
         if self._disposed:
