@@ -68,7 +68,15 @@ class WireTool(ToolBase):
         self._current_position = position
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
-        self._execute_connection(*self._preview.get_endpoint_pair(), source_snap=self._start_snap, target_snap=snap_result)
+        result = self._execute_connection(
+            *self._preview.get_endpoint_pair(),
+            source_snap=self._start_snap,
+            target_snap=snap_result,
+        )
+        if not getattr(result, "success", False):
+            # A failed Application command is not a committed connection.
+            # Keep the routing preview alive so the user can retry or cancel.
+            return False
         self._clear_state()
         return True
 
