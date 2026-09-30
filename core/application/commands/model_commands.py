@@ -179,13 +179,13 @@ class DeleteShuntCommand(Command):
         super().__init__(**_command(DELETE_SHUNT, {"shunt_id": shunt_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateLineCommand(Command):
-    def __init__(self, *, line_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
+    def __init__(self, *, line_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None,
                  resistance_ohm: float, reactance_ohm: float, shunt_susceptance_siemens: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
-            raise TypeError("Line endpoints must be EndpointReference values.")
-        super().__init__(**_command(CREATE_LINE, {"presentation_x": presentation_x, "presentation_y": presentation_y, 
+        _endpoint(endpoint_from, "endpoint_from")
+        _endpoint(endpoint_to, "endpoint_to")
+        super().__init__(**_command(CREATE_LINE, {"presentation_x": presentation_x, "presentation_y": presentation_y,
             "line_id": line_id,
             "endpoint_from": endpoint_from,
             "endpoint_to": endpoint_to,
