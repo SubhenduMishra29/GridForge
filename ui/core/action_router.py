@@ -26,6 +26,7 @@ class UIActionRouter:
     def __init__(self) -> None:
         self._handlers: dict[str, ActionHandler] = {}
         self._disposed = False
+        self._enabled_provider: Callable[[str], bool] | None = None
 
     @property
     def actions(self) -> Mapping[str, ActionHandler]:
@@ -61,13 +62,33 @@ class UIActionRouter:
         return handler
 
     def dispatch(self, action_id: str) -> Any:
+        if not self.is_enabled(action_id):
+            raise RuntimeError(f"UI action is currently disabled: {action_id!r}")
         return self.require(action_id)()
+
+    def set_enabled_provider(self, provider: Callable[[str], bool] | None) -> None:
+        if provider is not None and not callable(provider):
+            raise TypeError("provider must be callable or None.")
+        self._enabled_provider = provider
+
+    def is_enabled(self, action_id: str) -> bool:
+        self._ensure_active()
+        self._validate_action_id(action_id)
+        if action_id not in self._handlers:
+            return False
+        if self._enabled_provider is None:
+            return True
+        try:
+            return bool(self._enabled_provider(action_id))
+        except (RuntimeError, TypeError, ValueError):
+            return False
 
     def has(self, action_id: str) -> bool:
         return not self._disposed and isinstance(action_id, str) and action_id in self._handlers
 
     def dispose(self) -> None:
         self._handlers.clear()
+        self._enabled_provider = None
         self._disposed = True
 
     def _ensure_active(self) -> None:
