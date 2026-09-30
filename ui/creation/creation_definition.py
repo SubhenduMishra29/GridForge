@@ -204,7 +204,8 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
 def _p(parameter_id: str, display_name: str | None = None, datatype: str = "float",
        unit: str | None = None, *, required: bool = False, default: Any = None,
        editable: bool = True, derived: bool = False, choices: tuple[Any, ...] = (),
-       minimum: float | None = None, maximum: float | None = None) -> EngineeringParameterDefinition:
+       minimum: float | None = None, maximum: float | None = None,
+       validation: Mapping[str, Any] | None = None) -> EngineeringParameterDefinition:
     return EngineeringParameterDefinition(
         parameter_id=parameter_id,
         display_name=display_name or parameter_id.replace("_", " ").title(),
@@ -217,6 +218,7 @@ def _p(parameter_id: str, display_name: str | None = None, datatype: str = "floa
         choices=choices,
         minimum=minimum,
         maximum=maximum,
+        validation={} if validation is None else dict(validation),
     )
 
 
