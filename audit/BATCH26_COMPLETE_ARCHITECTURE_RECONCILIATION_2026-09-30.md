@@ -189,3 +189,33 @@ transitions are now source-reconciled, and the toolbar documentation is correcte
 Canonical Master Register synchronization remains permission-blocked and
 runtime GUI verification remains deferred.
 \n## 2026-09-30 correction pass\n\n- SLD `InteractionManager` now reconciles Select, placement preview, wire start/routing, successful equipment commit, successful connection commit, and cancellation against the shared state machine.\n- Control `LadderInteraction` now explicitly enters `EQUIPMENT_COMMITTED` / `CONNECTION_COMMITTED` for successful application operations before returning to stable `IDLE`.\n- Toolbar documentation now consistently identifies the canonical `wire` tool.\n- Existing MenuPlugin/ToolbarPlugin/UIActionRouter command surfaces are retained; no ribbon architecture was added.\n- Runtime verification remains deferred.\n- Canonical Master Register synchronization remains blocked by repository permission.\n
+
+## 2026-09-30 — Final state-machine closure correction
+
+### Repository baseline and correction
+Requested Batch 26 audit baseline: `f9a2781186b35276034e7b16da288a9ccb643242`.
+The remote `main` subsequently advanced with merge commit `308425a8c9b853c5394a3e9c1218c0f1737309be`; the correction remained limited to the existing Batch 26 architecture.
+
+Source corrections:
+- `ui/canvas/interaction_manager.py`: successful equipment placement now explicitly passes through `EQUIPMENT_COMMITTED` and immediately settles to `IDLE`; unsuccessful placement cannot be represented as committed.
+- `ui/tools/wire_tool.py`: `CONNECTION_COMMITTED` is now reachable only after a successful existing Application command result. Failed wire commands leave the transient routing state available for retry/cancel.
+- `ui/control/ladder/ladder_interaction.py`: unchanged shared-state architecture retained and statically re-audited.
+
+### Exact call-chain preservation
+SLD placement remains:
+`EquipmentDefinition -> ToolManager -> CreationDraft -> preview -> CreationCommandFactory -> Application.prepare_creation_command() -> Application.execute() -> CommandManager -> Core -> semantic event -> read model -> SLDDocument -> SLDCanvasProjection -> SLDCanvasRenderSystem`.
+
+SLD wiring remains:
+`WireTool -> EndpointIdentityAdapter -> EndpointReference -> CreateSimpleWireConnectionCommand -> Application.execute() -> CommandManager -> Core Network -> semantic event -> SLD projection`.
+
+No second architecture was introduced.
+
+### Static evidence boundary
+**RUNTIME VERIFICATION — DEFERRED**
+
+**CANONICAL REGISTER SYNC — BLOCKED BY REPOSITORY PERMISSION**
+
+No runtime claim is made. The canonical Master Register remains `SubhenduMishra29/GridForge:main`; local register edits are not represented as canonical synchronization.
+
+### Final status
+**IMPLEMENTATION COMPLETE — STATIC CLEARANCE COMPLETE**
