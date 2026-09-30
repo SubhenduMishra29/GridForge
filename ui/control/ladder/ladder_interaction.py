@@ -149,6 +149,8 @@ class LadderInteraction:
             self._select_component(component_id)
             if descriptor.tool_id == "component.remove":
                 result = self._application.execute(RemoveControlComponent(component_id=component_id))
+                if getattr(result, "success", True):
+                    self._state_machine.transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
                 self.cancel()
                 return result
             if self._move_source is None:
@@ -165,6 +167,8 @@ class LadderInteraction:
             result = self._application.execute(
                 MoveLadderElement(component_id=source_id, rung_id=rung.rung_id, position=position)
             )
+            if getattr(result, "success", True):
+                self._state_machine.transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
             self.cancel()
             return result
 
@@ -182,6 +186,8 @@ class LadderInteraction:
                     target_input=identity[3],
                 )
             )
+            if getattr(result, "success", True):
+                self._state_machine.transition(CanvasInteractionState.CONNECTION_COMMITTED)
             self.cancel()
             return result
 
@@ -215,6 +221,8 @@ class LadderInteraction:
                     target_input=target.port_name,
                 )
             )
+            if getattr(result, "success", True):
+                self._state_machine.transition(CanvasInteractionState.CONNECTION_COMMITTED)
             self.cancel()
             return result
 
@@ -236,6 +244,8 @@ class LadderInteraction:
                 position=position,
             )
         )
+        if getattr(result, "success", True):
+            self._state_machine.transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
         self.cancel()
         return result
 
