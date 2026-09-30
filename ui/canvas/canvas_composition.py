@@ -93,7 +93,11 @@ class SLDCanvasSurface(QWidget):
         fit = QPushButton("Fit", header)
         fit.setObjectName("SLDFit")
         fit.setToolTip("Fit the SLD content in the viewport")
-        fit.clicked.connect(navigation_controller.fit_content)
+        # QPushButton.clicked emits a bool; do not pass that signal payload as
+        # the numeric fit margin.
+        fit.clicked.connect(
+            lambda _checked=False: navigation_controller.fit_content()
+        )
         header_layout.addWidget(fit)
 
         root.addWidget(header)
