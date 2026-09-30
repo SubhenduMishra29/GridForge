@@ -59,3 +59,5 @@ Consumers import concrete components from their owning modules.
 from __future__ import annotations
 
 __all__: list[str] = []
+
+from .canvas_framework import CanvasInteractionState, CanvasStateMachine

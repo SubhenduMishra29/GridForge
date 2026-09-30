@@ -27,8 +27,8 @@ class LineModelService(ModelServiceSupport):
         self,
         *,
         line_id: str,
-        endpoint_from: Bus | Terminal,
-        endpoint_to: Bus | Terminal,
+        endpoint_from: Bus | Terminal | None = None,
+        endpoint_to: Bus | Terminal | None = None,
         resistance_ohm: float = 0.0,
         reactance_ohm: float = 0.0,
         shunt_susceptance_siemens: float = 0.0,
@@ -38,15 +38,18 @@ class LineModelService(ModelServiceSupport):
     ) -> ApplicationResult[Line]:
         self._require_transaction(transaction)
         self._require_id(line_id, "line_id")
-        self._validate_endpoint(endpoint_from, "endpoint_from")
-        self._validate_endpoint(endpoint_to, "endpoint_to")
-        self._require_distinct_endpoints(
-            endpoint_from,
-            endpoint_to,
-            "INVALID_LINE_ENDPOINTS",
-            "Line",
-            line_id,
-        )
+        if endpoint_from is not None:
+            self._validate_endpoint(endpoint_from, "endpoint_from")
+        if endpoint_to is not None:
+            self._validate_endpoint(endpoint_to, "endpoint_to")
+        if endpoint_from is not None and endpoint_to is not None:
+            self._require_distinct_endpoints(
+                endpoint_from,
+                endpoint_to,
+                "INVALID_LINE_ENDPOINTS",
+                "Line",
+                line_id,
+            )
         self._ensure_not_exists("line", line_id, "Line")
         line = Line(
             id=line_id,

@@ -21,6 +21,7 @@ from core.application.commands.control_commands import (
 from ui.control.control_tool_palette import ControlToolDescriptor
 from ui.items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
+from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachine
 
 
 class LadderInteraction:
@@ -46,6 +47,11 @@ class LadderInteraction:
         self._on_component_selected = on_component_selected
         self._on_connection_selected = on_connection_selected
         self._on_status = on_status
+        self._state_machine = CanvasStateMachine(workspace_id="control")
+
+    @property
+    def state(self) -> CanvasInteractionState:
+        return self._state_machine.state
 
     @property
     def active_tool(self) -> ControlToolDescriptor | None:
@@ -62,6 +68,8 @@ class LadderInteraction:
     def activate(self, descriptor: ControlToolDescriptor) -> None:
         self.cancel()
         self._active = descriptor
+        target = CanvasInteractionState.WIRE_START if descriptor.tool_id == "signal.connect" else CanvasInteractionState.PLACING_PREVIEW
+        self._state_machine.transition(target)
         self._status(f"Tool: {descriptor.display_name}")
 
     def cancel(self) -> None:
@@ -69,6 +77,7 @@ class LadderInteraction:
         self._active = None
         self._signal_source = None
         self._move_source = None
+        self._state_machine.cancel()
 
     def clear_project_state(self) -> None:
         self.cancel()
@@ -183,6 +192,7 @@ class LadderInteraction:
                     self._status("Select an OUTPUT port.")
                     return None
                 self._signal_source = source
+                self._state_machine.transition(CanvasInteractionState.WIRE_ROUTING)
                 self._select_component(source.component_id)
                 self._status(f"Output selected: {source.component_id}.{source.port_name}.")
                 return None

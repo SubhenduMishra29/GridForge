@@ -334,7 +334,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_line", "line_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_line", "line_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "cable": _definition("cable", "cable", (
             _p("length_km", unit="km", required=True, minimum=0.0),
             _p("r1_ohm_per_km", unit="ohm/km", required=True),
@@ -346,7 +346,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_cable", "cable_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_cable", "cable_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "transformer": _definition("transformer", "transformer", (
             _p("r", "Resistance", required=True),
             _p("x", "Reactance", required=True),
@@ -358,7 +358,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("tap", "Tap", default=1.0),
             _p("shift", "Phase shift", unit="deg", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_transformer", "transformer_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True,
+        ), "model.create_transformer", "transformer_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names,
            conditional=(ConditionalParameterRequirement(
                "Transformer requires impedance_base_mva or rate_mva.",
                require_any=("impedance_base_mva", "rate_mva"),
@@ -366,22 +366,22 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
         "switch": _definition("switch", "switch", (
             _p("rated_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), "model.create_switch", "switch_id", endpoint_mapping={"from": "endpoint_a", "to": "endpoint_b"}, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_switch", "switch_id", endpoint_mapping={"from": "endpoint_a", "to": "endpoint_b"}, terminal_names=terminal_names),
         "breaker": _definition("breaker", "breaker", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("current_a", unit="A", required=True, minimum=0.0),
             _p("interrupting_ka", unit="kA", required=True, minimum=0.0),
             _p("closed", "Closed", "bool", default=True),
             _p("in_service", "In service", "bool", default=True),
-        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "disconnector": _definition("disconnector", "disconnector", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
-        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names, initial_endpoint_required=True),
+        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
             _p("secondary_rated_current_a", unit="A", required=True, minimum=0.0),
@@ -391,7 +391,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("polarity", "Polarity", "enum", required=True, choices=("P1_P2", "P2_P1")),
         ), "model.create_current_transformer", "transformer_id",
            endpoint_mapping={"P1": "p1_endpoint", "P2": "p2_endpoint", "S1": "s1_endpoint", "S2": "s2_endpoint"},
-           terminal_names=terminal_names, initial_endpoint_required=True),
+           terminal_names=terminal_names),
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
             _p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("secondary_voltage_v", unit="V", required=True, minimum=0.0),
@@ -400,7 +400,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("phase_displacement_deg", unit="deg"),
         ), "model.create_potential_transformer", "pt_id",
            endpoint_mapping={"primary_a": "primary_a", "primary_b": "primary_b", "secondary_a": "secondary_a", "secondary_b": "secondary_b"},
-           terminal_names=terminal_names, initial_endpoint_required=True),
+           terminal_names=terminal_names),
         "cvt": _definition("cvt", "cvt", (
             _p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_secondary_voltage_v", unit="V", required=True, minimum=0.0),
@@ -410,7 +410,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED")),
         ), "model.create_capacitive_voltage_transformer", "transformer_id",
            endpoint_mapping={"H1": "h1_endpoint", "H2": "h2_endpoint", "X1": "x1_endpoint", "X2": "x2_endpoint"},
-           terminal_names=terminal_names, initial_endpoint_required=True),
+           terminal_names=terminal_names),
         "relay": _definition("relay", "relay", (
             _p("relay_type", "Relay type", "str", required=True),
         ), "model.create_relay", "relay_id"),

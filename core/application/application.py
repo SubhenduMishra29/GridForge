@@ -702,6 +702,11 @@ class Application:
             connection_id = str(command.payload.get("line_id") or command.payload.get("cable_id"))
             connection_kind = "CABLE" if command.command_type == "model.create_cable" else "LINE"
 
+        # Line/Cable are equipment objects whose terminals can remain
+        # disconnected at creation time. Their later wiring is a separate
+        # terminal/connection operation.
+        if command.command_type in {"model.create_line", "model.create_cable"} and (source_ref is None or target_ref is None):
+            return
         if not isinstance(source_ref, EndpointReference) or not isinstance(target_ref, EndpointReference):
             raise ValueError("Connection commands require canonical EndpointReference endpoints.")
         if source_ref == target_ref:
@@ -709,6 +714,7 @@ class Application:
 
         source = self._sld_endpoint_for_reference(source_ref)
         target = self._sld_endpoint_for_reference(target_ref)
+
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
                 connection_id=connection_id,
