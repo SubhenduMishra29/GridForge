@@ -1,13 +1,13 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Current effective authority (2026-09-29):**
-- Implementation: `pandaraseswari03-collab/GridForge:main`
-- Audit/Register: `pandaraseswari03-collab/GridForge:main`
-- Historical/reference only: `SubhenduMishra29/GridForge`, `madhuri196mishra-cpu/GridForge`
+**Current effective authority (2026-09-30):**
+- Implementation: `madhuri196mishra-cpu/GridForge:main`
+- Audit/Register: `SubhenduMishra29/GridForge:main`
+- Historical/provenance only: `pandaraseswari03-collab/GridForge`
 
 Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
-**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit/register authority is `pandaraseswari03-collab/GridForge:main`; `SubhenduMishra29/GridForge` and `madhuri196mishra-cpu/GridForge` are historical/reference only.
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation authority for this correction cycle is `madhuri196mishra-cpu/GridForge:main`; current audit/register authority is `SubhenduMishra29/GridForge:main`. `pandaraseswari03-collab/GridForge` is historical/provenance only.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority

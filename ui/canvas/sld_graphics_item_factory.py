@@ -30,8 +30,8 @@ class SLDGraphicsItemFactory:
             raise TypeError("equipment_registry must be an EquipmentRegistry")
         if not isinstance(symbol_registry, SymbolRegistry):
             raise TypeError("symbol_registry must be a SymbolRegistry")
-        if application is None or not callable(getattr(application, "read_network", None)):
-            raise TypeError("application must provide the Application read-model API.")
+        if application is not None and not callable(getattr(application, "read_network", None)):
+            raise TypeError("application must provide the Application read-model API when supplied.")
         equipment_registry.validate_symbol_anchors(symbol_registry)
         self._equipment_registry = equipment_registry
         self._symbol_registry = symbol_registry
@@ -76,7 +76,7 @@ class SLDGraphicsItemFactory:
             return item
 
         definition = self._symbol_registry.require(symbol_instance.symbol_id)
-        read_model = self._read_model_for(node.equipment_id)
+        read_model = self._read_model_for_node(node, selection.equipment_type)
         equipment = self._equipment_factory.create_from_read_model(
             read_model,
             selection.equipment_type,
@@ -111,26 +111,50 @@ class SLDGraphicsItemFactory:
         item.set_visual_route(source, target, route.points, ownership=route.ownership)
         return item
 
-    def _read_model_for(self, equipment_id: str | None) -> ElementReadModel:
-        if not isinstance(equipment_id, str) or not equipment_id:
-            raise ValueError("Renderable equipment nodes require a canonical equipment_id.")
-        network = self._application.read_network()
-        for element in network.elements:
-            if element.object_id == equipment_id:
-                return element
-        protection_reader = getattr(self._application, "read_protection", None)
-        if callable(protection_reader):
-            protection = protection_reader()
-            for relay in protection.relays:
-                if relay.object_id == equipment_id:
-                    return ElementReadModel(
-                        object_id=relay.object_id,
-                        element_type="RELAY",
-                        labels={"name": relay.name},
-                        connectivity_refs=(),
-                        attributes={},
-                    )
-        raise ValueError(f"SLD node equipment {equipment_id!r} is absent from Application read state.")
+    def _read_model_for_node(self, node: SLDCanvasNode, equipment_type: str) -> ElementReadModel:
+        """Build the minimum presentation snapshot without requiring connectivity.
+
+        A committed SLD node is renderable from its own semantic identity and
+        presentation state. Application read state is optional enrichment; it
+        must never make symbol existence contingent on topology/connectivity.
+        """
+        equipment_id = node.equipment_id or str(node.properties.get("equipment_id") or node.node_id)
+        if not equipment_id:
+            raise ValueError("Renderable equipment nodes require a stable equipment identity.")
+
+        if self._application is not None:
+            network = self._application.read_network()
+            for element in network.elements:
+                if element.object_id == equipment_id:
+                    return element
+            protection_reader = getattr(self._application, "read_protection", None)
+            if callable(protection_reader):
+                protection = protection_reader()
+                for relay in protection.relays:
+                    if relay.object_id == equipment_id:
+                        return ElementReadModel(
+                            object_id=relay.object_id,
+                            element_type="RELAY",
+                            labels={"name": relay.name},
+                            connectivity_refs=(),
+                            attributes={},
+                        )
+
+        properties = dict(node.properties)
+        properties.pop("element_type", None)
+        terminal_ids = properties.pop("terminal_ids", ())
+        if isinstance(terminal_ids, list):
+            terminal_ids = tuple(str(value) for value in terminal_ids)
+        elif not isinstance(terminal_ids, tuple):
+            terminal_ids = ()
+        name = properties.pop("name", None) or equipment_id
+        return ElementReadModel(
+            object_id=str(equipment_id),
+            element_type=str(properties.pop("semantic_type", equipment_type)),
+            labels={"name": str(name)},
+            connectivity_refs=terminal_ids,
+            attributes=properties,
+        )
 
     @staticmethod
     def _bus_definition(node: SLDCanvasNode):
