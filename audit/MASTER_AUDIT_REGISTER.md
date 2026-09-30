@@ -1735,7 +1735,7 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 | ID | Correction family | Status | Static evidence | Runtime |
 |---|---|---|---|---|
-| B27-FINAL-001 | Unified Workstation | REMEDIATED — RUNTIME VERIFICATION DEFERRED | EngineeringContextStore now carries project/discpline/study-state/tool/selection read-side context; Shell header subscribes to it while WorkspaceRealizer remains layout authority. | Deferred |
+| B27-FINAL-001 | Unified Workstation | REMEDIATED — RUNTIME VERIFICATION DEFERRED | EngineeringContextStore now carries project/discipline/study-state/tool/selection read-side context; Shell header subscribes to it while WorkspaceRealizer remains layout authority. | Deferred |
 | B27-FINAL-002 | Common Canvas Contract | REMEDIATED — RUNTIME VERIFICATION DEFERRED | CanvasComposer injects workspace identity into InteractionManager; shared contract remains discipline-neutral. | Deferred |
 | B27-FINAL-003 | Place/Connect Lifecycle | REMEDIATED — STATICALLY VERIFIED; RUNTIME VERIFICATION DEFERRED | Existing Application/SLD placement lifecycle remains connection-independent. | Deferred |
 | B27-FINAL-004 | Renderer Degradation | REMEDIATED — STATICALLY VERIFIED | Failed semantic realization now produces a visible/selectable degraded symbol while retaining identity and RenderDiagnostic. | Deferred |
