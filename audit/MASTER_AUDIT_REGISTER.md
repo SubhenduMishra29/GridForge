@@ -1735,15 +1735,15 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 | ID | Correction family | Status | Static evidence | Runtime |
 |---|---|---|---|---|
-| B27-FINAL-001 | Unified Workstation | PARTIAL | Existing MainWindow/ShellPlugin/WorkspaceRealizer and engineering tabs remain authoritative; full active-context contract remains follow-up. | Deferred |
-| B27-FINAL-002 | Common Canvas Contract | REMEDIATED — STATICALLY VERIFIED | Added common presentation contract and consumed it from SLD, Control and Protection. | Deferred |
+| B27-FINAL-001 | Unified Workstation | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Existing MainWindow/ShellPlugin/WorkspaceRealizer and engineering tabs remain authoritative; full active-context contract remains follow-up. | Deferred |
+| B27-FINAL-002 | Common Canvas Contract | REMEDIATED — RUNTIME VERIFICATION DEFERRED| Added common presentation contract and consumed it from SLD, Control and Protection. | Deferred |
 | B27-FINAL-003 | Place/Connect Lifecycle | REMEDIATED — STATICALLY VERIFIED; RUNTIME VERIFICATION DEFERRED | Existing Application/SLD placement lifecycle remains connection-independent. | Deferred |
 | B27-FINAL-004 | Renderer Degradation | REMEDIATED — STATICALLY VERIFIED | Failed semantic realization now produces a visible/selectable degraded symbol while retaining identity and RenderDiagnostic. | Deferred |
-| B27-FINAL-005 | Engineering Selection | REMEDIATED — STATICALLY VERIFIED | Main composition shares one SelectionManager with SLD, Control and Protection. | Deferred |
+| B27-FINAL-005 | Engineering Selection | REMEDIATED — RUNTIME VERIFICATION DEFERRED| Main composition shares one SelectionManager with SLD, Control and Protection. | Deferred |
 | B27-FINAL-006 | Control UX | REMEDIATED — STATICALLY VERIFIED | Control toolbar is grouped; palette no longer depends on ASCII engineering glyphs; shared canvas contract is consumed. | Deferred |
-| B27-FINAL-007 | Protection Workspace | REMEDIATED — STATICALLY VERIFIED | Protection now has Explorer, scheme surface, Inspector and toolbar over Application read state. | Deferred |
-| B27-FINAL-008 | Feedback System | PARTIAL | Existing validation/event/status authorities preserved; complete timestamp/context sweep remains outstanding. | Deferred |
-| B27-FINAL-009 | Menu/Toolbar | PARTIAL | Control action taxonomy improved without bypassing UIActionRouter; full menu inventory remains outstanding. | Deferred |
+| B27-FINAL-007 | Protection Workspace | REMEDIATED — RUNTIME VERIFICATION DEFERRED| Protection now has Explorer, scheme surface, Inspector and toolbar over Application read state. | Deferred |
+| B27-FINAL-008 | Feedback System | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Existing validation/event/status authorities preserved; complete timestamp/context sweep remains outstanding. | Deferred |
+| B27-FINAL-009 | Menu/Toolbar | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Control action taxonomy improved without bypassing UIActionRouter; full menu inventory remains outstanding. | Deferred |
 | B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current authority is explicitly `madhuri196mishra-cpu/GridForge:main`; historical repositories remain provenance only. | Deferred |
 
 **Batch report:** `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md`
