@@ -619,25 +619,19 @@ class Application:
         if x is None or y is None:
             return
 
-        source = "protection_read_model" if element_type.upper() == "RELAY" else "application_read_model"
-
-        # The SLD projection is allowed to bind only after the authoritative
-        # Application read model contains the just-created Core element. This
-        # keeps AddSLDNodeCommand downstream of the authoritative read state
-        # rather than making the SLD layer infer creation success from command
-        # payloads.
-        if element_type.upper() == "RELAY":
-            protection = self.read_protection()
-            if not any(item.object_id == element_id for item in protection.relays):
-                raise ValueError(
-                    f"Created Relay {element_id!r} is not present in the authoritative protection read model."
-                )
-        else:
-            read_model = self.read_element(element_type, element_id)
-            if read_model.object_id != element_id:
-                raise ValueError(
-                    f"Created equipment identity mismatch: expected {element_id!r}, got {read_model.object_id!r}."
-                )
+        # Creation reconciliation runs before Transaction.commit().  The
+        # handler result is the authoritative transaction-visible handoff:
+        # ApplicationResult.value is the Core object returned by the mutation
+        # service, while read models remain post-mutation read-side adapters.
+        # Never require a read model to prove a creation here.
+        created_object = result.value
+        created_object_id = getattr(created_object, "id", None)
+        if created_object_id is None or str(created_object_id) != element_id:
+            raise ValueError(
+                f"Created equipment identity mismatch: expected {element_id!r}, "
+                f"got {created_object_id!r}."
+            )
+        source = "core_transaction"
 
         existing = self._sld_service.document.model.get_node_by_equipment_id_optional(element_id)
         if existing is not None:
