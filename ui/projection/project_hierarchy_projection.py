@@ -14,7 +14,7 @@ class ProjectHierarchyProjection:
 
     event_types = (ProjectLoaded, ProjectClosed)
 
-    def __init__(self, *, adapter, panel) -> None:
+    def __init__(self, *, adapter, panel, application=None) -> None:
         if adapter is None or not callable(getattr(adapter, "subscribe", None)):
             raise TypeError("adapter must provide subscribe().")
         if not callable(getattr(adapter, "unsubscribe", None)):
@@ -23,6 +23,7 @@ class ProjectHierarchyProjection:
             raise TypeError("panel must provide set_hierarchy().")
         self._adapter = adapter
         self._panel = panel
+        self._application = application
         self._disposed = False
         adapter.subscribe(self._on_workspace_changed)
         self.refresh_from_state()
@@ -44,8 +45,7 @@ class ProjectHierarchyProjection:
         if not self._disposed:
             self._panel.set_hierarchy(self._hierarchy(change.state))
 
-    @staticmethod
-    def _hierarchy(state):
+    def _hierarchy(self, state):
         project = getattr(state, "project", None)
         document = getattr(state, "document", None)
         if project is None:
@@ -55,6 +55,17 @@ class ProjectHierarchyProjection:
             "name": str(document.name),
             "type": str(document.document_type),
         },)
+        network_elements = ()
+        if self._application is not None and callable(getattr(self._application, "read_network", None)):
+            try:
+                network = self._application.read_network()
+                network_elements = tuple({
+                    "id": str(element.object_id),
+                    "name": str(element.labels.get("name") or element.object_id),
+                    "type": str(element.element_type),
+                } for element in network.elements)
+            except RuntimeError:
+                network_elements = ()
         return {
             "project": {
                 "id": str(project.project_id),
@@ -63,6 +74,7 @@ class ProjectHierarchyProjection:
             },
             "workspace_id": state.workspace_id,
             "view_id": state.view_id,
+            "network_elements": network_elements,
         }
 
     def dispose(self) -> None:
