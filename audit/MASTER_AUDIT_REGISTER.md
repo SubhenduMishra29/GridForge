@@ -1735,15 +1735,15 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 | ID | Correction family | Status | Static evidence | Runtime |
 |---|---|---|---|---|
-| B27-FINAL-001 | Unified Workstation | REMEDIATED — RUNTIME VERIFICATION DEFERRED | EngineeringContextStore now carries project/discipline/study-state/tool/selection read-side context; Shell header subscribes to it while WorkspaceRealizer remains layout authority. | Deferred |
-| B27-FINAL-002 | Common Canvas Contract | REMEDIATED — RUNTIME VERIFICATION DEFERRED | CanvasComposer injects workspace identity into InteractionManager; shared contract remains discipline-neutral. | Deferred |
+| B27-FINAL-001 | Unified Workstation | REMEDIATED — RUNTIME VERIFICATION DEFERRED | EngineeringContextStore carries project/study/state/discipline/tool/selection read-side context; Shell consumes it while WorkspaceRealizer remains layout authority; final source hardening confirmed the composition path. | Deferred |
+| B27-FINAL-002 | Common Canvas Contract | REMEDIATED — RUNTIME VERIFICATION DEFERRED | CanvasComposer injects workspace identity; common InteractionManager now requires explicit workspace_id rather than defaulting to SLD. | Deferred |
 | B27-FINAL-003 | Place/Connect Lifecycle | REMEDIATED — STATICALLY VERIFIED; RUNTIME VERIFICATION DEFERRED | Existing Application/SLD placement lifecycle remains connection-independent. | Deferred |
 | B27-FINAL-004 | Renderer Degradation | REMEDIATED — STATICALLY VERIFIED | Failed semantic realization now produces a visible/selectable degraded symbol while retaining identity and RenderDiagnostic. | Deferred |
-| B27-FINAL-005 | Engineering Selection | REMEDIATED — RUNTIME VERIFICATION DEFERRED | One SelectionManager is shared by SLD/Control/Protection, Project Explorer, Element List and Protection Inspector/canvas. | Deferred |
+| B27-FINAL-005 | Engineering Selection | REMEDIATED — RUNTIME VERIFICATION DEFERRED | One SelectionManager is shared by SLD/Control/Protection, Project Explorer, Element List and Protection; Control now reverse-projects canonical selection when a matching Control component exists. | Deferred |
 | B27-FINAL-006 | Control UX | REMEDIATED — STATICALLY VERIFIED | Control toolbar is grouped; palette no longer depends on ASCII engineering glyphs; shared canvas contract is consumed. | Deferred |
 | B27-FINAL-007 | Protection Workspace | REMEDIATED — RUNTIME VERIFICATION DEFERRED | ProtectionGraphicsSurface is a real QGraphicsView/QGraphicsScene read-side scheme projection; Explorer and Inspector use canonical selection. | Deferred |
 | B27-FINAL-008 | Feedback System | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Validation, Application events and transient status remain separate; event messages preserve ApplicationEvent.occurred_at and object identity where available. | Deferred |
-| B27-FINAL-009 | Menu/Toolbar | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Menu taxonomy is non-duplicated and menu/toolbar enabled state consumes UIActionRouter capability evaluation. | Deferred |
+| B27-FINAL-009 | Menu/Toolbar | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Menu taxonomy is non-duplicated; UIActionRouter remains the canonical enabled-state path and the composition-root provider consumes EngineeringContext plus Application command registration for SLD tool capabilities. | Deferred |
 | B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current authority is explicitly `madhuri196mishra-cpu/GridForge:main`; historical repositories remain provenance only. | Deferred |
 
 **Batch report:** `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md`
