@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt
+from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt, QColor
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
-from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen
+from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen, token_color
 
 from .base_item import BaseItem
 
@@ -56,8 +56,10 @@ class EquipmentItem(BaseItem):
         self._visual_state = VisualState.NORMAL
         self.set_presentation_state(PresentationState(visual_state=VisualState.NORMAL, readout=f"{self._element_type}: {self.object_id}"))
         self.setAcceptHoverEvents(True)
-        self.setScale(self._symbol_instance.scale)
-        self.setRotation(self._symbol_instance.rotation)
+        mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
+        mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+        self.setScale(self._symbol_instance.scale * (-1.0 if mirror_x else 1.0))
+        self.setRotation(self._symbol_instance.rotation + (180.0 if mirror_x and mirror_y else 0.0))
         self.setVisible(self._symbol_instance.visible)
         if position is not None:
             self.setPos(position)
@@ -95,7 +97,11 @@ class EquipmentItem(BaseItem):
         points = []
         for terminal in self._equipment.terminals:
             local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
-            scene_point = self.mapToScene(QPointF(local_anchor[0], local_anchor[1]))
+            mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
+            mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+            local_x = -float(local_anchor[0]) if mirror_x else float(local_anchor[0])
+            local_y = -float(local_anchor[1]) if mirror_y else float(local_anchor[1])
+            scene_point = self.mapToScene(QPointF(local_x, local_y))
             points.append({
                 "position": scene_point,
                 "object_id": self.object_id,
@@ -150,6 +156,10 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
+                # SLD canvas is deliberately white; engineering annotations must
+                # use the canonical dark-on-light text token rather than the
+                # light symbol stroke used for geometry.
+                painter.setPen(QPen(token_color("text_inverse")))
                 painter.setFont(visual_font("engineering"))
                 painter.drawText(
                     QRectF(
@@ -176,6 +186,8 @@ class EquipmentItem(BaseItem):
         state = super().get_state()
         state.update({
             "element_type": self._element_type,
+            "mirror_x": bool(self._symbol_instance.get_property("mirror_x", False)),
+            "mirror_y": bool(self._symbol_instance.get_property("mirror_y", False)),
             "symbol_id": self._symbol_instance.symbol_id,
             "representation_id": self._symbol_instance.representation_id,
             "scale": self._symbol_instance.scale,

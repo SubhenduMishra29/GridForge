@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from ui.core.qt import QGraphicsView, QHBoxLayout, QVBoxLayout, QWidget
+from ui.core.qt import QGraphicsView, QHBoxLayout, QVBoxLayout, QWidget, QSplitter, Qt
 from ui.canvas.control_canvas import ControlCanvas
 from .control_tool_palette import ControlToolDescriptor, ControlToolPalette
 from .control_inspector import ControlInspector
@@ -25,13 +25,24 @@ from ui.events.control_update_coordinator import ControlUpdateCoordinator
 class _LadderView(QGraphicsView):
     def __init__(self, *, interaction: LadderInteraction, scene: ControlCanvas, parent: QWidget | None = None) -> None:
         super().__init__(scene, parent)
+        self.setObjectName("ControlLadderView")
         self._interaction = interaction
         self.setMouseTracking(True)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def mouseMoveEvent(self, event) -> None:
         point = self.mapToScene(event.position().toPoint())
         self._interaction.preview(point.x(), point.y())
         super().mouseMoveEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        scene = self.scene()
+        if scene is not None and scene.items():
+            self.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == 1:
@@ -87,13 +98,26 @@ class ControlWorkspace(QWidget):
             application.event_bus.subscribe(event_type, self._coordinator.refresh)
             self._subscriptions.append((event_type, self._coordinator.refresh))
 
+        self._palette.setMinimumWidth(180)
+        self._palette.setMaximumWidth(300)
+        self._inspector.setMinimumWidth(280)
+        self._inspector.setMaximumWidth(420)
+        self._view.setMinimumWidth(500)
         root = QVBoxLayout(self)
+        root.setContentsMargins(4, 4, 4, 4)
+        root.setSpacing(4)
         root.addWidget(self._toolbar)
-        body = QHBoxLayout()
-        body.addWidget(self._palette)
-        body.addWidget(self._view, 1)
-        body.addWidget(self._inspector)
-        root.addLayout(body, 1)
+        splitter = QSplitter(Qt.Horizontal, self)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self._palette)
+        splitter.addWidget(self._view)
+        splitter.addWidget(self._inspector)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
+        splitter.setSizes([210, 800, 320])
+        self._workspace_splitter = splitter
+        root.addWidget(splitter, 1)
         root.addWidget(self._status)
 
         self.refresh()

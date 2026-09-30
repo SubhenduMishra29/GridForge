@@ -367,25 +367,37 @@ class PreviewLayer:
     # CLEAR
     # ========================================================
 
+    def clear_preview(
+        self,
+    ) -> None:
+        """Remove transient preview graphics without touching committed items.
+
+        PreviewLayer is a transient interaction owner, not a canvas-wide scene
+        owner. A committed SLD item must never be removed merely because a
+        tool is being deactivated.
+        """
+        for item in tuple(self._items):
+            if self._is_committed_graphics_item(item):
+                self._items.remove(item)
+                continue
+            if item.scene() is self.scene:
+                self.scene.removeItem(item)
+            self._items.remove(item)
+
     def clear(
         self,
     ) -> None:
-        """
-        Remove every transient preview item.
+        """Backward-compatible preview-only cleanup alias."""
+        self.clear_preview()
 
-        Only graphics owned by this PreviewLayer are affected.
-        The scene itself is never destroyed.
-        """
-
-        for item in tuple(
-            self._items
-        ):
-            if item.scene() is self.scene:
-                self.scene.removeItem(
-                    item
-                )
-
-        self._items.clear()
+    @staticmethod
+    def _is_committed_graphics_item(item: QGraphicsItem) -> bool:
+        """Return whether an item exposes canonical committed object identity."""
+        object_id = getattr(item, "object_id", None)
+        if isinstance(object_id, str) and object_id.strip():
+            return True
+        equipment_id = getattr(item, "equipment_id", None)
+        return isinstance(equipment_id, str) and bool(equipment_id.strip())
 
     # ========================================================
     # QUERY

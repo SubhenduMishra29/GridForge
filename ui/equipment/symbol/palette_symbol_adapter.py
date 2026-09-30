@@ -54,23 +54,25 @@ class PaletteSymbolAdapter:
         pixmap.setDevicePixelRatio(scale)
 
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setOpacity({"disabled": 0.38, "normal": 0.95, "active": 1.0, "selected": 1.0}[state])
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setOpacity({"disabled": 0.38, "normal": 0.95, "active": 1.0, "selected": 1.0}[state])
 
-        visual_state = {"disabled": VisualState.DISABLED, "normal": VisualState.NORMAL, "active": VisualState.ACTIVE, "selected": VisualState.SELECTED}[state]
-        painter.setPen(visual_pen("symbol", visual_state, width={"disabled": 1.0, "normal": 1.5, "active": 1.8, "selected": 2.2}[state]))
-        painter.setBrush(QBrush())
+            visual_state = {"disabled": VisualState.DISABLED, "normal": VisualState.NORMAL, "active": VisualState.ACTIVE, "selected": VisualState.SELECTED}[state]
+            painter.setPen(visual_pen("symbol", visual_state, width={"disabled": 1.0, "normal": 1.5, "active": 1.8, "selected": 2.2}[state]))
+            painter.setBrush(QBrush())
 
-        scale_x = (logical_width - 8.0) / definition.width
-        scale_y = (logical_height - 8.0) / definition.height
-        transform_scale = min(scale_x, scale_y)
-        painter.translate(logical_width / 2.0, logical_height / 2.0)
-        painter.scale(transform_scale, transform_scale)
+            scale_x = (logical_width - 8.0) / definition.width
+            scale_y = (logical_height - 8.0) / definition.height
+            transform_scale = min(scale_x, scale_y)
+            painter.translate(logical_width / 2.0, logical_height / 2.0)
+            painter.scale(transform_scale, transform_scale)
 
-        for primitive in definition.primitives:
-            self._draw_primitive(painter, primitive, visual_state)
+            for primitive in definition.primitives:
+                self._draw_primitive(painter, primitive, visual_state)
+        finally:
+            painter.end()
 
-        painter.end()
         return pixmap
 
     @staticmethod

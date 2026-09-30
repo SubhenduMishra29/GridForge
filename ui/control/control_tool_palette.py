@@ -60,15 +60,18 @@ class ControlToolRegistry:
         return (
             ControlToolDescriptor("contact.no", "Normally Open Contact", "Contacts", "[ ]", "control.add_component", "normally_open_contact"),
             ControlToolDescriptor("contact.nc", "Normally Closed Contact", "Contacts", "[/]", "control.add_component", "normally_closed_contact"),
-            ControlToolDescriptor("coil", "Coil", "Outputs", "( )", "control.add_component", "coil"),
-            ControlToolDescriptor("set", "Set", "Outputs", "(S)", "control.add_component", "set_coil"),
-            ControlToolDescriptor("reset", "Reset", "Outputs", "(R)", "control.add_component", "reset_coil"),
-            ControlToolDescriptor("timer", "Timer", "Timing", "[TON]", "control.add_component", "timer"),
-            ControlToolDescriptor("latch", "Latch", "Logic", "[L]", "control.add_component", "latch"),
+            ControlToolDescriptor("coil", "Coil", "Coils", "( )", "control.add_component", "coil"),
+            ControlToolDescriptor("set", "Set Coil", "Coils", "(S)", "control.add_component", "set_coil"),
+            ControlToolDescriptor("reset", "Reset Coil", "Coils", "(R)", "control.add_component", "reset_coil"),
+            ControlToolDescriptor("timer.ton", "TON Timer", "Timers", "[TON]", "control.add_component", "ton_timer"),
+            ControlToolDescriptor("timer.tof", "TOF Timer", "Timers", "[TOF]", "control.add_component", "tof_timer"),
+            ControlToolDescriptor("timer.tp", "TP Timer", "Timers", "[TP]", "control.add_component", "tp_timer"),
+            ControlToolDescriptor("latch", "Latch / SR", "Memory", "[L]", "control.add_component", "latch"),
             ControlToolDescriptor("and", "AND", "Logic", "[AND]", "control.add_component", "and_gate"),
             ControlToolDescriptor("or", "OR", "Logic", "[OR]", "control.add_component", "or_gate"),
             ControlToolDescriptor("not", "NOT", "Logic", "[NOT]", "control.add_component", "not_gate"),
-            ControlToolDescriptor("logic.interlock", "Logic Interlock", "Logic", "[ILK]", "control.add_component", "interlock"),
+            ControlToolDescriptor("xor", "XOR", "Logic", "[XOR]", "control.add_component", "xor_gate"),
+            ControlToolDescriptor("logic.interlock", "Interlock", "Protection / Interlock", "[ILK]", "control.add_component", "interlock"),
             ControlToolDescriptor("control.interlock", "Control Interlock", "Control", "[C-ILK]", "control.add_interlock"),
             ControlToolDescriptor("signal.connect", "Connect Signal", "Control", "->", "control.connect_signals"),
             ControlToolDescriptor("signal.disconnect", "Disconnect Signal", "Control", "<-", "control.disconnect_signals"),
@@ -83,6 +86,7 @@ class ControlToolPalette(QWidget):
 
     def __init__(self, *, application: Any, on_selected: Callable[[ControlToolDescriptor], None], parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("ControlToolPalette")
         if application is None:
             raise ValueError("application is required.")
         if not callable(on_selected):
@@ -100,8 +104,10 @@ class ControlToolPalette(QWidget):
         for category, descriptors in categories.items():
             layout.addWidget(QLabel(category, self))
             for descriptor in descriptors:
-                button = QPushButton(descriptor.display_name, self)
-                button.setToolTip(descriptor.icon)
+                button = QPushButton(f"{descriptor.icon}  {descriptor.display_name}", self)
+                button.setObjectName("ControlToolButton")
+                button.setMinimumHeight(30)
+                button.setToolTip(f"{descriptor.display_name} ({descriptor.icon})")
                 button.clicked.connect(lambda _checked=False, d=descriptor: self._on_selected(d))
                 layout.addWidget(button)
                 self._buttons[descriptor.tool_id] = button

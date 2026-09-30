@@ -2,12 +2,12 @@
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Current effective authority (2026-09-29):**
-- Implementation: `madhuri196mishra-cpu/GridForge:main`
-- Audit/Register: `SubhenduMishra29/GridForge:main`
-- Historical/provenance only: `pandaraseswari03-collab/GridForge`
+- Implementation: `pandaraseswari03-collab/GridForge:main`
+- Audit/Register: `pandaraseswari03-collab/GridForge:main`
+- Historical/reference only: `SubhenduMishra29/GridForge`, `madhuri196mishra-cpu/GridForge`
 
 Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
-**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation authority is `madhuri196mishra-cpu/GridForge:main`; current audit/register authority is `SubhenduMishra29/GridForge:main`; `pandaraseswari03-collab/GridForge` is historical/provenance only.
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and audit/register authority is `pandaraseswari03-collab/GridForge:main`; `SubhenduMishra29/GridForge` and `madhuri196mishra-cpu/GridForge` are historical/reference only.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority
@@ -1620,3 +1620,109 @@ The complete source-pass evidence is recorded in `audit/FULL_TARGET_WORKSPACE_RE
 - GUI/runtime verification was **not performed** in the available execution environment, so no runtime closure is claimed.
 
 > Note: the task instruction referred to a 9-column schema, but the authoritative current repository header is 14 columns. Collapsing the established 14-column register to 9 columns would alter the existing register schema and risk loss of existing evidence, so the correction preserves the actual repository-authoritative schema.
+
+## 2026-09-29 — Palette Symbol Adapter runtime blocker correction
+
+### Requested finding: GF-MASTER-0073
+
+The requested runtime finding identifier **GF-MASTER-0073** is already occupied by the canonical historical/current register finding **RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation**, which remains **STATIC CLOSED**. That existing ID is preserved unchanged; no duplicate ID or silent renumbering was introduced.
+
+### GF-MASTER-0108 — Palette Symbol Adapter runtime blocker
+
+- **Requested legacy/reference ID:** GF-MASTER-0073-RUNTIME
+- **Title:** Palette Symbol Adapter — undefined visual_state causes plugin initialization failure
+- **Status:** **CORRECTED — VERIFICATION PENDING**
+- **Affected file:** `ui/equipment/symbol/palette_symbol_adapter.py`
+- **Related contracts inspected:** `ui/styling/presentation_style.py` (`VisualState`, `visual_pen()`), `ui/equipment/symbol/symbol_definition.py`, `ui/equipment/symbol/symbol_registry.py`, `ui/panels/default_panels.py`, `ui/plugins/panels_plugin.py`.
+
+**Root cause:** the demonstrated failure was an undefined `visual_state` value in the palette primitive-rendering path. The existing presentation API already defines `VisualState` as the enum/value contract expected by `visual_pen()`; the correction therefore uses that existing contract rather than introducing another state system.
+
+**Correction:** `_render(definition, state)` resolves the existing `VisualState` member for each palette state and passes the resolved value explicitly to `_draw_primitive(painter, primitive, visual_state)`. Text primitives use the same value when calling `visual_pen()`. The canonical `SymbolRegistry → SymbolDefinition → PaletteSymbolAdapter` path is unchanged.
+
+**Painter lifecycle hardening:** `QPainter` is now enclosed in a `try/finally` block so `painter.end()` executes even when primitive rendering raises. This directly protects the paint-device lifecycle rather than suppressing Qt warnings.
+
+**Static result:** the undefined-variable pattern is absent from the current adapter; `visual_state` is locally resolved in `_render()`, explicitly passed to `_draw_primitive()`, and consumed by `visual_pen()`. No second symbol registry, semantic mapping, renderer authority, or Core dependency was introduced.
+
+**Runtime command:** `python main.py`
+
+**Runtime result:** **PENDING**. The available execution environment cannot execute the user's Windows/PySide6 desktop runtime, so no startup, palette-icon, or QPaintDevice runtime closure is claimed.
+
+**Secondary QPaintDevice result:** the prior warning is not independently declared resolved without runtime evidence. The affected painter boundary is now exception-safe; runtime confirmation remains pending.
+
+**Remaining dependencies:** Windows/PySide6 application startup, plugin initialization, equipment palette construction, representative icon generation, and downstream SLD workspace reachability.
+
+**Next verification boundary:** run `python main.py` in the user's GridForge Windows environment. First confirm plugin initialization and palette icon construction; then inspect the QPaintDevice warning and only after those succeed continue to SLD workspace/tool/canvas verification. Existing SLD/canvas/placement findings remain independently verification-deferred.
+
+## 2026-09-29 — SLD canvas/workspace interaction correction pass
+
+**Scope:** SLD persistence across tool switching, committed wire interaction, canvas presentation contrast, selection drag-move, and toolbar/menu lifecycle.
+
+| ID | Title | Finding / root cause | Affected files | Dependency | Correction | Static evidence | Runtime verification status | Remaining blocker | Closure status |
+|---|---|---|---|---|---|---|---|---|---|
+| GF-SLD-CANVAS-043 | Committed SLD survives tool switching | Current architecture already keeps committed SLD in SLDDocument and CanvasPlugin projects the active document; ToolManager activation only owns interaction/CreationContext lifecycle. The static trace found no ToolManager→scene.clear()/renderer.clear() path. | `ui/core/tool_manager.py`, `ui/plugins/canvas_plugin.py`, `ui/canvas/sld_canvas_render_system.py`, `ui/events/sld_update_coordinator.py`, `main.py` | Canonical SLDDocument/projection/render system | Preserved the single scene/render system and did not introduce tool-switch canvas reconstruction. | CanvasPlugin.synchronize_sld() projects `document.model`; SLDCanvasRenderSystem.synchronize() incrementally reconciles existing items and removes only IDs absent from the authoritative snapshot. | **RUNTIME VERIFICATION — DEFERRED** | User must manually confirm tool switching after real placement. | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** |
+| GF-SLD-CANVAS-044 | White-on-white SLD annotation text | Equipment symbol text used the light `symbol_stroke` pen while the canonical canvas background is white. | `ui/items/equipment_item.py`, `ui/styling/style_tokens.py`, `ui/styling/presentation_style.py` | Canonical StyleTokens | Text primitives now use canonical `text_inverse` for dark-on-white contrast; geometry continues to use engineering symbol stroke tokens. | `EquipmentItem.paint()` explicitly sets `QPen(token_color("text_inverse"))` for text primitives; canvas background remains `#FFFFFF`. | **RUNTIME VERIFICATION — DEFERRED** | Manual visual confirmation of all symbol annotations remains required. | **REMEDIATED — VERIFICATION REQUIRED** |
+| GF-SLD-CANVAS-045 | Wire tool did not bridge committed and draft workflows | WireTool always converted snaps to DraftEndpoint and therefore could not submit a committed connection when snapping already-committed SLD equipment. | `ui/tools/wire_tool.py`, `core/application/commands/simple_wire_commands.py`, `core/application/services/simple_wire_service.py` | Canonical EndpointReference/SimpleWire command | WireTool now sends snapped `EndpointReference` pairs through `CreateSimpleWireConnectionCommand`; draft-to-draft wiring remains on the existing AddDraftConnectionCommand path. | EndpointIdentityAdapter already returns EndpointReference; Application owns Simple Wire command execution and SLD companion projection in the same transaction. | **RUNTIME VERIFICATION — DEFERRED** | Manual terminal-to-terminal connection test remains required. | **REMEDIATED — VERIFICATION REQUIRED** |
+| GF-SLD-CANVAS-046 | Selection drag-move missing command path | SelectTool tracked drag state but did not persist a moved SLD node. | `ui/tools/select_tool.py`, `core/application/commands/sld_commands.py` | Existing SetSLDNodePositionCommand | SelectTool now resolves the selected presentation node and executes SetSLDNodePositionCommand through Application on drag release. | Move uses Application.execute(); semantic node identity is preserved; connected connection geometry remains renderer-owned and is recalculated from the projected node positions. | **RUNTIME VERIFICATION — DEFERRED** | Manual drag and wire-following verification remains required. | **REMEDIATED — VERIFICATION REQUIRED** |
+| GF-SLD-CANVAS-047 | Editing toolbar coverage incomplete | Existing toolbar only exposes select/bus/wire plus fit/undo/redo/delete/workspace actions; no canonical Copy/Paste or dedicated Move command/tool exists in the current source tree. | `ui/plugins/toolbar_plugin.py`, `ui/tools/select_tool.py`, `core/application/commands/` | Existing Application/CommandManager command vocabulary | No fake Copy/Paste/Move actions were added. Move is now command-backed through Select drag-move. Copy/Paste remains a static blocker until canonical semantic duplication commands are added. | Toolbar inventory is limited to actions backed by existing router/tool behavior; repository tree contains no canonical copy/paste/duplicate command implementation. | **RUNTIME VERIFICATION — DEFERRED** | **COPY/PASTE SEMANTIC COMMANDS NOT PRESENT**; dedicated toolbar actions therefore remain deferred. | **OPEN — IMPLEMENTATION REQUIRED** |
+| GF-SLD-CANVAS-048 | Menubar/toolbar presentation lifecycle | Visible MenuPlugin attaches one QMenuBar to MainWindow and stylesheet supplies explicit foreground/background states; ToolbarPlugin attaches one QToolBar to MainWindow. | `ui/plugins/menu_plugin.py`, `ui/plugins/toolbar_plugin.py`, `ui/styling/stylesheet.qss`, `ui/main_window.py` | Canonical MenuPlugin/ToolbarPlugin composition | No duplicate menu/toolbar host was introduced. Existing visible menu structure is preserved; toolbar tool selection remains routed through Controller. | MenuPlugin calls MainWindow.setMenuBar(); ToolbarPlugin calls MainWindow.addToolBar(); QMenuBar/QMenu/QToolButton text states are explicitly styled. | **RUNTIME VERIFICATION — DEFERRED** | Manual visual inspection remains required. | **STATICALLY VERIFIED — RUNTIME UNVERIFIED** |
+
+**Verification discipline:** pytest, CI, and automated test suites were not run for this pass. No runtime closure is claimed.
+
+
+## 2026-09-29 — Batch 26.3 Final Workspace/UI functional correction
+
+| Master ID | Title | Status | Evidence |
+|---|---|---|---|
+| GF-MASTER-0040 | SLD persistence/render lifecycle | REMEDIATED — VERIFICATION REQUIRED | Removed the destructive SLD projection-manager clear from ProjectLoaded handling; ProjectClosed remains the explicit destructive boundary. Incremental SLDCanvasRenderSystem remains the sole normal reconciliation path. Manual Bus → Transformer → Breaker → Wire verification remains deferred. |
+| GF-MASTER-0042 | Control/Ladder workspace presentation | REMEDIATED — VERIFICATION DEFERRED | Control ladder viewport, palette, inspector and toolbar now have explicit engineering presentation identities, readable semantic styling, stable ladder viewport behavior, and existing resizable splitter composition. |
+| GF-MASTER-0103 | Engineering visual system | REMEDIATED — VERIFICATION DEFERRED | Added semantic list/editor tokens and explicit dark editor/list/table states; the white SLD canvas remains isolated from editor surfaces. |
+| GF-MASTER-0104 | Theme consumer/canvas contract | REMEDIATED — VERIFICATION REQUIRED | QSS now applies editor/list semantic tokens to line edits, text edits, combo boxes, spin boxes, tree/list/table widgets and table headers; runtime contrast confirmation remains pending. |
+| GF-MASTER-0105 | Engineering workspace tabs | REMEDIATED — VERIFICATION REQUIRED | WorkspaceRealizer retains panel/dock bindings during layout changes and applies native QMainWindow dock proportions; panel removal from a layout is presentation-only. |
+| GF-MASTER-0110 | Element List and Messages / Events projection | REMEDIATED — VERIFICATION REQUIRED | Element List remains Application read-model + canonical SelectionManager projection; Messages/Event projection remains on the existing Application event bus and exposes human-readable semantic lifecycle/study/validation events. |
+
+**Batch report:** audit/BATCH26_3_FINAL_WORKSPACE_UI_FUNCTIONAL_CORRECTION_2026-09-29.md  
+**Verification:** **RUNTIME VERIFICATION — DEFERRED**; pytest/CI were not run.  
+**Author:** Subhendu Mishra
+
+## 2026-09-29 — Batch 26.5 Equipment Creation/Core/SLD correction
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source inspection and implementation correction only; pytest, CI, automated suites, and runtime GUI verification were not performed.
+
+### GF-MASTER-0111 — Canonical equipment creation lifecycle
+
+**Legacy IDs:** GF-SLD-WF-TOOL-003; GF-SLD-WF-TOOL-004  
+**Status:** **REMEDIATED — VERIFICATION DEFERRED**  
+**Finding:** ModelPlacementTool previously stopped ordinary equipment placement at transient CreationDraft/preview and required a separate commit action; endpoint acquisition represented snapped endpoints as DraftEndpoint instead of the canonical EndpointReference required by Core create commands.
+
+**Correction:** ModelPlacementTool now performs definition-driven validation, converts presentation snaps through EndpointIdentityAdapter, builds one immutable CreationCommitIntent, prepares the concrete Application command through Application.prepare_creation_command(), and executes it exactly once through Application.execute()/CommandManager. Normal placement commits automatically when all required configuration/placement/endpoint requirements are satisfied. BusTool now checks preparation and execution results before completing its creation context.
+
+**Affected files:** `ui/tools/model_placement_tool.py`; `ui/tools/bus_tool.py`.
+
+**Evidence boundary:** Core/read-model/SLD projection/rendering remains authoritative and no renderer-side persistence was introduced. Runtime GUI confirmation of Transformer, Breaker, measurement equipment, tool switching, selection, Inspector, Element List, wire interaction, undo, and redo remains pending.
+
+**Runtime:** **RUNTIME VERIFICATION — DEFERRED**
+
+**Register integrity:** Historical IDs are preserved; no ID was deleted, renumbered, duplicated, or reused.
+
+
+## 2026-09-29 — Batch 26.6 Wire activation / committed SLD lifecycle correction
+
+### GF-MASTER-0112 — Wire activation must not clear committed SLD graphics
+
+**Legacy IDs:** GF-MASTER-0040; affected Batch 26 SLD lifecycle findings  
+**Status:** **REMEDIATED — VERIFICATION REQUIRED**  
+**Finding:** Static transition tracing showed Wire activation enters WireTool.on_activate() and clears the shared PreviewLayer. The activation path contains no SLDDocument.clear(), SLDProjectionManager.clear(), QGraphicsScene.clear(), scene replacement, or renderer-wide clear. The destructive presentation operation reachable from tool switching was therefore preview-layer cleanup; the preview boundary did not defensively distinguish transient graphics from committed graphics carrying canonical object/equipment identity.
+
+**Correction:** PreviewLayer.clear_preview() is now the explicit transient cleanup boundary. It retains any graphics item exposing canonical committed object/equipment identity even if such an item was accidentally registered in preview bookkeeping, while removing only transient preview graphics. WireTool, BusTool, and ModelPlacementTool now prefer clear_preview() for lifecycle cleanup. The renderer remains incremental and authoritative; no renderer-side never-remove exception was added.
+
+**Call-chain evidence:** toolbar/menu tool.wire -> UIActionRouter -> Controller.set_tool() -> ToolManager.activate() -> previous tool deactivation / WireTool.on_activate() -> preview cleanup. Controller._on_tool_manager_changed() emits only tool/state signals. SLDUpdateCoordinator clears the projection manager only for ProjectClosed; ordinary tool changes are not Application lifecycle events.
+
+**State authority:** Core/Application read state remains authoritative for engineering objects; SLDDocument remains the committed presentation document; SLDCanvasProjection projects the complete document; SLDCanvasRenderSystem remains incremental. Wire preview remains transient.
+
+**Evidence boundary:** Static source inspection and implementation correction only. No pytest, CI, automated test suite, or runtime GUI verification was performed.
+
+**Runtime:** **RUNTIME VERIFICATION — DEFERRED**
+
+**Author:** Subhendu Mishra

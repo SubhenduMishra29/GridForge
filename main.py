@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from uuid import uuid4
 
 from core.application.bootstrap import create_application
 from core.application.events import ProjectLoaded
@@ -26,7 +27,7 @@ from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
-from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget
+from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -37,6 +38,7 @@ from ui.plugins.plugin_context import PluginContext
 from ui.styling.style_manager import StyleManager
 from ui.plugins.plugin_manager import PluginManager
 from ui.projection.element_list_projection import ElementListProjection
+from ui.projection.application_event_messages import ApplicationEventMessagesProjection
 from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
 from ui.projection.study_projection import StudyProjection
 from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
@@ -53,6 +55,10 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.commands.draft_commands import CommitNetworkCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
+from core.application.commands.model_commands import CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
+from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
+from core.application.commands.simple_wire_commands import RemoveSimpleWireConnectionCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -293,64 +299,220 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             raise RuntimeError(result.message)
         _refresh_status()
 
+    # Clipboard contains semantic Application read data plus the authored SLD
+    # presentation payload. QGraphicsItems are never copied as project truth.
+    sld_clipboard: list[dict[str, object]] = []
+
+    def _find_sld_node(selected_id: object) -> object | None:
+        model = getattr(gridforge_application.presentation, "model", None)
+        if model is None:
+            return None
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        if callable(getter):
+            node = getter(str(selected_id))
+            if node is not None:
+                return node
+        getter = getattr(model, "get_node_optional", None)
+        if callable(getter):
+            return getter(str(selected_id))
+        return None
+
+    def _find_network_element(selected_id: object) -> object | None:
+        try:
+            network = gridforge_application.read_network()
+        except RuntimeError:
+            return None
+        return next(
+            (element for element in network.elements if str(getattr(element, "object_id", "")) == str(selected_id)),
+            None,
+        )
+
+    def _select_all() -> None:
+        scene = canvas_composition.view.scene()
+        manager = canvas_composition.selection_manager
+        if scene is None:
+            return
+        manager.clear()
+        for item in tuple(scene.items()):
+            object_id = getattr(item, "object_id", None)
+            if object_id is not None:
+                manager.add_to_selection(object_id)
+
+    def _copy_selection() -> None:
+        sld_clipboard.clear()
+        for selected_id in canvas_composition.selection_manager.get_selected_ids():
+            element = _find_network_element(selected_id)
+            node = _find_sld_node(selected_id)
+            if element is None or node is None:
+                continue
+            read_model = gridforge_application.read_element(
+                str(element.element_type),
+                str(element.object_id),
+            )
+            sld_clipboard.append({
+                "element_type": str(read_model.element_type),
+                "attributes": dict(getattr(read_model, "attributes", {}) or {}),
+                "labels": dict(getattr(read_model, "labels", {}) or {}),
+                "position": (float(node.x), float(node.y)),
+                "presentation": None if node.presentation is None else node.presentation.to_dict(),
+            })
+
+    def _paste_selection() -> None:
+        if not sld_clipboard:
+            return
+        selection = canvas_composition.selection_manager
+        selection.clear()
+        offset_x, offset_y = 40.0, 40.0
+
+        for source in tuple(sld_clipboard):
+            element_type = str(source["element_type"]).strip().lower()
+            attributes = dict(source.get("attributes", {}))
+            labels = dict(source.get("labels", {}))
+            source_x, source_y = source["position"]
+            name = str(labels.get("name") or attributes.get("name") or element_type.title())
+            new_id = f"{element_type}-copy-{uuid4().hex[:8]}"
+            x = float(source_x) + offset_x
+            y = float(source_y) + offset_y
+            in_service = bool(attributes.get("in_service", True))
+
+            if element_type == "bus":
+                result = gridforge_application.execute(CreateBusCommand(
+                    bus_id=new_id, name=name,
+                    nominal_voltage_kv=float(attributes.get("nominal_voltage_kv", attributes.get("nominalVoltage", 0.0)) or 0.0),
+                    voltage_pu=float(attributes.get("voltage_pu", 1.0) or 1.0),
+                    angle_deg=float(attributes.get("angle_deg", 0.0) or 0.0),
+                    frequency_hz=float(attributes.get("frequency_hz", 50.0) or 50.0),
+                    in_service=in_service, presentation_x=x, presentation_y=y,
+                ))
+            elif element_type == "transformer":
+                result = gridforge_application.execute(CreateTransformerCommand(
+                    transformer_id=new_id, name=name,
+                    r=float(attributes.get("r", 0.0) or 0.0),
+                    x=float(attributes.get("x", 0.0) or 0.0),
+                    b=float(attributes.get("b", 0.0) or 0.0),
+                    impedance_basis=attributes.get("impedance_basis", "engineering"),
+                    impedance_base_mva=attributes.get("impedance_base_mva"),
+                    impedance_base_voltage_kv=attributes.get("impedance_base_voltage_kv"),
+                    tap=float(attributes.get("tap", 1.0) or 1.0),
+                    shift=float(attributes.get("shift", 0.0) or 0.0),
+                    rate_mva=attributes.get("rate_mva"),
+                    presentation_x=x, presentation_y=y,
+                ))
+            elif element_type == "breaker":
+                result = gridforge_application.execute(CreateBreakerCommand(
+                    breaker_id=new_id, name=name, in_service=in_service,
+                    closed=bool(attributes.get("closed", True)),
+                    failed=bool(attributes.get("failed", False)),
+                    voltage_kv=attributes.get("voltage_kv"),
+                    current_a=attributes.get("current_a"),
+                    interrupting_ka=attributes.get("interrupting_ka"),
+                    presentation_x=x, presentation_y=y,
+                ))
+            else:
+                messages_panel.append_message(
+                    f"Paste skipped: semantic clone is not defined for {element_type}."
+                )
+                continue
+
+            if not result.success:
+                raise RuntimeError(result.message)
+
+            new_node = _find_sld_node(new_id)
+            presentation = source.get("presentation")
+            if new_node is not None and presentation is not None:
+                presentation_result = gridforge_application.execute(
+                    SetSLDNodePresentationCommand(
+                        node_id=str(new_node.node_id),
+                        presentation=dict(presentation),
+                    )
+                )
+                if not presentation_result.success:
+                    raise RuntimeError(presentation_result.message)
+            selection.add_to_selection(new_id)
+
     def _delete_selection() -> None:
-        selected_ids = tuple(canvas_preparation.selection_manager.get_selected_ids())
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
             return
-        object_id = str(selected_ids[0])
-        network = gridforge_application.read_network()
-        element = next((item for item in network.elements if str(item.object_id) == object_id), None)
-        command = None
-        if element is not None:
-            element_type = str(element.element_type).lower()
-            from core.application.commands.model_commands import (
-                DeleteBatteryCommand, DeleteBusCommand, DeleteCableCommand,
-                DeleteCapacitorCommand, DeleteDisconnectorCommand, DeleteFuseCommand,
-                DeleteGeneratorCommand, DeleteGridCommand, DeleteLineCommand,
-                DeleteLoadCommand, DeleteMotorCommand, DeleteReactorCommand,
-                DeleteShuntCommand, DeleteSolarCommand, DeleteSwitchCommand,
-                DeleteSynchronousMachineCommand, DeleteTransformerCommand,
+
+        for selected_id in selected_ids:
+            element = _find_network_element(selected_id)
+            if element is not None:
+                element_type = str(element.element_type).strip().lower()
+                if element_type == "bus":
+                    result = gridforge_application.execute(DeleteBusCommand(bus_id=str(element.object_id)))
+                elif element_type == "transformer":
+                    result = gridforge_application.execute(DeleteTransformerCommand(transformer_id=str(element.object_id)))
+                elif element_type == "breaker":
+                    result = gridforge_application.execute(DeleteBreakerCommand(breaker_id=str(element.object_id)))
+                else:
+                    raise RuntimeError(
+                        f"Delete is not semantically mapped for {element_type!r}; refusing to hide the object."
+                    )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            try:
+                wire = gridforge_application.read_simple_wire(str(selected_id))
+            except (KeyError, RuntimeError):
+                wire = None
+            if wire is not None:
+                result = gridforge_application.execute(
+                    RemoveSimpleWireConnectionCommand(connection_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            node = _find_sld_node(selected_id)
+            if node is not None and getattr(node, "equipment_id", None) is None:
+                result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            raise RuntimeError(
+                f"Selection {selected_id!r} is not mapped to an authoritative delete command."
             )
-            from core.application.commands.measurement_commands import (
-                DeleteCapacitiveVoltageTransformerCommand,
-                DeleteCurrentTransformerCommand,
+
+        canvas_composition.selection_manager.clear()
+
+    def _cut_selection() -> None:
+        _copy_selection()
+        _delete_selection()
+
+    def _selected_sld_nodes() -> tuple[object, ...]:
+        return tuple(
+            node for node in (
+                _find_sld_node(selected_id)
+                for selected_id in canvas_composition.selection_manager.get_selected_ids()
             )
-            from core.application.commands.pt_commands import DeletePTCommand
-            commands = {
-                "bus": (DeleteBusCommand, "bus_id"),
-                "grid": (DeleteGridCommand, "grid_id"),
-                "generator": (DeleteGeneratorCommand, "generator_id"),
-                "synchronous_machine": (DeleteSynchronousMachineCommand, "synchronous_machine_id"),
-                "load": (DeleteLoadCommand, "load_id"),
-                "motor": (DeleteMotorCommand, "motor_id"),
-                "shunt": (DeleteShuntCommand, "shunt_id"),
-                "capacitor": (DeleteCapacitorCommand, "capacitor_id"),
-                "reactor": (DeleteReactorCommand, "reactor_id"),
-                "solar": (DeleteSolarCommand, "solar_id"),
-                "battery": (DeleteBatteryCommand, "battery_id"),
-                "line": (DeleteLineCommand, "line_id"),
-                "cable": (DeleteCableCommand, "cable_id"),
-                "transformer": (DeleteTransformerCommand, "transformer_id"),
-                "switch": (DeleteSwitchCommand, "switch_id"),
-                "disconnector": (DeleteDisconnectorCommand, "disconnector_id"),
-                "fuse": (DeleteFuseCommand, "fuse_id"),
-                "current_transformer": (DeleteCurrentTransformerCommand, "transformer_id"),
-                "potential_transformer": (DeletePTCommand, "pt_id"),
-                "capacitive_voltage_transformer": (DeleteCapacitiveVoltageTransformerCommand, "transformer_id"),
-            }.get(element_type)
-            if commands is not None:
-                command_class, parameter = commands
-                command = command_class(**{parameter: object_id})
-        else:
-            protection = gridforge_application.read_protection()
-            relay = next((item for item in protection.relays if item.object_id == object_id), None)
-            if relay is not None:
-                from core.application.commands.relay_commands import DeleteRelayCommand
-                command = DeleteRelayCommand(relay_id=object_id)
-        if command is None:
-            raise KeyError(f"No canonical DeleteCommand is registered for selected element '{object_id}'.")
-        gridforge_application.execute(command)
-        canvas_preparation.selection_manager.clear()
+            if node is not None
+        )
+
+    def _transform_selected_symbols(*, rotation_delta: float = 0.0, mirror: str | None = None) -> None:
+        nodes = _selected_sld_nodes()
+        for node in nodes:
+            if node.presentation is None:
+                continue
+            presentation = node.presentation.to_dict()
+            if rotation_delta:
+                presentation["rotation"] = float(presentation.get("rotation", 0.0)) + rotation_delta
+            properties = dict(presentation.get("properties", {}))
+            if mirror == "horizontal":
+                properties["mirror_x"] = not bool(properties.get("mirror_x", False))
+            elif mirror == "vertical":
+                properties["mirror_y"] = not bool(properties.get("mirror_y", False))
+            presentation["properties"] = properties
+            result = gridforge_application.execute(
+                SetSLDNodePresentationCommand(node_id=str(node.node_id), presentation=presentation)
+            )
+            if not result.success:
+                raise RuntimeError(result.message)
+
+    def _activate_select_for_editing() -> None:
+        controller.set_tool("select", cancel_active_creation=True)
 
     action_router.register_many({
         "project.new": _new_project,
@@ -362,6 +524,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "edit.undo": controller.undo,
         "edit.redo": controller.redo,
         "edit.delete_selection": _delete_selection,
+        "edit.select_all": _select_all,
+        "edit.copy": _copy_selection,
+        "edit.paste": _paste_selection,
+        "edit.cut": _cut_selection,
+        "edit.box_select": _activate_select_for_editing,
+        "edit.move": _activate_select_for_editing,
+        "edit.drag_move": _activate_select_for_editing,
+        "edit.rotate": lambda: _transform_selected_symbols(rotation_delta=90.0),
+        "edit.mirror_horizontal": lambda: _transform_selected_symbols(mirror="horizontal"),
+        "edit.mirror_vertical": lambda: _transform_selected_symbols(mirror="vertical"),
         "network.commit_draft": _commit_network,
         "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
         "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
@@ -370,7 +542,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: workspace_surface_host.activate("reports"),
         "view.equipment_browser": _show_equipment_browser,
-        "view.fit": canvas_composition.navigation_controller.fit_content,
+        "view.zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
+        "view.zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
+        "view.fit": lambda: canvas_composition.navigation_controller.fit_content(50.0),
+        "view.pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
         "tool.select": lambda: controller.set_tool("select"),
         "tool.bus": lambda: controller.set_tool("bus"),
         "tool.wire": lambda: controller.set_tool("wire"),
@@ -473,12 +648,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_controller.activate_default()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
-    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
-    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
+    element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
+    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
+    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     control_workspace.refresh()
-    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
+    element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); event_messages_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
     # Project close is already completed by MainWindow.closeEvent before
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
     # document state; it must never re-run the Application project transition

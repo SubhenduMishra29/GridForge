@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
-from core.application.commands.placement_commands import PlaceBusCommand
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 from ui.creation.creation_context import CreationContext
 from ui.creation.command_factory import CreationCommandFactory
@@ -112,20 +111,35 @@ class BusTool(ToolBase):
             object_id=f"bus-{uuid4().hex}",
             position=position,
         )
-        command = self.application.prepare_creation_command(intent)
-        self.execute_command(command)
-
-        # Core/Application commit is authoritative. Complete the transient
-        # creation session before synchronous selection projection can run.
-        created_id = command.payload[draft.definition.id_field]
+        try:
+            command = self.application.prepare_creation_command(intent)
+        except Exception as exc:
+            self._report_feedback(
+                f"COMMAND_PREPARATION_FAILED: equipment=Bus id={intent.object_id} "
+                f"command={intent.command_type} message={exc}"
+            )
+            return False
+        try:
+            result = self.execute_command(command)
+        except Exception as exc:
+            self._report_feedback(
+                f"COMMAND_EXECUTION_FAILED: equipment=Bus id={intent.object_id} "
+                f"command={command.command_type} message={exc}"
+            )
+            return False
+        if not result.success:
+            self._report_feedback(
+                f"COMMAND_EXECUTION_FAILED: equipment=Bus id={intent.object_id} "
+                f"command={command.command_type} message={result.message}"
+            )
+            return False
+        created_id = intent.object_id
         self._require_creation_context().complete()
         self._clear_state()
-
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
             selector(created_id)
         return True
-
     def on_mouse_double_click(self, event: Any) -> bool:
         return self.on_mouse_press(event)
 
@@ -183,13 +197,23 @@ class BusTool(ToolBase):
         if callable(show_bus):
             show_bus(position, presentation=DEFAULT_SLD_BUS_PRESENTATION)
 
+    def _report_feedback(self, message: str) -> None:
+        for name in ("show_status_message", "set_status_message", "notify_user"):
+            callback = getattr(self.controller, name, None)
+            if callable(callback):
+                callback(message)
+                return
     def _clear_state(self) -> None:
         self._position = None
         self._preview_active = False
         if self._preview_layer is not None:
-            clear = getattr(self._preview_layer, "clear", None)
-            if callable(clear):
-                clear()
+            clear_preview = getattr(self._preview_layer, "clear_preview", None)
+            if callable(clear_preview):
+                clear_preview()
+            else:
+                clear = getattr(self._preview_layer, "clear", None)
+                if callable(clear):
+                    clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()

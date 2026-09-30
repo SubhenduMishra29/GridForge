@@ -175,8 +175,14 @@ class WireTool(ToolBase):
         return key in ("Escape", "escape", 0x01000000)
 
     def _clear_state(self) -> None:
-        if self._preview_layer is not None and callable(getattr(self._preview_layer, "clear", None)):
-            self._preview_layer.clear()
+        if self._preview_layer is not None:
+            clear_preview = getattr(self._preview_layer, "clear_preview", None)
+            if callable(clear_preview):
+                clear_preview()
+            else:
+                clear = getattr(self._preview_layer, "clear", None)
+                if callable(clear):
+                    clear()
         self._start_position = None
         self._start_snap = None
         self._current_position = None

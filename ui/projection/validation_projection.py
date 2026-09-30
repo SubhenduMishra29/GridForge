@@ -29,7 +29,7 @@ class ValidationProjection:
             return
         if isinstance(event, (ProjectLoaded, ProjectClosed)):
             self._messages = ()
-            self._panel.set_messages(())
+            self._panel.set_validation_messages(())
             return
         self.refresh_from_application()
 
@@ -50,7 +50,7 @@ class ValidationProjection:
                     for issue in result.issues
                 ]
             )
-        self._panel.set_messages(self._messages)
+        self._panel.set_validation_messages(self._messages)
 
     def dispose(self) -> None:
         if self._disposed:

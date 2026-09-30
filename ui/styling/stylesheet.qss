@@ -128,10 +128,40 @@ QPushButton:disabled {
 QLabel { background: transparent; color: {{text_primary}}; }
 QLabel:disabled { color: {{text_disabled}}; }
 
-QLineEdit, QPlainTextEdit, QTextEdit {
-    background: {{canvas_background}};
+/* Semantic engineering editors: never inherit the white SLD canvas surface. */
+QLineEdit, QPlainTextEdit, QTextEdit,
+QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit,
+QComboBox, QListWidget, QTreeWidget, QTableWidget {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
+    border-radius: 4px;
+}
+QComboBox QAbstractItemView,
+QListWidget, QTreeWidget, QTableWidget {
+    selection-background-color: {{selection_background}};
+    selection-color: {{text_primary}};
+}
+QTableWidget::item, QListWidget::item, QTreeWidget::item {
+    color: {{editor_foreground}};
+}
+QHeaderView::section {
+    background: {{panel_surface}};
     color: {{text_primary}};
     border: 1px solid {{panel_border}};
+    padding: 5px 7px;
+}
+QAbstractSpinBox:disabled, QComboBox:disabled,
+QLineEdit:disabled, QPlainTextEdit:disabled,
+QTextEdit:disabled, QListWidget:disabled,
+QTreeWidget:disabled, QTableWidget:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+}
+QLineEdit, QPlainTextEdit, QTextEdit {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
     border-radius: 4px;
     padding: 5px 7px;
     selection-background-color: {{selection_background}};
@@ -176,9 +206,9 @@ QCheckBox:focus, QRadioButton:focus { color: {{accent_focus}}; }
 QCheckBox:disabled, QRadioButton:disabled { color: {{text_disabled}}; }
 
 QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit {
-    background: {{canvas_background}};
-    color: {{text_primary}};
-    border: 1px solid {{panel_border}};
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
     border-radius: 4px;
     padding: 5px 7px;
     min-height: 22px;
@@ -192,10 +222,10 @@ QSpinBox:disabled, QDoubleSpinBox:disabled, QDateEdit:disabled, QTimeEdit:disabl
 }
 
 QListWidget, QListView, QTreeWidget, QTreeView, QTableWidget, QTableView {
-    background: {{canvas_background}};
-    color: {{text_primary}};
-    border: 1px solid {{panel_border}};
-    alternate-background-color: {{window_background}};
+    background: {{list_background}};
+    color: {{list_foreground}};
+    border: 1px solid {{editor_border}};
+    alternate-background-color: {{table_alternate_background}};
     selection-background-color: {{selection_background}};
     selection-color: {{text_primary}};
     outline: none;
@@ -327,7 +357,7 @@ QSplitter::handle { background: {{separator}}; }
 QSplitter::handle:hover { background: {{accent_primary}}; }
 
 QProgressBar {
-    background: {{canvas_background}};
+    background: {{editor_background}};
     color: {{text_primary}};
     border: 1px solid {{panel_border}};
     border-radius: 4px;
@@ -438,6 +468,40 @@ QListWidget#EquipmentPalette::item:selected {
     border-left: 3px solid {{accent_active}};
 }
 
+/* Control/Ladder engineering workspace. */
+QWidget#ControlToolPalette,
+QWidget#ControlInspector,
+QWidget#ControlToolbar {
+    background: {{panel_background}};
+    color: {{text_primary}};
+}
+QWidget#ControlToolPalette QLabel,
+QWidget#ControlInspector QLabel,
+QWidget#ControlToolbar QLabel {
+    color: {{text_primary}};
+}
+QPushButton#ControlToolButton {
+    text-align: left;
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 6px 8px;
+    min-height: 28px;
+}
+QPushButton#ControlToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QPushButton#ControlToolButton:pressed,
+QPushButton#ControlToolButton:checked {
+    background: {{selection_background}};
+    border-color: {{selection_border}};
+}
+QGraphicsView#ControlLadderView {
+    background: {{canvas_background}};
+    border: 1px solid {{panel_border}};
+}
+
 /* Canvas host. */
 QGraphicsView#SLDCanvasView {
     background: {{canvas_background}};
@@ -495,7 +559,7 @@ QTreeWidget#ProjectHierarchyTree::item:selected {
 
 /* Structured engineering element list. */
 QTableWidget#ElementListTable {
-    background: {{canvas_background}};
+    background: {{table_background}};
     border: 1px solid {{panel_border}};
     gridline-color: {{separator}};
 }
@@ -505,7 +569,9 @@ QTableWidget#ElementListTable::item:selected {
 
 /* Equipment search/category presentation. */
 QLineEdit#EquipmentSearch {
-    background: {{canvas_background}};
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border-color: {{editor_border}};
 }
 QListWidget#EquipmentPalette::item {
     min-height: 38px;
@@ -550,3 +616,14 @@ QTableWidget {
     border: 1px solid {{panel_border}};
     gridline-color: {{separator}};
 }
+
+QWidget#GridForgePanel_properties QLineEdit,
+QWidget#GridForgePanel_properties QPlainTextEdit,
+QWidget#GridForgePanel_properties QTextEdit,
+QWidget#GridForgePanel_properties QComboBox,
+QWidget#GridForgePanel_properties QSpinBox,
+QWidget#GridForgePanel_properties QDoubleSpinBox,
+QWidget#GridForgePanel_properties QDateEdit,
+QWidget#GridForgePanel_properties QTimeEdit { background: {{editor_background}}; color: {{editor_foreground}}; border-color: {{editor_border}}; }
+QWidget#GridForgePanel_messages QListWidget,
+QWidget#GridForgePanel_element_list QTableWidget { background: {{table_background}}; color: {{editor_foreground}}; }

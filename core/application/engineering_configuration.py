@@ -29,6 +29,7 @@ from .commands.relay_commands import UpdateRelayCommand
 
 _UPDATE_COMMANDS = {
     "bus": (UpdateBusCommand, "bus_id"),
+    "buses": (UpdateBusCommand, "bus_id"),
     "grid": (UpdateGridCommand, "grid_id"),
     "generator": (UpdateGeneratorCommand, "generator_id"),
     "load": (UpdateLoadCommand, "load_id"),

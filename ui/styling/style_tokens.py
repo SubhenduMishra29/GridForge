@@ -18,6 +18,11 @@ class StyleTokens:
     panel_background: str = "#20242A"
     panel_surface: str = "#262B32"
     canvas_background: str = "#FFFFFF"
+    editor_background: str = "#171A1F"
+    editor_foreground: str = "#E7ECF2"
+    editor_border: str = "#46515D"
+    list_background: str = "#171A1F"
+    list_foreground: str = "#E7ECF2"
     panel_border: str = "#39414B"
     separator: str = "#303740"
 
@@ -26,6 +31,8 @@ class StyleTokens:
     text_muted: str = "#7D8996"
     text_disabled: str = "#5B6570"
     text_inverse: str = "#101419"
+    table_background: str = "#171A1F"
+    table_alternate_background: str = "#20242A"
 
     accent_primary: str = "#5BA7FF"
     accent_active: str = "#79BAFF"
