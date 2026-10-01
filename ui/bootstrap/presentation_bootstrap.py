@@ -44,7 +44,7 @@ class PresentationBootstrap:
             self.equipment_registry, self.symbol_registry
         )
         self.sld_graphics_item_factory = self.sld_graphics_item_factory or SLDGraphicsItemFactory(
-            self.equipment_registry, self.symbol_registry, self.application
+            self.equipment_registry, self.symbol_registry
         )
 
     @classmethod
