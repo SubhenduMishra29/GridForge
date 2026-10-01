@@ -367,8 +367,11 @@ class ProtectionWorkspace(QWidget):
             adapter=self._adapter,
         )
         existing = getattr(application, "protection_presentation", None)
-        self._presentation = existing if isinstance(existing, ProtectionPresentationDocument) else ProtectionPresentationDocument()
-        application.protection_presentation = self._presentation
+        self._presentation = (
+            existing if isinstance(existing, ProtectionPresentationDocument)
+            else ProtectionPresentationDocument.from_dict(existing)
+            if isinstance(existing, dict) else ProtectionPresentationDocument()
+        )        application.protection_presentation = self._presentation
         self._explorer = ProtectionExplorer(application, selection_manager, self)
         self._canvas = ProtectionGraphicsSurface(
             application=application,
@@ -421,8 +424,12 @@ class ProtectionWorkspace(QWidget):
             self._interaction.cancel()
             self._presentation.clear()
             self._selection_manager.clear()
+        elif isinstance(event, ProjectLoaded):
+            loaded = getattr(self._application, "protection_presentation", None)
+            if isinstance(loaded, dict):
+                self._presentation = ProtectionPresentationDocument.from_dict(loaded)
+                self._application.protection_presentation = self._presentation
         self.refresh()
-
     def dispose(self) -> None:
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)
