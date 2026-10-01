@@ -422,7 +422,7 @@ class EquipmentBase:
             raise TypeError("terminal must be an EquipmentTerminal")
         if terminal.equipment_id != self.equipment_id:
             raise ValueError("terminal.equipment_id must match equipment_id")
-        if terminal.terminal_id in self._terminal_ids and not any(existing.terminal_id == terminal.terminal_id for existing in self._terminals):
+        if terminal.terminal_id in self._terminal_ids:
             raise ValueError(f"Terminal identifier already registered: {terminal.terminal_id}")
         if any(existing.terminal_name == terminal.terminal_name for existing in self._terminals):
             raise ValueError(f"Terminal role already exists: {terminal.terminal_name}")
