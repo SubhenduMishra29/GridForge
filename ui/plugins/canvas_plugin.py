@@ -163,22 +163,23 @@ class CanvasPlugin:
             raise RuntimeError("PluginContext SLD dependencies do not match CanvasComposition.")
         if projection is None or render_system is None:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
-        if getattr(self._context.application, "presentation", None) is None:
-            render_system.clear()
+        surface = getattr(self._composition, "surface", None)
+        if surface is None:
+            raise RuntimeError("CanvasComposition must expose the canonical SLDCanvasSurface.")
+        application_document = getattr(self._context.application, "presentation", None)
+        if application_document is None:
+            clear = getattr(surface, "clear_document", None)
+            if not callable(clear):
+                raise RuntimeError("Canonical SLDCanvasSurface cannot clear its document.")
+            clear()
             snapshot = SLDCanvasSnapshot(nodes=(), connections=())
-            self._sld_canvas_snapshot = snapshot
-            return snapshot
-        document = self._active_sld_document()
-        if not isinstance(projection, SLDCanvasProjection):
-            raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
-        if not isinstance(render_system, SLDCanvasRenderSystem):
-            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
-        if render_system is not self._sld_canvas_render_system:
-            raise RuntimeError("SLD canvas render system changed after plugin initialization.")
-
-        snapshot = projection.project(document.model)
+        else:
+            document = self._active_sld_document()
+            present = getattr(surface, "present_document", None)
+            if not callable(present):
+                raise RuntimeError("Canonical SLDCanvasSurface cannot present an SLD document.")
+            snapshot = present(document)
         self._sld_canvas_snapshot = snapshot
-        render_system.synchronize(snapshot)
         return snapshot
 
     @property

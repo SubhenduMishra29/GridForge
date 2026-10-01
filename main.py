@@ -203,18 +203,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     action_router = UIActionRouter()
     engineering_context = EngineeringContextStore()
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
-
-    def create_sld_document(context: object) -> SLDDocument:
-        if not hasattr(context, "project_id") or not hasattr(context, "name"):
-            raise TypeError("presentation factory requires a ProjectContext")
-        document = SLDDocument(
-            document_id=f"{context.project_id}:sld",
-            name=f"{context.name} SLD",
-            project_id=context.project_id,
-            default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
-        )
-        workspace_surface_host.set_sld_document(document)
-        return document
+    project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
 
     status_plugin = None
 
@@ -593,8 +582,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     action_router.set_enabled_provider(_action_enabled)
 
-    lifecycle_service = project_workspace_adapter.application.project_lifecycle
-    lifecycle_service.configure_presentation_factory(create_sld_document)
     # The lifecycle service starts with an internal bootstrap context, but the
     # composition root must not materialize a presentation for that transient
     # context and then immediately replace it with a second project activation.

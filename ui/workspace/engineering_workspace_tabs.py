@@ -172,6 +172,21 @@ class EngineeringWorkspaceTabs(QWidget):
             self._map.refresh()
 
     def set_sld_document(self, document: Any | None) -> None:
+        """Present the active SLD document on the canonical SLD editor surface."""
+        sld_surface = self._surfaces.get("sld")
+        if sld_surface is None:
+            raise RuntimeError("The canonical SLD surface is not registered.")
+        if document is None:
+            clear = getattr(sld_surface, "clear_document", None)
+            if not callable(clear):
+                raise RuntimeError("The canonical SLD surface cannot clear its document.")
+            clear()
+        else:
+            present = getattr(sld_surface, "present_document", None)
+            if not callable(present):
+                raise RuntimeError("The canonical SLD surface cannot present an SLD document.")
+            present(document)
+        # Map remains a secondary persisted-geometry projection only.
         self._map.set_document(document)
 
 
