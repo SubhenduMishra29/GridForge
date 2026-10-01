@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/workspace/project_workspace_adapter.py
 # GridForge V2 — Project Workspace Application Adapter
+# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ class ProjectWorkspaceChanged:
 
 
 WorkspaceUpdateHandler = Callable[[ProjectWorkspaceChanged], None]
+PresentationActivationBridge = Callable[[Document | None], None]
 
 
 class ProjectWorkspaceApplicationAdapter:
@@ -38,6 +40,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._application = application
         self._lifecycle = lifecycle
         self._handlers: list[WorkspaceUpdateHandler] = []
+        self._presentation_activation_bridge: PresentationActivationBridge | None = None
 
     @property
     def application(self) -> Application: return self._application
@@ -49,6 +52,12 @@ class ProjectWorkspaceApplicationAdapter:
     def is_dirty(self) -> bool: return self._application.is_dirty
     @property
     def state(self) -> ProjectWorkspaceState: return self._lifecycle.state
+
+    def configure_presentation_activation_bridge(self, bridge: PresentationActivationBridge) -> None:
+        """Bind the UI-level presentation bridge used during project activation."""
+        if not callable(bridge):
+            raise TypeError("bridge must be callable.")
+        self._presentation_activation_bridge = bridge
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
         if not callable(handler): raise TypeError("handler must be callable.")
@@ -106,9 +115,11 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool,
     ):
         snapshot = self._lifecycle.capture_transition_state()
+        previous_document = snapshot.document
         try:
             if context is None:
                 self._lifecycle.close_project()
+                active_document: Document | None = None
             else:
                 if not isinstance(presentation, Document):
                     raise RuntimeError("Application transition did not provide a workspace Document.")
@@ -118,9 +129,20 @@ class ProjectWorkspaceApplicationAdapter:
                     activate_workspace=activate_workspace,
                     open_existing=open_existing,
                 )
-            return lambda: self._lifecycle.restore_last_state(snapshot)
+                active_document = presentation
+            if self._presentation_activation_bridge is not None:
+                self._presentation_activation_bridge(active_document)
+
+            def rollback() -> None:
+                self._lifecycle.restore_last_state(snapshot)
+                if self._presentation_activation_bridge is not None:
+                    self._presentation_activation_bridge(previous_document)
+
+            return rollback
         except BaseException:
             self._lifecycle.restore_last_state(snapshot)
+            if self._presentation_activation_bridge is not None:
+                self._presentation_activation_bridge(previous_document)
             raise
 
     @staticmethod
