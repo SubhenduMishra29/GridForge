@@ -2,7 +2,7 @@
 **Date:** 2026-10-01  
 **Author:** Subhendu Mishra  
 **Implementation Authority:** `madhuri196mishra-cpu/GridForge:main`  
-**Implementation HEAD:** `60ef9f072aaa8c3f6552a9cd1ab5cd6003f28844`  
+**Implementation HEAD:** `fb4a7c6b6fc468ac8a8fe20f42e4ccecfbc5142f`  
 **Audit/Reference Authority:** `SubhenduMishra29/GridForge:main`  
 **Audit mode:** Static repository inspection only. No pytest, CI, startup, or GUI execution.
 
@@ -309,7 +309,11 @@ The existing unrelated GF-MASTER-0059 document-lifecycle entry was not
 reclassified: the register itself states that identifier must not be conflated
 with terminal identity.
 
-## 17. Final static status
+## 17. Bus boundary preservation
+
+The Bus catalogue retains its Batch 28 presentation attachment anchor, but the generic terminal contract deliberately does not treat that anchor as a Core Terminal.role. Bus endpoints continue to use EndpointReference.bus(bus_id, attachment_id). This is an explicit exception for the distinct Bus endpoint kind, not a second terminal identity system.
+
+## 18. Final static status
 
 **STATICALLY VERIFIED — CLOSED**
 
@@ -324,7 +328,7 @@ Scope of closure:
 
 This status is static only. It is not runtime verification.
 
-## 18. Register disposition
+## 19. Register disposition
 
 Preserved findings:
 - `RCA-005-B29-001`
