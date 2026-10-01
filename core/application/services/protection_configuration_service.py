@@ -116,7 +116,10 @@ class ProtectionConfigurationService:
             raise RuntimeError("No active Network is available for protection measurement binding.")
         relay = network.get_by_id("relay", configuration.relay_id)
         previous_configuration = configuration
-        previous_channel = relay.get_input(normalized_input)
+        try:
+            previous_channel = relay.get_input(normalized_input)
+        except KeyError:
+            previous_channel = None
         next_inputs = dict(configuration.input_channel_ids)
         next_inputs[normalized_input] = normalized_channel
         next_configuration = ProtectionFunctionConfiguration(
@@ -168,7 +171,10 @@ class ProtectionConfigurationService:
             raise RuntimeError("No active Network is available for protection measurement binding.")
         relay = network.get_by_id("relay", configuration.relay_id)
         previous_configuration = configuration
-        previous_channel = relay.get_input(normalized_input)
+        try:
+            previous_channel = relay.get_input(normalized_input)
+        except KeyError:
+            previous_channel = None
         next_inputs = dict(configuration.input_channel_ids)
         next_inputs.pop(normalized_input, None)
         next_configuration = ProtectionFunctionConfiguration(
