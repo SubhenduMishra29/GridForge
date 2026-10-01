@@ -52,7 +52,22 @@ class ElectricalObject(ABC):
         return True
 
     def validate(self) -> bool:
-        return self.validate_parameters()
+        self.validate_parameters()
+        terminals = getattr(self, "terminals", None)
+        if terminals is not None:
+            roles: list[str] = []
+            for terminal in tuple(terminals):
+                if getattr(terminal, "owner", None) is not self:
+                    raise ValueError("Core Terminal owner must be its owning equipment.")
+                role = getattr(terminal, "role", None)
+                if not isinstance(role, str) or not role.strip():
+                    raise ValueError("Core Terminal role must be a non-empty string.")
+                if role in roles:
+                    raise ValueError(
+                        f"Duplicate Core terminal role {role!r} on equipment {self.id!r}."
+                    )
+                roles.append(role)
+        return True
 
     def __eq__(self, other: object) -> bool:
         if self is other: return True
