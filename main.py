@@ -109,6 +109,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     startup_splash = StartupSplash(app, branding)
     resources["startup_splash"] = startup_splash
     startup_splash.show(f"Starting {branding.PRODUCT_NAME} {branding.version}…")
+    # Give Qt a real paint cycle and enforce a short minimum splash duration
+    # so the canonical logo is actually visible before startup work proceeds.
+    startup_splash.hold()
     style_manager = StyleManager()
     startup_splash.status("Initializing application style…")
     style_manager.apply(app)
