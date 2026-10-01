@@ -233,4 +233,6 @@ These are runtime verification items, not new static architecture defects.
 
 ## 13. Batch status
 
-**BATCH 28 — CLOSED — STATIC**
+**BATCH 28 — OPEN**
+
+The implementation correction and static engineering evidence are complete, but the separately designated canonical audit/register repository could not be updated because the connected GitHub account has read-only permission there.
