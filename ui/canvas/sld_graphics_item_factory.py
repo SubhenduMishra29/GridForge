@@ -29,7 +29,14 @@ class SLDGraphicsItemFactory:
         self,
         equipment_registry: EquipmentRegistry,
         symbol_registry: SymbolRegistry,
+        application: object | None = None,
     ) -> None:
+        """Compose the factory without retaining an Application/Core reference.
+
+        The optional argument is source compatibility only and is intentionally
+        ignored: graphics realization consumes the already-projected SLD node.
+        """
+        del application
         if not isinstance(equipment_registry, EquipmentRegistry):
             raise TypeError("equipment_registry must be an EquipmentRegistry")
         if not isinstance(symbol_registry, SymbolRegistry):
