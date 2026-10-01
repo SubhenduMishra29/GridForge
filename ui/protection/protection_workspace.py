@@ -53,6 +53,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._scene = QGraphicsScene()
         super().__init__(self._scene, parent)
         self.setObjectName("ProtectionEngineeringCanvas")
+        self.setMouseTracking(True)
         self._application = application
         self._selection_manager = selection_manager
         self._adapter = adapter
