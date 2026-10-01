@@ -35,6 +35,7 @@ from core.model import EndpointReference, EquipmentType
 from ui.equipment.terminal import EquipmentTerminal
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
+from ui.core.snap_system import SnapType
 
 
 class EndpointIdentityAdapter:
@@ -82,7 +83,7 @@ class EndpointIdentityAdapter:
                 "Line connection requires an object snap with a stable object_id."
             )
 
-        if snap_type is not None and getattr(snap_type, "name", None) != "OBJECT":
+        if snap_type is not None and snap_type is not SnapType.OBJECT:
             raise ValueError(
                 "Line connection requires an object endpoint snap."
             )

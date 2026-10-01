@@ -1751,7 +1751,16 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 **Final disposition:** Batch 27 is **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED** for the SLD presentation activation correction. The graphical activation path is statically connected for new/open/close; runtime GUI verification remains explicitly unverified/not run.
 
-## 2026-10-01 — Batch 28 SLD Equipment Rendering & Symbol Realization
+## 2026-10-01 — Batch 28 SLD Terminal Snapping & Wire Connection
+
+Implementation authority: madhuri196mishra-cpu/GridForge:main
+Reference/audit authority: SubhenduMishra29/GridForge:main
+Verification mode: static source inspection and implementation correction only.
+Runtime: RUNTIME VERIFICATION — DEFERRED
+
+| ID | Finding | Status | Static evidence |
+|---|---|---|---|
+| GF-MASTER-0114 | Canonical SLD terminal snapping was not explicitly connected to the active renderer lifecycle, preventing a demonstrable terminal → SnapResult → EndpointReference connection path | AGENT CORRECTED — RE-AUDIT REQUIRED | The existing single SnapSystem now owns the canonical presentation candidate registry; SLDCanvasRenderSystem registers/unregisters realized EquipmentItem/BusItem candidates; main.py injects the same SnapSystem used by ToolManager/WireTool; WireTool and EndpointIdentityAdapter use typed SnapType.OBJECT. |
 
 Implementation authority: pandaraseswari03-collab/GridForge:main
 Canonical audit/register repository requested by Batch 28: SubhenduMishra29/GridForge:main

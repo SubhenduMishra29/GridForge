@@ -40,7 +40,7 @@ class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
-                 semantic_realization: SemanticPresentationRealization) -> None:
+                 semantic_realization: SemanticPresentationRealization, snap_system: Any = None) -> None:
         if scene is None:
             raise ValueError("scene must not be None")
         if not isinstance(item_factory, SLDGraphicsItemFactory):
@@ -50,6 +50,12 @@ class SLDCanvasRenderSystem:
         self._scene = scene
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
+        self._snap_system = snap_system
+        if snap_system is not None:
+            if getattr(snap_system, "get_scene", lambda: None)() is not scene:
+                raise ValueError("SLDCanvasRenderSystem snap_system must target the same active SLD scene.")
+            if not callable(getattr(snap_system, "register_item", None)) or not callable(getattr(snap_system, "unregister_item", None)):
+                raise TypeError("snap_system must expose canonical register_item()/unregister_item() lifecycle APIs.")
         self._items: dict[str, tuple[Any, ...]] = {}
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
@@ -71,6 +77,11 @@ class SLDCanvasRenderSystem:
     @property
     def semantic_realization(self) -> SemanticPresentationRealization:
         return self._semantic_realization
+
+    @property
+    def snap_system(self) -> Any:
+        """Return the one presentation snap service bound to this SLD renderer."""
+        return self._snap_system
 
     @property
     def unsupported_presentations(self) -> dict[str, str]:
@@ -168,6 +179,8 @@ class SLDCanvasRenderSystem:
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._scene.addItem(item)
+            if self._snap_system is not None and callable(getattr(item, "snap_points", None)):
+                self._snap_system.register_item(item)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
             realized[node.node_id] = item
@@ -278,6 +291,8 @@ class SLDCanvasRenderSystem:
     def _remove_realized(self, item_id: str) -> None:
         items = self._items.pop(item_id, ())
         for item in items:
+            if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+                self._snap_system.unregister_item(item)
             if item is not None and item.scene() is self._scene:
                 self._scene.removeItem(item)
         self._render_signatures.pop(item_id, None)
@@ -285,8 +300,12 @@ class SLDCanvasRenderSystem:
     def clear(self) -> None:
         for items in tuple(self._items.values()):
             for item in items:
+                if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+                    self._snap_system.unregister_item(item)
                 if item is not None and item.scene() is self._scene:
                     self._scene.removeItem(item)
+        if self._snap_system is not None and callable(getattr(self._snap_system, "clear_candidates", None)):
+            self._snap_system.clear_candidates()
         self._items.clear()
         self._render_signatures.clear()
         self._unsupported_presentations.clear()

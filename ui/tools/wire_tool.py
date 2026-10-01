@@ -14,6 +14,7 @@ from core.application.commands.simple_wire_commands import CreateSimpleWireConne
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
+from ui.core.snap_system import SnapType
 from .tool_base import ToolBase
 
 
@@ -27,6 +28,8 @@ class WireTool(ToolBase):
         self._start_position: Optional[Tuple[float, float]] = None
         self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
+        self._last_snap_result: Any = None
+        self._last_command_result: Any = None
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
@@ -43,17 +46,22 @@ class WireTool(ToolBase):
         return "Connect two SLD endpoints without creating a Line or Cable object."
 
     def on_activate(self) -> None:
+        self._last_snap_result = None
+        self._last_command_result = None
         self._clear_state()
 
     def on_deactivate(self) -> None:
         self._clear_state()
+        self._last_snap_result = None
+        self._last_command_result = None
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         snap_result = self._snap(event)
+        self._last_snap_result = snap_result
         if snap_result is None:
             return False
-        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
+        if getattr(snap_result, "snap_type", None) is not SnapType.OBJECT:
             return False
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
@@ -73,6 +81,7 @@ class WireTool(ToolBase):
             source_snap=self._start_snap,
             target_snap=snap_result,
         )
+        self._last_command_result = result
         if not getattr(result, "success", False):
             # A failed Application command is not a committed connection.
             # Keep the routing preview alive so the user can retry or cancel.
@@ -85,6 +94,7 @@ class WireTool(ToolBase):
         if self._preview.source_endpoint is None:
             return False
         snap_result = self._snap(event)
+        self._last_snap_result = snap_result
         if snap_result is None:
             return False
 
@@ -208,6 +218,8 @@ class WireTool(ToolBase):
             "start_position": self._start_position,
             "current_position": self._current_position,
             "preview": self._preview.get_state(),
+            "last_snap_result": self._last_snap_result,
+            "last_command_result": self._last_command_result,
         })
         return state
 

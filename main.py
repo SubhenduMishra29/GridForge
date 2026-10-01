@@ -157,6 +157,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         scene=canvas_preparation.scene,
         item_factory=presentation_bootstrap.sld_graphics_item_factory,
         semantic_realization=presentation_bootstrap.semantic_realization,
+        snap_system=canvas_preparation.snap_system,
     )
     canvas_composition = canvas_composer.compose(
         controller=controller,
