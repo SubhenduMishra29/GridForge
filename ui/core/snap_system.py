@@ -284,6 +284,7 @@ class SnapSystem:
         # registers realized electrical graphics here; snapping never invents
         # candidates from unrelated scene geometry.
         self._registered_items: dict[int, Any] = {}
+        self._last_result: SnapResult | None = None
 
         self._disposed = False
 
@@ -586,9 +587,9 @@ class SnapSystem:
                 )
 
         if not candidates:
-            return self._none_result(
-                scene_pos
-            )
+            result = self._none_result(scene_pos)
+            self._last_result = result
+            return result
 
         candidates.sort(
             key=lambda candidate: (
@@ -598,7 +599,9 @@ class SnapSystem:
             )
         )
 
-        return candidates[0][3]
+        result = candidates[0][3]
+        self._last_result = result
+        return result
 
     # --------------------------------------------------------
 
@@ -610,10 +613,13 @@ class SnapSystem:
         self._ensure_active()
         self._validate_point(scene_pos, "scene_pos")
         if not self.object_enabled:
-            return self._none_result(scene_pos)
+            result = self._none_result(scene_pos)
+            self._last_result = result
+            return result
         result = self._find_object_snap(scene_pos)
         if result is None:
-            return self._none_result(scene_pos)
+            result = self._none_result(scene_pos)
+        self._last_result = result
         return result
 
     def snap_point(
@@ -1235,6 +1241,8 @@ class SnapSystem:
             "grid_priority": (
                 self.grid_priority
             ),
+            "registered_item_count": len(self._registered_items),
+            "last_result": self._last_result,
             "disposed": self._disposed,
         }
 
@@ -1255,6 +1263,8 @@ class SnapSystem:
         if self._disposed:
             return
 
+        self._registered_items.clear()
+        self._last_result = None
         self.grid_system = None
         self.scene = None
 
