@@ -216,12 +216,25 @@ The requested GF-MASTER-0040 structural conditions are statically satisfied by t
 
 No runtime claim is made.
 
-## 13. Register status
+## 13. Rectangle rendering RCA correction
 
-**GF-MASTER-0040 — STATICALLY VERIFIED — CLOSED**
+Static RCA of the current rectangle path confirms that QGraphicsRectItem is created only by _create_degraded_realization(); canonical equipment rendering remains EquipmentFactory -> EquipmentItem -> SymbolDefinition.primitives.
 
-Runtime verification remains a separate engineering activity and was not performed in this correction pass.
+The correction hardens the semantic-to-symbol boundary in SemanticPresentationRealization: a projected equipment node may retain presentation transforms/visibility, but its symbol_id and definition_id must match the canonical EquipmentDefinition.symbol_id. A mismatch is rejected at the realization boundary rather than being allowed to reach the graphics factory as a different symbol identity.
 
-## 14. Implementation commit
+SLDCanvasRenderSystem now records the canonical semantic/equipment identity and an explicit realization stage in RenderDiagnostic, while the degraded fallback remains visible only for genuine realization failure. The fallback tooltip includes node/equipment identity and the exact failure code/message. The diagnostic fallback is therefore not a successful-equipment rendering path.
 
-`b7a4e20989af7736760bab1da05318e417b66fdc`
+The existing same-tool ToolManager.activate() idempotence remains intact: when the requested tool is already active with an active draft, activation returns the existing tool without cancelling/restarting the draft. Property editing continues through CreationDraft and does not alter symbol identity.
+
+No second registry, scene, projection manager, Core query, Application bypass, or alternate placement path was introduced.
+
+## 14. Register status
+
+**GF-MASTER-0040 — REMEDIATED — RUNTIME VERIFICATION REQUIRED**
+
+Runtime GUI verification remains a separate engineering activity and was not performed in this correction pass.
+
+## 15. Implementation commits
+
+- `2dc7588182e5898ae068870c595af35ab99d501e` — canonical symbol identity guard.
+- `0aeef94251ac5944dcb8c000c7e94f01cc576cd5` — complete degraded-render diagnostics.
