@@ -169,13 +169,19 @@ class ProtectionGraphicsSurface(QGraphicsView):
         return node
 
     def _link(self, source: ProtectionGraphicsNode, target: ProtectionGraphicsNode, *, connection_id: str) -> None:
-        a = source.sceneBoundingRect().center()
-        b = target.sceneBoundingRect().center()
-        line = QGraphicsLineItem(a.x(), a.y(), b.x(), b.y())
+        stored = self._presentation.connections.get(connection_id)
+        route = stored.get("route", ()) if isinstance(stored, dict) else ()
+        if len(route) >= 2:
+            start, end = route[0], route[-1]
+            line = QGraphicsLineItem(float(start[0]), float(start[1]), float(end[0]), float(end[1]))
+        else:
+            a = source.sceneBoundingRect().center()
+            b = target.sceneBoundingRect().center()
+            line = QGraphicsLineItem(a.x(), a.y(), b.x(), b.y())
+            self._presentation.set_connection_route(connection_id, [(a.x(), a.y()), (b.x(), b.y())])
         line.setPen(QPen())
         line.setZValue(-1)
         self._scene.addItem(line)
-        self._presentation.set_connection_route(connection_id, [(a.x(), a.y()), (b.x(), b.y())])
 
     def fit_to_content(self) -> None:
         items = self._scene.itemsBoundingRect()
