@@ -1800,3 +1800,39 @@ The implementation correction and static engineering evidence are complete, but 
 RUNTIME VERIFICATION — DEFERRED
 
 Batch report: audit/BATCH28_SLD_EQUIPMENT_RENDERING_STATIC_RECONCILIATION_2026-10-01.md
+
+
+## 2026-10-01 — GF-MASTER-0104 / GF-MASTER-0108 startup StyleTokens blocker reconciliation
+
+**Implementation authority:** `pandaraseswari03-collab/GridForge:main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only; no pytest, CI, or runtime execution.
+
+### GF-MASTER-0104 — centralized StyleTokens contract
+
+**Status:** **CORRECTED — RUNTIME RE-VERIFICATION REQUIRED**
+
+The current `main` source already contains the canonical symbol styling contract in `ui/styling/style_tokens.py`: `symbol_stroke`, `symbol_fill`, `symbol_disabled`, and `symbol_preview`. `ui/styling/presentation_style.py` maps the `symbol` role to `symbol_stroke`, while `resolve_style_tokens()` resolves the active immutable token object published by `StyleManager` on `QApplication`. `Theme` also owns the same `StyleTokens` instance used by `StyleManager`.
+
+The reproduced runtime exception — `AttributeError: 'StyleTokens' object has no attribute 'symbol_stroke'` — is therefore **not represented by the current repository source contract**. The source-level canonical token declaration is already present. The remaining discrepancy is between the runtime-imported `StyleTokens` object and the current `main` source, so runtime re-verification must establish that the user's checkout imports the current module rather than a stale/incompatible copy.
+
+No local palette color, second styling authority, or fallback token was introduced. No Core/Application/SLD architecture was changed.
+
+### GF-MASTER-0108 — Palette Symbol Adapter startup blocker
+
+**Status:** **CORRECTED — RUNTIME RE-VERIFICATION REQUIRED**
+
+The current `PaletteSymbolAdapter` remains presentation-only and follows:
+
+```
+SymbolRegistry → SymbolDefinition → PaletteSymbolAdapter
+                 → presentation_style → StyleTokens / active Theme
+```
+
+Its visual states explicitly resolve to the existing `VisualState` enum and are passed to `visual_pen()`. The adapter does not define symbol colors or mutate Core state.
+
+The current source therefore contains the required `symbol_stroke` contract at both ends of the rendering path: `StyleTokens.symbol_stroke` exists and `visual_pen("symbol", ...)` intentionally resolves it. The previously recorded undefined-`visual_state` defect remains historical evidence for this finding; the newly reproduced startup blocker is a distinct runtime manifestation of the same palette-rendering boundary and is reconciled here without creating a new master ID.
+
+**Runtime state:** **CORRECTED — RUNTIME RE-VERIFICATION REQUIRED**. The repository agent did not execute `python main.py` and does not claim startup verification.
+
+**Register integrity:** GF-MASTER-0104 and GF-MASTER-0108 are retained. No duplicate, deleted, renumbered, or replacement master ID was introduced.
