@@ -1836,3 +1836,27 @@ The current source therefore contains the required `symbol_stroke` contract at b
 **Runtime state:** **CORRECTED — RUNTIME RE-VERIFICATION REQUIRED**. The repository agent did not execute `python main.py` and does not claim startup verification.
 
 **Register integrity:** GF-MASTER-0104 and GF-MASTER-0108 are retained. No duplicate, deleted, renumbered, or replacement master ID was introduced.
+
+
+## 2026-10-01 — Batch 40 non-Bus equipment realization correction
+
+**Implementation authority:** `pandaraseswari03-collab/GridForge:main`  
+**Verification mode:** static source inspection and correction only; no pytest, CI, automated test suite, `python main.py`, or GUI/runtime execution.
+
+### GF-MASTER-0040 — Non-Bus SLD realization
+
+**Status:** **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED**
+
+The remaining concrete static defect was corrected in `ui/canvas/sld_graphics_item_factory.py`: `Mapping` was referenced by `_read_model_for_node()` without an explicit import. The module now imports `Any, Mapping` from `typing`.
+
+Static reconciliation confirms the non-Bus path remains generic: canonical SLD semantic vocabulary resolves through `equipment_type_for_semantic()`, `EquipmentRegistry.require()` supplies the `EquipmentDefinition`, `SemanticPresentationRealization` uses the existing `SymbolFactory` backed by the canonical `SymbolRegistry`, and `SLDGraphicsItemFactory` consumes only the projected `SLDCanvasNode` to build an `ElementReadModel` for `EquipmentFactory.create_from_read_model()`, producing presentation-side `EquipmentBase`/terminals and an `EquipmentItem` on the canonical scene.
+
+The built-in catalogue statically covers the 22 registered equipment types: bus, line, cable, transformer, switch, breaker, disconnector, fuse, load, generator, synchronous_machine, motor, shunt, capacitor, reactor, solar, battery, grid, current_transformer, potential_transformer, cvt, and relay. Bus retains its dedicated `BusItem` path. Connection data remains projected presentation/read-model data; the graphics factory does not query or mutate Core/Application state and does not resolve electrical topology.
+
+No duplicate `EquipmentFactory`, `SymbolFactory`, `SymbolRegistry`, `SLDGraphicsItemFactory`, or semantic-to-equipment mapping was introduced. Existing degraded-render diagnostic behavior and canonical single-scene composition remain unchanged.
+
+**Static chain:** Application ElementReadModel → SLDReadAdapter → SLDProjection → SLDDocument/SLDModel → SLDCanvasProjection → SLDCanvasNode → SemanticPresentationRealization → EquipmentRegistry + SymbolRegistry/SymbolFactory → SLDGraphicsItemFactory → `_read_model_for_node()` → EquipmentFactory → EquipmentBase + EquipmentTerminal → EquipmentItem → canonical QGraphicsScene.
+
+**Runtime:** deferred to user verification. Historical GF-MASTER-0040 entries are preserved; no ID was deleted, renumbered, duplicated, or replaced.
+
+**Author:** Subhendu Mishra
