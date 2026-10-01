@@ -363,22 +363,25 @@ class NetworkReadService(ReadService):
 
 class ProtectionReadService:
     """Read adapter over authoritative physical Relays, optionally scoped by runtime configuration."""
-    def __init__(self, source: Network | ProtectionSystem) -> None:
+    def __init__(self, source: Network | ProtectionSystem, decision_provider: Any | None = None) -> None:
         if not isinstance(source, (Network, ProtectionSystem)): raise TypeError("ProtectionReadService requires a Network or ProtectionSystem")
+        if decision_provider is not None and not callable(decision_provider): raise TypeError("decision_provider must be callable.")
         self._source = source
+        self._decision_provider = decision_provider
     def protection(self) -> ProtectionReadModel:
-        return ProtectionReadModel(relays=tuple(self._to_read_model(relay) for relay in self._relays()))
+        return ProtectionReadModel(relays=tuple(self._to_read_model(relay, self._decision_provider) for relay in self._relays()))
     def relay(self, object_id: str) -> RelayReadModel:
         for relay in self._relays():
-            if relay.id == object_id: return self._to_read_model(relay)
+            if relay.id == object_id: return self._to_read_model(relay, self._decision_provider)
         raise KeyError(f"Relay '{object_id}' is not represented by the authoritative protection source")
     def _relays(self) -> tuple[Any, ...]:
         if isinstance(self._source, Network): return self._source.relays
         return self._source.relays()
     @staticmethod
-    def _to_read_model(relay: Any) -> RelayReadModel:
+    def _to_read_model(relay: Any, decision_provider: Any | None = None) -> RelayReadModel:
         bindings = tuple(RelayInputBindingReadModel(input_name=str(name), channel_id=None if getattr(channel, "id", None) is None else str(getattr(channel, "id"))) for name, channel in sorted(relay.input_channels.items()))
-        return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings)
+        decision = decision_provider(str(relay.id)) if decision_provider is not None else None
+        return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings, decision=decision)
 
 class StudyReadService:
     """Canonical Application read boundary for published study results.
