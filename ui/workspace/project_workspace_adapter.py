@@ -115,7 +115,14 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool,
     ):
         snapshot = self._lifecycle.capture_transition_state()
-        previous_document = snapshot.document
+        previous_document = next(
+            (
+                document
+                for document in snapshot.documents
+                if document.document_id == snapshot.active_document_id
+            ),
+            None,
+        )
         try:
             if context is None:
                 self._lifecycle.close_project()
