@@ -427,9 +427,11 @@ class ProtectionWorkspace(QWidget):
         elif isinstance(event, ProjectLoaded):
             loaded = getattr(self._application, "protection_presentation", None)
             if isinstance(loaded, dict):
-                self._presentation = ProtectionPresentationDocument.from_dict(loaded)
-                self._application.protection_presentation = self._presentation
-        self.refresh()
+                restored = ProtectionPresentationDocument.from_dict(loaded)
+                self._presentation.clear()
+                self._presentation.nodes.update(restored.nodes)
+                self._presentation.connections.update(restored.connections)
+                self._application.protection_presentation = self._presentation        self.refresh()
     def dispose(self) -> None:
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)
