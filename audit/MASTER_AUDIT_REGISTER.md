@@ -1728,9 +1728,9 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 **Author:** Subhendu Mishra
 
 
-## 2026-09-30 — Batch 27 Final Consolidated Correction
+## 2026-09-30 — Batch 27 Final Consolidated Correction + 2026-10-01 SLD Presentation Activation Re-audit
 
-**Current implementation/audit authority:** `madhuri196mishra-cpu/GridForge:main`  
+**Current implementation/audit authority:** `pandaraseswari03-collab/GridForge:main`  
 **Verification mode:** static source inspection and correction only. Runtime/GUI/CI execution was not performed.
 
 | ID | Correction family | Status | Static evidence | Runtime |
@@ -1744,10 +1744,9 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 | B27-FINAL-007 | Protection Workspace | REMEDIATED — RUNTIME VERIFICATION DEFERRED | ProtectionGraphicsSurface is a real QGraphicsView/QGraphicsScene read-side scheme projection; Explorer and Inspector use canonical selection. | Deferred |
 | B27-FINAL-008 | Feedback System | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Validation, Application events and transient status remain separate; event messages preserve ApplicationEvent.occurred_at and object identity where available. | Deferred |
 | B27-FINAL-009 | Menu/Toolbar | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Menu taxonomy is non-duplicated; UIActionRouter remains the canonical enabled-state path and the composition-root provider consumes EngineeringContext plus Application command registration for SLD tool capabilities. | Deferred |
-| B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current authority is explicitly `madhuri196mishra-cpu/GridForge:main`; historical repositories remain provenance only. | Deferred |
+| B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current implementation/audit authority is `pandaraseswari03-collab/GridForge:main`; historical repository identities remain provenance only. | Not required |
+| B27-FINAL-011 | SLD Presentation Activation Bridge | STATICALLY VERIFIED | `EngineeringWorkspaceTabs.set_sld_document()` now presents/clears the canonical `SLDCanvasSurface`; `ProjectWorkspaceApplicationAdapter` invokes the UI bridge transactionally; `main.py` binds the bridge and no longer performs duplicate document-factory surface mutation; `CanvasPlugin` delegates to the canonical surface; `SLDSurface` is reduced to a compatibility adapter. | Deferred |
 
-**Batch report:** `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md`
+**Batch report:** `audit/BATCH27_SLD_PRESENTATION_ACTIVATION_STATIC_REAUDIT_2026-10-01.md`
 
-**Final disposition:** Batch 27 is **CORRECTION COMPLETE — STATIC ARCHITECTURAL CLOSURE**. Runtime GUI verification remains deferred; the authoritative dated report is `audit/BATCH27_FINAL_COMPLETE_STATIC_REAUDIT_2026-09-30.md`.
-
-Runtime and CI remain explicitly unverified/not run.
+**Final disposition:** Batch 27 is **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED** for the SLD presentation activation correction. The graphical activation path is statically connected for new/open/close; runtime GUI verification remains explicitly unverified/not run.
