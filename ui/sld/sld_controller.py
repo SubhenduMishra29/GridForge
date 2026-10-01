@@ -38,11 +38,19 @@ from .sld_state import SLDState
 class SLDController:
     """Application-facing controller for SLD document operations."""
 
-    def __init__(self, state: Optional[SLDState] = None,
-                 projection_manager: Optional[SLDProjectionManager] = None,
-                 application: Optional[Application] = None) -> None:
+    def __init__(
+        self,
+        state: Optional[SLDState] = None,
+        projection_manager: Optional[SLDProjectionManager] = None,
+        application: Optional[Application] = None,
+    ) -> None:
+        if not isinstance(projection_manager, SLDProjectionManager):
+            raise TypeError(
+                "SLDController requires the canonical SLDProjectionManager "
+                "from the Application read/projection composition."
+            )
         self._state = state if state is not None else SLDState()
-        self._projection_manager = projection_manager if projection_manager is not None else SLDProjectionManager()
+        self._projection_manager = projection_manager
         self._application = application
         self._documents: Dict[str, SLDDocument] = {}
         if self._application is not None:

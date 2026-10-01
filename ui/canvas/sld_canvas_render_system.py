@@ -60,6 +60,7 @@ class SLDCanvasRenderSystem:
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
+        self._degraded_node_ids: set[str] = set()
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
@@ -144,7 +145,11 @@ class SLDCanvasRenderSystem:
         # anchors and existing Bus attachment geometry.
         for node in snapshot.nodes:
             signature = self._node_signature(node)
-            if self._render_signatures.get(node.node_id) == signature and node.node_id in self._items:
+            if (
+                self._render_signatures.get(node.node_id) == signature
+                and node.node_id in self._items
+                and node.node_id not in self._degraded_node_ids
+            ):
                 realized[node.node_id] = self._items[node.node_id][0]
                 continue
 
@@ -172,6 +177,7 @@ class SLDCanvasRenderSystem:
                 self._scene.addItem(degraded)
                 self._items[node.node_id] = (degraded,)
                 self._render_signatures[node.node_id] = signature
+                self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
                 if self._diagnostic_sink is not None:
                     self._diagnostic_sink(diagnostic)
@@ -183,6 +189,7 @@ class SLDCanvasRenderSystem:
                 self._snap_system.register_item(item)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
+            self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
 
         for connection in snapshot.connections:
@@ -296,6 +303,7 @@ class SLDCanvasRenderSystem:
             if item is not None and item.scene() is self._scene:
                 self._scene.removeItem(item)
         self._render_signatures.pop(item_id, None)
+        self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
         for items in tuple(self._items.values()):
@@ -308,6 +316,7 @@ class SLDCanvasRenderSystem:
             self._snap_system.clear_candidates()
         self._items.clear()
         self._render_signatures.clear()
+        self._degraded_node_ids.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
