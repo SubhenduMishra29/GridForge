@@ -1,3 +1,4 @@
+# Author: Subhendu Mishra
 """Immutable Application commands for project-scoped protection configuration."""
 
 from __future__ import annotations
