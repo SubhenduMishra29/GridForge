@@ -2,6 +2,7 @@
 # File: ui/styling/style_tokens.py
 # GridForge V2 — Canonical UI Style Tokens
 # Author: Subhendu Mishra
+
 # ============================================================
 """Semantic presentation tokens shared by widgets and graphics projections."""
 
