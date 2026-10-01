@@ -142,7 +142,7 @@ def create_application(network: Any) -> Application:
     application.protection_configuration_service = protection_configuration_service
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
     application.protection_presentation = None
-    application._protection_read_service = ProtectionReadService(network)
+    application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
     def activate_network(active_network: Any):
         """Replace project-bound Application runtime and return its rollback."""
@@ -156,7 +156,7 @@ def create_application(network: Any) -> Application:
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
             application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-            application._protection_read_service = ProtectionReadService(active_network)
+            application._protection_read_service = ProtectionReadService(active_network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
         except Exception:
             application._command_manager = previous_command_manager
             application._read_service = previous_read_service
