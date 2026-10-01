@@ -25,17 +25,18 @@ from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 class SLDGraphicsItemFactory:
     """Construction boundary between resolved descriptors and graphics."""
 
-    def __init__(self, equipment_registry: EquipmentRegistry, symbol_registry: SymbolRegistry, application: object) -> None:
+    def __init__(
+        self,
+        equipment_registry: EquipmentRegistry,
+        symbol_registry: SymbolRegistry,
+    ) -> None:
         if not isinstance(equipment_registry, EquipmentRegistry):
             raise TypeError("equipment_registry must be an EquipmentRegistry")
         if not isinstance(symbol_registry, SymbolRegistry):
             raise TypeError("symbol_registry must be a SymbolRegistry")
-        if application is not None and not callable(getattr(application, "read_network", None)):
-            raise TypeError("application must provide the Application read-model API when supplied.")
         equipment_registry.validate_symbol_anchors(symbol_registry)
         self._equipment_registry = equipment_registry
         self._symbol_registry = symbol_registry
-        self._application = application
         self._equipment_factory = EquipmentFactory(equipment_registry, symbol_registry)
 
     @property
@@ -111,49 +112,46 @@ class SLDGraphicsItemFactory:
         item.set_visual_route(source, target, route.points, ownership=route.ownership)
         return item
 
-    def _read_model_for_node(self, node: SLDCanvasNode, equipment_type: str) -> ElementReadModel:
-        """Build the minimum presentation snapshot without requiring connectivity.
+    @staticmethod
+    def _read_model_for_node(node: SLDCanvasNode, equipment_type: str) -> ElementReadModel:
+        """Build a presentation snapshot only from the projected SLD node.
 
-        A committed SLD node is renderable from its own semantic identity and
-        presentation state. Application read state is optional enrichment; it
-        must never make symbol existence contingent on topology/connectivity.
+        The graphics factory is deliberately downstream of the Application
+        read/projection boundary. It must never query Application/Core state to
+        decide whether an already-projected SLD node is renderable.
         """
-        equipment_id = node.equipment_id or str(node.properties.get("equipment_id") or node.node_id)
+        equipment_id = node.equipment_id or str(
+            node.properties.get("equipment_id") or node.node_id
+        )
         if not equipment_id:
             raise ValueError("Renderable equipment nodes require a stable equipment identity.")
 
-        if self._application is not None:
-            network = self._application.read_network()
-            for element in network.elements:
-                if element.object_id == equipment_id:
-                    return element
-            protection_reader = getattr(self._application, "read_protection", None)
-            if callable(protection_reader):
-                protection = protection_reader()
-                for relay in protection.relays:
-                    if relay.object_id == equipment_id:
-                        return ElementReadModel(
-                            object_id=relay.object_id,
-                            element_type="RELAY",
-                            labels={"name": relay.name},
-                            connectivity_refs=(),
-                            attributes={},
-                        )
-
         properties = dict(node.properties)
-        properties.pop("element_type", None)
-        terminal_ids = properties.pop("terminal_ids", ())
-        if isinstance(terminal_ids, list):
-            terminal_ids = tuple(str(value) for value in terminal_ids)
-        elif not isinstance(terminal_ids, tuple):
+        projected_labels = properties.pop("labels", {})
+        projected_attributes = properties.pop("attributes", {})
+        terminal_ids = properties.pop(
+            "terminal_ids",
+            properties.pop("connectivity_refs", ()),
+        )
+        element_type = properties.pop("element_type", equipment_type)
+
+        labels = dict(projected_labels) if isinstance(projected_labels, Mapping) else {}
+        attributes = dict(projected_attributes) if isinstance(projected_attributes, Mapping) else {}
+        if "name" in properties and "name" not in labels:
+            labels["name"] = str(properties.pop("name"))
+        if not labels:
+            labels["name"] = str(equipment_id)
+
+        if not isinstance(terminal_ids, (tuple, list)):
             terminal_ids = ()
-        name = properties.pop("name", None) or equipment_id
+        attributes.update(properties)
+
         return ElementReadModel(
             object_id=str(equipment_id),
-            element_type=str(properties.pop("semantic_type", equipment_type)),
-            labels={"name": str(name)},
-            connectivity_refs=terminal_ids,
-            attributes=properties,
+            element_type=str(element_type),
+            labels=labels,
+            connectivity_refs=tuple(str(value) for value in terminal_ids),
+            attributes=attributes,
         )
 
     @staticmethod
