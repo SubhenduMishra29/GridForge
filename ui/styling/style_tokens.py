@@ -59,7 +59,10 @@ class StyleTokens:
     engineering_control: str = "#7CC4C9"
     engineering_measurement: str = "#B5A7E8"
 
-    # Generic SLD symbols are rendered on the authoritative white canvas.\n    # Keep the shared stroke token dark enough for line/circle-only symbols;\n    # Bus uses its separate engineering_bus role and is intentionally unchanged.\n    symbol_stroke: str = "#26313B"
+    # Generic SLD symbols are rendered on the authoritative white canvas.
+    # Keep the shared stroke token dark enough for line/circle-only symbols;
+    # Bus uses its separate engineering_bus role and is intentionally unchanged.
+    symbol_stroke: str = "#26313B"
     symbol_fill: str = "#222830"
     symbol_disabled: str = "#68737F"
     symbol_preview: str = "#A87BFF"
