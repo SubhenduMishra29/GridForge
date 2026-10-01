@@ -25,8 +25,9 @@ from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
-from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.sld.sld_document import SLDDocument
 
 
 @dataclass(frozen=True)
@@ -49,8 +50,26 @@ class SLDCanvasSurface(QWidget):
     synchronization unchanged. It owns no electrical or document state.
     """
 
-    def __init__(self, view: GraphicsView, navigation_controller: NavigationController, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        view: GraphicsView,
+        navigation_controller: NavigationController,
+        *,
+        sld_canvas_projection: SLDCanvasProjection,
+        sld_canvas_render_system: SLDCanvasRenderSystem,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        if not isinstance(sld_canvas_projection, SLDCanvasProjection):
+            raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
+        if not isinstance(sld_canvas_render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+        if sld_canvas_render_system.scene is not view.scene():
+            raise ValueError("sld_canvas_render_system must target the canonical GraphicsView scene.")
+        self._sld_canvas_projection = sld_canvas_projection
+        self._sld_canvas_render_system = sld_canvas_render_system
+        self._document_id: str | None = None
+        self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
         self.setObjectName("SLDCanvasSurface")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -116,6 +135,30 @@ class SLDCanvasSurface(QWidget):
         plus.setToolTip("Additional SLD documents are managed by the project/document lifecycle.")
         tabs.setCornerWidget(plus)
         root.addWidget(tabs, 1)
+
+    def present_document(self, document: SLDDocument) -> SLDCanvasSnapshot:
+        """Present the Application-authoritative SLD document on this surface."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument.")
+        snapshot = self._sld_canvas_projection.project(document.model)
+        self._sld_canvas_render_system.synchronize(snapshot)
+        self._document_id = document.document_id
+        self._sld_canvas_snapshot = snapshot
+        return snapshot
+
+    def clear_document(self) -> None:
+        """Clear canonical SLD graphics without mutating Core/Application state."""
+        self._sld_canvas_render_system.clear()
+        self._document_id = None
+        self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
+
+    @property
+    def document_id(self) -> str | None:
+        return self._document_id
+
+    @property
+    def sld_canvas_snapshot(self) -> SLDCanvasSnapshot:
+        return self._sld_canvas_snapshot
 
     def set_document_title(self, title: str | None) -> None:
         """Update only the visible document-tab title from projected application state."""
@@ -250,7 +293,13 @@ class CanvasComposer:
             interaction_manager=interaction_manager,
             navigation_controller=navigation_controller,
         )
-        surface = SLDCanvasSurface(view=view, navigation_controller=navigation_controller, parent=parent)
+        surface = SLDCanvasSurface(
+            view=view,
+            navigation_controller=navigation_controller,
+            sld_canvas_projection=sld_canvas_projection,
+            sld_canvas_render_system=sld_canvas_render_system,
+            parent=parent,
+        )
         selection_manager.set_scene(scene)
 
         selection_projection = SelectionProjectionCoordinator(
