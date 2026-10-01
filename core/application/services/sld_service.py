@@ -276,14 +276,16 @@ class SLDService:
         *,
         equipment_id: str,
         element_type: str,
-        read_model: Any,
+        core_object: Any,
         transaction: Transaction,
     ) -> None:
-        """Reconcile authoritative semantic fields while preserving presentation overrides.
+        """Reconcile presentation from the authoritative transaction-visible Core object.
 
         This is intentionally a service operation, not a second command/history
         mechanism. It is invoked by the Application pre-commit hook inside the
-        transaction opened for the originating Core command.
+        transaction opened for the originating Core command. The Core object is
+        the mutation result; ReadModels are never queried to establish the
+        authoritative updated state.
         """
         if not isinstance(equipment_id, str) or not equipment_id:
             raise ValueError("equipment_id must be a non-empty string")
@@ -291,9 +293,14 @@ class SLDService:
         if node is None:
             return
         previous = node.to_dict()
-        attributes = dict(getattr(read_model, "attributes", {}) or {})
-        labels = dict(getattr(read_model, "labels", {}) or {})
-        connectivity = tuple(getattr(read_model, "connectivity_refs", ()) or ())
+        # Convert the already-mutated Core object into the existing
+        # presentation projection shape without querying Application
+        # ReadService. The Core object remains the authoritative source.
+        from ..read_service import NetworkReadService
+        projected = NetworkReadService._to_read_model(element_type, core_object)
+        attributes = dict(projected.attributes)
+        labels = dict(projected.labels)
+        connectivity = tuple(projected.connectivity_refs)
         node.properties.update({
             "element_type": str(element_type),
             "labels": labels,
