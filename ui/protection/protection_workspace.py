@@ -59,6 +59,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._interaction = interaction
         self._presentation = presentation
         self._nodes: dict[str, ProtectionGraphicsNode] = {}
+        self._preview_line: QGraphicsLineItem | None = None
         self._scene.selectionChanged.connect(self._on_scene_selection)
         selection_manager.selection_changed.connect(self._on_canonical_selection)
         self.setMinimumHeight(360)
@@ -70,6 +71,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
     def refresh(self) -> None:
         self._scene.clear()
         self._nodes.clear()
+        self._preview_line = None
         try:
             protection = self._application.read_protection()
             configurations = self._application.read_protection_configuration()
@@ -196,6 +198,8 @@ class ProtectionGraphicsSurface(QGraphicsView):
             item = item.parentItem()
         if isinstance(item, ProtectionGraphicsNode):
             result = self._interaction.click_node(item)
+            if not self._interaction.session.connection_source_id:
+                self._clear_preview()
             if result == "fit":
                 self.fitInView(self._scene.itemsBoundingRect().adjusted(-30, -30, 30, 30))
             elif result == "diagnostics":
