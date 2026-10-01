@@ -86,6 +86,118 @@ class ProtectionConfigurationService:
         except KeyError as exc: raise ResourceError(code="PROTECTION_CONFIGURATION_NOT_FOUND", message=f"Protection configuration not found: {configuration.element_id}", details={"element_id": configuration.element_id}) from exc
         active.replace(configuration); transaction.record_undo(lambda previous=previous: active.replace(previous)); return self._success(configuration, f"Protection configuration updated: {configuration.element_id}")
 
+    def bind_measurement(self, *, element_id: str, input_name: str, channel_id: str,
+                         transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
+        """Atomically bind a MeasurementChannel to a configured Relay input.
+
+        The project configuration and the live Relay input projection are
+        changed under the same Application transaction.  The Relay remains
+        physical Core truth; the configuration aggregate remains persistence
+        authority for the association.
+        """
+        self._require_transaction(transaction)
+        active = self._require_configuration()
+        configuration = active.get(str(element_id).strip())
+        normalized_input = str(input_name).strip()
+        normalized_channel = str(channel_id).strip()
+        if not normalized_input or not normalized_channel:
+            raise ValueError("input_name and channel_id must be non-empty strings.")
+        channels = self._measurement_channel_provider() if self._measurement_channel_provider is not None else {}
+        try:
+            channel = channels[normalized_channel]
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_CHANNEL_NOT_FOUND",
+                message=f"Measurement channel not found: {normalized_channel}",
+                details={"channel_id": normalized_channel, "element_id": configuration.element_id},
+            ) from exc
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is None:
+            raise RuntimeError("No active Network is available for protection measurement binding.")
+        relay = network.get_by_id("relay", configuration.relay_id)
+        previous_configuration = configuration
+        previous_channel = relay.get_input(normalized_input)
+        next_inputs = dict(configuration.input_channel_ids)
+        next_inputs[normalized_input] = normalized_channel
+        next_configuration = ProtectionFunctionConfiguration(
+            element_id=configuration.element_id,
+            relay_id=configuration.relay_id,
+            function_code=configuration.function_code,
+            settings=configuration.settings,
+            input_channel_ids=next_inputs,
+            enabled=configuration.enabled,
+            blocked=configuration.blocked,
+            priority=configuration.priority,
+            name=configuration.name,
+            metadata=configuration.metadata,
+        )
+        self._validate_configuration(next_configuration)
+        relay.bind_input(normalized_input, channel)
+        active.replace(next_configuration)
+
+        def undo() -> None:
+            active.replace(previous_configuration)
+            if previous_channel is None:
+                relay.unbind_input(normalized_input)
+            else:
+                relay.bind_input(normalized_input, previous_channel)
+
+        transaction.record_undo(undo)
+        return self._success(
+            next_configuration,
+            f"Protection measurement bound: {configuration.element_id}:{normalized_input} -> {normalized_channel}",
+        )
+
+    def unbind_measurement(self, *, element_id: str, input_name: str,
+                           transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
+        """Atomically remove a MeasurementChannel from one Relay input."""
+        self._require_transaction(transaction)
+        active = self._require_configuration()
+        configuration = active.get(str(element_id).strip())
+        normalized_input = str(input_name).strip()
+        if not normalized_input:
+            raise ValueError("input_name must be a non-empty string.")
+        if normalized_input not in configuration.input_channel_ids:
+            raise ResourceError(
+                code="PROTECTION_INPUT_NOT_BOUND",
+                message=f"Protection input is not bound: {normalized_input}",
+                details={"element_id": configuration.element_id, "input_name": normalized_input},
+            )
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is None:
+            raise RuntimeError("No active Network is available for protection measurement binding.")
+        relay = network.get_by_id("relay", configuration.relay_id)
+        previous_configuration = configuration
+        previous_channel = relay.get_input(normalized_input)
+        next_inputs = dict(configuration.input_channel_ids)
+        next_inputs.pop(normalized_input, None)
+        next_configuration = ProtectionFunctionConfiguration(
+            element_id=configuration.element_id,
+            relay_id=configuration.relay_id,
+            function_code=configuration.function_code,
+            settings=configuration.settings,
+            input_channel_ids=next_inputs,
+            enabled=configuration.enabled,
+            blocked=configuration.blocked,
+            priority=configuration.priority,
+            name=configuration.name,
+            metadata=configuration.metadata,
+        )
+        self._validate_configuration(next_configuration)
+        relay.unbind_input(normalized_input)
+        active.replace(next_configuration)
+
+        def undo() -> None:
+            active.replace(previous_configuration)
+            if previous_channel is not None:
+                relay.bind_input(normalized_input, previous_channel)
+
+        transaction.record_undo(undo)
+        return self._success(
+            next_configuration,
+            f"Protection measurement unbound: {configuration.element_id}:{normalized_input}",
+        )
+
     def delete_configuration(self, *, element_id: str, transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
         self._require_transaction(transaction)
         if not isinstance(element_id, str) or not element_id.strip(): raise ValueError("element_id must be a non-empty string.")
