@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from ui.core.qt import QApplication, QSplashScreen, Qt
+from ui.core.qt import QApplication, QColor, QPixmap, QSplashScreen, Qt
 
 from .branding import BrandingAssetError, BrandingService
 
@@ -25,11 +25,10 @@ class StartupSplash:
         self._splash: QSplashScreen | None = None
         self._visible = False
 
-        try:
-            pixmap = branding.splash_pixmap()
-        except BrandingAssetError as exc:
-            LOGGER.error("GridForge startup splash unavailable: %s", exc)
-            return
+        # Keep the startup splash lifecycle and status messaging, but do not
+        # render the application logo/artwork on the splash surface.
+        pixmap = QPixmap(520, 180)
+        pixmap.fill(QColor("#FFFFFF"))
 
         self._splash = QSplashScreen(
             pixmap,
