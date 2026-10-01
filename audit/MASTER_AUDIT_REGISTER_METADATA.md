@@ -192,3 +192,10 @@ Historical references to `pandaraseswari03-collab/GridForge` and other prior rep
 Batch 27 corrections are recorded in `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTION_2026-09-30.md` and synchronized into the current Master Audit Register Markdown and CSV.
 
 **Verification discipline:** static source inspection only. Runtime GUI verification and CI/test execution were not performed.
+
+
+## Batch 28 full wiring static reconciliation — 2026-10-01
+
+| Master ID | Evidence / Location | First Detected | Last Verified | Related Findings | Depends On | Blocks | Resolution Evidence | Historical Notes | Remediation State | Verification Method |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GF-MASTER-0114 | `ui/core/snap_system.py`; `ui/tools/wire_tool.py`; `ui/sld/sld_endpoint_resolver.py`; `ui/canvas/sld_canvas_render_system.py`; `core/application/application.py` | 2026-10-01 | 2026-10-01 | Batch 28 SLD terminal snapping / wiring | Canonical SnapSystem, EndpointReference, CommandManager transaction, SLD projection | Runtime verification only | `audit/BATCH28_FULL_SLD_WIRING_STATIC_RECONCILIATION_2026-10-01.md`; movement lifecycle and endpoint identity hardening committed on main | Historical correction report preserved; no prior finding deleted or renumbered | STATICALLY VERIFIED — CLOSED | Static source/call-flow reconciliation; runtime GUI and tests not executed |

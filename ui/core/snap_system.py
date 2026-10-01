@@ -284,6 +284,7 @@ class SnapSystem:
         # registers realized electrical graphics here; snapping never invents
         # candidates from unrelated scene geometry.
         self._registered_items: dict[int, Any] = {}
+        self._movement_callbacks: dict[int, tuple[Any, Any]] = {}
         self._last_result: SnapResult | None = None
 
         self._disposed = False
@@ -436,7 +437,7 @@ class SnapSystem:
                 scene
             )
         if scene is not self.scene:
-            self._registered_items.clear()
+            self.clear_candidates()
 
         self.scene = scene
 
@@ -466,14 +467,33 @@ class SnapSystem:
             raise TypeError("Only BusItem and EquipmentItem may register snap candidates.")
         if not callable(getattr(item, "snap_points", None)):
             raise TypeError("Registered snap candidate item must expose snap_points().")
-        self._registered_items[id(item)] = item
+        item_key = id(item)
+        if item_key in self._registered_items:
+            self.refresh_item(item)
+            return
+        self._registered_items[item_key] = item
+        movement_signal = getattr(item, "position_changed", None)
+        if movement_signal is not None and callable(getattr(movement_signal, "connect", None)):
+            callback = lambda *_args, _item=item: self.refresh_item(_item)
+            movement_signal.connect(callback)
+            self._movement_callbacks[item_key] = (movement_signal, callback)
 
     def unregister_item(self, item: Any) -> None:
         """Remove one realized item from the canonical snap candidate registry."""
         self._ensure_active()
         if item is None:
             return
-        self._registered_items.pop(id(item), None)
+        item_key = id(item)
+        callback_entry = self._movement_callbacks.pop(item_key, None)
+        if callback_entry is not None:
+            signal, callback = callback_entry
+            disconnect = getattr(signal, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect(callback)
+                except (TypeError, RuntimeError):
+                    pass
+        self._registered_items.pop(item_key, None)
 
     def refresh_item(self, item: Any) -> None:
         """Refresh one registered item after graphical movement or geometry changes."""
@@ -494,7 +514,9 @@ class SnapSystem:
     def clear_candidates(self) -> None:
         """Clear all presentation snap candidates without touching the scene."""
         self._ensure_active()
-        self._registered_items.clear()
+        for item in tuple(self._registered_items.values()):
+            self.unregister_item(item)
+        self._movement_callbacks.clear()
 
     @property
     def registered_items(self) -> tuple[Any, ...]:
