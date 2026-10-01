@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QPainter, QPen, QRectF, QPointF, Qt, QColor
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
@@ -19,6 +19,8 @@ from .base_item import BaseItem
 
 class EquipmentItem(BaseItem):
     """Presentation-only graphics projection for one canonical SLD symbol."""
+
+    position_changed = Signal(object)
 
     def __init__(
         self,
@@ -54,6 +56,7 @@ class EquipmentItem(BaseItem):
             )
         self._symbol_instance = SymbolBase.from_dict(symbol_instance.to_dict())
         self._visual_state = VisualState.NORMAL
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.set_presentation_state(PresentationState(visual_state=VisualState.NORMAL, readout=f"{self._element_type}: {self.object_id}"))
         self.setAcceptHoverEvents(True)
         mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
@@ -63,6 +66,12 @@ class EquipmentItem(BaseItem):
         self.setVisible(self._symbol_instance.visible)
         if position is not None:
             self.setPos(position)
+
+    def itemChange(self, change: Any, value: Any) -> Any:
+        result = super().itemChange(change, value)
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and value is not None:
+            self.position_changed.emit(QPointF(float(value.x()), float(value.y())))
+        return result
 
     @property
     def element_type(self) -> str:
