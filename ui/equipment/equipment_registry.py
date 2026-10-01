@@ -37,7 +37,7 @@ Qt-independent registry of available SLD equipment definitions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Iterable, Optional
+from typing import TYPE_CHECKING, Dict, Iterable, Mapping, Optional
 
 if TYPE_CHECKING:
     from .symbol.symbol_registry import SymbolRegistry
