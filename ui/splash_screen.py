@@ -11,7 +11,7 @@ import logging
 
 from ui.core.qt import QApplication, QColor, QPixmap, QSplashScreen, Qt
 
-from .branding import BrandingAssetError, BrandingService
+from .branding import BrandingService
 
 
 LOGGER = logging.getLogger(__name__)
