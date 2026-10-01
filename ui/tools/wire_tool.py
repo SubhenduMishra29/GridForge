@@ -28,6 +28,8 @@ class WireTool(ToolBase):
         self._start_position: Optional[Tuple[float, float]] = None
         self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
+        self._last_snap_result: Any = None
+        self._last_command_result: Any = None
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
@@ -52,6 +54,7 @@ class WireTool(ToolBase):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         snap_result = self._snap(event)
+        self._last_snap_result = snap_result
         if snap_result is None:
             return False
         if getattr(snap_result, "snap_type", None) is not SnapType.OBJECT:
@@ -74,6 +77,7 @@ class WireTool(ToolBase):
             source_snap=self._start_snap,
             target_snap=snap_result,
         )
+        self._last_command_result = result
         if not getattr(result, "success", False):
             # A failed Application command is not a committed connection.
             # Keep the routing preview alive so the user can retry or cancel.
@@ -86,6 +90,7 @@ class WireTool(ToolBase):
         if self._preview.source_endpoint is None:
             return False
         snap_result = self._snap(event)
+        self._last_snap_result = snap_result
         if snap_result is None:
             return False
 
@@ -201,6 +206,8 @@ class WireTool(ToolBase):
         self._start_position = None
         self._start_snap = None
         self._current_position = None
+        self._last_snap_result = None
+        self._last_command_result = None
         self._preview.reset()
 
     def get_state(self) -> dict[str, Any]:
@@ -209,6 +216,8 @@ class WireTool(ToolBase):
             "start_position": self._start_position,
             "current_position": self._current_position,
             "preview": self._preview.get_state(),
+            "last_snap_result": self._last_snap_result,
+            "last_command_result": self._last_command_result,
         })
         return state
 
