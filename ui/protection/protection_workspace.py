@@ -177,8 +177,15 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._scene.addItem(line)
         self._presentation.set_connection_route(connection_id, [(a.x(), a.y()), (b.x(), b.y())])
 
-    def mousePressEvent(self, event: Any) -> None:
-        item = self.itemAt(event.position().toPoint())
+    def fit_to_content(self) -> None:
+        items = self._scene.itemsBoundingRect()
+        if not items.isNull():
+            self.fitInView(items.adjusted(-30, -30, 30, 30))
+
+    def show_diagnostics(self) -> None:
+        self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics are read-side only.")
+
+    def mousePressEvent(self, event: Any) -> None:        item = self.itemAt(event.position().toPoint())
         if isinstance(item, QGraphicsTextItem):
             item = item.parentItem()
         if isinstance(item, ProtectionGraphicsNode):
@@ -322,9 +329,11 @@ class ProtectionInspector(QGroupBox):
 class ProtectionToolbar(QToolBar):
     """Canonical Protection tool activation surface."""
 
-    def __init__(self, interaction: ProtectionInteractionController, parent: QWidget | None = None) -> None:
+    def __init__(self, interaction: ProtectionInteractionController, *, on_fit: Any = None, on_diagnostics: Any = None, parent: QWidget | None = None) -> None:
         super().__init__("Protection Engineering", parent)
         self._actions: dict[str, QAction] = {}
+        self._on_fit = on_fit
+        self._on_diagnostics = on_diagnostics
         for tool_id, text in (
             ("select", "Select"),
             ("connect_measurement", "Connect Measurement"),
@@ -334,7 +343,12 @@ class ProtectionToolbar(QToolBar):
         ):
             action = self.addAction(text)
             action.setCheckable(tool_id in {"select", "connect_measurement", "inspect"})
-            action.triggered.connect(lambda _checked=False, value=tool_id: interaction.activate(value))
+            if tool_id in {"select", "connect_measurement", "inspect"}:
+                action.triggered.connect(lambda _checked=False, value=tool_id: interaction.activate(value))
+            elif tool_id == "fit" and callable(on_fit):
+                action.triggered.connect(lambda _checked=False: on_fit())
+            elif tool_id == "diagnostics" and callable(on_diagnostics):
+                action.triggered.connect(lambda _checked=False: on_diagnostics())
             self._actions[tool_id] = action
         self._actions["select"].setChecked(True)
 
@@ -382,7 +396,12 @@ class ProtectionWorkspace(QWidget):
             parent=self,
         )
         self._inspector = ProtectionInspector(application=application, selection_manager=selection_manager, parent=self)
-        self._toolbar = ProtectionToolbar(self._interaction, self)
+        self._toolbar = ProtectionToolbar(
+            self._interaction,
+            on_fit=self._canvas.fit_to_content,
+            on_diagnostics=self._canvas.show_diagnostics,
+            parent=self,
+        )
         self._subscriptions: list[tuple[Any, Any]] = []
         for event_type in self._EVENT_TYPES:
             application.event_bus.subscribe(event_type, self._on_application_event)
