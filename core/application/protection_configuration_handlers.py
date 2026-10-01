@@ -1,3 +1,4 @@
+# Author: Subhendu Mishra
 """Application command handlers for project-scoped protection configuration."""
 
 from __future__ import annotations
@@ -8,6 +9,8 @@ from .commands.protection_configuration_commands import (
     CREATE_PROTECTION_CONFIGURATION,
     UPDATE_PROTECTION_CONFIGURATION,
     DELETE_PROTECTION_CONFIGURATION,
+    BIND_PROTECTION_MEASUREMENT,
+    UNBIND_PROTECTION_MEASUREMENT,
 )
 
 
@@ -24,6 +27,8 @@ class ProtectionConfigurationHandlers:
             CREATE_PROTECTION_CONFIGURATION: self.create_configuration,
             UPDATE_PROTECTION_CONFIGURATION: self.update_configuration,
             DELETE_PROTECTION_CONFIGURATION: self.delete_configuration,
+            BIND_PROTECTION_MEASUREMENT: self.bind_measurement,
+            UNBIND_PROTECTION_MEASUREMENT: self.unbind_measurement,
         }
 
     def create_configuration(self, command, context, transaction):
@@ -35,5 +40,10 @@ class ProtectionConfigurationHandlers:
     def delete_configuration(self, command, context, transaction):
         return self._service.delete_configuration(transaction=transaction, **command.payload)
 
+    def bind_measurement(self, command, context, transaction):
+        return self._service.bind_measurement(transaction=transaction, **command.payload)
+
+    def unbind_measurement(self, command, context, transaction):
+        return self._service.unbind_measurement(transaction=transaction, **command.payload)
 
 __all__ = ["ProtectionConfigurationHandlers"]

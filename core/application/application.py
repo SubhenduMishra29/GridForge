@@ -934,6 +934,13 @@ class Application:
 
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
+    def read_protection_configuration(self) -> tuple[Any, ...]:
+        """Return immutable project-scoped protection configuration read state."""
+        service = getattr(self, "protection_configuration_service", None)
+        configuration = getattr(service, "configuration", None) if service is not None else None
+        if configuration is None:
+            return ()
+        return tuple(configuration.elements)
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
@@ -944,7 +951,20 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
-        if command.command_type == "network.commit_draft":
+        if command.command_type in {
+            "protection.create_configuration",
+            "protection.update_configuration",
+            "protection.delete_configuration",
+            "protection.bind_measurement",
+            "protection.unbind_measurement",
+        }:
+            self._event_bus.publish(ProtectionChanged(
+                operation=operation,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            return        if command.command_type == "network.commit_draft":
             if operation == "execute":
                 self._event_bus.publish(NetworkCommitted(metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             return

@@ -62,9 +62,10 @@ from .relay_commands import (
 )
 from .protection_configuration_commands import (
     CREATE_PROTECTION_CONFIGURATION, UPDATE_PROTECTION_CONFIGURATION, DELETE_PROTECTION_CONFIGURATION,
+    BIND_PROTECTION_MEASUREMENT, UNBIND_PROTECTION_MEASUREMENT,
     CreateProtectionConfigurationCommand, UpdateProtectionConfigurationCommand,
-    DeleteProtectionConfigurationCommand,
-)
+    DeleteProtectionConfigurationCommand, BindProtectionMeasurementCommand,
+    UnbindProtectionMeasurementCommand,)
 from .model_commands import *
 from .control_commands import *
 

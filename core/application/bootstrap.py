@@ -141,7 +141,8 @@ def create_application(network: Any) -> Application:
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
-    application._protection_read_service = ProtectionReadService(network)
+    application.protection_presentation = None
+    application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
     def activate_network(active_network: Any):
         """Replace project-bound Application runtime and return its rollback."""
@@ -155,7 +156,7 @@ def create_application(network: Any) -> Application:
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
             application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-            application._protection_read_service = ProtectionReadService(active_network)
+            application._protection_read_service = ProtectionReadService(active_network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
         except Exception:
             application._command_manager = previous_command_manager
             application._read_service = previous_read_service
@@ -182,6 +183,7 @@ def create_application(network: Any) -> Application:
         """Install project-scoped protection/dynamic runtime state transactionally."""
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
+        previous_protection_presentation = getattr(application, "protection_presentation", None)
         previous_measurement = measurement_channel_service.serialize_definitions()
         previous_measurement_project = measurement_channel_service.project_id
         previous_measurement_generation = measurement_channel_service.activation_generation
@@ -208,6 +210,7 @@ def create_application(network: Any) -> Application:
                 measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
+                application.protection_presentation = None
                 dynamic_models.replace(())
                 application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
             else:
@@ -261,6 +264,7 @@ def create_application(network: Any) -> Application:
                     application.set_draft_network(DraftNetwork.from_dict(loaded_draft.to_dict(), project_id=context.project_id, activation_generation=generation))
                 application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
                 application.protection_runtime.compose(measurement_channel_service.channels)
+                application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
 
         except Exception:
             if previous_measurement_project is None:
@@ -277,6 +281,7 @@ def create_application(network: Any) -> Application:
             else:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
+            application.protection_presentation = previous_protection_presentation
             application.set_draft_network(previous_draft)
             dynamic_models.replace(previous_dynamic_models)
             restore_control_runtime()
@@ -297,6 +302,7 @@ def create_application(network: Any) -> Application:
             else:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
+            application.protection_presentation = previous_protection_presentation
             dynamic_models.replace(previous_dynamic_models)
             restore_control_runtime()
 
@@ -346,7 +352,11 @@ def create_application(network: Any) -> Application:
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             draft_network=application.draft_network,
-        )
+            protection_presentation=(
+                application.protection_presentation.to_dict()
+                if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
+                else getattr(application, "protection_presentation", None)
+            ),        )
 
     def new_network() -> Network:
         return Network()
