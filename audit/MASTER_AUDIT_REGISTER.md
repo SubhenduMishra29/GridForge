@@ -1750,3 +1750,42 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 **Batch report:** `audit/BATCH27_SLD_PRESENTATION_ACTIVATION_STATIC_REAUDIT_2026-10-01.md`
 
 **Final disposition:** Batch 27 is **STATICALLY VERIFIED — RUNTIME VERIFICATION DEFERRED** for the SLD presentation activation correction. The graphical activation path is statically connected for new/open/close; runtime GUI verification remains explicitly unverified/not run.
+
+## 2026-10-01 — Batch 28 SLD Equipment Rendering & Symbol Realization
+
+Implementation authority: pandaraseswari03-collab/GridForge:main
+Canonical audit/register repository requested by Batch 28: SubhenduMishra29/GridForge:main
+Verification mode: static source inspection and implementation correction only.
+Runtime: RUNTIME VERIFICATION — DEFERRED
+
+| ID | Finding | Status | Static evidence |
+|---|---|---|---|
+| B28-FINAL-001 | Generic SLD equipment symbols had insufficient normal contrast on the white canvas | REMEDIATED — RUNTIME VERIFICATION DEFERRED | StyleTokens.symbol_stroke changed from #D9E1E8 to #26313B; Bus-specific engineering_bus rendering remains unchanged. |
+| B28-FINAL-002 | Semantic realization bypassed the existing SymbolFactory when creating a default symbol instance | REMEDIATED — RUNTIME VERIFICATION DEFERRED | SemanticPresentationRealization now composes SymbolFactory over the existing canonical SymbolRegistry and uses it for default symbol-instance creation. |
+| B28-FINAL-003 | Generic equipment rendering required full canonical-chain reconciliation | STATICALLY VERIFIED | 22 current EquipmentRegistry definitions map to matching built-in symbol IDs; canonical placement/Application/SLDDocument/projection/realization/factory/render paths were source-inspected. |
+
+### Batch 28 equipment coverage
+
+The current canonical catalogue contains 22 supported SLD equipment types: bus, line, cable, transformer, switch, breaker, disconnector, fuse, load, generator, synchronous_machine, motor, shunt, capacitor, reactor, solar, battery, grid, current_transformer, potential_transformer, cvt, relay.
+
+Each has a corresponding built-in symbol definition and concrete tool file in the current source tree.
+
+### Persistence / reconciliation
+
+SLDDocument persists renderer-neutral SLD model state; SLDCanvasProjection produces immutable snapshots; SLDCanvasRenderSystem reconciles stable node/connection IDs and removes only objects absent from the desired snapshot. Connection realization failures remain diagnostic and do not delete desired equipment nodes.
+
+### Register integrity
+
+New Batch 28 finding: GF-MASTER-0113. Historical IDs are preserved; no existing ID was deleted, renumbered, merged, or reused.
+
+The requested canonical register repository SubhenduMishra29/GridForge is readable but not writable by the connected GitHub account. Direct synchronization of that separate repository was therefore not possible. The current implementation repository register was updated instead; this limitation is recorded rather than silently claiming a canonical-register write.
+
+### Batch 28 disposition
+
+BATCH 28 — OPEN
+
+The implementation correction and static engineering evidence are complete, but the separately designated canonical audit/register repository could not be updated because the connected GitHub account has read-only permission there.
+
+RUNTIME VERIFICATION — DEFERRED
+
+Batch report: audit/BATCH28_SLD_EQUIPMENT_RENDERING_STATIC_RECONCILIATION_2026-10-01.md

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.equipment.symbol.symbol_base import SymbolBase
+from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
@@ -45,6 +46,10 @@ class SemanticPresentationRealization:
             raise TypeError("symbol_registry must be a SymbolRegistry")
         self._equipment_registry = equipment_registry
         self._symbol_registry = symbol_registry
+        # Use the canonical SymbolFactory with the already-composed registry.
+        # The factory creates only renderer-neutral instances; SymbolRegistry
+        # remains the sole symbol-definition authority.
+        self._symbol_factory = SymbolFactory(symbol_registry)
 
     @property
     def equipment_registry(self) -> EquipmentRegistry:
@@ -53,6 +58,11 @@ class SemanticPresentationRealization:
     @property
     def symbol_registry(self) -> SymbolRegistry:
         return self._symbol_registry
+
+    @property
+    def symbol_factory(self) -> SymbolFactory:
+        """Return the canonical factory backed by the composed SymbolRegistry."""
+        return self._symbol_factory
 
     def realize(self, node: SLDCanvasNode) -> PresentationSelection:
         if not isinstance(node, SLDCanvasNode):
@@ -63,10 +73,7 @@ class SemanticPresentationRealization:
         definition = self._equipment_registry.require(equipment_type)
 
         if node.presentation is None:
-            symbol_instance = SymbolBase(
-                symbol_id=definition.symbol_id,
-                definition_id=definition.symbol_id,
-            )
+            symbol_instance = self._symbol_factory.create(definition.symbol_id)
         else:
             symbol_instance = node.presentation
 
