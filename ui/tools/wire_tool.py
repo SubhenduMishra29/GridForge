@@ -14,6 +14,7 @@ from core.application.commands.simple_wire_commands import CreateSimpleWireConne
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
+from ui.core.snap_system import SnapType
 from .tool_base import ToolBase
 
 
@@ -53,7 +54,7 @@ class WireTool(ToolBase):
         snap_result = self._snap(event)
         if snap_result is None:
             return False
-        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
+        if getattr(snap_result, "snap_type", None) is not SnapType.OBJECT:
             return False
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
