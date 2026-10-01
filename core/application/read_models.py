@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from uuid import UUID
 
 from .revision import ProjectRevision
+from core.protection.decision import ProtectionDecision
 
 
 _CANONICAL_ATTRIBUTES: dict[str, tuple[str, ...]] = {
@@ -166,6 +167,7 @@ class RelayReadModel:
     picked_up: bool
     tripped: bool
     input_channel_bindings: tuple[RelayInputBindingReadModel, ...] = ()
+    decision: ProtectionDecision | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "settings", _freeze(self.settings))
