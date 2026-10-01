@@ -79,7 +79,11 @@ class ProtectionInteractionController:
             if not source_channel:
                 self._adapter.feedback(CanvasFeedback.INVALID, "Select a MeasurementChannel before selecting a Relay input.")
                 return None
-            command = self._build_binding_command(node, source_channel)
+            try:
+                command = self._build_binding_command(node, source_channel)
+            except Exception as exc:
+                self._adapter.feedback(CanvasFeedback.INVALID, f"Invalid measurement endpoint: {exc}")
+                return None
             return self._execute(command)
         self._adapter.feedback(CanvasFeedback.INVALID, "Protection Connect Measurement requires a MeasurementChannel and Relay input.")
         return None
