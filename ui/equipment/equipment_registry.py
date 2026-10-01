@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 from .equipment_definition import EquipmentDefinition
 from ui.creation.creation_definition import creation_definition_for
+from .terminal_contract import reconcile_terminal_contract
 
 
 
@@ -274,19 +275,39 @@ class EquipmentRegistry:
     # ========================================================
 
     def validate_symbol_anchors(self, symbol_registry: "SymbolRegistry") -> None:
-        """Validate the canonical definition-to-symbol terminal contract."""
+        """Validate symbol anchors and the complete presentation terminal contract."""
+        self.validate_terminal_contracts(symbol_registry)
+
+    def validate_terminal_contracts(
+        self,
+        symbol_registry: "SymbolRegistry",
+        *,
+        core_roles_by_type: Mapping[str, tuple[str, ...]] | None = None,
+    ) -> tuple[object, ...]:
+        """Reconcile definition, creation, symbol and optional Core roles.
+
+        The returned reports are derived diagnostics; this registry does not
+        become a Core terminal authority.
+        """
         from .symbol.symbol_registry import SymbolRegistry
         if not isinstance(symbol_registry, SymbolRegistry):
             raise TypeError("symbol_registry must be a SymbolRegistry")
+        reports = []
         for definition in self._definitions.values():
             symbol = symbol_registry.require(definition.symbol_id)
-            missing = [name for name in definition.terminal_names if not symbol.has_terminal_anchor(name)]
-            orphaned = [name for name in symbol.terminal_anchors if name not in definition.terminal_names]
-            if missing or orphaned:
+            report = reconcile_terminal_contract(
+                definition,
+                creation_definition=definition.creation_definition,
+                symbol_definition=symbol,
+                core_roles=None if core_roles_by_type is None else core_roles_by_type.get(definition.equipment_type),
+            )
+            if report.errors:
                 raise ValueError(
-                    f"Equipment type {definition.equipment_type!r} and symbol {definition.symbol_id!r} "
-                    f"have inconsistent connection anchors: missing={missing!r}, orphaned={orphaned!r}."
+                    f"Terminal contract mismatch for {definition.equipment_type!r}: "
+                    + " ".join(report.errors)
                 )
+            reports.append(report)
+        return tuple(reports)
 
     # ========================================================
     # COLLECTION MANAGEMENT
