@@ -13,7 +13,7 @@ import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 
-from ui.core.qt import QApplication, QPixmap
+from ui.core.qt import QApplication, QIcon, QPixmap
 
 
 LOGGER = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class BrandingService:
     PRODUCT_DESCRIPTION = "Power System Engineering Platform"
     DEFAULT_TITLE = "GridForge — Power System Engineering Platform"
 
+    ICON_FILENAME = "Logo.png"
     SPLASH_FILENAME = "splash.png"
 
     def __init__(self, project_root: str | Path | None = None) -> None:
@@ -85,6 +86,7 @@ class BrandingService:
 
     def _discover(self) -> BrandingResources:
         splash_path = self._resolve_resource(self.SPLASH_FILENAME)
+        icon_path = self._resolve_resource(self.ICON_FILENAME)
 
         if splash_path is None:
             LOGGER.error(
@@ -95,7 +97,7 @@ class BrandingService:
 
         return BrandingResources(
             splash_path=splash_path,
-            icon_path=None,
+            icon_path=icon_path,
             version=self._resolve_version(),
         )
 
@@ -113,6 +115,16 @@ class BrandingService:
                 if isinstance(version, str) and version.strip():
                     return version.strip()
             return "unknown"
+
+    def icon(self) -> QIcon | None:
+        """Load the canonical Logo.png application icon."""
+        if self.icon_path is None:
+            return None
+        icon = QIcon(str(self.icon_path))
+        if icon.isNull():
+            LOGGER.error("GridForge application icon could not be loaded: %s", self.icon_path)
+            return None
+        return icon
 
     def splash_pixmap(self) -> QPixmap:
         """Load the authoritative splash artwork without altering its aspect ratio."""
@@ -136,5 +148,9 @@ class BrandingService:
         application.setApplicationName(self.PRODUCT_NAME)
         application.setApplicationDisplayName(self.PRODUCT_NAME)
         application.setApplicationVersion(self.version)
+
+        icon = self.icon()
+        if icon is not None:
+            application.setWindowIcon(icon)
 
 
