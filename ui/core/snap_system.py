@@ -280,6 +280,11 @@ class SnapSystem:
             self.DEFAULT_GRID_PRIORITY
         )
 
+        # Canonical presentation candidate registry. The active SLD renderer
+        # registers realized electrical graphics here; snapping never invents
+        # candidates from unrelated scene geometry.
+        self._registered_items: dict[int, Any] = {}
+
         self._disposed = False
 
     # ========================================================
@@ -442,6 +447,56 @@ class SnapSystem:
         """
 
         return self.scene
+
+    # ========================================================
+    # CANONICAL PRESENTATION CANDIDATE REGISTRY
+    # ========================================================
+
+    def register_item(self, item: Any) -> None:
+        """Register one realized electrical SLD item as a snap candidate source."""
+        self._ensure_active()
+        if item is None:
+            raise ValueError("item must not be None")
+        if self.scene is not None and callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
+            raise ValueError("Snap candidate item must belong to the active SLD scene.")
+        if not isinstance(item, (BusItem, EquipmentItem)):
+            raise TypeError("Only BusItem and EquipmentItem may register snap candidates.")
+        if not callable(getattr(item, "snap_points", None)):
+            raise TypeError("Registered snap candidate item must expose snap_points().")
+        self._registered_items[id(item)] = item
+
+    def unregister_item(self, item: Any) -> None:
+        """Remove one realized item from the canonical snap candidate registry."""
+        self._ensure_active()
+        if item is None:
+            return
+        self._registered_items.pop(id(item), None)
+
+    def refresh_item(self, item: Any) -> None:
+        """Refresh one registered item after graphical movement or geometry changes."""
+        self._ensure_active()
+        if item is None:
+            return
+        if id(item) not in self._registered_items:
+            self.register_item(item)
+            return
+        if self.scene is not None and callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
+            self.unregister_item(item)
+            return
+        # Anchor positions are read from the item at snap time, so refresh
+        # deliberately updates registration identity rather than copying stale
+        # coordinates into a second geometry store.
+        self._registered_items[id(item)] = item
+
+    def clear_candidates(self) -> None:
+        """Clear all presentation snap candidates without touching the scene."""
+        self._ensure_active()
+        self._registered_items.clear()
+
+    @property
+    def registered_items(self) -> tuple[Any, ...]:
+        """Return the current canonical presentation candidate sources."""
+        return tuple(self._registered_items.values())
 
     # ========================================================
     # MAIN SNAP API
@@ -648,28 +703,15 @@ class SnapSystem:
         if self.scene is None:
             return None
 
-        items_method = getattr(
-            self.scene,
-            "items",
-            None,
-        )
-
-        if not callable(
-            items_method
-        ):
-            raise TypeError(
-                "scene must provide items()."
-            )
-
-        best: Optional[
-            tuple[float, int, SnapResult]
-        ] = None
-
+        best: Optional[tuple[float, int, SnapResult]] = None
         candidate_order = 0
 
-        for item in tuple(
-            items_method()
-        ):
+        # The renderer-owned registry is the sole electrical snap discovery
+        # path. This keeps snapping bound to the same active SLD scene that
+        # realizes the equipment and prevents hidden/duplicate snap objects.
+        for item in tuple(self._registered_items.values()):
+            if callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
+                continue
             candidates = (
                 self._get_item_snap_points(
                     item
