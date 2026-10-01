@@ -204,7 +204,7 @@ Batch 27 corrections are recorded in `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTIO
 
 | Finding | Inspected authority | Static evidence | Status | Disposition |
 |---|---|---|---|---|
-| RCA-005-B29-001 / RCA-SLD-AUTH-001-B28 | madhuri196mishra-cpu/GridForge:main @ 60ef9f072aaa8c3f6552a9cd1ab5cd6003f28844 | EquipmentDefinition/CreationDefinition/SymbolDefinition role reconciliation; EndpointIdentityAdapter validation; Core exact-role resolver/compatibility; Core duplicate-role validation; Batch 28 endpoint path preserved | STATICALLY VERIFIED — CLOSED | Batch 29 report: audit/BATCH29_GENERIC_TERMINAL_IDENTITY_STATIC_RECONCILIATION_2026-10-01.md |
+| RCA-005-B29-001 / RCA-SLD-AUTH-001-B28 | madhuri196mishra-cpu/GridForge:main @ fb4a7c6b6fc468ac8a8fe20f42e4ccecfbc5142f | EquipmentDefinition/CreationDefinition/SymbolDefinition role reconciliation; EndpointIdentityAdapter validation; Core exact-role resolver/compatibility; Core duplicate-role validation; Batch 28 endpoint path preserved | STATICALLY VERIFIED — CLOSED | Batch 29 report: audit/BATCH29_GENERIC_TERMINAL_IDENTITY_STATIC_RECONCILIATION_2026-10-01.md |
 | GF-MASTER-0059 | Existing register authority | Existing document-lifecycle finding; not terminal identity | OPEN / existing disposition retained | Not conflated or reclassified by Batch 29 |
 
 Runtime execution was not performed.
