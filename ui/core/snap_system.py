@@ -434,6 +434,8 @@ class SnapSystem:
             self._validate_scene(
                 scene
             )
+        if scene is not self.scene:
+            self._registered_items.clear()
 
         self.scene = scene
 
