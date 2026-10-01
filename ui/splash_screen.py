@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from ui.core.qt import QApplication, QSplashScreen, Qt
+from ui.core.qt import QApplication, QEventLoop, QSplashScreen, Qt, QTimer
 
 from .branding import BrandingAssetError, BrandingService
 
@@ -19,6 +19,8 @@ LOGGER = logging.getLogger(__name__)
 
 class StartupSplash:
     """Owns only the Qt splash lifetime during real application startup."""
+
+    MIN_DISPLAY_MS = 1500
 
     def __init__(self, application: QApplication, branding: BrandingService) -> None:
         self._application = application
@@ -56,6 +58,19 @@ class StartupSplash:
         self._splash.show()
         self._splash.raise_()
         self._visible = True
+        self._application.processEvents()
+
+    def hold(self, milliseconds: int | None = None) -> None:
+        """Keep the splash visible long enough for its artwork to be painted."""
+        if not self._visible or self._splash is None:
+            return
+        delay = self.MIN_DISPLAY_MS if milliseconds is None else max(0, int(milliseconds))
+        if delay == 0:
+            self._application.processEvents()
+            return
+        loop = QEventLoop()
+        QTimer.singleShot(delay, loop.quit)
+        loop.exec()
         self._application.processEvents()
 
     def status(self, message: str) -> None:
