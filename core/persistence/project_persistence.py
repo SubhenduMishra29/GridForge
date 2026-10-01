@@ -40,6 +40,7 @@ class LoadedProject:
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
     control_configuration: ControlConfiguration | None = None
     draft_network: DraftNetwork | None = None
+    protection_presentation: Mapping[str, Any] | None = None
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -96,6 +97,9 @@ class ProjectPersistenceService:
         if control_configuration.project_id != project_id: raise ProjectPersistenceError("Control configuration project_id does not match project metadata.")
         control_configuration.validate()
         protection_data = project.get("protection")
+        protection_presentation = project.get("protection_presentation")
+        if protection_presentation is not None and not isinstance(protection_presentation, dict):
+            raise ProjectPersistenceError("project.json protection_presentation payload must be an object.")
         protection_configuration = None
         if protection_data is not None:
             if not isinstance(protection_data, dict): raise ProjectPersistenceError("project.json protection payload must be an object.")
@@ -103,7 +107,7 @@ class ProjectPersistenceService:
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration, control_configuration)
-        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration, draft_network=draft_network)
+        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration, draft_network=draft_network, protection_presentation=protection_presentation)
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
@@ -122,6 +126,7 @@ class ProjectPersistenceService:
         if draft_network is not None and draft_network.project_id != context.project_id: raise ProjectPersistenceError("DraftNetwork project_id does not match the project.")
         if not isinstance(network, Network): raise TypeError("network must be a Network.")
         if presentation is not None and not isinstance(presentation, Mapping): raise TypeError("presentation must be a mapping or None.")
+        if protection_presentation is not None and not isinstance(protection_presentation, Mapping): raise TypeError("protection_presentation must be a mapping or None.")
         if not isinstance(dynamic_models, Sequence): raise TypeError("dynamic_models must be a sequence.")
         if any(not isinstance(item, DynamicMachineModelAssociation) for item in dynamic_models): raise TypeError("dynamic_models contains an invalid association.")
         if any(item.project_id != context.project_id for item in dynamic_models): raise ProjectPersistenceError("dynamic_models contains an association for a different project.")
@@ -152,6 +157,7 @@ class ProjectPersistenceService:
         project: dict[str, Any] = {"schema": 3, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
+        if protection_presentation is not None: project["protection_presentation"] = dict(protection_presentation)
         if control_configuration is not None: project["control"] = control_configuration.to_dict()
         if draft_network is not None: project["draft_network"] = draft_network.to_dict()
 
