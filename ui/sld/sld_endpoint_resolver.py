@@ -22,14 +22,27 @@ class SLDEndpointResolver:
             raise KeyError(f"No realized SLD item for node {endpoint.node_id!r}")
         candidates = tuple(getattr(item, "snap_points", lambda: ())())
         if endpoint.kind.value == "equipment":
+            if str(getattr(item, "object_id", "")) != str(endpoint.equipment_id):
+                raise ValueError(
+                    f"Equipment endpoint identity {endpoint.equipment_id!r} does not match "
+                    f"realized node object {getattr(item, 'object_id', None)!r}"
+                )
             matches = tuple(
                 candidate for candidate in candidates
-                if candidate.get("terminal_name") == endpoint.terminal_role
+                if str(candidate.get("object_id", "")) == str(endpoint.equipment_id)
+                and candidate.get("terminal_name") == endpoint.terminal_role
             )
         else:
+            if str(getattr(item, "object_id", "")) != str(endpoint.bus_id):
+                raise ValueError(
+                    f"Bus endpoint identity {endpoint.bus_id!r} does not match "
+                    f"realized node object {getattr(item, 'object_id', None)!r}"
+                )
             matches = tuple(
                 candidate for candidate in candidates
-                if candidate.get("attachment_id") == endpoint.attachment_id
+                if str(candidate.get("object_id", "")) == str(endpoint.bus_id)
+                and str(candidate.get("bus_id", "")) == str(endpoint.bus_id)
+                and candidate.get("attachment_id") == endpoint.attachment_id
             )
         if len(matches) != 1:
             raise ValueError(
