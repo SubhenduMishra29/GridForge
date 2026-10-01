@@ -174,7 +174,9 @@ class EquipmentDefinition:
                 requirement.terminal_name
                 for requirement in self.creation_definition.terminal_requirements
             )
-            if creation_roles != tuple(normalized_terminal_names):
+            if creation_roles != tuple(normalized_terminal_names) and not (
+                self.equipment_type.strip().lower() == "bus" and not creation_roles
+            ):
                 raise ValueError(
                     "creation_definition terminal roles must match terminal_names exactly."
                 )
