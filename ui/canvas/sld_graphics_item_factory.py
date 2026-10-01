@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from core.application.read_models import ElementReadModel
 from ui.core.qt import QPointF
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
