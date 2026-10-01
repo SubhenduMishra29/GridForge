@@ -53,8 +53,6 @@ class BrandingService:
             else Path(__file__).resolve().parents[1]
         )
         self._project_root = root
-        self._icon_cache: QIcon | None = None
-        self._icon_load_attempted = False
         self._resources = self._discover()
 
     @property
@@ -96,12 +94,6 @@ class BrandingService:
                 "resource locations: %s",
                 self.SPLASH_FILENAME,
             )
-        if icon_path is None:
-            LOGGER.error(
-                "GridForge application icon was not found in source or installed "
-                "resource locations: %s",
-                self.ICON_FILENAME,
-            )
 
         return BrandingResources(
             splash_path=splash_path,
@@ -125,20 +117,13 @@ class BrandingService:
             return "unknown"
 
     def icon(self) -> QIcon | None:
-        """Load the authoritative Logo.png icon, without splash substitution."""
-        if self._icon_load_attempted:
-            return self._icon_cache
-
-        self._icon_load_attempted = True
+        """Load the canonical Logo.png application icon."""
         if self.icon_path is None:
             return None
-
         icon = QIcon(str(self.icon_path))
         if icon.isNull():
             LOGGER.error("GridForge application icon could not be loaded: %s", self.icon_path)
             return None
-
-        self._icon_cache = icon
         return icon
 
     def splash_pixmap(self) -> QPixmap:
@@ -182,8 +167,5 @@ class BrandingService:
         icon = self.icon()
         if icon is not None:
             application.setWindowIcon(icon)
-        else:
-            LOGGER.error(
-                "GridForge application icon remains unset because Logo.png "
-                "could not be loaded."
-            )
+
+
