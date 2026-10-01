@@ -1,3 +1,4 @@
+# Author: Subhendu Mishra
 """Application command handlers for project-scoped protection configuration."""
 
 from __future__ import annotations
