@@ -13,6 +13,8 @@ from typing import Any, Callable
 from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
+from ui.sld.sld_equipment_identity import equipment_type_for_semantic
+from ui.sld.sld_vocabulary import semantic_type
 
 from .semantic_presentation_realization import SemanticPresentationRealization
 from .sld_canvas_projection import SLDCanvasSnapshot
@@ -34,6 +36,7 @@ class RenderDiagnostic:
     canvas: str = "SLD"
     connection_id: str | None = None
     code: str | None = None
+    realization_stage: str = "node_realization"
 
 
 class SLDCanvasRenderSystem:
@@ -162,15 +165,27 @@ class SLDCanvasRenderSystem:
                 message = f"{type(exc).__name__}: {exc}"
                 code = self._node_failure_code(node, exc)
                 self._unsupported_presentations[node.node_id] = message
+                semantic_value = node.properties.get("element_type")
+                semantic_value_text = None if semantic_value is None else str(semantic_value)
+                try:
+                    canonical_semantic = semantic_type(semantic_value_text) if semantic_value_text else None
+                    canonical_equipment_type = (
+                        equipment_type_for_semantic(canonical_semantic)
+                        if canonical_semantic is not None else None
+                    )
+                except (TypeError, ValueError):
+                    canonical_semantic = semantic_value_text
+                    canonical_equipment_type = None
                 diagnostic = RenderDiagnostic(
                     node_id=node.node_id,
                     equipment_id=node.equipment_id,
-                    equipment_type=str(node.properties.get("element_type")) if node.properties.get("element_type") is not None else None,
+                    equipment_type=canonical_equipment_type,
                     symbol_id=getattr(node.presentation, "symbol_id", None),
                     requested_presentation=getattr(node.presentation, "representation_id", None),
                     category="presentation_realization",
                     message=message,
                     code=code,
+                    realization_stage="SemanticPresentationRealization -> SLDGraphicsItemFactory.create_node",
                 )
                 self._render_diagnostics = (*self._render_diagnostics, diagnostic)
                 degraded = self._create_degraded_realization(node, message, code)
@@ -261,10 +276,10 @@ class SLDCanvasRenderSystem:
         item = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
         item.object_id = node.equipment_id or node.node_id
         item.node_id = node.node_id
-        try:
-            item.setToolTip(f"Unsupported presentation [{code}]\\n{message}")
-        except Exception:
-            pass
+        item.setToolTip(
+            f"Unsupported presentation [{code}]\\n"
+            f"node={node.node_id} equipment={item.object_id}\\n{message}"
+        )
         text = QGraphicsTextItem(f"Unsupported Symbol\\n{item.object_id}", item)
         text.setPos(-62.0, -24.0)
         item.setPos(float(node.x), float(node.y))

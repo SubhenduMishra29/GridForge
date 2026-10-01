@@ -44,6 +44,7 @@ _UPDATE_COMMANDS = {
     "reactor": (UpdateReactorCommand, "reactor_id"),
     "motor": (UpdateMotorCommand, "motor_id"),
     "synchronous_machine": (UpdateSynchronousMachineCommand, "synchronous_machine_id"),
+    "synchronous_machines": (UpdateSynchronousMachineCommand, "synchronous_machine_id"),
     "solar": (UpdateSolarCommand, "solar_id"),
     "battery": (UpdateBatteryCommand, "battery_id"),
     "current_transformer": (UpdateCurrentTransformerCommand, "transformer_id"),
@@ -55,6 +56,7 @@ _UPDATE_COMMANDS = {
     "capacitive_voltage_transformers": (UpdateCapacitiveVoltageTransformerCommand, "transformer_id"),
     "relay": (UpdateRelayCommand, "relay_id"),
 }
+
 
 class EngineeringUpdatePreparer:
     """Prepare one immutable update command from typed engineering intent."""
@@ -71,12 +73,18 @@ class EngineeringUpdatePreparer:
             raise KeyError(f"No Application engineering update command for {element_type!r}.")
         command_class, id_field = entry
         signature = inspect.signature(command_class)
-        fields = {name for name, parameter in signature.parameters.items()
-                  if name not in {"self", "command_id", "correlation_id", "causation_id"}}
+        fields = {
+            name for name, parameter in signature.parameters.items()
+            if name not in {"self", "command_id", "correlation_id", "causation_id"}
+        }
         unknown = set(values) - fields
         if unknown:
-            raise ValueError(f"{element_type}: engineering intent contains unsupported fields {sorted(unknown)!r}.")
+            raise ValueError(
+                f"{element_type}: engineering intent contains unsupported fields "
+                f"{sorted(unknown)!r}."
+            )
         payload = {id_field: element_id, **values}
         return command_class(**payload)
+
 
 __all__ = ["EngineeringUpdatePreparer"]

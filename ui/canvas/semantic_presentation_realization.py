@@ -77,10 +77,19 @@ class SemanticPresentationRealization:
         else:
             symbol_instance = node.presentation
 
-        if symbol_instance.definition_id != symbol_instance.symbol_id:
+        # EquipmentDefinition is the semantic-to-symbol authority. A
+        # persisted presentation may retain transforms/visibility, but it may
+        # not redirect a valid equipment node to another symbol definition.
+        if symbol_instance.symbol_id != definition.symbol_id:
             raise ValueError(
-                f"SLD symbol presentation definition identity mismatch: "
-                f"{symbol_instance.definition_id!r} != {symbol_instance.symbol_id!r}"
+                f"SLD canonical symbol mismatch for {equipment_type!r}: "
+                f"equipment definition requires {definition.symbol_id!r}, "
+                f"presentation supplied {symbol_instance.symbol_id!r}"
+            )
+        if symbol_instance.definition_id != definition.symbol_id:
+            raise ValueError(
+                f"SLD symbol definition identity mismatch for {equipment_type!r}: "
+                f"{symbol_instance.definition_id!r} != {definition.symbol_id!r}"
             )
         if symbol_instance.representation_id != "symbol":
             raise ValueError(
