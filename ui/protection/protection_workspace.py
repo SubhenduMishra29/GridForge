@@ -217,14 +217,18 @@ class ProtectionGraphicsSurface(QGraphicsView):
 
     @staticmethod
     def _decision_text(relay: Any) -> str:
-        if bool(getattr(relay, "tripped", False)):
-            return "TRIP REQUEST"
-        if bool(getattr(relay, "picked_up", False)):
-            return "PICKUP"
-        if bool(getattr(relay, "blocked", False)):
-            return "BLOCKED"
-        if not bool(getattr(relay, "enabled", True)):
-            return "INVALID / DISABLED"
+        decision = getattr(relay, "decision", None)
+        if decision is not None:
+            if decision.blocked: return "BLOCKED"
+            if not decision.valid: return "INVALID"
+            if decision.trip_request: return "TRIP REQUEST"
+            if decision.operate: return "OPERATING"
+            if decision.pickup: return "PICKUP"
+            return "NO OPERATION"
+        if bool(getattr(relay, "tripped", False)): return "TRIP REQUEST"
+        if bool(getattr(relay, "picked_up", False)): return "PICKUP"
+        if bool(getattr(relay, "blocked", False)): return "BLOCKED"
+        if not bool(getattr(relay, "enabled", True)): return "INVALID / DISABLED"
         return "NO OPERATION"
 
 
@@ -316,13 +320,26 @@ class ProtectionInspector(QGroupBox):
                 "Configuration", f"  {configuration.element_id}",
                 "Configured Inputs", f"  {dict(configuration.input_channel_ids)}",
             ])
-        lines.extend([
-            "Pickup", f"  {settings.get('pickup', settings.get('picked_up', 'n/a'))}",
-            "Operate", f"  {settings.get('operate', settings.get('operating', 'n/a'))}",
-            "Trip Request", f"  {settings.get('trip_request', settings.get('tripped', 'n/a'))}",
-            "Decision Reason", f"  {settings.get('decision_reason', settings.get('reason', 'n/a'))}",
-            "Operating Time", f"  {settings.get('operating_time', 'n/a')}",
-        ])
+        decision = getattr(relay, "decision", None)
+        if decision is not None:
+            lines.extend([
+                "ProtectionDecision", f"  {type(decision).__name__}",
+                "Pickup", f"  {decision.pickup}",
+                "Operate", f"  {decision.operate}",
+                "Trip Request", f"  {decision.trip_request}",
+                "Blocked", f"  {decision.blocked}",
+                "Valid", f"  {decision.valid}",
+                "Reason", f"  {decision.reason or 'n/a'}",
+                "Operating Time", f"  {decision.operating_time if decision.operating_time is not None else 'n/a'}",
+            ])
+        else:
+            lines.extend([
+                "Pickup", f"  {settings.get('pickup', settings.get('picked_up', 'n/a'))}",
+                "Operate", f"  {settings.get('operate', settings.get('operating', 'n/a'))}",
+                "Trip Request", f"  {settings.get('trip_request', settings.get('tripped', 'n/a'))}",
+                "Decision Reason", f"  {settings.get('decision_reason', settings.get('reason', 'n/a'))}",
+                "Operating Time", f"  {settings.get('operating_time', 'n/a')}",
+            ])
         self._label.setText("\n".join(lines))
 
 
