@@ -296,11 +296,13 @@ The correction does not introduce a second synchronization path. Existing persis
 
 When a stale projection node has engineer-owned attached connections, the node is retained as presentation-only rather than allowing SLDModel.remove_node() to erase those connections. When no engineer-owned structure is attached, stale projection connections are removed and the projection node is removed.
 
-### Terminal identity disposition
+### Historical terminal identity disposition — pre-Batch-29 snapshot
 
-The Core terminal contract is explicit and stable as owner + role + endpoint, while EndpointReference.terminal() represents equipment_id + terminal_role. However, the inspected UI path still uses EquipmentTerminal(terminal_id, equipment_id, terminal_name) and TerminalResolver, while EndpointIdentityAdapter only emits EndpointReference.bus() for the current BusItem path or accepts a pre-existing EndpointReference.
+The following paragraph records the pre-Batch-29 audit state and is retained for provenance. It is superseded by the Batch 29 static reconciliation recorded under RCA-005-B29-001 / RCA-SLD-AUTH-001-B28.
 
-Therefore generic multi-terminal presentation → terminal intent → Application connection command → Core terminal resolution is not closed.
+The Core terminal contract is explicit and stable as owner + role + endpoint, while EndpointReference.terminal() represents equipment_id + terminal_role. The inspected pre-Batch-29 UI path used EquipmentTerminal(terminal_id, equipment_id, terminal_name) and TerminalResolver without a complete generic reconciliation contract.
+
+Batch 29 subsequently closes that generic presentation → terminal intent → Application connection command → Core terminal resolution identity gap statically. Runtime verification remains outside scope.
 
 ### Runtime / verification boundary
 
