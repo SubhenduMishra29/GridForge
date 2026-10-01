@@ -46,10 +46,14 @@ class WireTool(ToolBase):
         return "Connect two SLD endpoints without creating a Line or Cable object."
 
     def on_activate(self) -> None:
+        self._last_snap_result = None
+        self._last_command_result = None
         self._clear_state()
 
     def on_deactivate(self) -> None:
         self._clear_state()
+        self._last_snap_result = None
+        self._last_command_result = None
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
@@ -206,8 +210,6 @@ class WireTool(ToolBase):
         self._start_position = None
         self._start_snap = None
         self._current_position = None
-        self._last_snap_result = None
-        self._last_command_result = None
         self._preview.reset()
 
     def get_state(self) -> dict[str, Any]:
