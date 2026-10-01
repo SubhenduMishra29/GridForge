@@ -13,7 +13,7 @@ import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 
-from ui.core.qt import QApplication, QIcon, QPixmap
+from ui.core.qt import QApplication, QIcon, QPainter, QPixmap
 
 
 LOGGER = logging.getLogger(__name__)
@@ -153,6 +153,21 @@ class BrandingService:
             raise BrandingAssetError(
                 f"GridForge splash asset could not be loaded: {self.splash_path}"
             )
+
+        # The splash background and application logo are separate
+        # authoritative assets. Compose them so startup always presents
+        # the canonical GridForge identity.
+        logo = self.icon()
+        if logo is not None:
+            logo_size = max(96, min(240, min(pixmap.width(), pixmap.height()) // 3))
+            logo_pixmap = logo.pixmap(logo_size, logo_size)
+            if not logo_pixmap.isNull():
+                painter = QPainter(pixmap)
+                x = (pixmap.width() - logo_pixmap.width()) // 2
+                y = (pixmap.height() - logo_pixmap.height()) // 2
+                painter.drawPixmap(x, y, logo_pixmap)
+                painter.end()
+
         return pixmap
 
     def apply_application_identity(self, application: QApplication) -> None:

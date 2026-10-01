@@ -595,14 +595,28 @@ class Application:
 
         if action != "create":
             if action == "update":
-                try:
-                    read_model = self.read_element(element_type, element_id)
-                except (KeyError, ValueError):
-                    return
+                # The originating mutation handler has already changed Core
+                # inside this transaction and returns the authoritative
+                # transaction-visible object through ApplicationResult.value.
+                # Pre-commit reconciliation must consume that result directly;
+                # Application ReadModels are post-mutation read-side views and
+                # are never authoritative evidence for an open transaction.
+                updated_object = result.value
+                if updated_object is None:
+                    raise ValueError(
+                        f"Update command {command_type!r} returned no "
+                        "transaction-visible authoritative value."
+                    )
+                updated_object_id = getattr(updated_object, "id", None)
+                if updated_object_id is None or str(updated_object_id) != element_id:
+                    raise ValueError(
+                        f"Updated equipment identity mismatch: expected {element_id!r}, "
+                        f"got {updated_object_id!r}."
+                    )
                 self._sld_service.reconcile_element_update(
                     equipment_id=element_id,
                     element_type=element_type,
-                    read_model=read_model,
+                    core_object=updated_object,
                     transaction=transaction,
                 )
             return
