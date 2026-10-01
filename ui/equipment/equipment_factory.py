@@ -37,6 +37,7 @@ from core.application.read_models import ElementReadModel
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
 from .terminal import EquipmentTerminal
+from .terminal_contract import reconcile_terminal_contract
 from .symbol.symbol_base import SymbolBase
 from .symbol.symbol_registry import SymbolRegistry
 
@@ -191,6 +192,16 @@ class EquipmentFactory:
         if symbol_instance.definition_id != symbol_instance.symbol_id:
             raise ValueError("symbol_instance definition identity must match symbol_id.")
         symbol = self._symbol_registry.require(symbol_instance.symbol_id)
+        report = reconcile_terminal_contract(
+            definition,
+            creation_definition=definition.creation_definition,
+            symbol_definition=symbol,
+        )
+        if report.errors:
+            raise ValueError(
+                f"Terminal contract mismatch for {definition.equipment_type!r}: "
+                + " ".join(report.errors)
+            )
         terminals = []
         for terminal_name in definition.terminal_names:
             if not symbol.has_terminal_anchor(terminal_name):

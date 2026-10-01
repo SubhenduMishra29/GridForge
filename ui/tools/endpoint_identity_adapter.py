@@ -101,6 +101,10 @@ class EndpointIdentityAdapter:
 
         terminal_id = getattr(result, "terminal_id", None)
         terminal_name = getattr(result, "terminal_name", None)
+        if not isinstance(terminal_id, str) or not terminal_id.strip():
+            raise ValueError("Terminal snap identity requires a stable presentation terminal_id.")
+        if not isinstance(terminal_name, str) or not terminal_name.strip():
+            raise ValueError("Terminal snap identity requires a canonical terminal role.")
 
         endpoint_reference = getattr(source, "endpoint_reference", None)
         if endpoint_reference is not None:
@@ -124,14 +128,10 @@ class EndpointIdentityAdapter:
                 raise ValueError(
                     "Presentation EndpointReference equipment identity does not match the snap object."
                 )
-            if terminal_name is not None and str(endpoint_reference.terminal_role) != str(terminal_name):
+            if str(endpoint_reference.terminal_role) != str(terminal_name):
                 raise ValueError(
                     "Presentation EndpointReference terminal role does not match the snap result."
                 )
-            return endpoint_reference
-
-        if terminal_name is None:
-            raise ValueError("Terminal snap is missing its canonical terminal role.")
 
         equipment = getattr(source, "equipment", None)
         equipment_type = getattr(equipment, "equipment_type", None)
@@ -148,7 +148,7 @@ class EndpointIdentityAdapter:
             for terminal in terminals
             if terminal.equipment_id == str(object_id)
             and terminal.terminal_name == str(terminal_name)
-            and (terminal_id is None or terminal.terminal_id == str(terminal_id))
+            and terminal.terminal_id == str(terminal_id)
         ]
         if len(matches) != 1:
             raise ValueError(
@@ -156,6 +156,9 @@ class EndpointIdentityAdapter:
                 f"equipment_id={object_id!r}, terminal_id={terminal_id!r}, "
                 f"terminal_role={terminal_name!r}, matches={len(matches)}."
             )
+
+        if endpoint_reference is not None:
+            return endpoint_reference
 
         canonical_type = next(
             (

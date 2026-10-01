@@ -169,6 +169,17 @@ class EquipmentDefinition:
 
         if self.creation_definition is not None and not callable(getattr(self.creation_definition, 'validate_values', None)):
             raise TypeError('creation_definition must provide validate_values().')
+        if self.creation_definition is not None:
+            creation_roles = tuple(
+                requirement.terminal_name
+                for requirement in self.creation_definition.terminal_requirements
+            )
+            if creation_roles != tuple(normalized_terminal_names) and not (
+                self.equipment_type.strip().lower() == "bus" and not creation_roles
+            ):
+                raise ValueError(
+                    "creation_definition terminal roles must match terminal_names exactly."
+                )
         if not isinstance(self.engineering_parameters, (tuple, list)):
             raise TypeError("engineering_parameters must be a tuple/list of EngineeringParameterDefinition")
         normalized_parameters: list[EngineeringParameterDefinition] = []

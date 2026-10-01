@@ -199,3 +199,12 @@ Batch 27 corrections are recorded in `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTIO
 | Master ID | Evidence / Location | First Detected | Last Verified | Related Findings | Depends On | Blocks | Resolution Evidence | Historical Notes | Remediation State | Verification Method |
 |---|---|---|---|---|---|---|---|---|---|---|
 | GF-MASTER-0114 | `ui/core/snap_system.py`; `ui/tools/wire_tool.py`; `ui/sld/sld_endpoint_resolver.py`; `ui/canvas/sld_canvas_render_system.py`; `core/application/application.py` | 2026-10-01 | 2026-10-01 | Batch 28 SLD terminal snapping / wiring | Canonical SnapSystem, EndpointReference, CommandManager transaction, SLD projection | Runtime verification only | `audit/BATCH28_FULL_SLD_WIRING_STATIC_RECONCILIATION_2026-10-01.md`; movement lifecycle and endpoint identity hardening committed on main | Historical correction report preserved; no prior finding deleted or renumbered | STATICALLY VERIFIED — CLOSED | Static source/call-flow reconciliation; runtime GUI and tests not executed |
+
+## Batch 29 — Generic Terminal Identity Reconciliation — 2026-10-01
+
+| Finding | Inspected authority | Static evidence | Status | Disposition |
+|---|---|---|---|---|
+| RCA-005-B29-001 / RCA-SLD-AUTH-001-B28 | madhuri196mishra-cpu/GridForge:main @ 848291028375eb5d75c942d687fcaee95afb70d7 | EquipmentDefinition/CreationDefinition/SymbolDefinition role reconciliation; EndpointIdentityAdapter validation; Core exact-role resolver/compatibility; Core duplicate-role validation; Batch 28 endpoint path preserved | STATICALLY VERIFIED — CLOSED | Batch 29 report: audit/BATCH29_GENERIC_TERMINAL_IDENTITY_STATIC_RECONCILIATION_2026-10-01.md |
+| GF-MASTER-0059 | Existing register authority | Existing document-lifecycle finding; not terminal identity | OPEN / existing disposition retained | Not conflated or reclassified by Batch 29 |
+
+Runtime execution was not performed.
