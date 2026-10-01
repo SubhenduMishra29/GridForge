@@ -352,8 +352,11 @@ def create_application(network: Any) -> Application:
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             draft_network=application.draft_network,
-            protection_presentation=getattr(application, "protection_presentation", None),
-        )
+            protection_presentation=(
+                application.protection_presentation.to_dict()
+                if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
+                else getattr(application, "protection_presentation", None)
+            ),        )
 
     def new_network() -> Network:
         return Network()
