@@ -123,11 +123,11 @@ class InteractionManager:
 
         tool_id = str(getattr(manager, "active_tool_id", "") or "")
         tool = getattr(manager, "active_tool", None)
-        wire_has_source = (
-            tool_id == "wire"
-            and tool is not None
-            and getattr(getattr(tool, "_preview", None), "source_endpoint", None) is not None
-        )
+        wire_has_source = False
+        if tool_id == "wire" and tool is not None:
+            has_source = getattr(tool, "has_source_endpoint", None)
+            if callable(has_source):
+                wire_has_source = bool(has_source())
 
         if method_name == "key_press" and self._is_escape(event):
             self._state_machine.cancel()
