@@ -203,7 +203,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         window.setWindowIcon(icon)
     window.setWindowTitle(branding.DEFAULT_TITLE)
 
-    workspace_realizer = WorkspaceRealizer(main_window=window); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
+    workspace_realizer = WorkspaceRealizer(main_window=window, editor_host=workspace_surface_host); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
     action_router = UIActionRouter()
     engineering_context = EngineeringContextStore()
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
@@ -511,7 +511,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     def _activate_workspace(workspace_id: str, surface_id: str) -> None:
         workspace_controller.activate(workspace_id)
-        workspace_surface_host.activate(surface_id)
         engineering_context.update(
             discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
         )
