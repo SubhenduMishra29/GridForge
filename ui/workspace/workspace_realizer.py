@@ -106,10 +106,18 @@ class WorkspaceRealizer:
 
         previous = self._realized_layout
         try:
-            self._realize_areas(layout, workspace_id=workspace_id)        except BaseException:
+            self._realize_areas(
+                layout,
+                workspace_id=workspace_id,
+            )
+        except BaseException:
             if previous is not None:
                 try:
-                    self._realize_areas(previous, workspace_id=workspace_id)                except BaseException as restore_exc:
+                    self._realize_areas(
+                        previous,
+                        workspace_id=workspace_id,
+                    )
+                except BaseException as restore_exc:
                     raise WorkspaceRealizationError(
                         "Workspace realization failed and previous editor state could not be restored."
                     ) from restore_exc
