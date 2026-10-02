@@ -786,7 +786,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
     if callable(bind_project_selection):
         bind_project_selection(canvas_composition.selection_manager)
-    canvas_composition.selection_manager.selection_changed.connect(lambda ids: engineering_context.update(selected_ids=ids))
+    canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
         controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
