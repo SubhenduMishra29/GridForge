@@ -48,7 +48,7 @@ Qt imports are permitted only through ui.core.qt.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from ui.core.qt import QDockWidget, Qt
 
@@ -123,6 +123,7 @@ class WorkspaceRealizer:
         self,
         *,
         main_window,
+        editor_host: Any | None = None,
     ) -> None:
         """
         Construct a WorkspaceRealizer.
@@ -139,6 +140,7 @@ class WorkspaceRealizer:
             )
 
         self._main_window = main_window
+        self._editor_host = editor_host
 
         self._bindings: dict[
             str,
@@ -150,6 +152,10 @@ class WorkspaceRealizer:
     # ========================================================
     # Properties
     # ========================================================
+
+    @property
+    def editor_host(self) -> Any | None:
+        return self._editor_host
 
     @property
     def main_window(self):
@@ -516,6 +522,7 @@ class WorkspaceRealizer:
         # ----------------------------------------------------
 
         self._realized_layout = layout
+        self._realize_editor_area(layout)
 
     # ========================================================
     # Tab Groups
@@ -584,6 +591,20 @@ class WorkspaceRealizer:
                     first_dock,
                     second_dock,
                 )
+
+    def _realize_editor_area(self, layout: WorkspaceLayout) -> None:
+        """Activate the main editor declared by the logical Area composition."""
+        if self._editor_host is None:
+            return
+        for area in layout.areas:
+            if area.metadata.get("role") != "main" or not area.visible:
+                continue
+            editor_type = area.editor.editor_type
+            editor_id = {"study": "reports"}.get(editor_type, editor_type)
+            activate = getattr(self._editor_host, "activate", None)
+            if callable(activate):
+                activate(editor_id)
+            return
 
     # ========================================================
     # Default Geometry
