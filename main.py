@@ -27,7 +27,7 @@ from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
-from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView
+from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -56,6 +56,10 @@ from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
 from ui.tools.default_tool_registry import create_default_tool_factories
 from ui.tools.tool_definition import contextual_tool_definitions
+from ui.tools.tool_mode import ToolMode
+from ui.tools.tool_settings import ToolSettings
+from ui.editors.study.study_tool_runtime import StudyToolRuntime
+from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
 from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.draft_commands import CommitNetworkCommand
@@ -183,21 +187,27 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         application=gridforge_application,
     ).definitions()
     protection_tool_definitions = ProtectionInteractionController.TOOL_DEFINITIONS
-    study_tool_definitions = contextual_tool_definitions(
-        ("run_study", "compare_results", "plot", "inspect_result", "export", "filter", "navigate"),
-        editor_type="study",
-    )
+    study_tool_runtime = StudyToolRuntime(application=gridforge_application)
+    study_tool_definitions = study_tool_runtime.definitions
     contextual_tool_definitions_all = (
         *sld_tool_definitions,
         *control_tool_definitions,
         *protection_tool_definitions,
         *study_tool_definitions,
     )
+    _tool_icon_adapter = PaletteSymbolAdapter(presentation_bootstrap.symbol_registry)
+
+    def _tool_icon(icon_id: str):
+        try:
+            return _tool_icon_adapter.icon_for(icon_id)
+        except (KeyError, ValueError, TypeError):
+            return None
+
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
             "sld": canvas_composition.widget,
-            "control": control_workspace,
-            "protection": protection_workspace,
+            "control": control_workspace.editor_canvas,
+            "protection": protection_workspace.editor_canvas,
         },
         application=gridforge_application,
         tool_definitions=contextual_tool_definitions_all,
@@ -206,7 +216,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             "sld": tool_manager.activate,
             "control": control_workspace.activate_tool_id,
             "protection": protection_workspace.activate_tool_id,
+            "study": study_tool_runtime.activate,
         },
+        tool_active_providers={
+            "sld": lambda: tool_manager.active_tool_id,
+            "control": lambda: control_workspace.active_tool_id,
+            "protection": lambda: protection_workspace.active_tool_id,
+            "study": lambda: study_tool_runtime.active_tool_id,
+        },
+        icon_provider=_tool_icon,
+        study_runtime=study_tool_runtime,
         parent=None,
     )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
@@ -231,10 +250,50 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         window.setWindowIcon(icon)
     window.setWindowTitle(branding.DEFAULT_TITLE)
 
-    workspace_realizer = WorkspaceRealizer(main_window=window, editor_host=workspace_surface_host); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
     action_router = UIActionRouter()
     engineering_context = EngineeringContextStore()
-    project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
+
+    def _editor_context_factory(workspace_id: str, area: object, editor: object, region_id: str) -> object:
+        editor_type = str(getattr(editor, "editor_type", "sld"))
+        active_tool = workspace_surface_host.active_tool_id_for(editor_type)
+        definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
+        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+        engineering = engineering_context.current.with_updates(
+            discipline=editor_type,
+            active_tool=active_tool,
+            selected_ids=selected_ids,
+        )
+        mode = ToolMode.IDLE
+        settings = None
+        if definition is not None:
+            if definition.default_mode:
+                try:
+                    mode = ToolMode(definition.default_mode)
+                except ValueError:
+                    mode = ToolMode.IDLE
+            settings = ToolSettings(definition.tool_id, values=definition.settings)
+        from ui.workspace.engineering_context import EditorContext
+        region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
+        return EditorContext(
+            workspace=workspace_id,
+            area=area,
+            editor=editor,
+            region=region,
+            engineering=engineering,
+            selection_context={"selected_ids": selected_ids},
+            active_tool=active_tool,
+            tool_mode=mode,
+            tool_settings=settings,
+            interaction_state={},
+            view_state={},
+        )
+
+    workspace_realizer = WorkspaceRealizer(
+        main_window=window,
+        editor_host=workspace_surface_host,
+        context_factory=_editor_context_factory,
+    )
+    workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller    project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
 
     status_plugin = None
@@ -288,14 +347,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
-        dock = panels_plugin.get_dock("equipment")
-        if dock is not None:
-            dock.show(); dock.raise_()
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        workspace_controller.realizer.focus_region("main-sld", "explorer")
 
     def _show_study_cases() -> None:
-        dock = panels_plugin.get_dock("study_cases")
-        if dock is not None:
-            dock.show(); dock.raise_()
+        workspace_controller.activate(STUDY_WORKSPACE_ID)
+        workspace_controller.realizer.focus_region("main-study", "explorer")
 
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
@@ -567,10 +624,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.sld_workspace": lambda: _activate_workspace(SLD_WORKSPACE_ID, "sld"),
         "view.control_workspace": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "view.protection_workspace": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
-        "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "reports"),
+        "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
-        "view.reports": lambda: workspace_surface_host.activate("reports"),
+        "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.equipment_browser": _show_equipment_browser,
         "view.zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
         "view.zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
@@ -664,9 +721,46 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
-    properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
-    for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
+    properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
+    for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("equipment", equipment_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+    # Utility panels are physically re-homed into editor Regions. Their
+    # QDockWidget wrappers remain compatibility-only.
+    detached = {}
+    for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
+        widget = panels_plugin.detach_panel(panel_id)
+        if widget is not None:
+            detached[panel_id] = widget
+    explorer_container = QWidget(window)
+    explorer_layout = QVBoxLayout(explorer_container)
+    explorer_layout.setContentsMargins(0, 0, 0, 0)
+    if "project" in detached:
+        explorer_layout.addWidget(detached["project"], 1)
+    if "equipment" in detached:
+        explorer_layout.addWidget(detached["equipment"], 1)
+    if "element_list" in detached:
+        explorer_layout.addWidget(detached["element_list"], 1)
+    workspace_surface_host.set_region_widgets(
+        "sld",
+        explorer=explorer_container,
+        inspector=detached.get("properties"),
+        diagnostics=detached.get("messages"),
+    )
+    workspace_surface_host.set_region_widgets(
+        "control",
+        inspector=control_workspace.editor_inspector,
+        status=control_workspace.editor_status,
+    )
+    workspace_surface_host.set_region_widgets(
+        "protection",
+        explorer=protection_workspace.editor_explorer,
+        inspector=protection_workspace.editor_inspector,
+    )
+    workspace_surface_host.set_region_widgets(
+        "study",
+        explorer=detached.get("study_cases"),
+    )
+
     def _on_render_diagnostic(diagnostic: object) -> None:
         messages_panel.append_message(
             "SLD rendering failure: "
@@ -686,6 +780,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         application=gridforge_application,
         error_handler=study_case_error_handler,
     )
+    study_tool_runtime.bind_study_case_controller(study_case_controller)
     study_cases_panel.set_run_handler(study_case_controller.run_study)
     resources["study_case_controller"] = study_case_controller
 
@@ -698,9 +793,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
     if callable(bind_project_selection):
         bind_project_selection(canvas_composition.selection_manager)
-    canvas_composition.selection_manager.selection_changed.connect(lambda ids: engineering_context.update(selected_ids=ids))
+    canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
-        controller.tool_changed.connect(lambda current, previous: engineering_context.update(active_tool=current))
+        controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()

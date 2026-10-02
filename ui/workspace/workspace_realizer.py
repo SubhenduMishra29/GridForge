@@ -14,7 +14,7 @@ WorkspaceLayout and therefore cannot define workspace policy.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from ui.core.qt import QDockWidget, Qt
 
@@ -37,7 +37,7 @@ class DockBinding:
 class WorkspaceRealizer:
     """Realize canonical Areas and their Editors through the editor host."""
 
-    def __init__(self, *, main_window=None, editor_host: Any | None = None) -> None:
+    def __init__(self, *, main_window=None, editor_host: Any | None = None, context_factory: Callable[[str, Any, Any, str], EditorContext] | None = None) -> None:
         if editor_host is None:
             raise ValueError("WorkspaceRealizer requires an EngineeringEditorHost.")
         self._main_window = main_window
@@ -45,6 +45,8 @@ class WorkspaceRealizer:
         self._bindings: dict[str, DockBinding] = {}
         self._realized_layout: WorkspaceLayout | None = None
         self._focused_area_id: str | None = None
+        self._context_factory = context_factory
+        self._realized_workspace_id: str | None = None
 
     @property
     def editor_host(self) -> Any:
@@ -114,6 +116,7 @@ class WorkspaceRealizer:
             raise
 
         self._realized_layout = layout
+        self._realized_workspace_id = workspace_id
 
     def _realize_areas(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
         main_areas = [
@@ -128,14 +131,21 @@ class WorkspaceRealizer:
                 continue
             editor = area.editor
             editor_id = editor.editor_id
-            editor_type = editor.editor_type
             if area.metadata.get("role") == "main":
-                target = {"study": "reports"}.get(editor_type, editor_type)
+                region_id = next((region.region_id for region in editor.regions if region.visible and region.region_id == "canvas"), None)
+                if region_id is None:
+                    region_id = next((region.region_id for region in editor.regions if region.visible), None)
+                if region_id is None:
+                    raise WorkspaceRealizationError(f"Editor {editor_id!r} has no visible Region.")
                 activate = getattr(self._editor_host, "activate", None)
                 if not callable(activate):
                     raise WorkspaceRealizationError("Editor host does not expose activate().")
-                context = EditorContext(workspace=workspace_id, area=area, editor=editor)
-                activate(target, area=area, context=context)
+                context = (
+                    self._context_factory(workspace_id or "", area, editor, region_id)
+                    if self._context_factory is not None
+                    else EditorContext(workspace=workspace_id, area=area, editor=editor, region=next(region for region in editor.regions if region.region_id == region_id))
+                )
+                activate(editor_id, area=area, region_id=region_id, context=context)
                 self._focused_area_id = area.area_id
 
     def focus_area(self, area_id: str) -> None:
@@ -149,7 +159,35 @@ class WorkspaceRealizer:
         activate = getattr(self._editor_host, "activate", None)
         if not callable(activate):
             raise WorkspaceRealizationError("Editor host does not expose activate().")
-        activate({"study": "reports"}.get(area.editor.editor_type, area.editor.editor_type), area=area)
+        region_id = next((region.region_id for region in area.editor.regions if region.visible and region.region_id == "canvas"), None)
+        if region_id is None:
+            raise WorkspaceRealizationError(f"Editor {area.editor.editor_id!r} has no visible Region.")
+        context = (
+            self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
+            if self._context_factory is not None
+            else EditorContext(workspace=None, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
+        )
+        activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
+        self._focused_area_id = area.area_id
+
+    def focus_region(self, area_id: str, region_id: str) -> None:
+        if self._realized_layout is None:
+            raise RuntimeError("No workspace is realized.")
+        area = self._realized_layout.get_area(area_id)
+        if area is None:
+            raise KeyError(f"Unknown Area: {area_id!r}")
+        region = next((item for item in area.editor.regions if item.region_id == region_id and item.visible), None)
+        if region is None:
+            raise KeyError(f"Unknown visible Region {region_id!r} in Area {area_id!r}")
+        activate = getattr(self._editor_host, "activate", None)
+        if not callable(activate):
+            raise WorkspaceRealizationError("Editor host does not expose activate().")
+        context = (
+            self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
+            if self._context_factory is not None
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=region)
+        )
+        activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id
 
     def maximize_area(self, area_id: str) -> None:
@@ -168,6 +206,7 @@ class WorkspaceRealizer:
         if callable(deactivate):
             deactivate()
         self._realized_layout = None
+        self._realized_workspace_id = None
         self._focused_area_id = None
 
 

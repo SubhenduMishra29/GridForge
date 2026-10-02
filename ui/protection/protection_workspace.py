@@ -446,23 +446,33 @@ class ProtectionWorkspace(QWidget):
         for event_type in self._EVENT_TYPES:
             application.event_bus.subscribe(event_type, self._on_application_event)
             self._subscriptions.append((event_type, self._on_application_event))
-        splitter = QSplitter(parent=self)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._explorer)
-        splitter.addWidget(self._canvas)
-        splitter.addWidget(self._inspector)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
+        self._toolbar.setVisible(False)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(self._toolbar)
-        layout.addWidget(splitter, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._canvas, 1)
+        # Explorer, inspector and the historical toolbar are retained as
+        # compatibility-owned widgets and are realized by ProtectionEditor.
         self.refresh()
 
     @property
     def selection_manager(self) -> SelectionManager:
         return self._selection_manager
+
+    @property
+    def active_tool_id(self) -> str:
+        return self._interaction.active_tool
+
+    @property
+    def editor_canvas(self) -> QWidget:
+        return self._canvas
+
+    @property
+    def editor_explorer(self) -> QWidget:
+        return self._explorer
+
+    @property
+    def editor_inspector(self) -> QWidget:
+        return self._inspector
 
     @property
     def canvas_state(self):

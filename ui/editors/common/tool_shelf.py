@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from ui.core.qt import QIcon, QToolButton, QVBoxLayout, QWidget
+from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget
 from ui.tools.tool_definition import ToolDefinition
 
 
@@ -22,12 +22,14 @@ class ToolShelf(QWidget):
         activate: Callable[[str], object] | None = None,
         editor_type: str | None = None,
         icon_provider: Callable[[str], QIcon | None] | None = None,
+        active_tool_provider: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._activate = activate
         self._editor_type = editor_type
         self._icon_provider = icon_provider
+        self._active_tool_provider = active_tool_provider
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
         self._layout = QVBoxLayout(self)
@@ -41,6 +43,15 @@ class ToolShelf(QWidget):
 
     def set_activate_handler(self, activate: Callable[[str], object] | None) -> None:
         self._activate = activate
+
+    def set_active_tool_provider(self, provider: Callable[[], str | None] | None) -> None:
+        self._active_tool_provider = provider
+        self.refresh_runtime_state()
+
+    def refresh_runtime_state(self) -> None:
+        """Project the discipline runtime active-tool identity into the shelf."""
+        tool_id = self._active_tool_provider() if self._active_tool_provider is not None else None
+        self.set_active_tool(tool_id)
 
     def set_definitions(self, definitions: Iterable[ToolDefinition]) -> None:
         values = tuple(definitions)
@@ -76,10 +87,34 @@ class ToolShelf(QWidget):
     def _activate_tool(self, tool_id: str) -> None:
         if self._activate is not None:
             self._activate(tool_id)
+        self.refresh_runtime_state()
 
     def set_active_tool(self, tool_id: str | None) -> None:
         for current_id, button in self._buttons.items():
             button.setChecked(current_id == tool_id)
 
 
-__all__ = ["ToolShelf"]
+class ToolSettingsPanel(QWidget):
+    """Presentation-only contextual settings for the active ToolDefinition."""
+
+    def __init__(self, *, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._title = QLabel("No active tool", self)
+        self._form = QFormLayout()
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._title)
+        layout.addLayout(self._form)
+        self.setObjectName("GridForgeToolSettings")
+
+    def set_context(self, context: object | None) -> None:
+        while self._form.rowCount():
+            self._form.removeRow(0)
+        tool_id = getattr(context, "active_tool", None) if context is not None else None
+        settings = getattr(context, "tool_settings", None) if context is not None else None
+        self._title.setText(f"Tool: {tool_id or 'None'}")
+        if settings is None:
+            return
+        for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):
+            self._form.addRow(QLabel(str(key), self), QLabel(str(value), self))
+
+__all__ = ["ToolShelf", "ToolSettingsPanel"]
