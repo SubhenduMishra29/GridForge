@@ -115,7 +115,6 @@ class ControlWorkspace(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self._view, 1)
-        root.addWidget(self._status)
         # Historical palette/toolbar/inspector widgets remain owned by this
         # compatibility coordinator but are no longer part of its visible
         # surface. ControlEditor realizes them through canonical Regions.
