@@ -347,14 +347,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
-        dock = panels_plugin.get_dock("equipment")
-        if dock is not None:
-            dock.show(); dock.raise_()
+        workspace_controller.realizer.focus_region("main-sld", "explorer")
 
     def _show_study_cases() -> None:
-        dock = panels_plugin.get_dock("study_cases")
-        if dock is not None:
-            dock.show(); dock.raise_()
+        workspace_controller.realizer.focus_region("main-study", "explorer")
 
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
