@@ -37,4 +37,7 @@ class AreaDefinition:
             raise TypeError("metadata must be a mapping.")
 
 
-__all__ = ["AreaDefinition"]
+Area = AreaDefinition
+
+
+__all__ = ["AreaDefinition", "Area"]
