@@ -19,6 +19,7 @@ from typing import Any, Mapping
 from ui.core.qt import QDockWidget, Qt
 
 from .workspace_layout import WorkspaceLayout
+from .engineering_context import EditorContext
 
 
 class WorkspaceRealizationError(RuntimeError):
@@ -95,7 +96,7 @@ class WorkspaceRealizer:
     # Canonical realization
     # ------------------------------------------------------------------
 
-    def realize(self, layout: WorkspaceLayout) -> None:
+    def realize(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
         if not isinstance(layout, WorkspaceLayout):
             raise TypeError("layout must be a WorkspaceLayout.")
         if not layout.areas:
@@ -103,12 +104,10 @@ class WorkspaceRealizer:
 
         previous = self._realized_layout
         try:
-            self._realize_areas(layout)
-        except BaseException:
+            self._realize_areas(layout, workspace_id=workspace_id)        except BaseException:
             if previous is not None:
                 try:
-                    self._realize_areas(previous)
-                except BaseException as restore_exc:
+                    self._realize_areas(previous, workspace_id=workspace_id)                except BaseException as restore_exc:
                     raise WorkspaceRealizationError(
                         "Workspace realization failed and previous editor state could not be restored."
                     ) from restore_exc
@@ -116,7 +115,7 @@ class WorkspaceRealizer:
 
         self._realized_layout = layout
 
-    def _realize_areas(self, layout: WorkspaceLayout) -> None:
+    def _realize_areas(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
         main_areas = [
             area for area in layout.areas
             if area.visible and area.metadata.get("role") == "main"
@@ -135,7 +134,8 @@ class WorkspaceRealizer:
                 activate = getattr(self._editor_host, "activate", None)
                 if not callable(activate):
                     raise WorkspaceRealizationError("Editor host does not expose activate().")
-                activate(target, area=area)
+                context = EditorContext(workspace=workspace_id, area=area, editor=editor)
+                activate(target, area=area, context=context)
                 self._focused_area_id = area.area_id
 
     def focus_area(self, area_id: str) -> None:
