@@ -4,11 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Toolkit-independent owner of logical Workspace lifecycle.
-
-WorkspaceManager owns workspace definitions and authoritative logical
-WorkspaceState. Qt realization is deliberately outside this class.
-"""
+"""Toolkit-independent authoritative owner of logical Workspace lifecycle."""
 
 from __future__ import annotations
 
@@ -20,42 +16,26 @@ from .workspace_state import WorkspaceState
 
 
 class WorkspaceManager:
-    """Manage named logical workspaces and their active state."""
+    """Manage named logical workspaces and their canonical Area state."""
 
-    def __init__(
-        self,
-        definitions: Mapping[str, WorkspaceDefinition] | None = None,
-        *,
-        default_workspace_id: str | None = None,
-    ) -> None:
+    def __init__(self, definitions: Mapping[str, WorkspaceDefinition] | None = None, *, default_workspace_id: str | None = None) -> None:
         self._definitions: dict[str, WorkspaceDefinition] = {}
         self._active_workspace_id: str | None = None
         self._state: WorkspaceState | None = None
         self._default_workspace_id = default_workspace_id
-
         if default_workspace_id is not None:
             self._validate_workspace_id(default_workspace_id)
-
         if definitions is not None:
             if not isinstance(definitions, Mapping):
                 raise TypeError("definitions must be a mapping.")
             for workspace_id, definition in definitions.items():
-                if not isinstance(workspace_id, str):
-                    raise TypeError("definition mapping keys must be strings.")
-                if not isinstance(definition, WorkspaceDefinition):
-                    raise TypeError("definition mapping values must be WorkspaceDefinition objects.")
+                if not isinstance(workspace_id, str) or not isinstance(definition, WorkspaceDefinition):
+                    raise TypeError("definitions must map string IDs to WorkspaceDefinition objects.")
                 if workspace_id != definition.workspace_id:
                     raise ValueError("definition mapping key must match definition.workspace_id.")
                 self.register(definition)
-
-        if (
-            self._default_workspace_id is not None
-            and self._default_workspace_id not in self._definitions
-        ):
-            raise KeyError(
-                "Default workspace is not registered: "
-                f"{self._default_workspace_id!r}"
-            )
+        if self._default_workspace_id is not None and self._default_workspace_id not in self._definitions:
+            raise KeyError(f"Default workspace is not registered: {self._default_workspace_id!r}")
 
     @property
     def active_workspace_id(self) -> str | None:
@@ -63,7 +43,6 @@ class WorkspaceManager:
 
     @property
     def default_workspace_id(self) -> str | None:
-        """Return the canonical workspace selected for project activation."""
         return self._default_workspace_id
 
     @property
@@ -83,10 +62,8 @@ class WorkspaceManager:
 
     def unregister(self, workspace_id: str) -> WorkspaceDefinition | None:
         self._validate_workspace_id(workspace_id)
-        if workspace_id == self._active_workspace_id:
-            raise RuntimeError("Cannot unregister the active workspace.")
-        if workspace_id == self._default_workspace_id:
-            raise RuntimeError("Cannot unregister the default workspace.")
+        if workspace_id in {self._active_workspace_id, self._default_workspace_id}:
+            raise RuntimeError("Cannot unregister the active/default workspace.")
         return self._definitions.pop(workspace_id, None)
 
     def get(self, workspace_id: str) -> WorkspaceDefinition | None:
@@ -102,13 +79,9 @@ class WorkspaceManager:
         definition = self._definitions.get(workspace_id)
         if definition is None:
             raise KeyError(f"Unknown workspace: {workspace_id!r}")
-        return WorkspaceState(
-            workspace_id=definition.workspace_id,
-            layout=WorkspaceLayout(placements=definition.placements, areas=definition.areas),
-        )
+        return WorkspaceState(workspace_id=definition.workspace_id, layout=WorkspaceLayout.from_areas(definition.areas))
 
     def prepare_activate_default(self) -> WorkspaceState:
-        """Prepare activation of the canonical default workspace."""
         if self._default_workspace_id is None:
             raise RuntimeError("No default workspace is configured.")
         return self.prepare_activate(self._default_workspace_id)
@@ -128,20 +101,15 @@ class WorkspaceManager:
     def commit(self, state: WorkspaceState) -> WorkspaceState:
         if not isinstance(state, WorkspaceState):
             raise TypeError("state must be a WorkspaceState.")
-        workspace_id = state.workspace_id
-        if workspace_id not in self._definitions:
-            raise KeyError(f"Cannot commit unknown workspace: {workspace_id!r}")
-        if self._active_workspace_id is not None and workspace_id != self._active_workspace_id:
-            raise ValueError(
-                f"Cannot commit a state for workspace {workspace_id!r} while "
-                f"{self._active_workspace_id!r} is active."
-            )
-        self._active_workspace_id = workspace_id
+        if state.workspace_id not in self._definitions:
+            raise KeyError(f"Cannot commit unknown workspace: {state.workspace_id!r}")
+        if self._active_workspace_id is not None and state.workspace_id != self._active_workspace_id:
+            raise ValueError(f"Cannot commit {state.workspace_id!r} while {self._active_workspace_id!r} is active.")
+        self._active_workspace_id = state.workspace_id
         self._state = state
         return state
 
     def clear_active(self) -> None:
-        """Clear active workspace state while retaining registered definitions."""
         self._active_workspace_id = None
         self._state = None
 
@@ -149,7 +117,6 @@ class WorkspaceManager:
         return self.commit(self.prepare_activate(workspace_id))
 
     def activate_default(self) -> WorkspaceState:
-        """Activate the canonical default workspace."""
         return self.commit(self.prepare_activate_default())
 
     def set_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
