@@ -55,6 +55,9 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
 from ui.tools.default_tool_registry import create_default_tool_factories
+from ui.tools.tool_definition import contextual_tool_definitions
+from ui.control.control_tool_palette import ControlToolRegistry
+from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
@@ -172,6 +175,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, selection_manager=canvas_preparation.selection_manager, parent=None)
     protection_workspace = ProtectionWorkspace(application=gridforge_application, selection_manager=canvas_preparation.selection_manager, parent=None)
+    sld_tool_definitions = contextual_tool_definitions(
+        tool_manager.get_tool_ids(),
+        editor_type="sld",
+    )
+    control_tool_definitions = ControlToolRegistry.create_default(
+        application=gridforge_application,
+    ).definitions()
+    protection_tool_definitions = ProtectionInteractionController.TOOL_DEFINITIONS
+    study_tool_definitions = contextual_tool_definitions(
+        ("run_study", "compare_results", "plot", "inspect_result", "export", "filter", "navigate"),
+        editor_type="study",
+    )
+    contextual_tool_definitions_all = (
+        *sld_tool_definitions,
+        *control_tool_definitions,
+        *protection_tool_definitions,
+        *study_tool_definitions,
+    )
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
             "sld": canvas_composition.widget,
@@ -179,6 +200,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             "protection": protection_workspace,
         },
         application=gridforge_application,
+        tool_definitions=contextual_tool_definitions_all,
+        tool_activator=tool_manager.activate,
+        tool_activators={
+            "sld": tool_manager.activate,
+            "control": control_workspace.activate_tool_id,
+            "protection": protection_workspace.activate_tool_id,
+        },
         parent=None,
     )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
@@ -260,12 +288,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
-        dock = workspace_realizer.get_dock("equipment")
+        dock = panels_plugin.get_dock("equipment")
         if dock is not None:
             dock.show(); dock.raise_()
 
     def _show_study_cases() -> None:
-        dock = workspace_realizer.get_dock("study_cases")
+        dock = panels_plugin.get_dock("study_cases")
         if dock is not None:
             dock.show(); dock.raise_()
 
@@ -663,18 +691,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
-    registered_docks: list[str] = []
-    try:
-        for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
-            dock = panels_plugin.get_dock(panel_id)
-            if dock is None:
-                raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
-            workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
-            registered_docks.append(panel_id)
-    except BaseException:
-        for panel_id in reversed(registered_docks):
-            workspace_realizer.unregister_dock(panel_id)
-        raise
     workspace_controller.activate_default()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)

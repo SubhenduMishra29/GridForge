@@ -1,48 +1,14 @@
 # ============================================================
 # File: ui/workspace/workspace_realizer.py
-# GridForge V2 — Workspace Qt Realizer
+# GridForge V2 — Area/Editor/Region Realizer
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Workspace Realizer.
+"""Canonical Workspace → Area → Editor → Region Qt realization boundary.
 
-Logical WorkspaceLayout -> Qt realization boundary.
-
-Architectural ownership
------------------------
-
-WorkspaceManager
-    Owns workspace definitions and logical workspace state.
-
-WorkspaceLayout
-    Describes the logical arrangement of panels/editors.
-
-WorkspaceRealizer
-    Translates WorkspaceLayout into operations on the existing
-    MainWindow host.
-
-MainWindow
-    Owns the Qt workspace infrastructure and performs the actual
-    Qt docking operations.
-
-PanelsPlugin
-    Owns panel composition and panel/dock creation.
-
-This module MUST NOT:
-
-    - create MainWindow;
-    - create application services;
-    - create panels;
-    - register panels;
-    - decide workspace policy;
-    - modify Core state;
-    - contain electrical semantics;
-    - directly call QMainWindow.addDockWidget();
-    - directly call QMainWindow.tabifyDockWidget();
-    - directly manipulate dock placement outside MainWindow.
-
-Qt imports are permitted only through ui.core.qt.
+Dock/panel bindings remain only as an explicit compatibility surface for
+legacy utility panels. They are never read from WorkspaceDefinition or
+WorkspaceLayout and therefore cannot define workspace policy.
 """
 
 from __future__ import annotations
@@ -52,635 +18,157 @@ from typing import Any, Mapping
 
 from ui.core.qt import QDockWidget, Qt
 
-from .panel_area import PanelArea
 from .workspace_layout import WorkspaceLayout
-
-
-# ============================================================
-# Exceptions
-# ============================================================
+from .engineering_context import EditorContext
 
 
 class WorkspaceRealizationError(RuntimeError):
-    """Raised when a logical workspace cannot be realized."""
-
-
-# ============================================================
-# Runtime Dock Binding
-# ============================================================
+    """Raised when a canonical workspace cannot be realized."""
 
 
 @dataclass(frozen=True, slots=True)
 class DockBinding:
-    """
-    Associate a GridForge panel ID with an existing QDockWidget.
-
-    The dock widget is created and owned by the panel composition
-    layer. WorkspaceRealizer only retains the runtime association
-    required for layout realization.
-    """
+    """Legacy panel/dock binding isolated from canonical workspace state."""
 
     panel_id: str
     dock_widget: QDockWidget
 
-    def __post_init__(self) -> None:
-        if not isinstance(
-            self.panel_id,
-            str,
-        ):
-            raise TypeError(
-                "panel_id must be a string."
-            )
-
-        if not self.panel_id.strip():
-            raise ValueError(
-                "panel_id must not be empty."
-            )
-
-        if not isinstance(
-            self.dock_widget,
-            QDockWidget,
-        ):
-            raise TypeError(
-                "dock_widget must be a QDockWidget."
-            )
-
-
-# ============================================================
-# WorkspaceRealizer
-# ============================================================
-
 
 class WorkspaceRealizer:
-    """
-    Realize a logical WorkspaceLayout through MainWindow.
+    """Realize canonical Areas and their Editors through the editor host."""
 
-    The realizer contains no workspace policy. It only translates
-    already-decided logical placement into host operations.
-    """
-
-    def __init__(
-        self,
-        *,
-        main_window,
-        editor_host: Any | None = None,
-    ) -> None:
-        """
-        Construct a WorkspaceRealizer.
-
-        Parameters
-        ----------
-        main_window:
-            Existing GridForge MainWindow host.
-        """
-
-        if main_window is None:
-            raise ValueError(
-                "WorkspaceRealizer requires an explicit MainWindow."
-            )
-
+    def __init__(self, *, main_window=None, editor_host: Any | None = None) -> None:
+        if editor_host is None:
+            raise ValueError("WorkspaceRealizer requires an EngineeringEditorHost.")
         self._main_window = main_window
         self._editor_host = editor_host
-
-        self._bindings: dict[
-            str,
-            DockBinding,
-        ] = {}
-
+        self._bindings: dict[str, DockBinding] = {}
         self._realized_layout: WorkspaceLayout | None = None
-
-    # ========================================================
-    # Properties
-    # ========================================================
+        self._focused_area_id: str | None = None
 
     @property
-    def editor_host(self) -> Any | None:
+    def editor_host(self) -> Any:
         return self._editor_host
 
     @property
     def main_window(self):
-        """Return the explicitly supplied MainWindow host."""
-
         return self._main_window
 
     @property
-    def bindings(
-        self,
-    ) -> Mapping[str, DockBinding]:
-        """
-        Return a snapshot of current runtime bindings.
-
-        The returned mapping cannot mutate the internal registry.
-        """
-
-        return dict(
-            self._bindings
-        )
+    def bindings(self) -> Mapping[str, DockBinding]:
+        """Return compatibility bindings; canonical workspace state never uses them."""
+        return dict(self._bindings)
 
     @property
-    def realized_layout(
-        self,
-    ) -> WorkspaceLayout | None:
-        """
-        Return the last successfully realized layout.
-        """
-
+    def realized_layout(self) -> WorkspaceLayout | None:
         return self._realized_layout
 
-    # ========================================================
-    # Dock Registration
-    # ========================================================
+    @property
+    def focused_area_id(self) -> str | None:
+        return self._focused_area_id
 
-    def register_dock(
-        self,
-        *,
-        panel_id: str,
-        dock_widget: QDockWidget,
-        replace: bool = False,
-    ) -> None:
-        """
-        Register an already-created dock widget.
+    # ------------------------------------------------------------------
+    # Explicit legacy compatibility API
+    # ------------------------------------------------------------------
 
-        WorkspaceRealizer does not create or own the dock.
-        """
+    def register_dock(self, *, panel_id: str, dock_widget: QDockWidget, replace: bool = False) -> None:
+        if not isinstance(panel_id, str) or not panel_id.strip():
+            raise ValueError("panel_id must be a non-empty string.")
+        if not isinstance(dock_widget, QDockWidget):
+            raise TypeError("dock_widget must be a QDockWidget.")
+        if panel_id in self._bindings and not replace:
+            raise ValueError(f"Dock already registered for panel: {panel_id!r}")
+        self._bindings[panel_id] = DockBinding(panel_id, dock_widget)
 
-        if not isinstance(
-            panel_id,
-            str,
-        ):
-            raise TypeError(
-                "panel_id must be a string."
-            )
+    def unregister_dock(self, panel_id: str) -> DockBinding | None:
+        return self._bindings.pop(panel_id, None)
 
-        if not panel_id.strip():
-            raise ValueError(
-                "panel_id must not be empty."
-            )
-
-        if not isinstance(
-            dock_widget,
-            QDockWidget,
-        ):
-            raise TypeError(
-                "dock_widget must be a QDockWidget."
-            )
-
-        if (
-            panel_id in self._bindings
-            and not replace
-        ):
-            raise ValueError(
-                f"Dock already registered for panel: "
-                f"{panel_id!r}"
-            )
-
-        self._bindings[
-            panel_id
-        ] = DockBinding(
-            panel_id=panel_id,
-            dock_widget=dock_widget,
-        )
-
-    def unregister_dock(
-        self,
-        panel_id: str,
-    ) -> DockBinding | None:
-        """
-        Remove a runtime binding.
-
-        The dock widget itself is not destroyed.
-        """
-
-        if not isinstance(
-            panel_id,
-            str,
-        ):
-            raise TypeError(
-                "panel_id must be a string."
-            )
-
-        return self._bindings.pop(
-            panel_id,
-            None,
-        )
+    def get_dock(self, panel_id: str) -> QDockWidget | None:
+        binding = self._bindings.get(panel_id)
+        return binding.dock_widget if binding is not None else None
 
     def detach_all_docks(self) -> tuple[DockBinding, ...]:
-        """Detach every runtime binding without destroying its owned dock."""
         detached = tuple(self._bindings.values())
         self._bindings.clear()
         return detached
 
-    def get_dock(
-        self,
-        panel_id: str,
-    ) -> QDockWidget | None:
-        """
-        Return the dock registered for a panel.
-        """
+    # ------------------------------------------------------------------
+    # Canonical realization
+    # ------------------------------------------------------------------
 
-        if not isinstance(
-            panel_id,
-            str,
-        ):
-            raise TypeError(
-                "panel_id must be a string."
-            )
+    def realize(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
+        if not isinstance(layout, WorkspaceLayout):
+            raise TypeError("layout must be a WorkspaceLayout.")
+        if not layout.areas:
+            raise WorkspaceRealizationError("Workspace layout contains no Areas.")
 
-        binding = self._bindings.get(
-            panel_id
-        )
-
-        if binding is None:
-            return None
-
-        return binding.dock_widget
-
-    # ========================================================
-    # Logical Area -> Qt Area
-    # ========================================================
-
-    @staticmethod
-    def _qt_area(
-        area: PanelArea,
-    ) -> Qt.DockWidgetArea:
-        """
-        Translate a GridForge logical dock area into Qt.
-
-        CENTER and FLOATING do not map to a standard Qt
-        DockWidgetArea.
-        """
-
-        if not isinstance(
-            area,
-            PanelArea,
-        ):
-            raise TypeError(
-                "area must be a PanelArea."
-            )
-
-        mapping = {
-            PanelArea.LEFT: Qt.LeftDockWidgetArea,
-            PanelArea.RIGHT: Qt.RightDockWidgetArea,
-            PanelArea.TOP: Qt.TopDockWidgetArea,
-            PanelArea.BOTTOM: Qt.BottomDockWidgetArea,
-        }
-
-        try:
-            return mapping[area]
-        except KeyError as exc:
-            raise WorkspaceRealizationError(
-                f"PanelArea {area.value!r} is not a standard "
-                "Qt dock area."
-            ) from exc
-
-    # ========================================================
-    # Validation
-    # ========================================================
-
-    def _validate_layout(
-        self,
-        layout: WorkspaceLayout,
-    ) -> None:
-        """
-        Validate runtime resources required by the layout.
-
-        CENTER placements do not require a dock binding because
-        CENTER represents the central editor/SLD host.
-
-        All other placements require a registered dock.
-        """
-
-        if not isinstance(
-            layout,
-            WorkspaceLayout,
-        ):
-            raise TypeError(
-                "layout must be a WorkspaceLayout."
-            )
-
-        missing: list[str] = []
-
-        for placement in layout.placements:
-            if placement.area == PanelArea.CENTER:
-                continue
-
-            if placement.panel_id not in self._bindings:
-                missing.append(
-                    placement.panel_id
-                )
-
-        if missing:
-            raise WorkspaceRealizationError(
-                "Workspace layout references panels without "
-                f"registered docks: {missing!r}"
-            )
-
-    # ========================================================
-    # Realization
-    # ========================================================
-
-    def realize(
-        self,
-        layout: WorkspaceLayout,
-    ) -> None:
-        """Realize a layout and compensate partial Qt changes on failure."""
         previous = self._realized_layout
         try:
-            self._realize_unchecked(layout)
-        except BaseException as exc:
-            try:
-                if previous is None:
-                    self.clear_realization()
-                else:
-                    self._realize_unchecked(previous)
-            except BaseException as restore_exc:
-                raise WorkspaceRealizationError(
-                    "Workspace realization failed and prior presentation restoration also failed."
-                ) from restore_exc
+            self._realize_areas(layout, workspace_id=workspace_id)        except BaseException:
+            if previous is not None:
+                try:
+                    self._realize_areas(previous, workspace_id=workspace_id)                except BaseException as restore_exc:
+                    raise WorkspaceRealizationError(
+                        "Workspace realization failed and previous editor state could not be restored."
+                    ) from restore_exc
             raise
 
-    def _realize_unchecked(
-        self,
-        layout: WorkspaceLayout,
-    ) -> None:
-        """Apply a layout without swallowing realization failures."""
-        self._validate_layout(
-            layout
-        )
-
-        active_ids = {
-            placement.panel_id
-            for placement in layout.placements
-        }
-
-        # ----------------------------------------------------
-        # Remove docks no longer present in the logical layout.
-        #
-        # The runtime binding is retained because the dock
-        # remains owned by the panel composition layer.
-        # ----------------------------------------------------
-
-        for panel_id, binding in tuple(
-            self._bindings.items()
-        ):
-            if panel_id not in active_ids:
-                self._main_window.remove_dock_widget(
-                    binding.dock_widget
-                )
-
-        # ----------------------------------------------------
-        # Realize placements.
-        # ----------------------------------------------------
-
-        for placement in layout.placements:
-            binding = self._bindings.get(
-                placement.panel_id
-            )
-
-            # ------------------------------------------------
-            # CENTER
-            # ------------------------------------------------
-
-            if placement.area == PanelArea.CENTER:
-                if binding is not None:
-                    self._main_window.set_dock_visible(
-                        binding.dock_widget,
-                        placement.visible,
-                    )
-
-                continue
-
-            # ------------------------------------------------
-            # Non-CENTER placements require a dock.
-            # ------------------------------------------------
-
-            if binding is None:
-                raise WorkspaceRealizationError(
-                    "No registered dock for panel "
-                    f"{placement.panel_id!r}."
-                )
-
-            dock = binding.dock_widget
-
-            # ------------------------------------------------
-            # Visibility is always explicitly realized.
-            # ------------------------------------------------
-
-            self._main_window.set_dock_visible(
-                dock,
-                placement.visible,
-            )
-
-            # ------------------------------------------------
-            # Hidden docks require no placement operation.
-            # ------------------------------------------------
-
-            if not placement.visible:
-                continue
-
-            # ------------------------------------------------
-            # FLOATING
-            # ------------------------------------------------
-
-            if placement.area == PanelArea.FLOATING:
-                self._main_window.set_dock_floating(
-                    dock,
-                    True,
-                )
-                continue
-
-            # ------------------------------------------------
-            # Normal dock placement.
-            # ------------------------------------------------
-
-            qt_area = self._qt_area(
-                placement.area
-            )
-
-            self._main_window.add_dock_widget(
-                qt_area,
-                dock,
-            )
-
-            self._main_window.set_dock_floating(
-                dock,
-                False,
-            )
-
-        # ----------------------------------------------------
-        # Realize logical tab groups.
-        # ----------------------------------------------------
-
-        self._realize_tab_groups(
-            layout
-        )
-        self._realize_default_proportions(layout)
-
-        # ----------------------------------------------------
-        # Commit the realized-layout marker only after every
-        # host operation has succeeded.
-        # ----------------------------------------------------
-
         self._realized_layout = layout
-        self._realize_editor_area(layout)
 
-    # ========================================================
-    # Tab Groups
-    # ========================================================
-
-    def _realize_tab_groups(
-        self,
-        layout: WorkspaceLayout,
-    ) -> None:
-        """
-        Realize logical workspace tab groups.
-
-        WorkspaceLayout decides group membership.
-
-        MainWindow performs the actual tabification operation.
-        """
-
-        groups: dict[
-            str,
-            list[str],
-        ] = {}
-
-        for placement in layout.visible_panels():
-            if placement.group is None:
-                continue
-
-            if placement.area in (
-                PanelArea.CENTER,
-                PanelArea.FLOATING,
-            ):
-                continue
-
-            groups.setdefault(
-                placement.group,
-                [],
-            ).append(
-                placement.panel_id
-            )
-
-        for panel_ids in groups.values():
-            if len(panel_ids) < 2:
-                continue
-
-            first_dock = self.get_dock(
-                panel_ids[0]
-            )
-
-            if first_dock is None:
-                raise WorkspaceRealizationError(
-                    "Missing dock for tab group panel "
-                    f"{panel_ids[0]!r}."
-                )
-
-            for panel_id in panel_ids[1:]:
-                second_dock = self.get_dock(
-                    panel_id
-                )
-
-                if second_dock is None:
-                    raise WorkspaceRealizationError(
-                        "Missing dock for tab group panel "
-                        f"{panel_id!r}."
-                    )
-
-                self._main_window.tabify_dock_widgets(
-                    first_dock,
-                    second_dock,
-                )
-
-    def _realize_editor_area(self, layout: WorkspaceLayout) -> None:
-        """Activate the main editor declared by the logical Area composition."""
-        if self._editor_host is None:
-            return
-        for area in layout.areas:
-            if area.metadata.get("role") != "main" or not area.visible:
-                continue
-            editor_type = area.editor.editor_type
-            editor_id = {"study": "reports"}.get(editor_type, editor_type)
-            activate = getattr(self._editor_host, "activate", None)
-            if callable(activate):
-                activate(editor_id)
-            return
-
-    # ========================================================
-    # Default Geometry
-    # ========================================================
-
-    def _realize_default_proportions(self, layout: WorkspaceLayout) -> None:
-        """Apply adaptive first-use dock proportions without resetting user resizing.
-
-        Workspace activation is a presentation-mode change, not a geometry reset.
-        Once a layout has been realized, Qt's current dock sizes are user-owned
-        and must survive SLD/Control/Protection switching.
-        """
-        if self._realized_layout is not None:
-            return
-
-        left = [
-            self._bindings[p.panel_id].dock_widget
-            for p in layout.visible_panels()
-            if p.area == PanelArea.LEFT and p.panel_id in self._bindings
+    def _realize_areas(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
+        main_areas = [
+            area for area in layout.areas
+            if area.visible and area.metadata.get("role") == "main"
         ]
-        right = [
-            self._bindings[p.panel_id].dock_widget
-            for p in layout.visible_panels()
-            if p.area == PanelArea.RIGHT and p.panel_id in self._bindings
-        ]
-        bottom = [
-            self._bindings[p.panel_id].dock_widget
-            for p in layout.visible_panels()
-            if p.area == PanelArea.BOTTOM and p.panel_id in self._bindings
-        ]
+        if not main_areas:
+            raise WorkspaceRealizationError("Workspace must declare a visible main Area.")
 
-        width = max(1000, int(self._main_window.width()))
-        height = max(700, int(self._main_window.height()))
-        left_size = max(210, min(320, int(width * 0.18)))
-        right_size = max(280, min(380, int(width * 0.22)))
-        bottom_size = max(120, min(220, int(height * 0.18)))
+        for area in sorted(layout.areas, key=lambda item: item.order):
+            if not area.visible:
+                continue
+            editor = area.editor
+            editor_id = editor.editor_id
+            editor_type = editor.editor_type
+            if area.metadata.get("role") == "main":
+                target = {"study": "reports"}.get(editor_type, editor_type)
+                activate = getattr(self._editor_host, "activate", None)
+                if not callable(activate):
+                    raise WorkspaceRealizationError("Editor host does not expose activate().")
+                context = EditorContext(workspace=workspace_id, area=area, editor=editor)
+                activate(target, area=area, context=context)
+                self._focused_area_id = area.area_id
 
-        if left:
-            self._main_window.resize_docks(left, [left_size for _ in left], Qt.Horizontal)
-        if right:
-            self._main_window.resize_docks(right, [right_size for _ in right], Qt.Horizontal)
-        if bottom:
-            self._main_window.resize_docks(bottom, [bottom_size for _ in bottom], Qt.Vertical)
+    def focus_area(self, area_id: str) -> None:
+        if self._realized_layout is None:
+            raise RuntimeError("No workspace is realized.")
+        area = self._realized_layout.get_area(area_id)
+        if area is None:
+            raise KeyError(f"Unknown Area: {area_id!r}")
+        if not area.visible:
+            raise RuntimeError(f"Area {area_id!r} is not visible.")
+        activate = getattr(self._editor_host, "activate", None)
+        if not callable(activate):
+            raise WorkspaceRealizationError("Editor host does not expose activate().")
+        activate({"study": "reports"}.get(area.editor.editor_type, area.editor.editor_type), area=area)
+        self._focused_area_id = area.area_id
 
-    # ========================================================
-    # Clear
-    # ========================================================
+    def maximize_area(self, area_id: str) -> None:
+        self.focus_area(area_id)
+        maximize = getattr(self._editor_host, "set_area_maximized", None)
+        if callable(maximize):
+            maximize(area_id, True)
 
-    def clear_realization(
-        self,
-    ) -> None:
-        """
-        Remove currently realized docks from MainWindow.
+    def restore_area(self) -> None:
+        restore = getattr(self._editor_host, "set_area_maximized", None)
+        if callable(restore):
+            restore(self._focused_area_id, False)
 
-        Runtime dock objects remain owned by their creator.
-
-        Dock bindings are deliberately retained because they
-        represent panel-to-dock associations, not ownership.
-        """
-
-        for binding in tuple(
-            self._bindings.values()
-        ):
-            self._main_window.remove_dock_widget(
-                binding.dock_widget
-            )
-
+    def clear_realization(self) -> None:
+        deactivate = getattr(self._editor_host, "deactivate", None)
+        if callable(deactivate):
+            deactivate()
         self._realized_layout = None
+        self._focused_area_id = None
 
 
-# ============================================================
-# Public API
-# ============================================================
-
-__all__ = [
-    "DockBinding",
-    "WorkspaceRealizationError",
-    "WorkspaceRealizer",
-]
+__all__ = ["DockBinding", "WorkspaceRealizationError", "WorkspaceRealizer"]

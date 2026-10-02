@@ -1,116 +1,39 @@
 # GridForge V2 — Workspace Subsystem
+Author: Subhendu Mishra
 
+## Canonical composition
 
-## File Location
+GridForge uses the canonical presentation path:
 
+WorkspaceManager → WorkspaceDefinition / WorkspaceLayout → Area → Editor → Region → EditorContext → Discipline Tool System.
 
-```text
-ui/workspace/
-Purpose
+WorkspaceDefinition and WorkspaceLayout are Area-based and Qt-independent.
+They do not contain panel/dock placement records.
 
-The Workspace subsystem provides the application-level organization of
-documents, views and viewport state.
+## Responsibilities
 
-GridForge V2 is intended to provide an ETAP-style dockable workflow while
-retaining a Blender-style flexible visual workspace.
+Workspace owns active workspace identity, Area/Editor/Region composition,
+presentation activation, focus/maximize state, and document/view presentation
+lifecycle.
 
-The workspace therefore sits above the existing canvas subsystem.
+Editors own their Region composition. Regions are the architectural identity;
+Qt widgets are their realization.
 
-Architectural Position
-                    MainWindow
-                        |
-                        v
-                   Workspace
-                        |
-             +----------+----------+
-             |                     |
-             v                     v
-        Documents               Views
-             |                     |
-             v                     v
-        SLDDocument          Canvas/View
-                                   |
-                                   v
-                              ui/canvas/
-Important Boundary
+The canvas remains responsible for scene, graphics view, coordinate
+conversion, navigation, interaction, preview and rendering.
 
-The workspace does not replace:
+## Legacy boundary
 
-ui/canvas/
+WorkspacePlacement is isolated in ui/workspace/workspace_legacy.py.
+PanelArea, DockBinding and QDockWidget mechanics remain only for legacy utility
+panels and are not workspace policy.
 
-The canvas remains responsible for:
+## Core boundary
 
-scene;
-graphics view;
-coordinate conversion;
-navigation;
-interaction;
-preview;
-rendering.
+Workspace objects are presentation/application objects. They never become the
+authoritative electrical model.
 
-The workspace is responsible for:
+Committed engineering operations continue through:
 
-which document is active;
-which views are open;
-which view displays which document;
-viewport state persistence;
-view lifecycle.
-Document vs View
-
-A document represents the logical content.
-
-A view represents one visual presentation of that document.
-
-Therefore:
-
-Document A
-    |
-    +---- View 1
-    |
-    +---- View 2
-
-is valid.
-
-This is important for future:
-
-multi-view workflows;
-substation/grid navigation;
-synchronized views;
-comparison workflows;
-multiple canvas layouts.
-Viewport State
-
-Viewport state is kept outside the Qt graphics view.
-
-It can contain:
-
-zoom;
-center;
-pan;
-rotation;
-grid visibility;
-snap visibility.
-
-The actual canvas implementation consumes this state.
-
-Core Boundary
-
-Workspace objects are UI/application objects.
-
-They do not become the authoritative electrical model.
-
-The intended architecture remains:
-
-Workspace
-    |
-    v
-SLD Document
-    |
-    v
-UI SLD Model
-    |
-    v
-Controller / Adapter
-    |
-    v
-GridForge Core
+Workspace → EditorContext → Tool → Application Command → Application →
+CommandManager → Core.

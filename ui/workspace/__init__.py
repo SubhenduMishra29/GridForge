@@ -20,7 +20,7 @@ _EXPORTS = {
     "Project": ("ui.workspace.project", "Project"),
     "Document": ("ui.workspace.document", "Document"),
     "DocumentManager": ("ui.workspace.document_manager", "DocumentManager"),
-    "PanelArea": ("ui.workspace.panel_area", "PanelArea"),
+    "PanelArea": ("ui.workspace.panel_area", "PanelArea"),  # legacy utility-panel compatibility only
     "AreaDefinition": ("ui.workspace.area", "AreaDefinition"),
     "Area": ("ui.workspace.area", "Area"),
     "EditorDefinition": ("ui.workspace.editor", "EditorDefinition"),
@@ -31,7 +31,7 @@ _EXPORTS = {
     "ViewRecord": ("ui.workspace.view_manager", "ViewRecord"),
     "ViewportState": ("ui.workspace.viewport_state", "ViewportState"),
     "WorkspaceDefinition": ("ui.workspace.workspace_definition", "WorkspaceDefinition"),
-    "WorkspacePlacement": ("ui.workspace.workspace_definition", "WorkspacePlacement"),
+    "WorkspacePlacement": ("ui.workspace.workspace_legacy", "WorkspacePlacement"),
     "WorkspaceLayout": ("ui.workspace.workspace_layout", "WorkspaceLayout"),
     "WorkspaceManager": ("ui.workspace.workspace_manager", "WorkspaceManager"),
     "WorkspaceState": ("ui.workspace.workspace_state", "WorkspaceState"),

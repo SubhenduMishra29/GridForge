@@ -4,26 +4,26 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Reusable Qt realization of the Area → Editor → Region model."""
+"""Qt realization of the canonical Area → Editor → Region composition."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-from ui.core.qt import QFrame, QHBoxLayout, QLabel, QStackedWidget, QToolBar, QVBoxLayout, QWidget
+from ui.core.qt import QFrame, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 
 class EngineeringEditorHost(QWidget):
-    """Host stable editor regions without owning domain state.
-
-    Domain editors supply their already-composed canvas/interaction widgets.
-    The host only arranges presentation regions and switches editor instances.
-    """
+    """Presentation-only host for active Area, Editor and Region context."""
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._editors: dict[str, QWidget] = {}
+        self._editor_context: Any | None = None
+        self._active_area: Any | None = None
+        self._active_editor_id: str | None = None
+        self._active_region_id: str | None = None
+        self._maximized_area_id: str | None = None
         self._stack = QStackedWidget(self)
         self._stack.setObjectName("GridForgeEditorStack")
         layout = QVBoxLayout(self)
@@ -33,6 +33,22 @@ class EngineeringEditorHost(QWidget):
     @property
     def editor_ids(self) -> tuple[str, ...]:
         return tuple(self._editors)
+
+    @property
+    def active_editor_id(self) -> str | None:
+        return self._active_editor_id
+
+    @property
+    def active_area(self) -> Any | None:
+        return self._active_area
+
+    @property
+    def editor_context(self) -> Any | None:
+        return self._editor_context
+
+    @property
+    def maximized_area_id(self) -> str | None:
+        return self._maximized_area_id
 
     def register_editor(self, editor_id: str, widget: QWidget) -> None:
         if not isinstance(editor_id, str) or not editor_id.strip():
@@ -44,22 +60,56 @@ class EngineeringEditorHost(QWidget):
         self._editors[editor_id] = widget
         self._stack.addWidget(widget)
 
-    def activate(self, editor_id: str) -> None:
+    def activate(
+        self,
+        editor_id: str,
+        *,
+        area: Any | None = None,
+        region_id: str | None = None,
+        context: Any | None = None,
+    ) -> None:
         widget = self._editors.get(editor_id)
         if widget is None:
             raise KeyError(f"Unknown editor: {editor_id!r}")
         self._stack.setCurrentWidget(widget)
+        self._active_editor_id = editor_id
+        self._active_area = area
+        self._active_region_id = region_id
+        self._editor_context = context
+
+    def deactivate(self) -> None:
+        self._active_editor_id = None
+        self._active_area = None
+        self._active_region_id = None
+        self._editor_context = None
+        self._maximized_area_id = None
+
+    def set_editor_context(self, context: Any | None) -> None:
+        """Install the current immutable EditorContext snapshot."""
+        self._editor_context = context
+
+    def set_area_maximized(self, area_id: str | None, maximized: bool) -> None:
+        if maximized:
+            if not isinstance(area_id, str) or not area_id.strip():
+                raise ValueError("area_id is required when maximizing an Area.")
+            if self._active_area is not None and getattr(self._active_area, "area_id", area_id) != area_id:
+                raise RuntimeError(f"Area {area_id!r} is not the active Area.")
+            self._maximized_area_id = area_id
+            self.setProperty("gridforge_area_maximized", True)
+        else:
+            self._maximized_area_id = None
+            self.setProperty("gridforge_area_maximized", False)
 
     def widget(self, editor_id: str) -> QWidget | None:
         return self._editors.get(editor_id)
 
 
 class EditorRegionFrame(QFrame):
-    """Small reusable region container for domain editor realization."""
+    """Reusable Qt realization of one logical Region."""
 
-    def __init__(self, title: str, *, parent: QWidget | None = None) -> None:
+    def __init__(self, title: str = "", *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName(f"GridForgeRegion_{title.lower().replace(' ', '_')}")
+        self.setObjectName(f"GridForgeRegion_{title.lower().replace(' ', '_') or 'region'}")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         if title:

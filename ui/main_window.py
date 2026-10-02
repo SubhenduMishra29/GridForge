@@ -17,7 +17,7 @@
 # MainWindow owns:
 #     - Qt window construction;
 #     - central application surface hosting;
-#     - dock-host mechanics;
+#     - legacy utility-panel dock mechanics only;
 #     - plugin registry reference;
 #     - Presentation/UI Controller reference.
 #

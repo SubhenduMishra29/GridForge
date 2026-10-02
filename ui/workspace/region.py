@@ -8,7 +8,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,7 @@ class RegionDefinition:
     enabled: bool = True
     minimum_size: int = 0
     preferred_size: int | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.region_id, str) or not self.region_id.strip():
@@ -35,6 +37,8 @@ class RegionDefinition:
             not isinstance(self.preferred_size, int) or self.preferred_size < self.minimum_size
         ):
             raise ValueError("preferred_size must be None or >= minimum_size.")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
 
 
 HEADER_REGION = "header"

@@ -19,6 +19,8 @@ from typing import Any
 
 from ui.core.qt import QWidget
 from ui.editors.common.editor_host import EngineeringEditorHost
+from ui.editors.common.tool_shelf import ToolShelf
+from ui.tools.tool_definition import ToolDefinition
 from ui.editors.control.control_editor import ControlEditor
 from ui.editors.protection.protection_editor import ProtectionEditor
 from ui.editors.sld.sld_editor import SLDEditor
@@ -34,6 +36,9 @@ class ControlSurfaceHost(QWidget):
         *,
         surfaces: Mapping[str, QWidget],
         application: Any | None = None,
+        tool_definitions: tuple[ToolDefinition, ...] = (),
+        tool_activator: Any | None = None,
+        tool_activators: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -46,6 +51,13 @@ class ControlSurfaceHost(QWidget):
             raise TypeError("Workspace surface IDs must be non-empty strings.")
         if any(not isinstance(widget, QWidget) for widget in normalized.values()):
             raise TypeError("All workspace surfaces must be QWidget instances.")
+        if any(not isinstance(item, ToolDefinition) for item in tool_definitions):
+            raise TypeError("tool_definitions must contain ToolDefinition objects.")
+        activators = dict(tool_activators or {})
+        if tool_activator is not None:
+            activators.setdefault("sld", tool_activator)
+        def make_tool_shelf(parent: QWidget, editor_type: str) -> ToolShelf:
+            return ToolShelf(definitions=tool_definitions, activate=activators.get(editor_type), editor_type=editor_type, parent=parent)
 
         self._application = application
         self._host = EngineeringEditorHost(parent=self)
@@ -54,17 +66,17 @@ class ControlSurfaceHost(QWidget):
         if "sld" in normalized:
             self._host.register_editor(
                 "sld",
-                SLDEditor(canvas=normalized["sld"], parent=self._host),
+                SLDEditor(canvas=normalized["sld"], tool_shelf=make_tool_shelf(self._host, "sld"), parent=self._host),
             )
         if "control" in normalized:
             self._host.register_editor(
                 "control",
-                ControlEditor(surface=normalized["control"], parent=self._host),
+                ControlEditor(surface=normalized["control"], tool_shelf=make_tool_shelf(self._host, "control"), parent=self._host),
             )
         if "protection" in normalized:
             self._host.register_editor(
                 "protection",
-                ProtectionEditor(surface=normalized["protection"], parent=self._host),
+                ProtectionEditor(surface=normalized["protection"], tool_shelf=make_tool_shelf(self._host, "protection"), parent=self._host),
             )
 
         # Study/secondary surfaces are read-oriented editors. They do not
@@ -79,7 +91,7 @@ class ControlSurfaceHost(QWidget):
         )
         self._host.register_editor(
             "reports",
-            StudyEditor(surface=ReportsWorkspaceView(application, parent=self._host), parent=self._host),
+            StudyEditor(surface=ReportsWorkspaceView(application, parent=self._host), tool_shelf=make_tool_shelf(self._host, "study"), parent=self._host),
         )
 
         from ui.core.qt import QVBoxLayout
@@ -108,7 +120,7 @@ class ControlSurfaceHost(QWidget):
             widget = self._host.widget("map")
             if isinstance(widget, MapWorkspaceView):
                 document = self._sld_document
-                widget.setText("SLD geometry map" if document is None else "SLD geometry map — active document loaded")
+                widget.set_document(document)
 
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
