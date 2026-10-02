@@ -46,8 +46,12 @@ STATUS_REGION = "status"
 DIAGNOSTICS_REGION = "diagnostics"
 
 
+Region = RegionDefinition
+
+
 __all__ = [
     "RegionDefinition",
+    "Region",
     "HEADER_REGION",
     "TOOL_SHELF_REGION",
     "CANVAS_REGION",
