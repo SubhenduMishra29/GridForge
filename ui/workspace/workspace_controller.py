@@ -64,7 +64,7 @@ class WorkspaceController:
         """Realize and activate the canonical project workspace."""
         self._ensure_open()
         candidate = self._manager.prepare_activate_default()
-        self._realizer.realize(candidate.layout)
+        self._realizer.realize(candidate.layout, workspace_id=candidate.workspace_id)
         return self._manager.commit(candidate)
 
     def apply_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
