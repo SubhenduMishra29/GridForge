@@ -20,7 +20,8 @@ class ControlEditor(QWidget):
         header = EditorRegionFrame("Control Header", parent=self); header.set_widget(QLabel("Control Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
         shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(parent=self))
-        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings or ToolSettingsPanel(parent=self))
+        tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
+        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Control Explorer", self))
         side = QVBoxLayout(); inspector_region = EditorRegionFrame("Inspector", parent=self); inspector_region.set_widget(inspector or QLabel("Select a control object.", self)); side.addWidget(inspector_region, 1)
         center = QVBoxLayout(); center.addWidget(settings); center.addWidget(canvas, 1)
@@ -33,7 +34,7 @@ class ControlEditor(QWidget):
         self.setObjectName("ControlEditor")
         self._region_widgets = {"header": header, "explorer": explorer_region, "tool_shelf": shelf, "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region, "diagnostics": region if diagnostics is not None else None, "status": status_region if status is not None else None}
         self._tool_shelf = shelf
-        self._tool_settings = settings.widget if hasattr(settings, "widget") else tool_settings
+        self._tool_settings = tool_settings_widget
         self._editor_context = None
 
 
