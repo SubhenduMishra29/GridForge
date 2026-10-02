@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping, Optional, Protocol
 
+from ui.tools.tool_definition import ToolDefinition
 from ui.tools.tool_capabilities import (
     ToolCapability,
     ToolCapabilities,
@@ -287,6 +288,37 @@ class ToolValidator:
 
     It does not maintain authoritative application state.
     """
+
+    @staticmethod
+    def validate_definition(definition: Any) -> ToolValidationResult:
+        """Validate the immutable ToolDefinition contract only."""
+        if not isinstance(definition, ToolDefinition):
+            return ToolValidationResult(
+                status=ToolValidationStatus.INVALID,
+                issues=(
+                    ToolValidationIssue(
+                        code=ToolValidationCode.TOOL_INTERFACE_INVALID,
+                        message="definition must be a ToolDefinition.",
+                        field="definition",
+                        value=definition,
+                    ),
+                ),
+            )
+        if not definition.tool_id.strip() or not definition.display_name.strip():
+            return ToolValidationResult(
+                status=ToolValidationStatus.INVALID,
+                tool_id=definition.tool_id,
+                issues=(
+                    ToolValidationIssue(
+                        code=ToolValidationCode.TOOL_INTERFACE_INVALID,
+                        message="ToolDefinition requires a valid tool_id and display_name.",
+                    ),
+                ),
+            )
+        return ToolValidationResult(
+            status=ToolValidationStatus.VALID,
+            tool_id=definition.tool_id,
+        )
 
     # ========================================================
     # TOOL ID
