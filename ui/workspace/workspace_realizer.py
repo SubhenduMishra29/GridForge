@@ -170,6 +170,26 @@ class WorkspaceRealizer:
         activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id
 
+    def focus_region(self, area_id: str, region_id: str) -> None:
+        if self._realized_layout is None:
+            raise RuntimeError("No workspace is realized.")
+        area = self._realized_layout.get_area(area_id)
+        if area is None:
+            raise KeyError(f"Unknown Area: {area_id!r}")
+        region = next((item for item in area.editor.regions if item.region_id == region_id and item.visible), None)
+        if region is None:
+            raise KeyError(f"Unknown visible Region {region_id!r} in Area {area_id!r}")
+        activate = getattr(self._editor_host, "activate", None)
+        if not callable(activate):
+            raise WorkspaceRealizationError("Editor host does not expose activate().")
+        context = (
+            self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
+            if self._context_factory is not None
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=region)
+        )
+        activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
+        self._focused_area_id = area.area_id
+
     def maximize_area(self, area_id: str) -> None:
         self.focus_area(area_id)
         maximize = getattr(self._editor_host, "set_area_maximized", None)
