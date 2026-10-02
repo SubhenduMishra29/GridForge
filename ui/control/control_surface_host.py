@@ -58,6 +58,7 @@ class ControlSurfaceHost(QWidget):
         self._application = application
         self._host = EngineeringEditorHost(parent=self)
         self._shelves: dict[str, ToolShelf] = {}
+        self._sld_document: Any | None = None
 
         def make_tool_shelf(editor_type: str, parent: QWidget) -> ToolShelf:
             shelf = ToolShelf(
@@ -125,6 +126,18 @@ class ControlSurfaceHost(QWidget):
     @property
     def editor_host(self) -> EngineeringEditorHost:
         return self._host
+
+    def active_tool_id_for(self, editor_type: str) -> str | None:
+        provider = getattr(self._shelves.get(editor_type), "_active_tool_provider", None)
+        return provider() if callable(provider) else None
+
+    def tool_definition_for(self, editor_type: str, tool_id: str | None) -> ToolDefinition | None:
+        if tool_id is None:
+            return None
+        shelf = self._shelves.get(editor_type)
+        if shelf is None:
+            return None
+        return next((item for item in shelf.definitions if item.tool_id == tool_id), None)
 
     def activate(
         self,
