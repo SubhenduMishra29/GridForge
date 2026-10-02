@@ -136,6 +136,13 @@ class ControlWorkspace(QWidget):
     def selected_rung_id(self) -> str | None:
         return self._interaction.selected_rung_id
 
+    def activate_tool_id(self, tool_id: str) -> None:
+        """Activate a Control tool by its canonical ToolDefinition ID."""
+        descriptor = next((item for item in self._palette.descriptors if item.tool_id == str(tool_id)), None)
+        if descriptor is None:
+            raise KeyError(f"Unknown Control tool: {tool_id!r}")
+        self._tool_selected(descriptor)
+
     def refresh(self) -> None:
         self._coordinator.refresh_current()
 
