@@ -1,19 +1,22 @@
-"""Presentation-side engineering context shared by the GridForge workstation.
+# ============================================================
+# File: ui/workspace/engineering_context.py
+# GridForge V2 — Engineering and Editor Context
+# Author: Subhendu Mishra
+# ============================================================
+"""Presentation-side immutable context contracts."""
 
-Author: Subhendu Mishra
-
-This context is read/interaction state only. It never owns Core engineering
-truth and never performs mutations.
-"""
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Any, Callable, Iterable
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Iterable, Mapping
+
+from ui.tools.tool_mode import ToolMode
+from ui.tools.tool_settings import ToolSettings
 
 
 @dataclass(frozen=True, slots=True)
 class EngineeringContext:
-    """Immutable workstation context retained while changing discipline."""
+    """Immutable engineering context retained while changing discipline."""
 
     project_id: str | None = None
     project_name: str | None = None
@@ -51,8 +54,53 @@ class EngineeringContext:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class EditorContext:
+    """Immutable presentation context for the active editor situation.
+
+    This context describes state; it does not own runtime services, widgets,
+    Core models, Application, ToolManager, or SelectionManager.
+    """
+
+    workspace: Any = None
+    area: Any = None
+    editor: Any = None
+    region: Any = None
+    engineering: EngineeringContext = field(default_factory=EngineeringContext)
+    selection_context: Mapping[str, object] = field(default_factory=dict)
+    active_tool: str | None = None
+    tool_mode: ToolMode = ToolMode.IDLE
+    tool_settings: ToolSettings | None = None
+    interaction_state: Mapping[str, object] = field(default_factory=dict)
+    view_state: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.engineering, EngineeringContext):
+            raise TypeError("engineering must be an EngineeringContext.")
+        if not isinstance(self.tool_mode, ToolMode):
+            raise TypeError("tool_mode must be a ToolMode.")
+        for name in ("selection_context", "interaction_state", "view_state"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise TypeError(f"{name} must be a mapping.")
+            object.__setattr__(self, name, dict(value))
+        if self.active_tool is not None:
+            if not isinstance(self.active_tool, str) or not self.active_tool.strip():
+                raise ValueError("active_tool must be None or a non-empty string.")
+            object.__setattr__(self, "active_tool", self.active_tool.strip())
+        if self.tool_settings is not None and not isinstance(self.tool_settings, ToolSettings):
+            raise TypeError("tool_settings must be ToolSettings or None.")
+
+    def with_updates(self, **changes: Any) -> "EditorContext":
+        allowed = set(self.__dataclass_fields__)
+        unknown = set(changes).difference(allowed)
+        if unknown:
+            raise TypeError("Unknown editor context fields: " + ", ".join(sorted(unknown)))
+        return replace(self, **changes)
+
+
 class EngineeringContextStore:
-    """Single presentation-side context store with explicit change observers."""
+    """Single presentation-side engineering context store."""
 
     def __init__(self, context: EngineeringContext | None = None) -> None:
         self._current = context or EngineeringContext()
@@ -79,5 +127,4 @@ class EngineeringContextStore:
             self._observers.remove(observer)
 
 
-__all__ = ["EngineeringContext", "EngineeringContextStore"]
-
+__all__ = ["EngineeringContext", "EngineeringContextStore", "EditorContext"]

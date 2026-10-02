@@ -5,8 +5,9 @@
 """
 Interaction-session state for the GridForge V2 tool system.
 
-ToolInteraction represents one continuous interaction owned by a
-tool, for example:
+ToolInteraction is an optional supporting state structure for one continuous
+interaction owned by a tool. It is not a lifecycle authority and is not inserted
+between ToolManager and ToolBase.\n\nToolInteraction represents one continuous interaction owned by a tool, for example:
 
     SelectTool
         pointer press -> selection update -> pointer release

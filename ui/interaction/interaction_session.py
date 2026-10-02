@@ -5,7 +5,7 @@
 # ============================================================
 """Transient presentation interaction state.
 
-InteractionSession owns temporary UI interaction state only. It is not an
+InteractionSession is a discipline-specific supporting container for temporary UI interaction state.\nIt is not a global tool lifecycle authority; active-tool lifecycle remains with the discipline runtime manager. It is not an
 engineering model, does not mutate Core objects, and does not execute
 Application commands. Tools/controllers use it to accumulate intent before
 handing a command to the Application boundary.

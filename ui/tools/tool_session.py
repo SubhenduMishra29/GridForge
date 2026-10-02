@@ -5,8 +5,7 @@
 """
 Tool-session lifecycle management for the GridForge V2 UI.
 
-A ToolSession represents the lifetime of the currently active tool
-interaction context. It sits above an individual ToolInteraction
+A ToolSession is a supporting/compatibility interaction data structure.\nIt is not a mandatory runtime layer and is not inserted between ToolManager\nand ToolBase. It sits above an individual ToolInteraction
 and provides the ToolController / ToolManager with a stable
 boundary for:
 
@@ -39,10 +38,9 @@ Relationship
     ToolManager
          |
          v
-    ToolController
+    ToolBase / Concrete Tool
          |
-         v
-    ToolSession
+         +--> optional ToolSession (diagnostic/support)
          |
          v
     ToolInteraction
