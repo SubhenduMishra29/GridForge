@@ -8,7 +8,7 @@ Tool-state definitions for GridForge V2.
 This module contains lightweight, UI-independent state objects
 used to describe the transient interaction state of tools.
 
-Tool state is NOT authoritative project state.
+Tool state is NOT authoritative project state.\n\n``ToolState`` is a diagnostic/read snapshot only; lifecycle authority remains with ``ToolManager`` and concrete tools.
 
 Core remains authoritative for:
     - electrical topology;
