@@ -20,10 +20,12 @@ class ToolShelf(QWidget):
         *,
         definitions: Iterable[ToolDefinition] = (),
         activate: Callable[[str], object] | None = None,
+        editor_type: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._activate = activate
+        self._editor_type = editor_type
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
         self._layout = QVBoxLayout(self)
@@ -43,7 +45,7 @@ class ToolShelf(QWidget):
         for definition in values:
             if not isinstance(definition, ToolDefinition):
                 raise TypeError("ToolShelf definitions must contain ToolDefinition objects.")
-        self._definitions = {definition.tool_id: definition for definition in values}
+        self._definitions = {definition.tool_id: definition for definition in values if self._editor_type is None or definition.supports_editor(self._editor_type)}
         self._rebuild()
 
     def _rebuild(self) -> None:
