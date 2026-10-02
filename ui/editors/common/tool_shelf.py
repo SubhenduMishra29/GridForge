@@ -22,12 +22,14 @@ class ToolShelf(QWidget):
         activate: Callable[[str], object] | None = None,
         editor_type: str | None = None,
         icon_provider: Callable[[str], QIcon | None] | None = None,
+        active_tool_provider: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._activate = activate
         self._editor_type = editor_type
         self._icon_provider = icon_provider
+        self._active_tool_provider = active_tool_provider
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
         self._layout = QVBoxLayout(self)
@@ -41,6 +43,15 @@ class ToolShelf(QWidget):
 
     def set_activate_handler(self, activate: Callable[[str], object] | None) -> None:
         self._activate = activate
+
+    def set_active_tool_provider(self, provider: Callable[[], str | None] | None) -> None:
+        self._active_tool_provider = provider
+        self.refresh_runtime_state()
+
+    def refresh_runtime_state(self) -> None:
+        """Project the discipline runtime active-tool identity into the shelf."""
+        tool_id = self._active_tool_provider() if self._active_tool_provider is not None else None
+        self.set_active_tool(tool_id)
 
     def set_definitions(self, definitions: Iterable[ToolDefinition]) -> None:
         values = tuple(definitions)
@@ -76,6 +87,7 @@ class ToolShelf(QWidget):
     def _activate_tool(self, tool_id: str) -> None:
         if self._activate is not None:
             self._activate(tool_id)
+        self.refresh_runtime_state()
 
     def set_active_tool(self, tool_id: str | None) -> None:
         for current_id, button in self._buttons.items():
