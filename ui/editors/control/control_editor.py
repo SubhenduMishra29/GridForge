@@ -15,7 +15,18 @@ class ControlEditor(QWidget):
     editor_type = "control"
     DEFAULT_REGION_ID = "canvas"
 
-    def __init__(self, *, surface: QWidget, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, status: QWidget | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        surface: QWidget,
+        explorer: QWidget | None = None,
+        tool_shelf: QWidget | None = None,
+        inspector: QWidget | None = None,
+        tool_settings: QWidget | None = None,
+        diagnostics: QWidget | None = None,
+        status: QWidget | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         header = EditorRegionFrame("Control Header", parent=self); header.set_widget(QLabel("Control Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
@@ -36,7 +47,6 @@ class ControlEditor(QWidget):
         self._tool_shelf = shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
-
 
     def region_widget(self, region_id: str) -> QWidget | None:
         return self._region_widgets.get(region_id)
