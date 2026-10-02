@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ui.core.qt import QLabel, QWidget
+from ui.core.qt import QWidget
 from ui.editors.common.editor_host import EngineeringEditorHost
 from ui.editors.control.control_editor import ControlEditor
 from ui.editors.protection.protection_editor import ProtectionEditor
@@ -75,7 +75,7 @@ class ControlSurfaceHost(QWidget):
         )
         self._host.register_editor(
             "map",
-            QLabel("SLD geometry map", self._host),
+            MapWorkspaceView(parent=self._host),
         )
         self._host.register_editor(
             "reports",
