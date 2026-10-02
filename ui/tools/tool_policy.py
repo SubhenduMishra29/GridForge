@@ -273,10 +273,6 @@ class ToolPolicy:
     registration API without changing the policy evaluator.
     """
 
-    SELECT_TOOL_ID = "select"
-    BUS_TOOL_ID = "bus"
-    LINE_TOOL_ID = "line"
-
     def __init__(
         self,
         *,
