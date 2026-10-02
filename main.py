@@ -293,7 +293,19 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         editor_host=workspace_surface_host,
         context_factory=_editor_context_factory,
     )
-    workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller    project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
+    workspace_controller = WorkspaceController(
+        manager=workspace_manager,
+        realizer=workspace_realizer,
+    )
+    resources["workspace_controller"] = workspace_controller
+    project_workspace_lifecycle = ProjectWorkspaceLifecycle(
+        workspace_controller=workspace_controller,
+    )
+    project_workspace_adapter = ProjectWorkspaceApplicationAdapter(
+        application=gridforge_application,
+        lifecycle=project_workspace_lifecycle,
+    )
+    resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
 
     status_plugin = None
