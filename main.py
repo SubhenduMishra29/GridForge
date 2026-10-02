@@ -736,6 +736,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         explorer_layout.addWidget(detached["project"], 1)
     if "equipment" in detached:
         explorer_layout.addWidget(detached["equipment"], 1)
+    if "element_list" in detached:
+        explorer_layout.addWidget(detached["element_list"], 1)
     workspace_surface_host.set_region_widgets(
         "sld",
         explorer=explorer_container,
