@@ -15,7 +15,7 @@ class ProtectionEditor(QWidget):
     editor_type = "protection"
     DEFAULT_REGION_ID = "canvas"
 
-    def __init__(self, *, surface: QWidget, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, parent: QWidget | None = None) -> None:
+    def __init__(self, *, surface: QWidget, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, status: QWidget | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         header = EditorRegionFrame("Protection Header", parent=self); header.set_widget(QLabel("Protection Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
