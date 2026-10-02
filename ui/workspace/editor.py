@@ -51,8 +51,12 @@ DIAGNOSTICS_EDITOR = "diagnostics"
 TIMELINE_EDITOR = "timeline"
 
 
+Editor = EditorDefinition
+
+
 __all__ = [
     "EditorDefinition",
+    "Editor",
     "SLD_EDITOR",
     "CONTROL_EDITOR",
     "PROTECTION_EDITOR",
