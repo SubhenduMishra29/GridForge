@@ -50,7 +50,7 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WORKSPACE_ID, SLD_WORKSPACE_ID, default_workspaces
+from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WORKSPACE_ID, SLD_WORKSPACE_ID, STUDY_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
@@ -203,7 +203,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         window.setWindowIcon(icon)
     window.setWindowTitle(branding.DEFAULT_TITLE)
 
-    workspace_realizer = WorkspaceRealizer(main_window=window); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
+    workspace_realizer = WorkspaceRealizer(main_window=window, editor_host=workspace_surface_host); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
     action_router = UIActionRouter()
     engineering_context = EngineeringContextStore()
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
@@ -511,7 +511,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     def _activate_workspace(workspace_id: str, surface_id: str) -> None:
         workspace_controller.activate(workspace_id)
-        workspace_surface_host.activate(surface_id)
         engineering_context.update(
             discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
         )
@@ -540,6 +539,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.sld_workspace": lambda: _activate_workspace(SLD_WORKSPACE_ID, "sld"),
         "view.control_workspace": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "view.protection_workspace": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
+        "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "reports"),
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: workspace_surface_host.activate("reports"),

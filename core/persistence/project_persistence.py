@@ -116,7 +116,8 @@ class ProjectPersistenceService:
              protection_configuration: ProtectionProjectConfiguration | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
-             draft_network: DraftNetwork | None = None) -> None:
+             draft_network: DraftNetwork | None = None,
+             protection_presentation: Mapping[str, Any] | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None

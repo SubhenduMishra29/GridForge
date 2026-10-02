@@ -1,164 +1,76 @@
-"""
-GridForge V2 — Workspace Layout.
+# ============================================================
+# File: ui/workspace/workspace_layout.py
+# GridForge V2 — Workspace Layout
+# Author: Subhendu Mishra
+# ============================================================
 
-Pure logical layout representation.
+"""Immutable logical workspace arrangement with Area/Editor composition."""
 
-No Qt dependencies.
-No QWidget creation.
-No MainWindow access.
-No panel creation.
-"""
-# ui/workspace/workspace_layout.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Tuple
+from typing import Iterable
 
+from .area import AreaDefinition
 from .panel_area import PanelArea
 from .workspace_definition import WorkspacePlacement
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceLayout:
-    """
-    Immutable logical arrangement of workspace content.
-    """
-
-    placements: Tuple[WorkspacePlacement, ...] = field(
-        default_factory=tuple
-    )
+    placements: tuple[WorkspacePlacement, ...] = field(default_factory=tuple)
+    areas: tuple[AreaDefinition, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not isinstance(self.placements, tuple):
-            raise TypeError(
-                "placements must be a tuple."
-            )
-
-        seen: set[str] = set()
-
+            raise TypeError("placements must be a tuple.")
+        if not isinstance(self.areas, tuple):
+            raise TypeError("areas must be a tuple.")
+        seen = set()
         for placement in self.placements:
-            if not isinstance(
-                placement,
-                WorkspacePlacement,
-            ):
-                raise TypeError(
-                    "placements must contain "
-                    "WorkspacePlacement objects."
-                )
-
+            if not isinstance(placement, WorkspacePlacement):
+                raise TypeError("placements must contain WorkspacePlacement objects.")
             if placement.panel_id in seen:
-                raise ValueError(
-                    f"Duplicate workspace placement: "
-                    f"{placement.panel_id!r}"
-                )
-
+                raise ValueError(f"Duplicate workspace placement: {placement.panel_id!r}")
             seen.add(placement.panel_id)
+        area_ids = set()
+        for area in self.areas:
+            if not isinstance(area, AreaDefinition):
+                raise TypeError("areas must contain AreaDefinition objects.")
+            if area.area_id in area_ids:
+                raise ValueError(f"Duplicate workspace area: {area.area_id!r}")
+            area_ids.add(area.area_id)
 
     @classmethod
-    def from_placements(
-        cls,
-        placements: Iterable[WorkspacePlacement],
-    ) -> "WorkspaceLayout":
-        """
-        Create a layout from an iterable of placements.
-        """
+    def from_placements(cls, placements: Iterable[WorkspacePlacement], *, areas: Iterable[AreaDefinition] = ()) -> "WorkspaceLayout":
+        return cls(placements=tuple(placements), areas=tuple(areas))
 
-        return cls(
-            placements=tuple(placements)
-        )
+    def editor_areas(self) -> tuple[AreaDefinition, ...]:
+        return self.areas
 
-    def get_area(
-        self,
-        panel_id: str,
-    ) -> PanelArea | None:
-        """
-        Return the logical area assigned to a panel.
-        """
+    def get_area(self, panel_id: str) -> PanelArea | None:
+        placement = self.get_placement(panel_id)
+        return placement.area if placement is not None else None
 
-        for placement in self.placements:
-            if placement.panel_id == panel_id:
-                return placement.area
+    def get_placement(self, panel_id: str) -> WorkspacePlacement | None:
+        return next((item for item in self.placements if item.panel_id == panel_id), None)
 
-        return None
+    def panels_in_area(self, area: PanelArea) -> tuple[WorkspacePlacement, ...]:
+        return tuple(item for item in self.placements if item.area == area)
 
-    def get_placement(
-        self,
-        panel_id: str,
-    ) -> WorkspacePlacement | None:
-        """
-        Return a panel's logical placement.
-        """
+    def visible_panels(self) -> tuple[WorkspacePlacement, ...]:
+        return tuple(item for item in self.placements if item.visible)
 
-        for placement in self.placements:
-            if placement.panel_id == panel_id:
-                return placement
-
-        return None
-
-    def panels_in_area(
-        self,
-        area: PanelArea,
-    ) -> tuple[WorkspacePlacement, ...]:
-        """
-        Return placements belonging to one logical area.
-        """
-
-        return tuple(
-            placement
-            for placement in self.placements
-            if placement.area == area
-        )
-
-    def visible_panels(
-        self,
-    ) -> tuple[WorkspacePlacement, ...]:
-        """
-        Return currently visible placements.
-        """
-
-        return tuple(
-            placement
-            for placement in self.placements
-            if placement.visible
-        )
-
-    def with_placement(
-        self,
-        placement: WorkspacePlacement,
-    ) -> "WorkspaceLayout":
-        """
-        Return a new layout with a placement inserted/replaced.
-        """
-
-        updated = [
-            item
-            for item in self.placements
-            if item.panel_id != placement.panel_id
-        ]
-
+    def with_placement(self, placement: WorkspacePlacement) -> "WorkspaceLayout":
+        updated = [item for item in self.placements if item.panel_id != placement.panel_id]
         updated.append(placement)
+        return WorkspaceLayout(placements=tuple(updated), areas=self.areas)
 
+    def without_panel(self, panel_id: str) -> "WorkspaceLayout":
         return WorkspaceLayout(
-            placements=tuple(updated)
-        )
-
-    def without_panel(
-        self,
-        panel_id: str,
-    ) -> "WorkspaceLayout":
-        """
-        Return a new layout without the specified panel.
-        """
-
-        return WorkspaceLayout(
-            placements=tuple(
-                placement
-                for placement in self.placements
-                if placement.panel_id != panel_id
-            )
+            placements=tuple(item for item in self.placements if item.panel_id != panel_id),
+            areas=self.areas,
         )
 
 
-__all__ = [
-    "WorkspaceLayout",
-]
+__all__ = ["WorkspaceLayout"]
