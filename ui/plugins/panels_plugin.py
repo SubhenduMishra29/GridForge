@@ -169,6 +169,23 @@ class PanelsPlugin(QObject):
         if not isinstance(panel_id, str): raise TypeError("panel_id must be a string.")
         return self._panels.get(panel_id)
 
+    def detach_panel(self, panel_id: str) -> QWidget | None:
+        """Detach a panel widget from its legacy QDockWidget for Region composition."""
+        self._require_initialized()
+        widget = self._panels.get(panel_id)
+        if widget is None:
+            return None
+        dock = self._dock_widgets.pop(panel_id, None)
+        if dock is not None:
+            if self._context is not None and isinstance(self._context.main_window, QMainWindow):
+                self._context.main_window.removeDockWidget(dock)
+            widget.setParent(None)
+            dock.setWidget(None)
+            dock.deleteLater()
+        self._panel_specs.pop(panel_id, None)
+        self._panels.pop(panel_id, None)
+        return widget
+
     def get_dock(self, panel_id: str) -> QDockWidget | None:
         self._require_initialized()
         if not isinstance(panel_id, str): raise TypeError("panel_id must be a string.")
