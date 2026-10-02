@@ -208,3 +208,18 @@ Batch 27 corrections are recorded in `audit/BATCH27_FINAL_CONSOLIDATED_CORRECTIO
 | GF-MASTER-0059 | Existing register authority | Existing document-lifecycle finding; not terminal identity | OPEN / existing disposition retained | Not conflated or reclassified by Batch 29 |
 
 Runtime execution was not performed.
+
+
+## 2026-10-02 — Phase 3 superseding authority/reconciliation note
+
+**Current canonical implementation/audit repository:** `SubhenduMishra29/GridForge:main`
+
+Historical references to `madhuri196mishra-cpu/GridForge`, `pandaraseswari03-collab/GridForge`, and other prior repositories are retained only as **historical/provenance/inactive** evidence where required for chronology. They do not supersede the current Phase 3 authority.
+
+**Phase 3 status:** `ControlEditor` and `ProtectionEditor` explorer constructor contracts corrected. Register finding `GF-MASTER-0115` is `CORRECTED — RE-AUDIT REQUIRED`. The batch is not marked CLOSED. Runtime/GUI/test verification remains deferred.
+
+**Legacy ID reconciliation:** `GF-UI-STATE-001..005`, `GF-UI-INPUT-001..005`, and `GF-UI-TOOL-002..013` are not exact current canonical Master Register rows. They remain preserved as historical/audit provenance; no replacement IDs were invented or silently renumbered.
+
+**Verification mode:** static source inspection/correction only; no pytest, CI, `python main.py`, automated tests, or GUI/runtime execution.
+
+**Author:** Subhendu Mishra
