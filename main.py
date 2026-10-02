@@ -50,7 +50,7 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WORKSPACE_ID, SLD_WORKSPACE_ID, default_workspaces
+from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WORKSPACE_ID, SLD_WORKSPACE_ID, STUDY_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
@@ -539,6 +539,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.sld_workspace": lambda: _activate_workspace(SLD_WORKSPACE_ID, "sld"),
         "view.control_workspace": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "view.protection_workspace": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
+        "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "reports"),
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: workspace_surface_host.activate("reports"),
