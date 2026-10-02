@@ -1860,3 +1860,43 @@ No duplicate `EquipmentFactory`, `SymbolFactory`, `SymbolRegistry`, `SLDGraphics
 **Runtime:** deferred to user verification. Historical GF-MASTER-0040 entries are preserved; no ID was deleted, renumbered, duplicated, or replaced.
 
 **Author:** Subhendu Mishra
+
+
+## 2026-10-02 — Phase 3 Final Workspace/Editor Defect Reconciliation
+
+**Current canonical implementation/audit repository:** `SubhenduMishra29/GridForge:main`
+
+Historical repository references remain preserved as **historical/provenance/inactive** evidence where they occur in earlier audit chronology. They do not define current implementation or audit authority.
+
+**Verification mode:** static source inspection/correction only. No pytest, CI, `python main.py`, automated tests, or GUI/runtime execution was performed.
+
+### Phase 3 source defect
+
+| Finding | Status before correction | Correction | Status after correction |
+|---|---|---|---|
+| `ui/editors/control/control_editor.py` — `ControlEditor` referenced `explorer` without a constructor dependency | **OPEN — source-level composition defect** | Added `explorer: QWidget | None = None`; existing fallback remains `QLabel("Control Explorer", self)` when no presentation widget is supplied. | **STATICALLY CORRECTED → RE-AUDIT REQUIRED** |
+| `ui/editors/protection/protection_editor.py` — `ProtectionEditor` referenced `explorer` without a constructor dependency | **OPEN — source-level composition defect** | Added `explorer: QWidget | None = None`; existing fallback remains `QLabel("Protection Explorer", self)` when no presentation widget is supplied. | **STATICALLY CORRECTED → RE-AUDIT REQUIRED** |
+
+### Composition re-audit
+
+- `ControlSurfaceHost` remains the canonical editor composition facade and continues to create exactly one Control and one Protection editor.
+- `main.py` already supplies `ProtectionWorkspace.editor_explorer` and `ProtectionWorkspace.editor_inspector`; no duplicate Protection palette/toolbar was introduced.
+- `main.py` supplies the existing Control canvas, inspector, and status widgets; Control has no separate existing Explorer widget, so the corrected optional dependency preserves the editor's established fallback rather than creating another Explorer authority.
+- `EngineeringEditorHost` remains the Area → Editor → Region realization boundary.
+- `WorkspaceRealizer` continues to activate canonical Editor/Region identities and does not derive workspace policy from docks.
+- `ToolShelf` remains metadata/presentation-only and projects active-tool state from discipline runtimes.
+- `EditorContext` remains presentation context; selection remains sourced from the canonical `SelectionManager`.
+- `PanelsPlugin` and `DockBinding` remain compatibility-only presentation infrastructure; detached utility panels are physically re-homed into Regions by `main.py`.
+- SLD, Control, Protection, and Study retain their separate runtime authorities; no second `ToolManager` or `SelectionManager` was introduced.
+
+### Legacy finding-ID reconciliation
+
+The historical identifiers `GF-UI-STATE-001..005`, `GF-UI-INPUT-001..005`, and `GF-UI-TOOL-002..013` are **not present as exact canonical rows in the current Master Register**. They are therefore preserved as historical/audit provenance only. No replacement ID was invented, no historical ID was silently renumbered, and no closure is claimed for those absent canonical rows. Any future mapping must use an explicit reconciliation appendix or established register mapping convention.
+
+### Register authority reconciliation
+
+The current canonical implementation/audit authority is **`SubhenduMishra29/GridForge:main`** for this Phase 3 audit cycle. Prior references to `madhuri196mishra-cpu/GridForge` and `pandaraseswari03-collab/GridForge` in earlier dated sections are retained only where they document historical chronology/provenance and are explicitly superseded by this section.
+
+**Phase 3 batch closure:** not marked CLOSED. Static correction and affected-path re-audit are recorded; runtime verification remains a separate future activity.
+
+**Author:** Subhendu Mishra
