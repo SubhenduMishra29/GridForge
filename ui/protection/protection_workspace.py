@@ -69,6 +69,18 @@ class ProtectionGraphicsSurface(QGraphicsView):
     def presentation(self) -> ProtectionPresentationDocument:
         return self._presentation
 
+    def activate_tool_id(self, tool_id: str) -> None:
+        """Activate a Protection tool through the discipline runtime."""
+        normalized = str(tool_id).strip()
+        if normalized == "fit":
+            self._canvas.fit_to_content()
+            return
+        if normalized == "diagnostics":
+            self._canvas.show_diagnostics()
+            return
+        self._interaction.activate(normalized)
+        self._toolbar.set_active(self._interaction.active_tool)
+
     def refresh(self) -> None:
         self._scene.clear()
         self._nodes.clear()
