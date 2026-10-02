@@ -16,11 +16,20 @@ from core.application.commands.protection_configuration_commands import (
 from core.application.command import Command
 from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteractionAdapter
 from ui.core.selection_manager import SelectionManager
+from ui.tools.tool_definition import ToolDefinition
 from ui.interaction.interaction_session import InteractionSession
 
 
 class ProtectionInteractionController:
     """Coordinate transient Protection tools without owning domain state."""
+
+    TOOL_DEFINITIONS = (
+        ToolDefinition("select", "Select", "Select Protection objects.", editor_types=("protection",), capabilities=("selection",), supported_modes=("select",)),
+        ToolDefinition("connect_measurement", "Connect Measurement", "Bind a measurement channel to a relay input.", editor_types=("protection",), capabilities=("connection",), supported_modes=("connect",)),
+        ToolDefinition("inspect", "Inspect", "Inspect Protection objects.", editor_types=("protection",), capabilities=("selection", "inspect"), supported_modes=("select", "edit")),
+        ToolDefinition("fit", "Fit", "Fit the Protection view.", editor_types=("protection",), capabilities=("view",), supported_modes=("pan",)),
+        ToolDefinition("diagnostics", "Diagnostics", "Inspect Protection diagnostics.", editor_types=("protection",), capabilities=("diagnostics",), supported_modes=("select",)),
+    )
 
     def __init__(self, *, application: Any, selection_manager: SelectionManager,
                  adapter: CanvasInteractionAdapter) -> None:
@@ -40,8 +49,8 @@ class ProtectionInteractionController:
 
     def activate(self, tool_id: str) -> None:
         normalized = str(tool_id).strip().lower().replace(" ", "_")
-        allowed = {"select", "connect_measurement", "inspect", "fit", "diagnostics"}
-        if normalized not in allowed:
+        definitions = {definition.tool_id: definition for definition in self.TOOL_DEFINITIONS}
+        if normalized not in definitions:
             raise ValueError(f"Unsupported Protection tool: {tool_id!r}")
         self._session.activate_tool(normalized)
         self._session.cancel_connection()
