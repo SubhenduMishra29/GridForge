@@ -26,9 +26,9 @@ class ToolShortcutAction(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ToolShortcut:
     sequence: str
-    action: ToolShortcutAction | str | None
-    tool_id: str
-    description: str
+    action: ToolShortcutAction | str | None = None
+    tool_id: str = ""
+    description: str = ""
     context: str = "global"
 
     def __post_init__(self) -> None:
