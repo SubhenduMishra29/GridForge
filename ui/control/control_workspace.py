@@ -104,27 +104,22 @@ class ControlWorkspace(QWidget):
             application.event_bus.subscribe(event_type, self._coordinator.refresh)
             self._subscriptions.append((event_type, self._coordinator.refresh))
 
+        self._palette.setVisible(False)
+        self._toolbar.setVisible(False)
         self._palette.setMinimumWidth(180)
         self._palette.setMaximumWidth(300)
         self._inspector.setMinimumWidth(280)
         self._inspector.setMaximumWidth(420)
         self._view.setMinimumWidth(500)
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
-        root.setSpacing(4)
-        root.addWidget(self._toolbar)
-        splitter = QSplitter(Qt.Horizontal, self)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._palette)
-        splitter.addWidget(self._view)
-        splitter.addWidget(self._inspector)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([210, 800, 320])
-        self._workspace_splitter = splitter
-        root.addWidget(splitter, 1)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._view, 1)
         root.addWidget(self._status)
+        # Historical palette/toolbar/inspector widgets remain owned by this
+        # compatibility coordinator but are no longer part of its visible
+        # surface. ControlEditor realizes them through canonical Regions.
+        self._workspace_splitter = None
 
         self.refresh()
 
@@ -135,6 +130,22 @@ class ControlWorkspace(QWidget):
     @property
     def selected_rung_id(self) -> str | None:
         return self._interaction.selected_rung_id
+
+    @property
+    def active_tool_id(self) -> str | None:
+        return getattr(self._interaction.active_tool, "tool_id", None)
+
+    @property
+    def editor_canvas(self) -> QWidget:
+        return self._view
+
+    @property
+    def editor_inspector(self) -> QWidget:
+        return self._inspector
+
+    @property
+    def editor_status(self) -> QWidget:
+        return self._status
 
     def activate_tool_id(self, tool_id: str) -> None:
         """Activate a Control tool by its canonical ToolDefinition ID."""
