@@ -21,11 +21,13 @@ class ToolShelf(QWidget):
         definitions: Iterable[ToolDefinition] = (),
         activate: Callable[[str], object] | None = None,
         editor_type: str | None = None,
+        icon_provider: Callable[[str], QIcon | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._activate = activate
         self._editor_type = editor_type
+        self._icon_provider = icon_provider
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
         self._layout = QVBoxLayout(self)
@@ -60,9 +62,12 @@ class ToolShelf(QWidget):
             button.setObjectName(f"GridForgeTool_{definition.tool_id}")
             button.setToolTip(definition.description or definition.display_name)
             button.setText(definition.display_name)
+            button.setCheckable(True)
             button.setToolButtonStyle(QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon)
-            if definition.icon_id:
-                button.setIcon(QIcon())
+            if definition.icon_id and self._icon_provider is not None:
+                icon = self._icon_provider(definition.icon_id)
+                if icon is not None:
+                    button.setIcon(icon)
             button.clicked.connect(lambda _checked=False, tool_id=definition.tool_id: self._activate_tool(tool_id))
             self._layout.addWidget(button)
             self._buttons[definition.tool_id] = button
