@@ -50,6 +50,15 @@ class EngineeringEditorHost(QWidget):
     def maximized_area_id(self) -> str | None:
         return self._maximized_area_id
 
+    @property
+    def active_region_widget(self) -> QWidget | None:
+        """Return the realized widget for the active Region, when available."""
+        if self._active_editor_id is None or self._active_region_id is None:
+            return None
+        editor = self._editors.get(self._active_editor_id)
+        resolver = getattr(editor, "region_widget", None) if editor is not None else None
+        return resolver(self._active_region_id) if callable(resolver) else None
+
     def register_editor(self, editor_id: str, widget: QWidget) -> None:
         if not isinstance(editor_id, str) or not editor_id.strip():
             raise ValueError("editor_id must be a non-empty string.")
@@ -71,11 +80,29 @@ class EngineeringEditorHost(QWidget):
         widget = self._editors.get(editor_id)
         if widget is None:
             raise KeyError(f"Unknown editor: {editor_id!r}")
+        if context is not None and getattr(context, "editor", None) is not None:
+            canonical_editor_id = getattr(context.editor, "editor_id", editor_id)
+            if canonical_editor_id != editor_id and canonical_editor_id in self._editors:
+                raise ValueError(f"Editor activation ID {editor_id!r} does not match context editor {canonical_editor_id!r}.")
+        resolved_region_id = region_id or self._default_region_id(widget)
+        if resolved_region_id is not None:
+            resolver = getattr(widget, "region_widget", None)
+            if not callable(resolver) or resolver(resolved_region_id) is None:
+                raise KeyError(f"Editor {editor_id!r} does not realize Region {resolved_region_id!r}.")
         self._stack.setCurrentWidget(widget)
         self._active_editor_id = editor_id
         self._active_area = area
-        self._active_region_id = region_id
+        self._active_region_id = resolved_region_id
         self._editor_context = context
+        apply_context = getattr(widget, "set_editor_context", None)
+        if callable(apply_context):
+            apply_context(context)
+
+    @staticmethod
+    def _default_region_id(widget: QWidget) -> str | None:
+        resolver = getattr(widget, "default_region_id", None)
+        value = resolver() if callable(resolver) else getattr(widget, "DEFAULT_REGION_ID", None)
+        return str(value) if value is not None else None
 
     def deactivate(self) -> None:
         self._active_editor_id = None
