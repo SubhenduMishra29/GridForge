@@ -176,6 +176,19 @@ class ControlSurfaceHost(QWidget):
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
 
+    def refresh_selection_context(self, selected_ids: object) -> None:
+        context = self._host.editor_context
+        if context is None:
+            return
+        values = tuple(str(value) for value in (selected_ids or ()))
+        engineering = context.engineering.with_updates(selected_ids=values)
+        self._host.set_editor_context(
+            context.with_updates(
+                selection_context={"selected_ids": values},
+                engineering=engineering,
+            )
+        )
+
     def refresh_tool_shelves(self) -> None:
         for shelf in self._shelves.values():
             shelf.refresh_runtime_state()
