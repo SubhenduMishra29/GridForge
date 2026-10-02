@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ui.core.qt import QVBoxLayout, QPushButton, QLabel, QWidget
+from ui.tools.tool_definition import ToolDefinition
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,22 @@ class ControlToolDescriptor:
     icon: str
     command_type: str
     component_type: str | None = None
+
+
+    def to_tool_definition(self) -> ToolDefinition:
+        """Expose the Control descriptor through the common tool contract."""
+        return ToolDefinition(
+            tool_id=self.tool_id,
+            display_name=self.display_name,
+            description=f"Control tool: {self.display_name}",
+            icon_id=self.icon or None,
+            editor_types=("control",),
+            capabilities=("control", self.component_type or self.command_type),
+            supported_modes=("select", "create", "edit", "connect"),
+            default_mode="create",
+            category=self.category,
+            metadata={"command_type": self.command_type, "component_type": self.component_type},
+        )
 
 
 class ControlToolRegistry:
@@ -47,6 +64,10 @@ class ControlToolRegistry:
 
     def descriptors(self) -> tuple[ControlToolDescriptor, ...]:
         return tuple(self._descriptors.values())
+
+    def definitions(self) -> tuple[ToolDefinition, ...]:
+        """Return common ToolDefinition metadata for the palette."""
+        return tuple(descriptor.to_tool_definition() for descriptor in self._descriptors.values())
 
     @classmethod
     def create_default(cls, *, application: Any) -> "ControlToolRegistry":
