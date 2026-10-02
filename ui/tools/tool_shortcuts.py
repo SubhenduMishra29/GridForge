@@ -12,12 +12,21 @@ catalogue or activate tools; ToolManager remains the runtime authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Iterable, Optional
+
+
+class ToolShortcutAction(str, Enum):
+    """Compatibility semantic actions; not a tool catalogue."""
+    SELECT_TOOL = "select_tool"
+    BUS_TOOL = "bus_tool"
+    LINE_TOOL = "line_tool"
 
 
 @dataclass(frozen=True, slots=True)
 class ToolShortcut:
     sequence: str
+    action: ToolShortcutAction | str | None
     tool_id: str
     description: str
     context: str = "global"
@@ -27,6 +36,8 @@ class ToolShortcut:
             raise ValueError("sequence must be a non-empty string.")
         if not isinstance(self.tool_id, str) or not self.tool_id.strip():
             raise ValueError("tool_id must be a non-empty string.")
+        if self.action is not None and not isinstance(self.action, (ToolShortcutAction, str)):
+            raise TypeError("action must be a ToolShortcutAction, string, or None.")
         if not isinstance(self.description, str) or not self.description.strip():
             raise ValueError("description must be a non-empty string.")
         if not isinstance(self.context, str) or not self.context.strip():
@@ -49,7 +60,7 @@ class ToolShortcutRegistry:
         key = (context, sequence)
         if key in self._shortcuts:
             raise ValueError(f"Shortcut {sequence!r} is already registered in {context!r}.")
-        self._shortcuts[key] = ToolShortcut(sequence, shortcut.tool_id.strip(), shortcut.description.strip(), context)
+        self._shortcuts[key] = ToolShortcut(sequence, shortcut.action, shortcut.tool_id.strip(), shortcut.description.strip(), context)
 
     def unregister(self, sequence: str, *, context: str = "global") -> ToolShortcut:
         key = (context.strip().lower(), self.normalize(sequence))
@@ -106,7 +117,8 @@ class ToolShortcutRegistry:
             raise RuntimeError("Contextual keymap contains duplicate shortcuts.")
 
     def action_for(self, sequence: str, *, context: str = "global") -> Optional[str]:
-        return self.tool_id_for(sequence, context=context)
+        shortcut = self.get_optional(sequence, context=context)
+        return shortcut.action if shortcut is not None else None
 
     def tool_id_for(self, sequence: str, *, context: str = "global") -> Optional[str]:
         shortcut = self.get_optional(sequence, context=context)
@@ -129,6 +141,7 @@ ProtectionKeymap = ToolShortcutRegistry
 
 
 __all__ = [
+    "ToolShortcutAction",
     "ToolShortcut",
     "ToolShortcutRegistry",
     "ContextualKeymapRegistry",
