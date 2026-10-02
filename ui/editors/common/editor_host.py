@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import QFrame, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
+from ui.core.qt import QFrame, QGraphicsView, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 
 class EngineeringEditorHost(QWidget):
@@ -89,6 +89,8 @@ class EngineeringEditorHost(QWidget):
             resolver = getattr(widget, "region_widget", None)
             if not callable(resolver) or resolver(resolved_region_id) is None:
                 raise KeyError(f"Editor {editor_id!r} does not realize Region {resolved_region_id!r}.")
+        if context is not None and callable(getattr(context, "with_updates", None)):
+            context = context.with_updates(view_state=self._read_view_state(widget))
         self._stack.setCurrentWidget(widget)
         self._active_editor_id = editor_id
         self._active_area = area
@@ -97,6 +99,29 @@ class EngineeringEditorHost(QWidget):
         apply_context = getattr(widget, "set_editor_context", None)
         if callable(apply_context):
             apply_context(context)
+
+    @staticmethod
+    def _read_view_state(widget: QWidget) -> dict[str, object]:
+        view = widget if isinstance(widget, QGraphicsView) else widget.findChild(QGraphicsView)
+        if view is None:
+            return {
+                "zoom": None,
+                "pan": None,
+                "grid_visibility": getattr(widget, "grid_visible", None),
+                "snap_state": getattr(widget, "snap_enabled", None),
+                "overlay_state": getattr(widget, "overlay_state", None),
+                "routing_preferences": getattr(widget, "routing_preferences", None),
+                "display_preferences": getattr(widget, "display_preferences", None),
+            }
+        return {
+            "zoom": float(view.transform().m11()),
+            "pan": (int(view.horizontalScrollBar().value()), int(view.verticalScrollBar().value())),
+            "grid_visibility": getattr(widget, "grid_visible", None),
+            "snap_state": getattr(widget, "snap_enabled", None),
+            "overlay_state": getattr(widget, "overlay_state", None),
+            "routing_preferences": getattr(widget, "routing_preferences", None),
+            "display_preferences": getattr(widget, "display_preferences", None),
+        }
 
     @staticmethod
     def _default_region_id(widget: QWidget) -> str | None:
