@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from ui.core.qt import QIcon, QToolButton, QVBoxLayout, QWidget
+from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget
 from ui.tools.tool_definition import ToolDefinition
 
 
@@ -94,4 +94,27 @@ class ToolShelf(QWidget):
             button.setChecked(current_id == tool_id)
 
 
-__all__ = ["ToolShelf"]
+class ToolSettingsPanel(QWidget):
+    """Presentation-only contextual settings for the active ToolDefinition."""
+
+    def __init__(self, *, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._title = QLabel("No active tool", self)
+        self._form = QFormLayout()
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._title)
+        layout.addLayout(self._form)
+        self.setObjectName("GridForgeToolSettings")
+
+    def set_context(self, context: object | None) -> None:
+        while self._form.rowCount():
+            self._form.removeRow(0)
+        tool_id = getattr(context, "active_tool", None) if context is not None else None
+        settings = getattr(context, "tool_settings", None) if context is not None else None
+        self._title.setText(f"Tool: {tool_id or 'None'}")
+        if settings is None:
+            return
+        for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):
+            self._form.addRow(QLabel(str(key), self), QLabel(str(value), self))
+
+__all__ = ["ToolShelf", "ToolSettingsPanel"]
