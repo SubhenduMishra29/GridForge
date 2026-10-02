@@ -1,43 +1,57 @@
-# GridForge V2 — Blender-Style UI Architecture Static Reconciliation
-
+# GridForge V2 — Blender-Inspired UI Architecture Static Reconciliation
 Author: Subhendu Mishra
 Date: 2026-10-02
-Mode: Static inspection only; no pytest, CI, or GUI/runtime verification.
+Mode: static implementation only
 
-## Implemented
+## CURRENT CANONICAL
+The canonical presentation model is now:
 
-- Added immutable Qt-independent AreaDefinition, EditorDefinition, and RegionDefinition contracts.
-- Evolved WorkspaceDefinition and WorkspaceLayout to carry Areas/Editors while retaining WorkspacePlacement for legacy compatibility.
-- Updated WorkspaceManager activation so Area/Editor composition is propagated into WorkspaceLayout.
-- Added shared EngineeringEditorHost.
-- Added SLD, Control, Protection and Study editor composition adapters.
-- Migrated ControlSurfaceHost from tab composition to the shared editor host; its class name remains a compatibility facade.
-- Updated WorkspaceRealizer to activate the main editor declared by the logical Area definition.
-- Added Study workspace definition and workspace-switch action.
-- Preserved the canonical EquipmentRegistry, SymbolRegistry, ToolManager, CanvasComposition, SLD projection/rendering and Application command boundary.
-- Existing PaletteSymbolAdapter remains the single registry-backed palette icon realization boundary.
-- Corrected ProjectPersistenceService.save() so protection_presentation is an explicit save parameter and is serialized consistently with load().
-- Added docs/UI_ARCHITECTURE_BLENDER_STYLE.md.
+WorkspaceDefinition
+→ WorkspaceManager
+→ WorkspaceLayout
+→ AreaDefinition
+→ EditorDefinition
+→ RegionDefinition
+→ EngineeringEditorHost
+→ EditorContext
+→ discipline Tool System
+→ Application command boundary.
 
-## Frozen boundary checks
+WorkspaceDefinition and WorkspaceLayout no longer contain WorkspacePlacement or panel-placement state.
 
-- Core remains Qt-free by the inspected architecture.
-- Editor composition is UI infrastructure.
-- The new editor host does not own Core state.
-- SLD remains projection/render oriented.
-- No new equipment or symbol registry was introduced.
-- Workspace activation remains owned by WorkspaceManager/WorkspaceController.
-- MainWindow remains a mechanical host.
-- Bootstrap remains the composition root.
-- Protection persistence now has a structurally matching save/load contract.
+WorkspaceRealizer no longer consumes PanelArea, WorkspacePlacement, dock groups, or QDockWidget geometry to realize workspace policy. Its dock bindings are explicitly compatibility-only utility-panel mechanics.
 
-## Remaining blockers / migration debt
+WorkspaceController passes the active workspace identity into editor realization so an immutable EditorContext snapshot is propagated when the active editor changes.
 
-1. Legacy dock/panel realization remains registered by PanelsPlugin and consumed by WorkspaceRealizer as an explicit compatibility path.
-2. The SLD editor adapter embeds the canonical SLD canvas but does not yet relocate existing Properties/Equipment/Project docks into Area-owned regions.
-3. Control and Protection domain workspaces remain authoritative presentation implementations; the new Editor classes are composition adapters.
-4. Runtime verification was not performed in this pass.
+EngineeringEditorHost now retains active editor, Area, Region and EditorContext presentation state and supports presentation-only Area maximize/restore.
+
+SLD, Control, Protection and Study editor implementations now compose explicit Header/Tool Shelf/Tool Settings/Canvas/Inspector/Diagnostics/Status regions as applicable.
+
+## VERIFIED
+- Area → Editor → Region contracts are Qt-independent.
+- WorkspaceManager is the logical workspace authority.
+- MainWindow remains a mechanical window shell.
+- Tool Shelf uses ToolDefinition metadata and editor applicability.
+- Selection remains owned by SelectionManager.
+- EquipmentDefinition and ToolDefinition remain separate.
+- Core/Application ownership is unchanged.
+- No UI persistence is introduced into Core.
+- No QGraphicsItem or QWidget is part of workspace definition state.
+
+## LEGACY / COMPATIBILITY
+- ui/workspace/workspace_legacy.py contains the retired WorkspacePlacement type.
+- PanelArea remains available only for legacy utility-panel callers.
+- PanelsPlugin and MainWindow retain dock creation/hosting because existing utility panels have not yet been physically relocated into editor-owned Region widgets.
+- ControlSurfaceHost retains its historical class name but internally delegates to EngineeringEditorHost.
+
+## PARTIAL
+- Existing utility panels are not yet physically re-homed into Sidebar/Diagnostics/Explorer Region widgets; they remain legacy presentation implementations outside canonical workspace policy.
+- Control and Protection discipline surfaces still contain their historical internal palettes/toolbars in addition to the common editor Tool Shelf region.
+- Study has a contextual ToolDefinition presentation set but not a separate Study runtime factory registry.
+
+## OPEN
+- Full repository-wide reference elimination cannot be claimed because the connected GitHub code-search index is unavailable/incomplete.
+- Runtime verification is intentionally not performed in this correction.
 
 ## Register discipline
-
-The canonical audit register was not edited by this implementation pass. Existing findings must be re-audited against the resulting source before any status is changed. Protection persistence is therefore RE-AUDIT REQUIRED rather than unconditionally closed.
+The requested GF-UI-STATE-001..005, GF-UI-INPUT-001..005 and GF-UI-TOOL-002..013 findings remain RE-AUDIT REQUIRED / PARTIAL as applicable. Compatibility presence alone is not closure evidence.
