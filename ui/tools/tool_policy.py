@@ -262,15 +262,9 @@ class ToolPolicy:
     """
     Deterministic UI interaction policy.
 
-    The policy contains explicit rules for the frozen concrete
-    GridForge tools:
-
-        select
-        bus
-        line
-
-    Additional tool IDs may be supported through the explicit
-    registration API without changing the policy evaluator.
+    The policy contains interaction rules, not an engineering tool catalogue.
+    ToolDefinition declares capabilities and editor applicability; EditorContext
+    supplies the active context; ToolPolicy decides UI-level permission.
     """
 
     def __init__(
