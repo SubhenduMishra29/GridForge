@@ -347,6 +347,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
         workspace_controller.realizer.focus_region("main-sld", "explorer")
 
     def _show_study_cases() -> None:
