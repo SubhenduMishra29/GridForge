@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Tuple
 
+from .area import AreaDefinition
 from .panel_area import PanelArea
 from .workspace_definition import WorkspacePlacement
 
