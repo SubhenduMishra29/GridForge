@@ -51,30 +51,6 @@ STUDY_EDITOR_DEFINITION = EditorDefinition(
     EDITOR_REGIONS + (RegionDefinition("timeline", "timeline"),),
 )
 
-def _explorer_area() -> AreaDefinition:
-    return AreaDefinition(
-        "explorer",
-        EditorDefinition("explorer-editor", "explorer", "Engineering Explorer",
-                         (RegionDefinition(CANVAS_REGION, "explorer"),)),
-        metadata={"role": "explorer"},
-    )
-
-def _inspector_area() -> AreaDefinition:
-    return AreaDefinition(
-        "inspector",
-        EditorDefinition("properties-editor", "properties", "Contextual Inspector",
-                         (RegionDefinition(CANVAS_REGION, "inspector"),)),
-        metadata={"role": "inspector"},
-    )
-
-def _diagnostics_area() -> AreaDefinition:
-    return AreaDefinition(
-        "diagnostics",
-        EditorDefinition("diagnostics-editor", "diagnostics", "Diagnostics",
-                         (RegionDefinition(CANVAS_REGION, "diagnostics"),)),
-        metadata={"role": "bottom"},
-    )
-
 def _workspace(workspace_id: str, title: str, editor: EditorDefinition, central_surface: str) -> WorkspaceDefinition:
     from .workspace_definition import WorkspaceDefinition
     return WorkspaceDefinition(
@@ -82,9 +58,6 @@ def _workspace(workspace_id: str, title: str, editor: EditorDefinition, central_
         title=title,
         areas=(
             AreaDefinition(f"main-{workspace_id}", editor, metadata={"role": "main"}),
-            _explorer_area(),
-            _inspector_area(),
-            _diagnostics_area(),
         ),
         metadata={"kind": workspace_id, "central_surface": central_surface},
     )
@@ -97,7 +70,6 @@ STUDY_WORKSPACE = WorkspaceDefinition(
     title="Study Workspace",
     areas=(
         AreaDefinition("main-study", STUDY_EDITOR_DEFINITION, metadata={"role": "main"}),
-        _diagnostics_area(),
     ),
     metadata={"kind": "study", "central_surface": "reports"},
 )
