@@ -40,6 +40,11 @@ class StudyToolRuntime:
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return self.TOOL_DEFINITIONS
 
+    def bind_study_case_controller(self, controller: Any) -> None:
+        if controller is None or not callable(getattr(controller, "run_study", None)):
+            raise TypeError("controller must expose run_study().")
+        self._study_case_controller = controller
+
     def activate(self, tool_id: str) -> str:
         normalized = str(tool_id).strip()
         if normalized not in {item.tool_id for item in self.TOOL_DEFINITIONS}:
