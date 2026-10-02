@@ -350,6 +350,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         workspace_controller.realizer.focus_region("main-sld", "explorer")
 
     def _show_study_cases() -> None:
+        workspace_controller.activate(STUDY_WORKSPACE_ID)
         workspace_controller.realizer.focus_region("main-study", "explorer")
 
     def _show_unconfigured_surface(title: str) -> None:
@@ -625,7 +626,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
-        "view.reports": lambda: workspace_controller.realizer.focus_region("main-study", "canvas"),
+        "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.equipment_browser": _show_equipment_browser,
         "view.zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
         "view.zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
