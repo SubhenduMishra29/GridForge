@@ -92,4 +92,32 @@ class ToolDefinition:
         }
 
 
-__all__ = ["ToolDefinition"]
+
+def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor_type: str) -> tuple[ToolDefinition, ...]:
+    """Build presentation metadata from an authoritative runtime tool-ID set.
+
+    This is an adapter, not a catalogue: ToolManager remains the runtime
+    authority and callers may replace these definitions with richer metadata.
+    """
+    if not isinstance(editor_type, str) or not editor_type.strip():
+        raise ValueError("editor_type must be a non-empty string.")
+    definitions: list[ToolDefinition] = []
+    seen: set[str] = set()
+    for raw_id in tool_ids:
+        tool_id = str(raw_id).strip()
+        if not tool_id or tool_id in seen:
+            continue
+        seen.add(tool_id)
+        definitions.append(
+            ToolDefinition(
+                tool_id=tool_id,
+                display_name=tool_id.replace("_", " ").replace(".", " ").title(),
+                icon_id=tool_id,
+                editor_types=(editor_type,),
+                category="engineering",
+            )
+        )
+    return tuple(definitions)
+
+
+__all__ = ["ToolDefinition", "contextual_tool_definitions"]
