@@ -46,6 +46,7 @@ class WorkspaceRealizer:
         self._realized_layout: WorkspaceLayout | None = None
         self._focused_area_id: str | None = None
         self._context_factory = context_factory
+        self._realized_workspace_id: str | None = None
 
     @property
     def editor_host(self) -> Any:
@@ -115,6 +116,7 @@ class WorkspaceRealizer:
             raise
 
         self._realized_layout = layout
+        self._realized_workspace_id = workspace_id
 
     def _realize_areas(self, layout: WorkspaceLayout, *, workspace_id: str | None = None) -> None:
         main_areas = [
@@ -161,7 +163,7 @@ class WorkspaceRealizer:
         if region_id is None:
             raise WorkspaceRealizationError(f"Editor {area.editor.editor_id!r} has no visible Region.")
         context = (
-            self._context_factory(self._realized_layout.workspace_id if hasattr(self._realized_layout, "workspace_id") else "", area, area.editor, region_id)
+            self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
             if self._context_factory is not None
             else EditorContext(workspace=None, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
         )
@@ -184,6 +186,7 @@ class WorkspaceRealizer:
         if callable(deactivate):
             deactivate()
         self._realized_layout = None
+        self._realized_workspace_id = None
         self._focused_area_id = None
 
 
