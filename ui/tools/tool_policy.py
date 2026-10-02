@@ -50,6 +50,7 @@ from ui.tools.tool_action import (
     ToolActionType,
 )
 from ui.tools.tool_mode import ToolMode
+from ui.tools.tool_definition import ToolDefinition
 
 
 # ============================================================
@@ -287,23 +288,11 @@ class ToolPolicy:
         By default the frozen concrete tool set is used.
         """
 
-        if allowed_tools is None:
-            allowed_tools = {
-                self.SELECT_TOOL_ID,
-                self.BUS_TOOL_ID,
-                self.LINE_TOOL_ID,
-            }
-
         normalized = {
-            self._normalize_tool_id(
-                tool_id
-            )
-            for tool_id in allowed_tools
+            self._normalize_tool_id(tool_id)
+            for tool_id in (allowed_tools or set())
         }
-
-        self._allowed_tools: FrozenSet[str] = frozenset(
-            normalized
-        )
+        self._allowed_tools: FrozenSet[str] = frozenset(normalized)
 
     # ========================================================
     # PUBLIC EVALUATION
@@ -313,6 +302,7 @@ class ToolPolicy:
         self,
         action: ToolAction,
         context: ToolPolicyContext,
+        tool_definition: Optional[ToolDefinition] = None,
     ) -> ToolPolicyResult:
         """
         Evaluate whether an action is permitted.
@@ -351,7 +341,27 @@ class ToolPolicy:
                 "Action does not identify an active tool.",
             )
 
-        if action.tool_id not in self._allowed_tools:
+        if tool_definition is not None:
+            if not isinstance(tool_definition, ToolDefinition):
+                raise TypeError("tool_definition must be a ToolDefinition or None.")
+            if tool_definition.tool_id != action.tool_id:
+                return self._deny(
+                    action, context, ToolPolicyReason.TOOL_NOT_ALLOWED,
+                    "ToolDefinition does not match the action tool.",
+                )
+            if not tool_definition.supports_mode(context.mode.value):
+                return self._deny(
+                    action, context, ToolPolicyReason.INVALID_MODE,
+                    f"Tool {action.tool_id!r} does not support mode {context.mode.value!r}.",
+                )
+            required_capability = self._required_capability(action.action_type)
+            if required_capability and tool_definition.capabilities and required_capability not in tool_definition.capabilities:
+                return self._deny(
+                    action, context, ToolPolicyReason.ACTION_NOT_ALLOWED,
+                    f"Tool {action.tool_id!r} does not declare capability {required_capability!r}.",
+                )
+
+        if self._allowed_tools and action.tool_id not in self._allowed_tools:
             return self._deny(
                 action,
                 context,
@@ -389,6 +399,29 @@ class ToolPolicy:
             action,
             context,
         )
+
+    @staticmethod
+    def _required_capability(action_type: ToolActionType) -> str | None:
+        if action_type in {
+            ToolActionType.SELECT,
+            ToolActionType.SELECT_ADD,
+            ToolActionType.SELECT_REMOVE,
+            ToolActionType.SELECT_CLEAR,
+        }:
+            return "selection"
+        if action_type in {ToolActionType.CREATE_BUS, ToolActionType.CREATE_LINE}:
+            return "creation"
+        if action_type in {
+            ToolActionType.START_PREVIEW,
+            ToolActionType.UPDATE_PREVIEW,
+            ToolActionType.COMMIT_PREVIEW,
+        }:
+            return "preview"
+        if action_type == ToolActionType.PAN:
+            return "pan"
+        if action_type == ToolActionType.ZOOM:
+            return "zoom"
+        return None
 
     # ========================================================
     # ACTION EVALUATION
