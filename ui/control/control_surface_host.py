@@ -106,14 +106,14 @@ class ControlSurfaceHost(QWidget):
                     reports.refresh()
         elif surface_id == "map":
             widget = self._host.widget("map")
-            if isinstance(widget, QLabel):
+            if isinstance(widget, MapWorkspaceView):
                 document = self._sld_document
                 widget.setText("SLD geometry map" if document is None else "SLD geometry map — active document loaded")
 
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
         map_widget = self._host.widget("map")
-        if isinstance(map_widget, QLabel):
+        if isinstance(map_widget, MapWorkspaceView):
             map_widget.setText("SLD geometry map" if document is None else "SLD geometry map — active document loaded")
 
 
