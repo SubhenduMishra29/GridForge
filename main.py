@@ -195,6 +195,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         *protection_tool_definitions,
         *study_tool_definitions,
     )
+    _tool_icon_adapter = PaletteSymbolAdapter(presentation_bootstrap.symbol_registry)
+
+    def _tool_icon(icon_id: str):
+        try:
+            return _tool_icon_adapter.icon_for(icon_id)
+        except (KeyError, ValueError, TypeError):
+            return None
+
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
             "sld": canvas_composition.widget,
@@ -216,7 +224,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             "protection": lambda: protection_workspace.active_tool_id,
             "study": lambda: study_tool_runtime.active_tool_id,
         },
-        icon_provider=PaletteSymbolAdapter(presentation_bootstrap.symbol_registry).icon_for,
+        icon_provider=_tool_icon,
         study_runtime=study_tool_runtime,
         parent=None,
     )
