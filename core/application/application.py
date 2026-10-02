@@ -964,7 +964,8 @@ class Application:
                 causation_id=command.causation_id,
                 metadata=metadata,
             ))
-            return        if command.command_type == "network.commit_draft":
+            return
+        if command.command_type == "network.commit_draft":
             if operation == "execute":
                 self._event_bus.publish(NetworkCommitted(metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             return
