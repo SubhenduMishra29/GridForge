@@ -745,7 +745,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         explorer=explorer_container,
         inspector=detached.get("properties"),
         diagnostics=detached.get("messages"),
-        status=getattr(status_plugin, "widget", None),
     )
     workspace_surface_host.set_region_widgets(
         "control",
