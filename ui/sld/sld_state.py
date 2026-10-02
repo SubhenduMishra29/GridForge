@@ -60,6 +60,31 @@ class SLDState:
             return "connect"
         return "create"
 
+    def select_node(self, node_id: str, *, additive: bool = False) -> None:
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        manager.select(node_id, multi=additive)
+
+    def deselect_node(self, node_id: str) -> None:
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        if manager.is_selected(node_id):
+            manager.toggle_selection(node_id)
+
+    def select_connection(self, connection_id: str, *, additive: bool = False) -> None:
+        self.select_node(connection_id, additive=additive)
+
+    def deselect_connection(self, connection_id: str) -> None:
+        self.deselect_node(connection_id)
+
+    def clear_selection(self) -> None:
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        manager.clear()
+
     @property
     def dirty(self) -> bool:
         return self.local_view_dirty
