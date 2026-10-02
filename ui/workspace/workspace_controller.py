@@ -57,7 +57,7 @@ class WorkspaceController:
     def activate(self, workspace_id: str) -> WorkspaceState:
         self._ensure_open()
         candidate = self._manager.prepare_activate(workspace_id)
-        self._realizer.realize(candidate.layout)
+        self._realizer.realize(candidate.layout, workspace_id=candidate.workspace_id)
         return self._manager.commit(candidate)
 
     def activate_default(self) -> WorkspaceState:
