@@ -41,6 +41,10 @@ from ui.tools.synchronous_machine_tool import SynchronousMachineTool
 from ui.tools.transformer_tool import TransformerTool
 
 
+from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_settings import ToolSettings
+
+
 __all__ = [
     "SelectTool",
     "BusTool",
@@ -65,6 +69,8 @@ __all__ = [
     "PotentialTransformerTool",
     "CVTTool",
     "RelayTool",
+    "ToolDefinition",
+    "ToolSettings",
 ]
 
 from .wire_tool import WireTool
