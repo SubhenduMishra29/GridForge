@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from .panel_area import PanelArea
-from .workspace_definition import WorkspaceDefinition, WorkspacePlacement
+from .area import AreaDefinition
+from .editor import EditorDefinition, SLD_EDITOR, CONTROL_EDITOR, PROTECTION_EDITOR, STUDY_EDITOR\nfrom .panel_area import PanelArea\nfrom .region import (CANVAS_REGION, DIAGNOSTICS_REGION, HEADER_REGION, OVERLAY_REGION, SIDEBAR_REGION, STATUS_REGION, TOOL_SHELF_REGION, RegionDefinition)\nfrom .workspace_definition import WorkspaceDefinition, WorkspacePlacement
 
 SLD_WORKSPACE_ID = "sld"
 CONTROL_WORKSPACE_ID = "control"
@@ -18,6 +18,28 @@ PROPERTIES_PANEL_ID = "properties"
 ELEMENT_LIST_PANEL_ID = "element_list"
 MESSAGES_PANEL_ID = "messages"
 STUDY_CASES_PANEL_ID = "study_cases"
+
+EDITOR_REGIONS: tuple[RegionDefinition, ...] = (
+    RegionDefinition(HEADER_REGION, HEADER_REGION),
+    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION),
+    RegionDefinition(CANVAS_REGION, CANVAS_REGION),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION),
+    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION),
+    RegionDefinition(STATUS_REGION, STATUS_REGION),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION),
+)
+
+SLD_EDITOR_DEFINITION = EditorDefinition("sld-editor", SLD_EDITOR, "SLD Editor", EDITOR_REGIONS)
+CONTROL_EDITOR_DEFINITION = EditorDefinition("control-editor", CONTROL_EDITOR, "Control Editor", EDITOR_REGIONS)
+PROTECTION_EDITOR_DEFINITION = EditorDefinition("protection-editor", PROTECTION_EDITOR, "Protection Editor", EDITOR_REGIONS)
+STUDY_EDITOR_DEFINITION = EditorDefinition("study-editor", STUDY_EDITOR, "Study Editor", (
+    RegionDefinition(HEADER_REGION, HEADER_REGION),
+    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION),
+    RegionDefinition(CANVAS_REGION, CANVAS_REGION),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION),
+    RegionDefinition("timeline", "timeline"),
+))
 
 CANONICAL_PANEL_IDS: tuple[str, ...] = (
     PROJECT_PANEL_ID,
@@ -41,7 +63,7 @@ SLD_WORKSPACE = WorkspaceDefinition(
     workspace_id=SLD_WORKSPACE_ID,
     title="SLD Workspace",
     placements=SLD_WORKSPACE_PLACEMENTS,
-    metadata={"kind": "sld", "description": "Initial GridForge engineering workspace.", "central_surface": "sld"},
+    metadata={"kind": "sld", "description": "Blender-inspired engineering editor composition.", "central_surface": "sld"},
 )
 
 
@@ -60,7 +82,7 @@ CONTROL_WORKSPACE = WorkspaceDefinition(
     metadata={"kind": "control", "description": "Ladder/control engineering workspace.", "central_surface": "control"},
 )
 
-DEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE, CONTROL_WORKSPACE, PROTECTION_WORKSPACE)
+STUDY_WORKSPACE = WorkspaceDefinition(workspace_id="study", title="Study Workspace", areas=(AreaDefinition("main-study", STUDY_EDITOR_DEFINITION, metadata={"role": "main"}), AreaDefinition("diagnostics", EditorDefinition("diagnostics-editor", "diagnostics", "Diagnostics", (RegionDefinition(CANVAS_REGION, "diagnostics"),)), metadata={"role": "bottom"})), metadata={"kind": "study", "central_surface": "reports"})\n\nDEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE, CONTROL_WORKSPACE, PROTECTION_WORKSPACE, STUDY_WORKSPACE)
 
 
 def default_workspaces() -> tuple[WorkspaceDefinition, ...]:
@@ -95,6 +117,6 @@ validate_default_workspace()
 __all__ = [
     "SLD_WORKSPACE_ID", "CONTROL_WORKSPACE_ID", "PROJECT_PANEL_ID", "EQUIPMENT_PANEL_ID", "PROPERTIES_PANEL_ID",
     "ELEMENT_LIST_PANEL_ID", "MESSAGES_PANEL_ID", "STUDY_CASES_PANEL_ID", "CANONICAL_PANEL_IDS",
-    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "CONTROL_WORKSPACE", "PROTECTION_WORKSPACE", "DEFAULT_WORKSPACES", "default_workspaces",
+    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "CONTROL_WORKSPACE", "PROTECTION_WORKSPACE", "STUDY_WORKSPACE", "DEFAULT_WORKSPACES", "SLD_EDITOR_DEFINITION", "CONTROL_EDITOR_DEFINITION", "PROTECTION_EDITOR_DEFINITION", "STUDY_EDITOR_DEFINITION", "default_workspaces",
     "default_workspace_ids", "get_default_workspace", "get_initial_workspace", "validate_default_workspace",
 ]
