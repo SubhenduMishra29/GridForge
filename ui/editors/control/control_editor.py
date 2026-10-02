@@ -3,25 +3,28 @@
 # GridForge V2 — Control Editor
 # Author: Subhendu Mishra
 # ============================================================
-
-"""Control editor adapter around the canonical Control workspace."""
+"""Canonical Control Area editor composed from explicit Regions."""
 
 from __future__ import annotations
-
-from ui.core.qt import QVBoxLayout, QWidget
+from ui.core.qt import QLabel, QHBoxLayout, QVBoxLayout, QWidget
 from ui.editors.common.editor_host import EditorRegionFrame
+from ui.editors.common.tool_shelf import ToolShelf
 
 
 class ControlEditor(QWidget):
     editor_type = "control"
 
-    def __init__(self, *, surface: QWidget, parent: QWidget | None = None) -> None:
+    def __init__(self, *, surface: QWidget, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        region = EditorRegionFrame("", parent=self)
-        region.set_widget(surface)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(region)
+        canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
+        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(parent=self))
+        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings or QLabel("Tool Settings", self))
+        side = QVBoxLayout(); inspector_region = EditorRegionFrame("Inspector", parent=self); inspector_region.set_widget(inspector or QLabel("Select a control object.", self)); side.addWidget(inspector_region, 1)
+        center = QVBoxLayout(); center.addWidget(settings); center.addWidget(canvas, 1)
+        body = QHBoxLayout(); body.addWidget(shelf); body.addLayout(center, 1); body.addLayout(side)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(QLabel("Control Editor", self)); root.addLayout(body, 1)
+        if diagnostics is not None:
+            region = EditorRegionFrame("Diagnostics", parent=self); region.set_widget(diagnostics); root.addWidget(region)
         self.setObjectName("ControlEditor")
 
 
