@@ -202,6 +202,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         application=gridforge_application,
         tool_definitions=contextual_tool_definitions_all,
         tool_activator=tool_manager.activate,
+        tool_activators={
+            "sld": tool_manager.activate,
+            "control": control_workspace.activate_tool_id,
+            "protection": protection_workspace.activate_tool_id,
+        },
         parent=None,
     )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
