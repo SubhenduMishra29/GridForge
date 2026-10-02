@@ -17,10 +17,14 @@ from typing import Iterable, Optional
 
 
 class ToolShortcutAction(str, Enum):
-    """Compatibility semantic actions; not a tool catalogue."""
-    SELECT_TOOL = "select_tool"
-    BUS_TOOL = "bus_tool"
-    LINE_TOOL = "line_tool"
+    """Contextual semantic actions; never a tool catalogue."""
+    SAVE = "save"
+    UNDO = "undo"
+    REDO = "redo"
+    SELECT = "select"
+    CREATE = "create"
+    CONNECT = "connect"
+    CANCEL = "cancel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +48,11 @@ class ToolShortcut:
             raise ValueError("context must be a non-empty string.")
 
 
+KEYMAP_CONTEXTS = frozenset({
+    "global", "sld", "control", "protection", "study", "canvas", "inspector", "tool_shelf",
+})
+
+
 class ToolShortcutRegistry:
     """Contextual keymap registry with no embedded tool catalogue."""
 
@@ -56,6 +65,8 @@ class ToolShortcutRegistry:
         if not isinstance(shortcut, ToolShortcut):
             raise TypeError("shortcut must be a ToolShortcut.")
         context = shortcut.context.strip().lower()
+        if context not in KEYMAP_CONTEXTS:
+            raise ValueError(f"Unsupported keymap context: {context!r}")
         sequence = self.normalize(shortcut.sequence)
         key = (context, sequence)
         if key in self._shortcuts:
@@ -149,4 +160,5 @@ __all__ = [
     "SLDKeymap",
     "ControlKeymap",
     "ProtectionKeymap",
+    "KEYMAP_CONTEXTS",
 ]
