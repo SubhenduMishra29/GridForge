@@ -38,6 +38,7 @@ class ControlSurfaceHost(QWidget):
         application: Any | None = None,
         tool_definitions: tuple[ToolDefinition, ...] = (),
         tool_activator: Any | None = None,
+        tool_activators: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -52,8 +53,11 @@ class ControlSurfaceHost(QWidget):
             raise TypeError("All workspace surfaces must be QWidget instances.")
         if any(not isinstance(item, ToolDefinition) for item in tool_definitions):
             raise TypeError("tool_definitions must contain ToolDefinition objects.")
+        activators = dict(tool_activators or {})
+        if tool_activator is not None:
+            activators.setdefault("sld", tool_activator)
         def make_tool_shelf(parent: QWidget, editor_type: str) -> ToolShelf:
-            return ToolShelf(definitions=tool_definitions, activate=tool_activator, editor_type=editor_type, parent=parent)
+            return ToolShelf(definitions=tool_definitions, activate=activators.get(editor_type), editor_type=editor_type, parent=parent)
 
         self._application = application
         self._host = EngineeringEditorHost(parent=self)
