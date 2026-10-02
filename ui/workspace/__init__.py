@@ -35,6 +35,8 @@ _EXPORTS = {
     "WorkspaceLayout": ("ui.workspace.workspace_layout", "WorkspaceLayout"),
     "WorkspaceManager": ("ui.workspace.workspace_manager", "WorkspaceManager"),
     "WorkspaceState": ("ui.workspace.workspace_state", "WorkspaceState"),
+    "EditorContext": ("ui.workspace.engineering_context", "EditorContext"),
+    "EngineeringContext": ("ui.workspace.engineering_context", "EngineeringContext"),
     "DockBinding": ("ui.workspace.workspace_realizer", "DockBinding"),
     "WorkspaceRealizationError": ("ui.workspace.workspace_realizer", "WorkspaceRealizationError"),
     "WorkspaceRealizer": ("ui.workspace.workspace_realizer", "WorkspaceRealizer"),
