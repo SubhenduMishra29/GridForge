@@ -116,7 +116,8 @@ class ProjectPersistenceService:
              protection_configuration: ProtectionProjectConfiguration | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
-             draft_network: DraftNetwork | None = None,\n             protection_presentation: Mapping[str, Any] | None = None) -> None:
+             draft_network: DraftNetwork | None = None,
+             protection_presentation: Mapping[str, Any] | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -305,7 +306,8 @@ class ProjectPersistenceService:
         try:
             with path.open("w", encoding="utf-8") as handle:
                 json.dump(value, handle, indent=2, sort_keys=True, ensure_ascii=False)
-                handle.write("\n")
+                handle.write("
+")
                 handle.flush()
                 os.fsync(handle.fileno())
         except (OSError, TypeError, ValueError) as exc: raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc
