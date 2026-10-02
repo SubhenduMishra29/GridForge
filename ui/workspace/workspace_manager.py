@@ -104,7 +104,7 @@ class WorkspaceManager:
             raise KeyError(f"Unknown workspace: {workspace_id!r}")
         return WorkspaceState(
             workspace_id=definition.workspace_id,
-            layout=WorkspaceLayout(placements=definition.placements),
+            layout=WorkspaceLayout(placements=definition.placements, areas=definition.areas),
         )
 
     def prepare_activate_default(self) -> WorkspaceState:
