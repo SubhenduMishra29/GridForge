@@ -15,6 +15,8 @@ from ui.core.qt import QWidget, QVBoxLayout
 from ui.editors.common.editor_host import EngineeringEditorHost
 from ui.editors.common.tool_shelf import ToolShelf
 from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_mode import ToolMode
+from ui.tools.tool_settings import ToolSettings
 from ui.editors.control.control_editor import ControlEditor
 from ui.editors.protection.protection_editor import ProtectionEditor
 from ui.editors.sld.sld_editor import SLDEditor
@@ -173,6 +175,37 @@ class ControlSurfaceHost(QWidget):
 
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
+
+    def refresh_tool_shelves(self) -> None:
+        for shelf in self._shelves.values():
+            shelf.refresh_runtime_state()
+        context = self._host.editor_context
+        editor = getattr(context, "editor", None) if context is not None else None
+        if context is None or editor is None:
+            return
+        editor_type = str(getattr(editor, "editor_type", ""))
+        active_tool = self.active_tool_id_for(editor_type)
+        definition = self.tool_definition_for(editor_type, active_tool)
+        mode = ToolMode.IDLE
+        settings = None
+        if definition is not None:
+            if definition.default_mode:
+                try:
+                    mode = ToolMode(definition.default_mode)
+                except ValueError:
+                    mode = ToolMode.IDLE
+            settings = ToolSettings(definition.tool_id, values=definition.settings)
+        engineering = getattr(context, "engineering", None)
+        if engineering is not None:
+            engineering = engineering.with_updates(active_tool=active_tool)
+        self._host.set_editor_context(
+            context.with_updates(
+                active_tool=active_tool,
+                tool_mode=mode,
+                tool_settings=settings,
+                engineering=engineering,
+            )
+        )
 
     def set_region_widgets(
         self,
