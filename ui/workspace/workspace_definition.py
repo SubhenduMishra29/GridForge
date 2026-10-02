@@ -47,6 +47,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from .area import AreaDefinition
+from .editor import EditorDefinition
 from .panel_area import PanelArea
 
 
