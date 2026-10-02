@@ -38,6 +38,11 @@ class WireTool(ToolBase):
         return self.TOOL_ID
 
     @property
+    def has_source_endpoint(self) -> bool:
+        """Return whether the first electrical endpoint has been acquired."""
+        return self._preview.source_endpoint is not None
+
+    @property
     def name(self) -> str:
         return "Simple Wired Connection"
 
