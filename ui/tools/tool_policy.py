@@ -281,7 +281,7 @@ class ToolPolicy:
         """
         Initialize the policy.
 
-        By default the frozen concrete tool set is used.
+        By default no tool catalogue is imposed; contextual ToolDefinition metadata and the active ToolManager determine applicability.
         """
 
         normalized = {
@@ -625,14 +625,6 @@ class ToolPolicy:
         This checks only the UI interaction prerequisites.
         """
 
-        if action.tool_id != self.BUS_TOOL_ID:
-            return self._deny(
-                action,
-                context,
-                ToolPolicyReason.TOOL_NOT_ALLOWED,
-                "Bus creation must be initiated by the Bus Tool.",
-            )
-
         if not context.has_position:
             return self._deny(
                 action,
@@ -689,14 +681,6 @@ class ToolPolicy:
 
         Topology validity is intentionally not checked here.
         """
-
-        if action.tool_id != self.LINE_TOOL_ID:
-            return self._deny(
-                action,
-                context,
-                ToolPolicyReason.TOOL_NOT_ALLOWED,
-                "Line creation must be initiated by the Line Tool.",
-            )
 
         if action.start_position is None:
             return self._deny(
