@@ -730,6 +730,47 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             continue
         action_router.register_definition(definition, handler)
 
+    # Legacy surface IDs that are not aliases receive metadata here so
+    # MenuPlugin and ToolbarPlugin still render from router-owned definitions.
+    _legacy_action_metadata = {
+        "project.new": ("New Project", "Create a new project.", "Ctrl+N", "file"),
+        "project.open": ("Open Project…", "Open an existing project.", "Ctrl+O", "file"),
+        "project.save": ("Save Project", "Save the active project.", "Ctrl+S", "file"),
+        "project.save_as": ("Save Project As…", "Save the active project to a new path.", "Ctrl+Shift+S", "file"),
+        "project.close": ("Close Project", "Close the active project.", "Ctrl+W", "file"),
+        "application.exit": ("Exit", "Exit GridForge.", "Alt+F4", "file"),
+        "edit.select_all": ("Select All", "Select all visible objects.", "Ctrl+A", "edit"),
+        "edit.cut": ("Cut", "Copy and remove the selection.", "Ctrl+X", "edit"),
+        "edit.box_select": ("Box Select", "Select objects inside a rectangle.", None, "edit"),
+        "edit.move": ("Move", "Move selected objects.", None, "edit"),
+        "edit.drag_move": ("Drag Move", "Move selected objects by dragging.", None, "edit"),
+        "edit.rotate": ("Rotate", "Rotate selected symbols.", None, "edit"),
+        "edit.mirror_horizontal": ("Mirror H", "Mirror selected symbols horizontally.", None, "edit"),
+        "edit.mirror_vertical": ("Mirror V", "Mirror selected symbols vertically.", None, "edit"),
+        "network.commit_draft": ("Commit Network", "Commit the active DraftNetwork.", "Ctrl+Shift+Enter", "project"),
+        "view.sld_workspace": ("SLD", "Activate the SLD workspace.", None, "workspace"),
+        "view.control_workspace": ("Control", "Activate the Control workspace.", None, "workspace"),
+        "view.protection_workspace": ("Protection", "Activate the Protection workspace.", None, "workspace"),
+        "view.study_workspace": ("Study", "Activate the Study workspace.", None, "workspace"),
+        "view.topology": ("Topology", "Show the topology projection.", None, "workspace"),
+        "view.map": ("Map", "Show persisted SLD geometry.", None, "workspace"),
+        "view.reports": ("Reports", "Show published study results.", None, "workspace"),
+        "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
+        "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
+        "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
+    }
+    for _action_id, (_title, _description, _shortcut, _category) in _legacy_action_metadata.items():
+        if action_router.has(_action_id):
+            action_router.set_definition(
+                ActionDefinition(
+                    action_id=_action_id,
+                    title=_title,
+                    description=_description,
+                    shortcut=_shortcut,
+                    category=_category,
+                )
+            )
+
     def _action_enabled(action_id: str) -> bool:
         context = engineering_context.current
         project_active = context.project_id is not None and gridforge_application.project_lifecycle.context is not None
