@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ui.core.qt import QWidget, QVBoxLayout
+from ui.core.action_router import UIActionRouter
 from ui.editors.common.editor_host import EngineeringEditorHost
 from ui.editors.common.tool_shelf import ToolShelf
 from ui.tools.tool_definition import ToolDefinition
@@ -34,6 +35,7 @@ class ControlSurfaceHost(QWidget):
         application: Any | None = None,
         tool_definitions: tuple[ToolDefinition, ...] = (),
         tool_activator: Any | None = None,
+        action_router: UIActionRouter | None = None,
         tool_activators: Mapping[str, Any] | None = None,
         tool_active_providers: Mapping[str, Any] | None = None,
         icon_provider: Any | None = None,
@@ -66,6 +68,7 @@ class ControlSurfaceHost(QWidget):
             shelf = ToolShelf(
                 definitions=tool_definitions,
                 activate=activators.get(editor_type),
+                action_router=action_router,
                 editor_type=editor_type,
                 icon_provider=icon_provider,
                 active_tool_provider=providers.get(editor_type),
