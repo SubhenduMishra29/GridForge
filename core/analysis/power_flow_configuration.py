@@ -92,7 +92,12 @@ class PowerFlowStudyConfiguration:
 
         object.__setattr__(self, "bus_types", MappingProxyType(normalized))
         object.__setattr__(self, "voltage_bases_kv", MappingProxyType(voltage_bases))
-        object.__setattr__(self, "numerical_options", MappingProxyType(dict(self.numerical_options)))
+        options = dict(self.numerical_options)
+        q_limit_policy = str(options.get("q_limit_policy", "hold_pq")).strip().lower()
+        if q_limit_policy not in {"hold_pq", "restore_pv"}:
+            raise ValueError("q_limit_policy must be 'hold_pq' or 'restore_pv'.")
+        options["q_limit_policy"] = q_limit_policy
+        object.__setattr__(self, "numerical_options", MappingProxyType(options))
 
     @classmethod
     def from_mapping(
@@ -114,6 +119,11 @@ class PowerFlowStudyConfiguration:
             voltage_bases_kv={} if voltage_bases_kv is None else voltage_bases_kv,
             numerical_options={} if numerical_options is None else numerical_options,
         )
+
+    @property
+    def q_limit_policy(self) -> str:
+        """Explicit policy for PV reactive-limit state transitions within one solve."""
+        return str(self.numerical_options["q_limit_policy"])
 
     @property
     def slack_bus_id(self) -> str:
