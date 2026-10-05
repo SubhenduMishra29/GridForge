@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/solver/power_flow/result.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 """Immutable standalone result contract for AC power flow."""
 
 from __future__ import annotations
