@@ -177,11 +177,37 @@ class ModelPlacementTool(ToolBase):
         # projection/render pipeline creates the canonical permanent graphics
         # item and owns its snap registration. Never promote the transient
         # SymbolPreviewItem into a committed presentation.
+        #
+        # IMPORTANT: equipment_id is the transient Draft identity used to
+        # construct the commit request. Once Application.execute() succeeds,
+        # the authoritative semantic identity is the Core identity returned by
+        # CommitNetworkHandler in metadata["draft_to_core"]. The UI must
+        # consume that mapping rather than reconstructing the Core ID itself.
+        metadata = getattr(result, "metadata", None)
+        if not isinstance(metadata, dict) and not hasattr(metadata, "get"):
+            raise RuntimeError(
+                "DRAFT_IDENTITY_INTEGRATION_FAILED: successful draft commit "
+                "did not return commit metadata."
+            )
+        draft_to_core = metadata.get("draft_to_core")
+        if draft_to_core is None or not hasattr(draft_to_core, "get"):
+            raise RuntimeError(
+                "DRAFT_IDENTITY_INTEGRATION_FAILED: successful draft commit "
+                "did not return authoritative metadata['draft_to_core'] mapping."
+            )
+        core_id = draft_to_core.get(equipment_id)
+        if core_id is None or not str(core_id).strip():
+            raise RuntimeError(
+                "DRAFT_IDENTITY_INTEGRATION_FAILED: successful draft commit "
+                f"has no Core identity mapping for draft {equipment_id!r}."
+            )
+        core_id = str(core_id)
+
         self._require_creation_context().complete()
         self._clear_state()
         selector = getattr(self.selection_manager, "select_single", None)
         if callable(selector):
-            selector(equipment_id)
+            selector(core_id)
         self._report_feedback(f"{equipment_type} committed.")
         return True
     @staticmethod
