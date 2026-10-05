@@ -49,11 +49,12 @@ class SolarModelService(ModelServiceSupport):
             if q_min_mvar is not None: solar.q_min_mvar = q_min_mvar
             if q_max_mvar is not None: solar.q_max_mvar = q_max_mvar
             if in_service is not None: solar.set_in_service(in_service)
+            if in_service is not None: self._network.invalidate_topology()
             solar.validate_parameters()
         except Exception:
             solar.name = old["name"]; solar.p_mw = old["p_mw"]; solar.q_mvar = old["q_mvar"]; solar.p_max_mw = old["p_max_mw"]; solar.p_min_mw = old["p_min_mw"]; solar.q_max_mvar = old["q_max_mvar"]; solar.q_min_mvar = old["q_min_mvar"]; solar.in_service = old["in_service"]; raise
         def restore() -> None:
-            solar.name = old["name"]; solar.p_mw = old["p_mw"]; solar.q_mvar = old["q_mvar"]; solar.p_max_mw = old["p_max_mw"]; solar.p_min_mw = old["p_min_mw"]; solar.q_max_mvar = old["q_max_mvar"]; solar.q_min_mvar = old["q_min_mvar"]; solar.in_service = old["in_service"]; solar.validate_parameters()
+            solar.name = old["name"]; solar.p_mw = old["p_mw"]; solar.q_mvar = old["q_mvar"]; solar.p_max_mw = old["p_max_mw"]; solar.p_min_mw = old["p_min_mw"]; solar.q_max_mvar = old["q_max_mvar"]; solar.q_min_mvar = old["q_min_mvar"]; solar.in_service = old["in_service"]; solar.validate_parameters(); self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(solar, "solar", solar_id, f"Solar updated: {solar_id}")
 
     def delete_solar(self, *, solar_id: str, transaction: Transaction) -> ApplicationResult[Solar]:
