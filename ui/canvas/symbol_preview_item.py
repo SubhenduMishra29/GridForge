@@ -50,13 +50,6 @@ class SymbolPreviewItem(QGraphicsItem):
     def is_draft_presentation(self) -> bool:
         return self._draft_id is not None
 
-    def commit_draft(self, draft_id: str, terminal_names: tuple[str, ...], element_type: str) -> None:
-        if not isinstance(draft_id, str) or not draft_id.strip():
-            raise ValueError("draft_id must be non-empty.")
-        self._draft_id = draft_id
-        self._terminal_names = tuple(terminal_names)
-        self._element_type = str(element_type)
-
     def snap_points(self):
         if self._draft_id is None:
             return ()
