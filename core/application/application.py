@@ -227,6 +227,9 @@ class Application:
             service.configure_presentation_activator(
                 lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)
             )
+            service.configure_post_network_activator(
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
+            )
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
@@ -263,6 +266,12 @@ class Application:
             return rollback
 
         self.project_lifecycle.configure_presentation_activator(composite)
+
+    def _reconcile_sld_after_network_activation(self, network: Any) -> Any:
+        """Reconcile persistent SLD Simple Wire companions after Core Network activation."""
+        if self._sld_service is None or not self._sld_service.is_bound:
+            return None
+        return self._sld_service.reconcile_simple_wire_projection(network)
 
     def _bind_sld_transactionally(
         self,
