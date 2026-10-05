@@ -736,10 +736,20 @@ class Application:
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint projection.")
         object_id = str(mapping.get("object_id") or "")
-        node = self._sld_service.document.model.get_node_by_equipment_id_optional(object_id)
-        if node is None:
+        if not object_id:
+            raise ValueError("Committed endpoint mapping requires a non-empty object_id.")
+        nodes = tuple(
+            node for node in self._sld_service.document.model.nodes
+            if str(getattr(node, "equipment_id", "") or "") == object_id
+        )
+        if not nodes:
             raise ValueError(f"No SLD presentation node exists for committed endpoint object {object_id!r}.")
-        return node.node_id
+        if len(nodes) != 1:
+            raise ValueError(
+                f"Ambiguous SLD presentation node identity for committed endpoint object {object_id!r}: "
+                f"{len(nodes)} nodes match."
+            )
+        return str(nodes[0].node_id)
 
     def _new_sld_node_id(self) -> str:
         """Generate an independent persistent SLD identity.
@@ -795,12 +805,11 @@ class Application:
                 route={"routing_mode": "orthogonal", "ownership": "auto", "points": []},
                 connection_kind=connection_kind,
                 presentation_owner="projection",
-                projection_source="application_read_model",
+                projection_source="core_transaction",
                 correlation_id=command.correlation_id,
                 causation_id=command.command_id,
             ),
             transaction,
-            authoritative_value=created_object,
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
@@ -810,11 +819,20 @@ class Application:
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint presentation coordination.")
 
-        node = self._sld_service.document.model.get_node_by_equipment_id_optional(reference.object_id)
-        if node is None:
+        nodes = tuple(
+            node for node in self._sld_service.document.model.nodes
+            if str(getattr(node, "equipment_id", "") or "") == str(reference.object_id)
+        )
+        if not nodes:
             raise ValueError(
                 f"No SLD presentation node exists for endpoint object {reference.object_id!r}."
             )
+        if len(nodes) != 1:
+            raise ValueError(
+                f"Ambiguous SLD presentation node identity for endpoint object {reference.object_id!r}: "
+                f"{len(nodes)} nodes match."
+            )
+        node = nodes[0]
 
         if reference.is_bus:
             attachment_id = getattr(reference, "attachment_id", None)
