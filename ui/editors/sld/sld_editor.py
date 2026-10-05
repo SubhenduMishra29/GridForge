@@ -11,7 +11,7 @@ from __future__ import annotations
 from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QVBoxLayout, QWidget, Qt
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
-from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
 
 
 class SLDEditor(QWidget):
@@ -40,7 +40,7 @@ class SLDEditor(QWidget):
         header = EditorRegionFrame("SLD Header", parent=self)
         header.set_widget(QLabel("SLD Editor", header))
 
-        shelf = tool_shelf or ToolShelf(parent=self)
+        shelf = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "move", "wire", "bus", "transformer", "breaker", "disconnector", "generator", "load", "motor"), editor_type="sld"), editor_type="sld", parent=self)
         shelf_region = EditorRegionFrame("Tool Shelf", parent=self)
         shelf_region.set_widget(shelf)
 
