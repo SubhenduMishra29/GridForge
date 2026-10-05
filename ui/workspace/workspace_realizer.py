@@ -108,31 +108,32 @@ class WorkspaceRealizer:
             raise TypeError("layout must be a WorkspaceLayout.")
         if not layout.areas:
             raise WorkspaceRealizationError("Workspace layout contains no Areas.")
-
         if workspace_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
             raise WorkspaceRealizationError("Workspace realization requires a non-empty workspace_id.")
+
         previous = self._realized_layout
         previous_workspace_id = self._realized_workspace_id
         previous_focused_area_id = self._focused_area_id
         try:
-            self._realize_areas(
-                layout,
-                workspace_id=workspace_id,
-            )
+            self._realize_areas(layout, workspace_id=workspace_id)
         except BaseException:
-            if previous is not None:
+            if previous is not None and previous_workspace_id is not None:
                 try:
-                    self._realize_areas(
-                        previous,
-                        workspace_id=previous_workspace_id,
-                    )
+                    self._realize_areas(previous, workspace_id=previous_workspace_id)
                 except BaseException as restore_exc:
                     self._realized_layout = previous
-                self._realized_workspace_id = previous_workspace_id
-                self._focused_area_id = previous_focused_area_id
-                raise WorkspaceRealizationError(
+                    self._realized_workspace_id = previous_workspace_id
+                    self._focused_area_id = previous_focused_area_id
+                    raise WorkspaceRealizationError(
                         "Workspace realization failed and previous editor state could not be restored."
                     ) from restore_exc
+            else:
+                deactivate = getattr(self._editor_host, "deactivate", None)
+                if callable(deactivate):
+                    deactivate()
+                self._realized_layout = None
+                self._realized_workspace_id = None
+                self._focused_area_id = None
             raise
 
         self._realized_layout = layout
