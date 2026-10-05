@@ -827,6 +827,7 @@ class Application:
                 connection_kind=connection_kind,
                 presentation_owner="projection",
                 projection_source="core_transaction",
+                core_connection_id=connection_id,
                 correlation_id=command.correlation_id,
                 causation_id=command.command_id,
             ),
