@@ -45,7 +45,8 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_source = QPointF()
         self._visual_target = QPointF()
         self._visual_state = VisualState.NORMAL
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)\n        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
 
     @property
     def object_id(self) -> str:
