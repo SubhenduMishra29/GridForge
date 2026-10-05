@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/solver/power_flow/nr_solver.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 """Numerical-only Newton-Raphson AC power-flow solver."""
 
 from __future__ import annotations
