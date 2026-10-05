@@ -83,13 +83,16 @@ class MenuPlugin(QObject):
                 self._menus[spec.menu_id] = menu
                 for action_spec in spec.actions:
                     router.require(action_spec.action_id)
+                    definition = router.definition(action_spec.action_id)
                     if action_spec.separator_before:
                         menu.addSeparator()
-                    action = QAction(action_spec.text, self)
+                    action = QAction(definition.title, self)
                     action.setObjectName(action_spec.action_id)
+                    action.setToolTip(definition.description)
+                    action.setStatusTip(definition.description)
                     action.setEnabled(router.is_enabled(action_spec.action_id))
-                    if action_spec.shortcut:
-                        action.setShortcut(action_spec.shortcut)
+                    if definition.shortcut:
+                        action.setShortcut(definition.shortcut)
                     action.triggered.connect(lambda _checked=False, action_id=action_spec.action_id: router.dispatch(action_id))
                     menu.addAction(action)
                     self._actions[action_spec.action_id] = action
