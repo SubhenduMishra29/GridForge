@@ -591,6 +591,7 @@ class Application:
                             connection_kind="SIMPLE_WIRE",
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
+                            core_connection_id=str(item["connection_id"]),
                             correlation_id=command.correlation_id,
                             causation_id=command.command_id,
                         ),
