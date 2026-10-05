@@ -80,12 +80,12 @@ class EndpointIdentityAdapter:
             object_id = getattr(source, "object_id", None)
         if object_id is None:
             raise ValueError(
-                "Line connection requires an object snap with a stable object_id."
+                "Simple Wire connection requires an object snap with a stable object_id."
             )
 
         if snap_type is not None and snap_type is not SnapType.OBJECT:
             raise ValueError(
-                "Line connection requires an object endpoint snap."
+                "Simple Wire connection requires an object endpoint snap."
             )
 
         if isinstance(source, BusItem):

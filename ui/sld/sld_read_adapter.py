@@ -32,7 +32,7 @@ class SLDReadAdapter:
         """Map the complete Application network snapshot without Core access."""
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
-        return NetworkReadModel(elements=tuple(self.element(element) for element in read_model.elements))
+        return NetworkReadModel(\n            elements=tuple(self.element(element) for element in read_model.elements),\n            simple_wires=tuple(read_model.simple_wires),\n        )
 
     def protection(self, read_model: ProtectionReadModel) -> NetworkReadModel:
         """Project protection-domain associations into the SLD Relay vocabulary."""

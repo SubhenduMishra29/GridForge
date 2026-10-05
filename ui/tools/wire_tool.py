@@ -83,8 +83,18 @@ class WireTool(ToolBase):
         self._current_position = position
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
+        endpoint_pair = self._preview.get_endpoint_pair()
+        if endpoint_pair is None:
+            self._preview.update_target(
+                None,
+                valid=False,
+                reason="A source endpoint is required before committing a Simple Wire.",
+            )
+            self._show_preview()
+            return False
         result = self._execute_connection(
-            *self._preview.get_endpoint_pair(),
+            endpoint_pair[0],
+            endpoint_pair[1],
             source_snap=self._start_snap,
             target_snap=snap_result,
         )
@@ -103,7 +113,16 @@ class WireTool(ToolBase):
         snap_result = self._snap(event)
         self._last_snap_result = snap_result
         if snap_result is None:
-            return False
+            position = self._position_tuple(self.event_position(event))
+            self._current_position = position
+            self._preview.update_cursor(position)
+            self._preview.update_target(
+                None,
+                valid=False,
+                reason="Move the cursor onto a stable electrical object endpoint.",
+            )
+            self._show_preview()
+            return True
 
         position = self._position_tuple(snap_result.position)
         self._current_position = position
