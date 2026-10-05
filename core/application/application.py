@@ -246,7 +246,7 @@ class Application:
         sld_service = self._sld_service
 
         def composite(context: ProjectContext | None, value: Any | None):
-            sld_rollback = self._bind_sld_transactionally(sld_service, value)
+            sld_rollback = self._bind_sld_transactionally(sld_service, value, context)
             try:
                 workspace_rollback = activator(context, value)
             except BaseException:
