@@ -83,22 +83,50 @@ class StudyEditor(QWidget):
         self._tool_shelf = shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
+        self._region_splitters = {"body": body, "left": left, "center": center, "sidebar": sidebar, "bottom": bottom}
 
 
     def region_widget(self, region_id: str) -> QWidget | None:
         return self._region_widgets.get(region_id)
 
     def apply_editor_definition(self, definition: object) -> None:
-        """Apply canonical RegionDefinition sizing metadata to realized surfaces."""
+        """Apply canonical RegionDefinition minimum/preferred sizing hints."""
+        preferred: dict[str, int] = {}
         for region in getattr(definition, "regions", ()) or ():
-            frame = self._region_widgets.get(getattr(region, "region_id", ""))
-            if frame is None:
-                continue
+            region_id = getattr(region, "region_id", "")
+            frame = self._region_widgets.get(region_id)
             minimum = int(getattr(region, "minimum_size", 0) or 0)
-            if getattr(region, "region_id", "") in {"tool_shelf", "sidebar"}:
-                frame.setMinimumWidth(minimum)
-            elif getattr(region, "region_id", "") in {"header", "tool_settings", "diagnostics", "status"}:
-                frame.setMinimumHeight(minimum)
+            if frame is not None:
+                if region_id in {"tool_shelf", "sidebar"}:
+                    frame.setMinimumWidth(minimum)
+                elif region_id in {"header", "tool_settings", "diagnostics", "status"}:
+                    frame.setMinimumHeight(minimum)
+            value = getattr(region, "preferred_size", None)
+            if value is not None:
+                preferred[region_id] = int(value)
+
+        body = self._region_splitters["body"]
+        shelf = preferred.get("tool_shelf")
+        sidebar = preferred.get("sidebar")
+        if body.width() > 0 and shelf is not None and sidebar is not None:
+            center_size = max(1, body.width() - shelf - sidebar)
+            body.setSizes([shelf, center_size, sidebar])
+
+        left = self._region_splitters["left"]
+        shelf_height = preferred.get("tool_shelf")
+        if left.height() > 0 and shelf_height is not None:
+            left.setSizes([max(1, left.height() - shelf_height), shelf_height])
+
+        center = self._region_splitters["center"]
+        settings_height = preferred.get("tool_settings")
+        if center.height() > 0 and settings_height is not None:
+            center.setSizes([settings_height, max(1, center.height() - settings_height)])
+
+        bottom = self._region_splitters["bottom"]
+        diagnostics_height = preferred.get("diagnostics")
+        status_height = preferred.get("status")
+        if bottom.height() > 0 and diagnostics_height is not None and status_height is not None:
+            bottom.setSizes([diagnostics_height, status_height])
 
     def set_editor_context(self, context: object | None) -> None:
         self._editor_context = context
