@@ -101,9 +101,14 @@ class SLDService:
         companions = {}
         changed = False
         for connection in self.document.model.connections:
-            if str(connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
-                continue
+            kind = str(connection.properties.get("connection_kind", "")).upper()
             core_id = connection.properties.get("core_connection_id")
+            if kind != "SIMPLE_WIRE" and not core_id:
+                continue
+            if kind != "SIMPLE_WIRE":
+                raise ValueError(
+                    f"SLD connection {connection.connection_id!r} has Core connection mapping but kind {kind!r}, expected SIMPLE_WIRE."
+                )
             if not core_id and str(connection.connection_id).startswith("sld-wire-"):
                 # Deterministic legacy migration is centralized here; UI never
                 # reconstructs Core identity from a presentation string.
