@@ -25,16 +25,56 @@ class SymbolPreviewItem(QGraphicsItem):
         position: Any,
         rotation: float = 0.0,
         presentation_state: Mapping[str, Any] | None = None,
+        draft_id: str | None = None,
+        terminal_names: tuple[str, ...] = (),
+        element_type: str = "",
     ) -> None:
         if not isinstance(definition, SymbolDefinition):
             raise TypeError("definition must be a SymbolDefinition.")
         super().__init__()
         self._definition = definition
+        self._draft_id = draft_id
+        self._terminal_names = tuple(terminal_names)
+        self._element_type = str(element_type)
         self._presentation_state = MappingProxyType(dict(presentation_state or {}))
         self._visual_state = VisualState.PREVIEW
         self.setPos(self._point(position))
         self.setRotation(float(rotation))
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    @property
+    def object_id(self) -> str | None:
+        return self._draft_id
+
+    @property
+    def is_draft_presentation(self) -> bool:
+        return self._draft_id is not None
+
+    def commit_draft(self, draft_id: str, terminal_names: tuple[str, ...], element_type: str) -> None:
+        if not isinstance(draft_id, str) or not draft_id.strip():
+            raise ValueError("draft_id must be non-empty.")
+        self._draft_id = draft_id
+        self._terminal_names = tuple(terminal_names)
+        self._element_type = str(element_type)
+
+    def snap_points(self):
+        if self._draft_id is None:
+            return ()
+        points = []
+        for role in self._terminal_names:
+            anchor = self._definition.get_terminal_anchor(role)
+            from ui.core.qt import QPointF
+            point = self.mapToScene(QPointF(float(anchor[0]), float(anchor[1])))
+            points.append({
+                "position": point,
+                "object_id": self._draft_id,
+                "draft_id": self._draft_id,
+                "terminal_id": f"{self._draft_id}:{role}",
+                "terminal_name": role,
+                "draft_terminal_role": role,
+                "draft_equipment_type": self._element_type,
+            })
+        return tuple(points)
 
     def boundingRect(self) -> QRectF:
         return QRectF(
