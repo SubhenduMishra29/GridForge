@@ -18,6 +18,7 @@ from .revision import ProjectRevision
 class _RevisionTransition:
     before: ProjectRevision
     after: ProjectRevision
+    command_id: str
 
 
 class RevisionService:
@@ -104,9 +105,9 @@ class RevisionService:
         current, persisted, undo, redo, generation = state
         if not isinstance(current, ProjectRevision) or not isinstance(persisted, ProjectRevision):
             raise TypeError("Invalid revision snapshots.")
-        if not isinstance(undo, tuple) or not all(isinstance(item, _RevisionTransition) for item in undo):
+        if not isinstance(undo, tuple) or not all(isinstance(item, _RevisionTransition) and isinstance(item.command_id, str) for item in undo):
             raise TypeError("Invalid undo history snapshot.")
-        if not isinstance(redo, tuple) or not all(isinstance(item, _RevisionTransition) for item in redo):
+        if not isinstance(redo, tuple) or not all(isinstance(item, _RevisionTransition) and isinstance(item.command_id, str) for item in redo):
             raise TypeError("Invalid redo history snapshot.")
         if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
             raise ValueError("persisted generation must be a non-negative integer.")
@@ -173,10 +174,10 @@ class RevisionService:
             persisted_revision=revision.persisted_revision,
         )
 
-    def _record_transition(self, after: ProjectRevision) -> ProjectRevision:
+    def _record_transition(self, after: ProjectRevision, *, command_id: str) -> ProjectRevision:
         if after == self._current:
             return self._current
-        self._undo.append(_RevisionTransition(self._current, after))
+        self._undo.append(_RevisionTransition(self._current, after, command_id))
         self._current = after
         self._redo.clear()
         return self._current
@@ -193,22 +194,30 @@ class RevisionService:
 
     def record_command_success(self, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
         """Record a successful mutation using the committed Core topology revision when supplied."""
-        return self._record_transition(self._next_for_command(self._current, command, topology_revision=topology_revision))
+        return self._record_transition(self._next_for_command(self._current, command, topology_revision=topology_revision), command_id=str(command.command_id))
 
-    def record_presentation_change(self) -> ProjectRevision:
+    def record_presentation_change(self, command: Command) -> ProjectRevision:
         """Record one successfully committed persistent SLD presentation command.
 
         SLD association validation does not advance this revision; only an
         Application command that actually mutates persistent presentation
         state does so.
         """
+        if not isinstance(command, Command):
+            raise TypeError("command must be a Command")
         next_revision = ProjectRevision(
             model_revision=self._current.model_revision,
             topology_revision=self._current.topology_revision,
             presentation_revision=self._current.presentation_revision + 1,
             persisted_revision=self._current.persisted_revision,
         )
-        return self._record_transition(next_revision)
+        return self._record_transition(next_revision, command_id=str(command.command_id))
+
+    def has_undo_transition_for(self, command: Command) -> bool:
+        return bool(self._undo) and self._undo[-1].command_id == str(command.command_id)
+
+    def has_redo_transition_for(self, command: Command) -> bool:
+        return bool(self._redo) and self._redo[-1].command_id == str(command.command_id)
 
     def record_undo(self, *, topology_revision: int | None = None) -> ProjectRevision:
         """Restore model/presentation revision while adopting the actual Core topology revision."""
@@ -221,7 +230,7 @@ class RevisionService:
         if topology_revision is not None:
             before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
         self._current = before
-        self._redo.append(_RevisionTransition(before, transition.after))
+        self._redo.append(_RevisionTransition(before, transition.after, transition.command_id))
         return self._current
 
     def record_redo(self, *, topology_revision: int | None = None) -> ProjectRevision:
@@ -242,7 +251,7 @@ class RevisionService:
                 persisted_revision=after.persisted_revision,
             )
         self._current = after
-        self._undo.append(_RevisionTransition(transition.before, after))
+        self._undo.append(_RevisionTransition(transition.before, after, transition.command_id))
         return self._current
 
     def initialize_from_network(self, *, topology_revision: int) -> ProjectRevision:
