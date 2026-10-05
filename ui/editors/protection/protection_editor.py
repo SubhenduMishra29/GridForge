@@ -31,7 +31,7 @@ class ProtectionEditor(QWidget):
         super().__init__(parent)
         header = EditorRegionFrame("Protection Header", parent=self); header.set_widget(QLabel("Protection Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
-        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(parent=self))
+        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "connect_measurement", "inspect", "fit", "diagnostics"), editor_type="protection"), editor_type="protection", parent=self))
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
         settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Protection Explorer", self))
