@@ -316,7 +316,10 @@ class Application:
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._project_lifecycle is not None:
             self._project_lifecycle.configure_presentation_activator(
-                lambda context, value: self._bind_sld_transactionally(service, value)
+                lambda context, value: self._bind_sld_transactionally(service, value, context)
+            )
+            self._project_lifecycle.configure_post_network_activator(
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
             )
         self._register_sld_handlers(service)
         presentation = self.presentation if self._project_lifecycle is not None else None
