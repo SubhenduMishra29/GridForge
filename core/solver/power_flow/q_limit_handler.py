@@ -20,8 +20,8 @@ class QLimitHandler:
         self.tolerance = float(tolerance)
         self.ybus = ybus
         self.policy = str(policy).strip().lower()
-        if self.policy not in {"hold_pq", "restore_pv"}:
-            raise ValueError("policy must be 'hold_pq' or 'restore_pv'.")
+        if self.policy != "hold_pq":
+            raise ValueError("QLimitHandler currently supports only the explicit 'hold_pq' policy.")
         self.history: list[dict] = []
         self._validate()
 
