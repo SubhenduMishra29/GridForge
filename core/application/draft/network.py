@@ -63,6 +63,17 @@ class DraftEndpointReference:
         return {"kind": self.kind, "object_id": self.object_id, "terminal_role": self.terminal_role,
                 "attachment_id": self.attachment_id, "equipment_type": self.equipment_type, "scope": self.scope}
 
+    def to_core_reference(self):
+        """Translate this canonical authoring identity without substituting endpoints."""
+        from core.model import EndpointReference, EquipmentType
+        if self.is_bus:
+            return EndpointReference.bus(self.object_id, self.attachment_id or "")
+        return EndpointReference.terminal(
+            equipment_type=EquipmentType(str(self.equipment_type).strip().lower()),
+            equipment_id=self.object_id,
+            terminal_role=self.terminal_role or "",
+        )
+
     @classmethod
     def from_value(cls, value: Any) -> "DraftEndpointReference":
         if isinstance(value, cls): return value
