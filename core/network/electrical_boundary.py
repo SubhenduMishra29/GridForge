@@ -103,7 +103,7 @@ class ElectricalBoundaryResolver:
             return ElectricalBoundary(reference.object_id, "bus", ElectricalBoundaryType.BUS_TERMINATION, reference.object_id, None, True)
         equipment = self.network.get_by_identity(reference.object_id)
         terminal = self._terminal(equipment, reference.terminal_role or "")
-        attached_bus_id = self._attached_bus_id(terminal)
+        attached_bus_id = self._attached_bus_id(reference, terminal)
         from core.model import Breaker, Switch, Disconnector, Fuse, Branch, Line, Cable, Transformer
         if isinstance(equipment, (Breaker, Switch, Disconnector, Fuse)):
             opposite = self._opposite_reference(equipment, terminal)
@@ -119,15 +119,27 @@ class ElectricalBoundaryResolver:
             raise EndpointCompatibilityError(f"Equipment '{equipment.id}' terminal role '{role}' is not uniquely registered.")
         return matches[0]
 
-    @staticmethod
-    def _attached_bus_id(terminal: Any) -> str | None:
-        endpoint = getattr(terminal, "endpoint", None)
-        if endpoint is None:
-            return None
-        from core.model.bus import Bus
-        if isinstance(endpoint, Bus):
-            return endpoint.id
-        raise EndpointCompatibilityError(f"Terminal '{terminal.role}' on '{terminal.owner.id}' has a non-Bus physical endpoint.")
+    def _attached_bus_id(self, reference: EndpointReference, terminal: Any) -> str | None:
+        from .connectivity import ConnectivityError, ConnectivityResolver
+        direct = getattr(terminal, "endpoint", None)
+        direct_bus_id: str | None = None
+        if direct is not None:
+            from core.model.bus import Bus
+            if not isinstance(direct, Bus):
+                raise EndpointCompatibilityError(
+                    f"Terminal '{terminal.role}' on '{terminal.owner.id}' has a non-Bus physical endpoint."
+                )
+            direct_bus_id = str(direct.id)
+        try:
+            wire_bus_id = ConnectivityResolver(self.network).bus_for_terminal(reference)
+        except ConnectivityError as exc:
+            raise EndpointCompatibilityError(str(exc)) from exc
+        if direct_bus_id is not None and wire_bus_id is not None and direct_bus_id != wire_bus_id:
+            raise EndpointCompatibilityError(
+                f"Terminal '{terminal.role}' on '{terminal.owner.id}' has contradictory connectivity: "
+                f"physical endpoint={direct_bus_id!r}, Simple Wire boundary={wire_bus_id!r}."
+            )
+        return wire_bus_id or direct_bus_id
 
     @staticmethod
     def _opposite_reference(equipment: Any, terminal: Any) -> EndpointReference:
