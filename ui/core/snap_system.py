@@ -135,6 +135,15 @@ class SnapType(str, Enum):
     GRID = "grid"
     OBJECT = "object"
 
+class SnapIntent(str, Enum):
+    """Explicit presentation intent controlling snap candidate policy."""
+
+    PLACE = "place"
+    MOVE = "move"
+    WIRE_START = "wire_start"
+    WIRE_TARGET = "wire_target"
+    ROUTE_EDIT = "route_edit"
+
 
 # ============================================================
 # SNAP RESULT
@@ -536,6 +545,7 @@ class SnapSystem:
         *,
         allow_grid: Optional[bool] = None,
         allow_object: Optional[bool] = None,
+        intent: SnapIntent | str | None = None,
     ) -> SnapResult:
         """
         Resolve the best snap candidate for a scene position.
@@ -557,17 +567,23 @@ class SnapSystem:
             "scene_pos",
         )
 
+        resolved_intent = None if intent is None else SnapIntent(str(intent).lower())
         use_grid = self._resolve_bool_override(
             allow_grid,
             self.grid_enabled,
             "allow_grid",
         )
-
         use_object = self._resolve_bool_override(
             allow_object,
             self.object_enabled,
             "allow_object",
         )
+        if resolved_intent in {SnapIntent.WIRE_START, SnapIntent.WIRE_TARGET}:
+            use_grid = False
+            use_object = True
+        elif resolved_intent is SnapIntent.ROUTE_EDIT:
+            use_grid = False
+            use_object = True
 
         candidates: list[
             tuple[int, float, int, SnapResult]
@@ -1277,6 +1293,7 @@ class SnapSystem:
             "grid_priority": (
                 self.grid_priority
             ),
+            "supported_intents": tuple(intent.value for intent in SnapIntent),
             "registered_item_count": len(self._registered_items),
             "last_result": self._last_result,
             "disposed": self._disposed,
@@ -1335,4 +1352,5 @@ __all__ = [
     "SnapResult",
     "SnapSystem",
     "SnapType",
+    "SnapIntent",
 ]
