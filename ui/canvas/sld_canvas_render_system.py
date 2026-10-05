@@ -160,8 +160,6 @@ class SLDCanvasRenderSystem:
             return
         core_connection_id = getattr(connection, "properties", {}).get("core_connection_id")
         if core_connection_id is None:
-            core_connection_id = getattr(connection, "connection_id", None)
-        if core_connection_id is None:
             return
         selected = bool(self._selection_manager.is_selected(str(core_connection_id)))
         setter = getattr(item, "setSelected", None)
