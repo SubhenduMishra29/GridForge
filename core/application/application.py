@@ -578,9 +578,8 @@ class Application:
                     )
                     existing = self._sld_service.document.model.get_connection_optional(connection_id)
                     if existing is not None:
-                        self._sld_service.execute(
-                            RemoveSLDConnectionCommand(connection_id=connection_id),
-                            transaction,
+                        raise ValueError(
+                            f"SLD connection identity collision for committed connection {connection_id!r}."
                         )
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
