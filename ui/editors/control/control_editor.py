@@ -31,7 +31,7 @@ class ControlEditor(QWidget):
         super().__init__(parent)
         header = EditorRegionFrame("Control Header", parent=self); header.set_widget(QLabel("Control Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
-        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(parent=self))
+        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "move", "wire", "contact", "coil", "relay", "timer", "interlock"), editor_type="control"), editor_type="control", parent=self))
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
         settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Control Explorer", self))
