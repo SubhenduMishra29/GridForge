@@ -98,10 +98,10 @@ class EngineeringEditorHost(QWidget):
                 raise KeyError(f"Editor {editor_id!r} does not realize Region {resolved_region_id!r}.")
         if context is not None and callable(getattr(context, "with_updates", None)):
             context = context.with_updates(view_state=self._read_view_state(widget))
+        self._stack.setCurrentWidget(widget)
         configure = getattr(widget, "apply_editor_definition", None)
         if callable(configure) and context is not None and getattr(context, "editor", None) is not None:
             configure(context.editor)
-        self._stack.setCurrentWidget(widget)
         self._active_editor_id = editor_id
         self._active_area = area
         self._active_region_id = resolved_region_id
