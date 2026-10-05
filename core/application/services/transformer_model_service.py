@@ -90,6 +90,8 @@ class TransformerModelService(ModelServiceSupport):
             impedance_base_voltage_kv=impedance_base_voltage_kv,
         )
         self._network.add_transformer(transformer)
+        if in_service is not None:
+            self._network.invalidate_topology()
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
         return self._success(transformer, "transformer", transformer_id, f"Transformer created: {transformer_id}")
 
