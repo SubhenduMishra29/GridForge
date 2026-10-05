@@ -105,8 +105,19 @@ class SLDService:
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
 
-    def execute(self, command: Command, transaction: Transaction, *, context: Any = None) -> ApplicationResult:
-        """Apply one SLD command inside the canonical Application transaction."""
+    def execute(
+        self,
+        command: Command,
+        transaction: Transaction,
+        *,
+        context: Any = None,
+        authoritative_value: Any = None,
+    ) -> ApplicationResult:
+        """Apply one SLD command inside the canonical Application transaction.
+
+        authoritative_value is the transaction-visible result of an
+        originating Core mutation when SLD binding occurs before commit.
+        """
         if not isinstance(command, Command):
             raise TypeError("command must be a Command")
         if not isinstance(transaction, Transaction):
@@ -116,7 +127,9 @@ class SLDService:
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.set_node_presentation": self._set_node_presentation,
-            "sld.add_node": self._add_node,
+            "sld.add_node": lambda cmd, tx: self._add_node(
+                cmd, tx, authoritative_value=authoritative_value
+            ),
             "sld.remove_node": self._remove_node,
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
@@ -170,11 +183,20 @@ class SLDService:
             metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
         )
 
-    def _add_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
+    def _add_node(
+        self,
+        command: Command,
+        transaction: Transaction,
+        *,
+        authoritative_value: Any = None,
+    ) -> ApplicationResult:
         p = command.payload
         equipment_id = p.get("equipment_id")
         if equipment_id is not None:
-            self._validate_equipment_reference(str(equipment_id))
+            self._validate_equipment_reference(
+                str(equipment_id),
+                authoritative_value=authoritative_value,
+            )
         presentation_owner = str(p.get("presentation_owner", "engineer"))
         projection_source = p.get("projection_source")
         if presentation_owner not in {"engineer", "projection"}:
@@ -218,8 +240,27 @@ class SLDService:
             metadata={"presentation_operation": "add_node", "node_id": p["node_id"]},
         )
 
-    def _validate_equipment_reference(self, equipment_id: str) -> None:
-        """Validate an authored SLD equipment association through Application read state."""
+    def _validate_equipment_reference(
+        self,
+        equipment_id: str,
+        *,
+        authoritative_value: Any = None,
+    ) -> None:
+        """Validate an SLD equipment association at the Application boundary.
+
+        For an in-flight Core mutation, authoritative_value is the
+        transaction-visible Core result. ReadModels remain post-commit
+        projections and are not used for that binding.
+        """
+        if authoritative_value is not None:
+            authoritative_id = getattr(authoritative_value, "id", None)
+            if authoritative_id is None or str(authoritative_id) != equipment_id:
+                raise ValueError(
+                    f"SLD node equipment reference {equipment_id!r} does not "
+                    "match the transaction-visible Core identity."
+                )
+            return
+
         if self._application is None:
             raise RuntimeError("SLDService requires an Application to validate equipment references.")
         read_model = self._application.read_network()
