@@ -12,6 +12,7 @@ ADD_DRAFT_EQUIPMENT = "draft.add_equipment"
 UPDATE_DRAFT_EQUIPMENT = "draft.update_equipment"
 REMOVE_DRAFT_EQUIPMENT = "draft.remove_equipment"
 ADD_DRAFT_CONNECTION = "draft.add_connection"
+CREATE_DRAFT_CONNECTION = "draft.create_connection"
 REMOVE_DRAFT_CONNECTION = "draft.remove_connection"
 COMMIT_NETWORK = "network.commit_draft"
 
@@ -28,6 +29,12 @@ class UpdateDraftEquipmentCommand(_DraftCommand):
 class RemoveDraftEquipmentCommand(_DraftCommand):
     def __init__(self, *, draft_id: str, command_id=None, correlation_id=None, causation_id=None):
         super().__init__(REMOVE_DRAFT_EQUIPMENT,{"draft_id":draft_id},command_id=command_id,correlation_id=correlation_id,causation_id=causation_id)
+class CreateDraftConnectionCommand(_DraftCommand):
+    """Immutable authoring command for one canonical DraftConnection."""
+    def __init__(self, *, connection: Mapping[str,Any], command_id=None, correlation_id=None, causation_id=None):
+        super().__init__(CREATE_DRAFT_CONNECTION, {"connection":dict(connection)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id)
+
+
 class AddDraftConnectionCommand(_DraftCommand):
     def __init__(self, *, connection: Mapping[str,Any], command_id=None, correlation_id=None, causation_id=None):
         super().__init__(ADD_DRAFT_CONNECTION,{"connection":dict(connection)},command_id=command_id,correlation_id=correlation_id,causation_id=causation_id)
@@ -38,4 +45,4 @@ class CommitNetworkCommand(_DraftCommand):
     """One immutable boundary crossing from DraftNetwork to Core Network."""
     def __init__(self, *, project_id: str, activation_generation: int, draft_network: Mapping[str,Any], command_id=None, correlation_id=None, causation_id=None):
         super().__init__(COMMIT_NETWORK,{"project_id":project_id,"activation_generation":int(activation_generation),"draft_network":dict(draft_network)},command_id=command_id,correlation_id=correlation_id,causation_id=causation_id)
-__all__=["ADD_DRAFT_EQUIPMENT","UPDATE_DRAFT_EQUIPMENT","REMOVE_DRAFT_EQUIPMENT","ADD_DRAFT_CONNECTION","REMOVE_DRAFT_CONNECTION","COMMIT_NETWORK","AddDraftEquipmentCommand","UpdateDraftEquipmentCommand","RemoveDraftEquipmentCommand","AddDraftConnectionCommand","RemoveDraftConnectionCommand","CommitNetworkCommand"]
+__all__=["ADD_DRAFT_EQUIPMENT","UPDATE_DRAFT_EQUIPMENT","REMOVE_DRAFT_EQUIPMENT","ADD_DRAFT_CONNECTION","CREATE_DRAFT_CONNECTION","REMOVE_DRAFT_CONNECTION","COMMIT_NETWORK","AddDraftEquipmentCommand","UpdateDraftEquipmentCommand","RemoveDraftEquipmentCommand","CreateDraftConnectionCommand","AddDraftConnectionCommand","RemoveDraftConnectionCommand","CommitNetworkCommand"]
