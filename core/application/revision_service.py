@@ -29,14 +29,14 @@ class RevisionService:
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
         "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
-        "model.create_cable", "model.update_cable", "model.delete_cable",
-        "model.create_switch", "model.update_switch", "model.delete_switch",
+        "model.create_cable", "model.delete_cable",
+        "model.create_switch", "model.delete_switch",
         "model.open_switch", "model.close_switch",
         "model.put_switch_in_service", "model.take_switch_out_of_service",
-        "model.create_disconnector", "model.update_disconnector", "model.delete_disconnector",
+        "model.create_disconnector", "model.delete_disconnector",
         "model.open_disconnector", "model.close_disconnector",
         "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
-        "model.create_fuse", "model.update_fuse", "model.delete_fuse",
+        "model.create_fuse", "model.delete_fuse",
         "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
         "model.create_breaker", "model.delete_breaker",
@@ -45,7 +45,7 @@ class RevisionService:
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
-        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_line", "model.update_cable", "model.update_transformer", "model.update_breaker",
+        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
         "model.update_disconnector",
         "model.update_fuse",
