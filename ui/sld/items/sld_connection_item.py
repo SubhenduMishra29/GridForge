@@ -34,7 +34,9 @@ class SLDConnectionItem(QGraphicsPathItem):
                 raise ValueError(f"{name} must be a non-empty string")
         super().__init__()
         self._presentation_id = object_id
-        self._core_connection_id = core_connection_id or object_id
+        # Presentation and Core identities are independent; never synthesize one from the other.
+        self._core_connection_id = str(core_connection_id) if core_connection_id is not None else None
+        # SelectionManager uses object_id as the semantic selection key.
         self._object_id = self._core_connection_id
         self._source_object_id = source_object_id
         self._target_object_id = target_object_id
@@ -48,11 +50,11 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_source = QPointF()
         self._visual_target = QPointF()
         self._visual_state = VisualState.NORMAL
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, self._core_connection_id is not None)
         self.setAcceptHoverEvents(True)
 
     @property
-    def object_id(self) -> str:
+    def object_id(self) -> str | None:
         return self._object_id
 
     @property
@@ -60,7 +62,7 @@ class SLDConnectionItem(QGraphicsPathItem):
         return self._presentation_id
 
     @property
-    def core_connection_id(self) -> str:
+    def core_connection_id(self) -> str | None:
         return self._core_connection_id
 
     @property
@@ -146,6 +148,8 @@ class SLDConnectionItem(QGraphicsPathItem):
 
     def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Update one presentation bend and emit an Application-bound edit request."""
+        if self._core_connection_id is None:
+            raise RuntimeError("Cannot edit route for an SLD connection without an explicit Core connection identity.")
         if index < 0 or index >= len(self._route_points):
             raise IndexError(index)
         points = list(self._route_points)
