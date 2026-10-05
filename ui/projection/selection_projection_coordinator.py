@@ -16,6 +16,8 @@ from core.application.events import (
     NetworkChanged,
     ProjectClosed,
     ProjectLoaded,
+    SimpleWireConnectionCreated,
+    SimpleWireConnectionRemoved,
 )
 
 from .projection_state import EngineeringParameterState, ProjectionState
@@ -34,6 +36,8 @@ class SelectionProjectionCoordinator:
         ElementUpdated,
         ElementRemoved,
         NetworkChanged,
+        SimpleWireConnectionCreated,
+        SimpleWireConnectionRemoved,
         ProjectLoaded,
         ProjectClosed,
     )
@@ -97,7 +101,7 @@ class SelectionProjectionCoordinator:
             return
 
         object_id = selected_ids[0]
-        if isinstance(event, ElementRemoved) and self._selected_event_id(event) == object_id:
+        if isinstance(event, (ElementRemoved, SimpleWireConnectionRemoved)) and self._selected_event_id(event) == object_id:
             self.selection_manager.clear()
             self.clear_projection()
             return
@@ -261,7 +265,7 @@ class SelectionProjectionCoordinator:
     @staticmethod
     def _selected_event_id(event: Any) -> Any:
         payload = getattr(event, "payload", {})
-        return payload.get("element_id")
+        return payload.get("element_id") or payload.get("connection_id")
 
     def _ensure_active(self) -> None:
         if self._disposed:
