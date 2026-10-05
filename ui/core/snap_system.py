@@ -173,6 +173,9 @@ class SnapResult:
     terminal_name: Any = None
     bus_id: Any = None
     attachment_id: Any = None
+    draft_id: Any = None
+    draft_terminal_role: Any = None
+    draft_equipment_type: Any = None
     distance: float = 0.0
 
     @property
@@ -463,8 +466,8 @@ class SnapSystem:
             raise ValueError("item must not be None")
         if self.scene is not None and callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
             raise ValueError("Snap candidate item must belong to the active SLD scene.")
-        if not isinstance(item, (BusItem, EquipmentItem)):
-            raise TypeError("Only BusItem and EquipmentItem may register snap candidates.")
+        if not isinstance(item, (BusItem, EquipmentItem)) and not bool(getattr(item, "is_draft_presentation", False)):
+            raise TypeError("Only canonical BusItem, EquipmentItem, or draft presentation items may register snap candidates.")
         if not callable(getattr(item, "snap_points", None)):
             raise TypeError("Registered snap candidate item must expose snap_points().")
         item_key = id(item)
@@ -749,7 +752,7 @@ class SnapSystem:
             )
 
             for candidate in candidates:
-                position, object_id, terminal_id, terminal_name, bus_id, attachment_id = self._normalize_candidate(candidate, item)
+                position, object_id, terminal_id, terminal_name, bus_id, attachment_id, draft_id, draft_terminal_role, draft_equipment_type = self._normalize_candidate(candidate, item)
 
                 distance = self._distance(
                     scene_pos,
@@ -769,6 +772,9 @@ class SnapSystem:
                         terminal_name=terminal_name,
                         bus_id=bus_id,
                         attachment_id=attachment_id,
+                        draft_id=draft_id,
+                        draft_terminal_role=draft_terminal_role,
+                        draft_equipment_type=draft_equipment_type,
                         distance=distance,
                     )
 
@@ -845,7 +851,7 @@ class SnapSystem:
     def _normalize_candidate(
         candidate: Any,
         item: Any,
-    ) -> tuple[Any, Any, Any, Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any]:
         """
         Normalize one object snap candidate.
 
@@ -860,6 +866,9 @@ class SnapSystem:
         terminal_name = None
         bus_id = None
         attachment_id = None
+        draft_id = None
+        draft_terminal_role = None
+        draft_equipment_type = None
 
         if isinstance(candidate, dict):
             if "position" not in candidate:
@@ -874,6 +883,9 @@ class SnapSystem:
             terminal_name = candidate.get("terminal_name")
             bus_id = candidate.get("bus_id")
             attachment_id = candidate.get("attachment_id")
+            draft_id = candidate.get("draft_id")
+            draft_terminal_role = candidate.get("draft_terminal_role")
+            draft_equipment_type = candidate.get("draft_equipment_type")
         else:
             position = candidate
 
@@ -897,13 +909,15 @@ class SnapSystem:
                 raise ValueError(
                     "Equipment snap candidates require terminal_id and terminal_name."
                 )
+        elif bool(getattr(item, "is_draft_presentation", False)):
+            if not isinstance(draft_id, str) or not draft_id.strip() or not isinstance(draft_terminal_role, str) or not draft_terminal_role.strip():
+                raise ValueError("Draft snap candidates require stable draft_id and draft_terminal_role.")
+            if not isinstance(draft_equipment_type, str) or not draft_equipment_type.strip():
+                raise ValueError("Draft snap candidates require draft_equipment_type.")
         else:
-            raise ValueError(
-                "Unsupported electrical snap target: only BusItem and EquipmentItem "
-                "may expose electrical snap points."
-            )
+            raise ValueError("Unsupported electrical snap target.")
 
-        return position, object_id, terminal_id, terminal_name, bus_id, attachment_id
+        return position, object_id, terminal_id, terminal_name, bus_id, attachment_id, draft_id, draft_terminal_role, draft_equipment_type
 
     # ========================================================
     # DIRECT OBJECT QUERY

@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 
 from core.application.commands.simple_wire_commands import CreateSimpleWireConnectionCommand
+from core.application.commands.draft_commands import CreateDraftConnectionCommand
+from core.application.draft.network import DraftEndpointReference
 
 from ui.connections.connection_preview import ConnectionPreview
 
@@ -69,7 +71,7 @@ class WireTool(ToolBase):
         if getattr(snap_result, "snap_type", None) is not SnapType.OBJECT:
             return False
         position = self._position_tuple(snap_result.position)
-        endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
+        endpoint = self._authoring_endpoint(snap_result)
         if self._preview.source_endpoint is None:
             self._preview.begin(endpoint)
             self._start_snap = snap_result
@@ -170,11 +172,57 @@ class WireTool(ToolBase):
             )
             self._show_preview()
             return None
-        command = CreateSimpleWireConnectionCommand(
-            endpoint_a=endpoint_from,
-            endpoint_b=endpoint_to,
-        )
+        if isinstance(endpoint_from, DraftEndpointReference) or isinstance(endpoint_to, DraftEndpointReference):
+            source = self._as_draft_endpoint(endpoint_from)
+            target = self._as_draft_endpoint(endpoint_to)
+            from uuid import uuid4
+            command = CreateDraftConnectionCommand(
+                connection={
+                    "connection_id": f"draft-wire-{uuid4().hex}",
+                    "source": source.to_dict(),
+                    "target": target.to_dict(),
+                    "connection_kind": "simple_wire",
+                }
+            )
+        else:
+            command = CreateSimpleWireConnectionCommand(
+                endpoint_a=endpoint_from,
+                endpoint_b=endpoint_to,
+            )
         return self.execute_command(command)
+
+    @staticmethod
+    def _authoring_endpoint(snap_result: Any) -> Any:
+        draft_id = getattr(snap_result, "draft_id", None)
+        draft_role = getattr(snap_result, "draft_terminal_role", None)
+        draft_type = getattr(snap_result, "draft_equipment_type", None)
+        if draft_id is not None:
+            return DraftEndpointReference.terminal(
+                draft_id=str(draft_id),
+                equipment_type=str(draft_type),
+                terminal_role=str(draft_role),
+                scope="draft",
+            )
+        return EndpointIdentityAdapter.from_snap_result(snap_result)
+
+    @staticmethod
+    def _as_draft_endpoint(endpoint: Any) -> DraftEndpointReference:
+        if isinstance(endpoint, DraftEndpointReference):
+            return endpoint
+        from core.model import EndpointReference
+        if not isinstance(endpoint, EndpointReference):
+            raise TypeError("Unsupported endpoint type for draft connection.")
+        if endpoint.is_bus:
+            return DraftEndpointReference.bus(
+                bus_id=str(endpoint.object_id),
+                attachment_id=str(endpoint.attachment_id),
+            )
+        return DraftEndpointReference.terminal(
+            draft_id=str(endpoint.object_id),
+            equipment_type=str(endpoint.equipment_type.value),
+            terminal_role=str(endpoint.terminal_role),
+            scope="core",
+        )
 
     def _show_preview(self) -> None:
         layer = self._preview_layer

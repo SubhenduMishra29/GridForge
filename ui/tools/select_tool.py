@@ -146,6 +146,12 @@ class SelectTool(ToolBase):
         start = self._pressed_scene_position
         if start is None:
             return
+        snap = getattr(self.get_snap_system(), "snap", None)
+        if callable(snap):
+            snapped = snap(end, allow_grid=True, allow_object=False)
+            position = getattr(snapped, "position", None)
+            if position is not None:
+                end = (float(position.x()), float(position.y()))
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
 

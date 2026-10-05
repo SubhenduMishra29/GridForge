@@ -99,6 +99,8 @@ class BusModelService(ModelServiceSupport):
         if in_service is not None:
             bus.set_in_service(in_service)
         bus.validate_parameters()
+        if in_service is not None:
+            self._network.invalidate_topology()
 
         def restore() -> None:
             bus.name = old["name"]
@@ -107,6 +109,8 @@ class BusModelService(ModelServiceSupport):
             bus.set_voltage(old["voltage_pu"], old["angle_deg"])
             bus.set_in_service(old["in_service"])
             bus.validate_parameters()
+            if in_service is not None:
+                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(bus, "bus", bus_id, f"Bus updated: {bus_id}")

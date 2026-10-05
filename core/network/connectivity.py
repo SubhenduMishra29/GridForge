@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/connectivity.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
@@ -26,10 +32,10 @@ class SimpleWireConnection:
     def to_dict(self): return {"connection_id":self.connection_id,"kind":self.kind,"endpoint_a":dict(self.endpoint_a.to_mapping()),"endpoint_b":dict(self.endpoint_b.to_mapping())}
     @classmethod
     def from_dict(cls,data): return cls(str(data["connection_id"]),_endpoint_from_mapping(data.get("endpoint_a")),_endpoint_from_mapping(data.get("endpoint_b")),str(data.get("kind",SIMPLE_WIRE_KIND)))
-def _key(r): return (r.kind.value,r.equipment_type.value if r.equipment_type else "",r.object_id,r.terminal_role or "")
+def _key(r): return (r.kind.value, r.equipment_type.value if r.equipment_type else "", r.object_id, r.terminal_role or "", r.attachment_id or "")
 def _endpoint_from_mapping(data):
     if not isinstance(data,dict): raise ConnectivityError("Persisted Simple Wire endpoint must be an object.")
-    if data.get("kind")==EndpointReferenceKind.BUS.value: return EndpointReference.bus(data["object_id"])
+    if data.get("kind")==EndpointReferenceKind.BUS.value: return EndpointReference.bus(data["object_id"], data.get("attachment_id", ""))
     if data.get("kind")!=EndpointReferenceKind.TERMINAL.value: raise ConnectivityError("Persisted Simple Wire endpoint kind is invalid.")
     from core.model import EquipmentType
     try: et=EquipmentType(str(data["equipment_type"]).strip().lower())
@@ -81,6 +87,19 @@ class ResolvedConnectivity:
         return ()
 class ConnectivityResolver:
     def __init__(self,network): self._network=network
+
+    def bus_ids_for_terminal(self, endpoint: EndpointReference) -> tuple[str, ...]:
+        """Resolve the Bus boundaries reached by one terminal through Simple Wire."""
+        if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
+            raise ConnectivityError("bus_ids_for_terminal requires a terminal EndpointReference.")
+        component = self.terminal_component(endpoint)
+        return tuple(sorted({ref.object_id for ref in component if ref.is_bus}))
+
+    def bus_for_terminal(self, endpoint: EndpointReference) -> str | None:
+        buses = self.bus_ids_for_terminal(endpoint)
+        if len(buses) > 1:
+            raise ConnectivityError(f"Terminal {endpoint} reaches multiple Bus endpoints: {buses!r}.")
+        return buses[0] if buses else None
     def resolve(self):
         adjacency={}
         for c in sorted(self._network.connectivity.connections,key=lambda x:x.connection_id):

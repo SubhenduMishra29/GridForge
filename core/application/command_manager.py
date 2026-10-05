@@ -142,6 +142,11 @@ class CommandManager:
     # ========================================================
 
     @property
+    def context(self) -> Any:
+        """Return the immutable execution context supplied at composition time."""
+        return self._context
+
+    @property
     def history(self) -> CommandHistory:
         """Return the command history."""
         return self._history

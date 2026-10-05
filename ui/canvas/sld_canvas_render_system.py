@@ -207,8 +207,9 @@ class SLDCanvasRenderSystem:
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
 
+        node_by_id = {node.node_id: node for node in snapshot.nodes}
         for connection in snapshot.connections:
-            signature = self._connection_signature(connection)
+            signature = self._connection_signature(connection, node_by_id)
             if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
                 continue
             if connection.connection_id in self._items:
@@ -302,10 +303,13 @@ class SLDCanvasRenderSystem:
         return repr((node.node_id, node.equipment_id, node.x, node.y, presentation, properties))
 
     @staticmethod
-    def _connection_signature(connection: Any) -> str:
+    def _connection_signature(connection: Any, node_by_id: dict[str, Any] | None = None) -> str:
         route = getattr(connection.route, "to_dict", lambda: None)()
         properties = tuple(sorted((str(key), repr(value)) for key, value in connection.properties.items()))
-        return repr((connection.connection_id, connection.source_node_id, connection.target_node_id,
+        source_node = None if node_by_id is None else node_by_id.get(connection.source_node_id)
+        target_node = None if node_by_id is None else node_by_id.get(connection.target_node_id)
+        geometry = (getattr(source_node, "x", None), getattr(source_node, "y", None), getattr(target_node, "x", None), getattr(target_node, "y", None))
+        return repr((connection.connection_id, connection.source_node_id, connection.target_node_id, geometry,
                      connection.source_endpoint, connection.target_endpoint,
                      connection.connection_kind, connection.presentation_owner,
                      connection.projection_source, route, properties))

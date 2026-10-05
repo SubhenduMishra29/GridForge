@@ -55,10 +55,12 @@ class CableModelService(ModelServiceSupport):
         for key, value in (("name", name), ("length_km", length_km), ("rated_voltage_kv", rated_voltage_kv), ("rated_current_a", rated_current_a), ("r1_ohm_per_km", r1_ohm_per_km), ("x1_ohm_per_km", x1_ohm_per_km), ("b1_us_per_km", b1_us_per_km), ("r0_ohm_per_km", r0_ohm_per_km), ("x0_ohm_per_km", x0_ohm_per_km), ("b0_us_per_km", b0_us_per_km)):
             if value is not None: setattr(cable, key, value)
         if in_service is not None: cable.set_in_service(in_service)
+        if in_service is not None: self._network.invalidate_topology()
         def restore() -> None:
             for key, value in old.items():
                 if key == "in_service": cable.set_in_service(value)
                 else: setattr(cable, key, value)
+            if in_service is not None: self._network.invalidate_topology()
         transaction.record_undo(restore)
         return self._success(cable, "cable", cable_id, f"Cable updated: {cable_id}")
 

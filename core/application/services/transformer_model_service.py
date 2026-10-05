@@ -147,8 +147,13 @@ class TransformerModelService(ModelServiceSupport):
             in_service=in_service,
         )
 
+        if in_service is not None:
+            self._network.invalidate_topology()
+
         def restore() -> None:
             transformer.update_configuration(**old_state)
+            if in_service is not None:
+                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(

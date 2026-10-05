@@ -43,12 +43,12 @@ class TopologyManager:
                 b=boundary.resolve(source)
                 if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
                     self._edge(zero,self._node_for_reference(source),self._node_for_reference(b.opposite_terminal))
-        adjacency={b.id:set() for b in self.network.buses}
+        adjacency={b.id:set() for b in active_buses}
         for component in self._components(zero):
             buses=sorted(n[1] for n in component if n[0]=="bus" and str(n[1]) in active_bus_ids)
             for i,a in enumerate(buses):
                 for b in buses[i+1:]:adjacency[a].add(b);adjacency[b].add(a)
-        for b in self.network.buses:
+        for b in active_buses:
             graph[b]={self.network.get_by_identity(x) for x in sorted(adjacency[b.id])}
         # Conductive equipment is an explicit electrical boundary. It contributes
         # Bus adjacency, but Simple Wire never traverses its numerical branch.

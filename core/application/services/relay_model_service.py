@@ -52,6 +52,7 @@ class RelayModelService(ModelServiceSupport):
         if in_service is not None:
             if not isinstance(in_service, bool): raise TypeError("in_service must be bool.")
             relay.put_in_service() if in_service else relay.take_out_of_service()
+            self._network.invalidate_topology()
         relay.validate()
         def restore() -> None:
             relay.name = old["name"]; relay.plugin_id = old["plugin_id"]; relay.set_settings(old["settings"]); relay.in_service = old["in_service"]; relay.enabled = old["enabled"]; relay.blocked = old["blocked"]; relay.picked_up = old["picked_up"]; relay.tripped = old["tripped"]; relay.validate()
@@ -64,7 +65,7 @@ class RelayModelService(ModelServiceSupport):
     def take_relay_out_of_service(self, *, relay_id: str, transaction: Transaction) -> ApplicationResult[Relay]: return self._set_service(relay_id=relay_id, in_service=False, transaction=transaction)
 
     def _set_service(self, *, relay_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Relay]:
-        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service(); transaction.record_undo(lambda relay=relay, old=old: self._restore_service_state(relay, old)); action = "put in service" if in_service else "taken out of service"; return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
+        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service(); self._network.invalidate_topology(); transaction.record_undo(lambda relay=relay, old=old: self._restore_service_state(relay, old)); action = "put in service" if in_service else "taken out of service"; return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
 
     def _ensure_no_protection_references(self, relay_id: str) -> None:
         provider = self._protection_configuration_provider

@@ -23,11 +23,11 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.")
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "draft.", "network.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
-        "model.create_line", "model.delete_line",
+        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_grid", "model.delete_grid", "model.create_generator", "model.delete_generator", "model.create_synchronous_machine", "model.delete_synchronous_machine", "model.create_load", "model.delete_load", "model.create_motor", "model.delete_motor", "model.create_shunt", "model.delete_shunt", "model.create_capacitor", "model.delete_capacitor", "model.create_reactor", "model.delete_reactor", "model.create_solar", "model.delete_solar", "model.create_battery", "model.delete_battery", "model.create_current_transformer", "model.delete_current_transformer", "model.create_capacitive_voltage_transformer", "model.delete_capacitive_voltage_transformer", "model.create_pt", "model.delete_pt", "model.create_relay", "model.delete_relay", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable",
         "model.create_switch", "model.update_switch", "model.delete_switch",
@@ -43,10 +43,9 @@ class RevisionService:
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
-    _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
+    _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
-        "model.update_transformer",
-        "model.update_breaker",
+        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_line", "model.update_cable", "model.update_transformer", "model.update_breaker",
         "model.update_switch",
         "model.update_disconnector",
         "model.update_fuse",
@@ -139,7 +138,7 @@ class RevisionService:
         return False
 
     @classmethod
-    def _next_for_command(cls, revision: ProjectRevision, command: Command) -> ProjectRevision:
+    def _next_for_command(cls, revision: ProjectRevision, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
         """Derive the next revision from the canonical Application mutation contract."""
         if not isinstance(revision, ProjectRevision):
             raise TypeError("revision must be a ProjectRevision")
@@ -150,9 +149,13 @@ class RevisionService:
             return revision
 
         model_revision = revision.model_revision + 1
-        topology_revision = revision.topology_revision + (
-            1 if cls.is_topology_command(command) else 0
-        )
+        if cls.is_topology_command(command):
+            if topology_revision is None:
+                topology_revision = revision.topology_revision + 1
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < revision.topology_revision:
+                raise ValueError("topology_revision must be a non-decreasing Core topology revision.")
+        else:
+            topology_revision = revision.topology_revision
         return ProjectRevision(
             model_revision=model_revision,
             topology_revision=topology_revision,
@@ -168,9 +171,9 @@ class RevisionService:
         self._redo.clear()
         return self._current
 
-    def record_command_success(self, command: Command) -> ProjectRevision:
-        """Record every successful Application mutation command as project-dirty."""
-        return self._record_transition(self._next_for_command(self._current, command))
+    def record_command_success(self, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
+        """Record a successful mutation using the committed Core topology revision when supplied."""
+        return self._record_transition(self._next_for_command(self._current, command, topology_revision=topology_revision))
 
     def record_presentation_change(self) -> ProjectRevision:
         """Record one successfully committed persistent SLD presentation command.
@@ -187,15 +190,18 @@ class RevisionService:
         )
         return self._record_transition(next_revision)
 
-    def record_undo(self) -> ProjectRevision:
-        """Restore the exact revision state represented by the latest undo transition."""
+    def record_undo(self, *, topology_revision: int | None = None) -> ProjectRevision:
+        """Restore model/presentation revision while adopting the actual Core topology revision."""
         if not self._undo:
             raise RuntimeError("No revision transition is available to undo.")
         transition = self._undo.pop()
         if transition.after != self._current:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
-        self._current = transition.before
-        self._redo.append(transition)
+        before = transition.before
+        if topology_revision is not None:
+            before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
+        self._current = before
+        self._redo.append(_RevisionTransition(before, transition.after))
         return self._current
 
     def record_redo(self) -> ProjectRevision:

@@ -3,6 +3,6 @@
 # GridForge V2 — Persistent Application Draft
 # Author: Subhendu Mishra
 # ============================================================
-from .network import DraftConnection, DraftEndpoint, DraftEquipment, DraftNetwork
+from .network import DraftConnection, DraftEndpointReference, DraftEquipment, DraftNetwork
 from .handlers import CommitNetworkHandler, DraftCommandHandlers
-__all__=["DraftConnection","DraftEndpoint","DraftEquipment","DraftNetwork","CommitNetworkHandler","DraftCommandHandlers"]
+__all__=["DraftEndpointReference","DraftConnection","DraftEquipment","DraftNetwork","CommitNetworkHandler","DraftCommandHandlers"]

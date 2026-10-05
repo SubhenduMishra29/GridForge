@@ -56,7 +56,7 @@ class BatteryModelService(ModelServiceSupport):
         if soc_min is not None: battery.soc_min = soc_min
         if soc_max is not None: battery.soc_max = soc_max
         if soc is not None: battery.soc = soc
-        if in_service is not None: battery.in_service = in_service
+        if in_service is not None: battery.in_service = in_service\n        if in_service is not None: self._network.invalidate_topology()
 
         def restore() -> None:
             battery.name = old["name"]
@@ -69,6 +69,7 @@ class BatteryModelService(ModelServiceSupport):
             battery.soc_max = old["soc_max"]
             battery.soc = old["soc"]
             battery.in_service = old["in_service"]
+            if in_service is not None: self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(battery, "battery", battery_id, f"Battery updated: {battery_id}")
@@ -91,7 +92,8 @@ class BatteryModelService(ModelServiceSupport):
         battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
         old = battery.in_service
         battery.in_service = in_service
-        transaction.record_undo(lambda battery=battery, old=old: setattr(battery, "in_service", old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda battery=battery, old=old: (setattr(battery, "in_service", old), self._network.invalidate_topology()))
         message = "put in service" if in_service else "taken out of service"
         return self._success(battery, "battery", battery_id, f"Battery {message}: {battery_id}")
 

@@ -188,6 +188,8 @@ class PowerFlowPreparation:
             raise ValueError("Power Flow preparation requires at least one bus.")
         buses = tuple(self.network.get_by_identity(bus_id) for bus_id in bus_ids)
         classification = self._prepare_bus_types(bus_ids)
+        if len(self.topology_snapshot.islands) > 1:
+            raise ValueError("Power Flow policy rejects multiple energized islands because PowerFlowInput requires exactly one slack bus.")
         voltage_bases = self._prepare_voltage_bases(buses)
 
         p_spec: list[float] = []

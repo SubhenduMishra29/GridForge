@@ -45,8 +45,8 @@ class GeneratorModelService(ModelServiceSupport):
         if p is not None and q is not None: generator.set_power(p,q)
         if V_setpoint is not None: generator.set_voltage_setpoint(V_setpoint)
         if q_limits is not None: generator.set_q_limits(q_limits[0],q_limits[1])
-        if in_service is not None: generator.put_in_service() if in_service else generator.take_out_of_service()
-        def restore(): generator.name=old["name"]; generator.set_power(old["p"],old["q"]); generator.set_voltage_setpoint(old["V_setpoint"]); generator.set_q_limits(old["q_limits"][0],old["q_limits"][1]); generator.put_in_service() if old["in_service"] else generator.take_out_of_service()
+        if in_service is not None: generator.put_in_service() if in_service else generator.take_out_of_service()\n        if in_service is not None: self._network.invalidate_topology()
+        def restore(): generator.name=old["name"]; generator.set_power(old["p"],old["q"]); generator.set_voltage_setpoint(old["V_setpoint"]); generator.set_q_limits(old["q_limits"][0],old["q_limits"][1]); generator.put_in_service() if old["in_service"] else generator.take_out_of_service(); self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(generator,"generator",generator_id,f"Generator updated: {generator_id}")
 
     def delete_generator(self, *, generator_id: str, transaction: Transaction) -> ApplicationResult[Generator]:

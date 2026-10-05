@@ -56,6 +56,7 @@ class MeasurementModelService(ModelServiceSupport):
         if frequency_hz is not None: ct.frequency_hz = frequency_hz
         if polarity is not None: ct.polarity = polarity
         if in_service is not None: ct.in_service = in_service
+        if in_service is not None: self._network.invalidate_topology()
         def restore() -> None:
             ct.name = old["name"]; ct.primary_rated_current_a = old["primary_rated_current_a"]; ct.secondary_rated_current_a = old["secondary_rated_current_a"]; ct.burden_va = old["burden_va"]; ct.accuracy_class = old["accuracy_class"]; ct.frequency_hz = old["frequency_hz"]; ct.polarity = old["polarity"]; ct.in_service = old["in_service"]
         transaction.record_undo(restore)
@@ -70,7 +71,7 @@ class MeasurementModelService(ModelServiceSupport):
     def take_current_transformer_out_of_service(self, *, ct_id: str, transaction: Transaction) -> ApplicationResult[CurrentTransformer]: return self._set_ct_service(ct_id=ct_id, in_service=False, transaction=transaction)
 
     def _set_ct_service(self, *, ct_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[CurrentTransformer]:
-        self._require_transaction(transaction); self._require_id(ct_id, "ct_id"); ct = self._get_required("ct", ct_id, "CurrentTransformer"); self._require_type(ct, CurrentTransformer, ct_id, "CurrentTransformer"); old = ct.in_service; ct.in_service = in_service; transaction.record_undo(lambda ct=ct, old=old: setattr(ct, "in_service", old)); state = "put in service" if in_service else "taken out of service"; return self._success(ct, "ct", ct_id, f"CurrentTransformer {state}: {ct_id}")
+        self._require_transaction(transaction); self._require_id(ct_id, "ct_id"); ct = self._get_required("ct", ct_id, "CurrentTransformer"); self._require_type(ct, CurrentTransformer, ct_id, "CurrentTransformer"); old = ct.in_service; ct.in_service = in_service; self._network.invalidate_topology(); transaction.record_undo(lambda ct=ct, old=old: (setattr(ct, "in_service", old), self._network.invalidate_topology())); state = "put in service" if in_service else "taken out of service"; return self._success(ct, "ct", ct_id, f"CurrentTransformer {state}: {ct_id}")
 
     def create_capacitive_voltage_transformer(self, *, cvt_id: str, name: str = "", rated_primary_voltage_kv: float = 220.0, rated_secondary_voltage_v: float = 110.0, accuracy_class: str = "0.5", rated_burden_va: float = 100.0, polarity: CVTPolarity | str = CVTPolarity.NORMAL, frequency_hz: float = 50.0, in_service: bool = True, h1_endpoint: Bus | Terminal | None = None, h2_endpoint: Bus | Terminal | None = None, x1_endpoint: Bus | Terminal | None = None, x2_endpoint: Bus | Terminal | None = None, transaction: Transaction) -> ApplicationResult[CapacitiveVoltageTransformer]:
         self._require_transaction(transaction); self._require_id(cvt_id, "cvt_id")
@@ -94,6 +95,7 @@ class MeasurementModelService(ModelServiceSupport):
         if polarity is not None: cvt.polarity = polarity
         if frequency_hz is not None: cvt.frequency_hz = frequency_hz
         if in_service is not None: cvt.in_service = in_service
+        if in_service is not None: self._network.invalidate_topology()
         def restore() -> None:
             cvt.name = old["name"]; cvt.rated_primary_voltage_kv = old["rated_primary_voltage_kv"]; cvt.rated_secondary_voltage_v = old["rated_secondary_voltage_v"]; cvt.accuracy_class = old["accuracy_class"]; cvt.rated_burden_va = old["rated_burden_va"]; cvt.polarity = old["polarity"]; cvt.frequency_hz = old["frequency_hz"]; cvt.in_service = old["in_service"]
         transaction.record_undo(restore); return self._success(cvt, "cvt", cvt_id, f"CapacitiveVoltageTransformer updated: {cvt_id}")
@@ -105,7 +107,7 @@ class MeasurementModelService(ModelServiceSupport):
     def take_capacitive_voltage_transformer_out_of_service(self, *, cvt_id: str, transaction: Transaction) -> ApplicationResult[CapacitiveVoltageTransformer]: return self._set_cvt_service(cvt_id=cvt_id, in_service=False, transaction=transaction)
 
     def _set_cvt_service(self, *, cvt_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[CapacitiveVoltageTransformer]:
-        self._require_transaction(transaction); self._require_id(cvt_id, "cvt_id"); cvt = self._get_required("cvt", cvt_id, "CapacitiveVoltageTransformer"); self._require_type(cvt, CapacitiveVoltageTransformer, cvt_id, "CapacitiveVoltageTransformer"); old = cvt.in_service; cvt.in_service = in_service; transaction.record_undo(lambda cvt=cvt, old=old: setattr(cvt, "in_service", old)); state = "put in service" if in_service else "taken out of service"; return self._success(cvt, "cvt", cvt_id, f"CapacitiveVoltageTransformer {state}: {cvt_id}")
+        self._require_transaction(transaction); self._require_id(cvt_id, "cvt_id"); cvt = self._get_required("cvt", cvt_id, "CapacitiveVoltageTransformer"); self._require_type(cvt, CapacitiveVoltageTransformer, cvt_id, "CapacitiveVoltageTransformer"); old = cvt.in_service; cvt.in_service = in_service; self._network.invalidate_topology(); transaction.record_undo(lambda cvt=cvt, old=old: (setattr(cvt, "in_service", old), self._network.invalidate_topology())); state = "put in service" if in_service else "taken out of service"; return self._success(cvt, "cvt", cvt_id, f"CapacitiveVoltageTransformer {state}: {cvt_id}")
 
 
 __all__ = ["MeasurementModelService"]

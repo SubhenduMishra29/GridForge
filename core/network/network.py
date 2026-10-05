@@ -121,7 +121,34 @@ class Network:
                     )
 
         self.connectivity.validate(self)
+        from .connectivity import ConnectivityResolver
+        resolver = ConnectivityResolver(self)
+        for element in self.registry._objects.values():
+            for terminal in getattr(element, "terminals", ()):
+                reference = self._reference_for_terminal(element, terminal.role)
+                buses = resolver.bus_ids_for_terminal(reference)
+                if len(buses) > 1:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' reaches multiple Bus endpoints: {buses!r}."
+                    )
+                physical = getattr(terminal.endpoint, "id", None)
+                if physical is not None and buses and str(physical) != buses[0]:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' has contradictory physical/Simple Wire Bus identities."
+                    )
         return True
+
+    @staticmethod
+    def _reference_for_terminal(element: Any, role: str):
+        from core.model.endpoint_reference import EndpointReference, EquipmentType
+        raw = str(getattr(element, "element_type", "")).strip().lower()
+        if raw == "electrical_object":
+            raw = type(element).__name__.strip().lower()
+        return EndpointReference.terminal(
+            equipment_type=EquipmentType(raw),
+            equipment_id=element.id,
+            terminal_role=role,
+        )
 
     def _invalidate_topology(self, *, bus_membership: bool = False) -> None:
         self.state.invalidate_topology()
@@ -149,34 +176,34 @@ class Network:
 
     def add_bus(self, bus: Any) -> None: self._add(self.registry.add_bus, bus, affects_topology=True, affects_bus_index=True)
     def remove_bus(self, bus: Any) -> None: self._remove(self.registry.remove_bus, bus, affects_topology=True, affects_bus_index=True)
-    def add_grid(self, grid: Any) -> None: self._add(self.registry.add_grid, grid)
-    def remove_grid(self, grid: Any) -> None: self._remove(self.registry.remove_grid, grid)
-    def add_generator(self, generator: Any) -> None: self._add(self.registry.add_generator, generator)
-    def remove_generator(self, generator: Any) -> None: self._remove(self.registry.remove_generator, generator)
-    def add_synchronous_machine(self, machine: Any) -> None: self._add(self.registry.add_synchronous_machine, machine)
-    def remove_synchronous_machine(self, machine: Any) -> None: self._remove(self.registry.remove_synchronous_machine, machine)
-    def add_load(self, load: Any) -> None: self._add(self.registry.add_load, load)
-    def remove_load(self, load: Any) -> None: self._remove(self.registry.remove_load, load)
-    def add_motor(self, motor: Any) -> None: self._add(self.registry.add_motor, motor)
-    def remove_motor(self, motor: Any) -> None: self._remove(self.registry.remove_motor, motor)
-    def add_shunt(self, shunt: Any) -> None: self._add(self.registry.add_shunt, shunt)
-    def remove_shunt(self, shunt: Any) -> None: self._remove(self.registry.remove_shunt, shunt)
-    def add_capacitor(self, capacitor: Any) -> None: self._add(self.registry.add_capacitor, capacitor)
-    def remove_capacitor(self, capacitor: Any) -> None: self._remove(self.registry.remove_capacitor, capacitor)
-    def add_reactor(self, reactor: Any) -> None: self._add(self.registry.add_reactor, reactor)
-    def remove_reactor(self, reactor: Any) -> None: self._remove(self.registry.remove_reactor, reactor)
-    def add_solar(self, solar: Any) -> None: self._add(self.registry.add_solar, solar)
-    def remove_solar(self, solar: Any) -> None: self._remove(self.registry.remove_solar, solar)
-    def add_battery(self, battery: Any) -> None: self._add(self.registry.add_battery, battery)
-    def remove_battery(self, battery: Any) -> None: self._remove(self.registry.remove_battery, battery)
-    def add_current_transformer(self, transformer: Any) -> None: self._add(self.registry.add_current_transformer, transformer)
-    def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer)
-    def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer)
-    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
-    def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer)
-    def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer)
-    def add_relay(self, relay: Any) -> None: self._add(self.registry.add_relay, relay)
-    def remove_relay(self, relay: Any) -> None: self._remove(self.registry.remove_relay, relay)
+    def add_grid(self, grid: Any) -> None: self._add(self.registry.add_grid, grid, affects_topology=True)
+    def remove_grid(self, grid: Any) -> None: self._remove(self.registry.remove_grid, grid, affects_topology=True)
+    def add_generator(self, generator: Any) -> None: self._add(self.registry.add_generator, generator, affects_topology=True)
+    def remove_generator(self, generator: Any) -> None: self._remove(self.registry.remove_generator, generator, affects_topology=True)
+    def add_synchronous_machine(self, machine: Any) -> None: self._add(self.registry.add_synchronous_machine, machine, affects_topology=True)
+    def remove_synchronous_machine(self, machine: Any) -> None: self._remove(self.registry.remove_synchronous_machine, machine, affects_topology=True)
+    def add_load(self, load: Any) -> None: self._add(self.registry.add_load, load, affects_topology=True)
+    def remove_load(self, load: Any) -> None: self._remove(self.registry.remove_load, load, affects_topology=True)
+    def add_motor(self, motor: Any) -> None: self._add(self.registry.add_motor, motor, affects_topology=True)
+    def remove_motor(self, motor: Any) -> None: self._remove(self.registry.remove_motor, motor, affects_topology=True)
+    def add_shunt(self, shunt: Any) -> None: self._add(self.registry.add_shunt, shunt, affects_topology=True)
+    def remove_shunt(self, shunt: Any) -> None: self._remove(self.registry.remove_shunt, shunt, affects_topology=True)
+    def add_capacitor(self, capacitor: Any) -> None: self._add(self.registry.add_capacitor, capacitor, affects_topology=True)
+    def remove_capacitor(self, capacitor: Any) -> None: self._remove(self.registry.remove_capacitor, capacitor, affects_topology=True)
+    def add_reactor(self, reactor: Any) -> None: self._add(self.registry.add_reactor, reactor, affects_topology=True)
+    def remove_reactor(self, reactor: Any) -> None: self._remove(self.registry.remove_reactor, reactor, affects_topology=True)
+    def add_solar(self, solar: Any) -> None: self._add(self.registry.add_solar, solar, affects_topology=True)
+    def remove_solar(self, solar: Any) -> None: self._remove(self.registry.remove_solar, solar, affects_topology=True)
+    def add_battery(self, battery: Any) -> None: self._add(self.registry.add_battery, battery, affects_topology=True)
+    def remove_battery(self, battery: Any) -> None: self._remove(self.registry.remove_battery, battery, affects_topology=True)
+    def add_current_transformer(self, transformer: Any) -> None: self._add(self.registry.add_current_transformer, transformer, affects_topology=True)
+    def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer, affects_topology=True)
+    def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer, affects_topology=True)
+    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer, affects_topology=True)
+    def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer, affects_topology=True)
+    def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer, affects_topology=True)
+    def add_relay(self, relay: Any) -> None: self._add(self.registry.add_relay, relay, affects_topology=True)
+    def remove_relay(self, relay: Any) -> None: self._remove(self.registry.remove_relay, relay, affects_topology=True)
     def add_line(self, line: Any) -> None: self._add(self.registry.add_line, line, affects_topology=True)
     def remove_line(self, line: Any) -> None: self._remove(self.registry.remove_line, line, affects_topology=True)
     def add_cable(self, cable: Any) -> None: self._add(self.registry.add_cable, cable, affects_topology=True)

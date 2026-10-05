@@ -515,6 +515,24 @@ class Application:
         performs the persistent presentation mutation requested by this hook;
         it never creates a second command/history boundary.
         """
+        revision_state = self._revision_service.snapshot_state()
+        context = self._command_manager.context
+        network = getattr(context, "network", None)
+        if command.command_type.startswith("sld."):
+            self._revision_service.record_presentation_change()
+        else:
+            topology_revision = None
+            if self._revision_service.is_topology_command(command) and network is not None:
+                topology_revision = int(network.state.topology_revision)
+            self._revision_service.record_command_success(command, topology_revision=topology_revision)
+        transaction.record_undo(
+            lambda state=revision_state, tx=transaction: (
+                self._revision_service.restore_state(state)
+                if not tx.committed
+                else None
+            )
+        )
+
         command_type = command.command_type
         if command_type == "network.commit_draft":
             if self._sld_service is not None:
@@ -538,8 +556,8 @@ class Application:
                         self._sld_service.execute(RemoveSLDConnectionCommand(connection_id=connection_id), transaction)
                     self._sld_service.execute(AddSLDConnectionCommand(
                         connection_id=connection_id,
-                        source_node_id=f"sld-draft-{item['source_draft_id']}",
-                        target_node_id=f"sld-draft-{item['target_draft_id']}",
+                        source_node_id=(f"sld-draft-{item['source_draft_id']}" if item.get("source_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_a"])),
+                        target_node_id=(f"sld-draft-{item['target_draft_id']}" if item.get("target_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_b"])),
                         source_endpoint=item["endpoint_a"], target_endpoint=item["endpoint_b"],
                         connection_kind="SIMPLE_WIRE", presentation_owner="projection",
                         projection_source="network.commit_draft",
@@ -678,6 +696,15 @@ class Application:
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
+
+    def _sld_node_id_for_endpoint_mapping(self, mapping: Any) -> str:
+        if self._sld_service is None:
+            raise RuntimeError("SLD service is required for endpoint projection.")
+        object_id = str(mapping.get("object_id") or "")
+        node = self._sld_service.document.model.get_node_by_equipment_id_optional(object_id)
+        if node is None:
+            raise ValueError(f"No SLD presentation node exists for committed endpoint object {object_id!r}.")
+        return node.node_id
 
     def _new_sld_node_id(self) -> str:
         """Generate an independent persistent SLD identity.
@@ -859,10 +886,7 @@ class Application:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
         if result.success:
-            if command.command_type.startswith("sld."): self._revision_service.record_presentation_change()
-            else:
-                self._revision_service.record_command_success(command)
-                if self._validation_service is not None:
+            if self._validation_service is not None:
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
             self._publish_semantic_events(command, result, operation="execute")
@@ -888,7 +912,10 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.undo()
         if result is not None and result.success:
-            self._revision_service.record_undo()
+            network = getattr(self._command_manager.context, "network", None)
+            self._revision_service.record_undo(
+                topology_revision=int(network.state.topology_revision) if network is not None else None
+            )
             if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
@@ -900,7 +927,6 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
-            self._revision_service.record_redo()
             if self._validation_service is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))

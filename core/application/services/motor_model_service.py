@@ -52,6 +52,7 @@ class MotorModelService(ModelServiceSupport):
             if slip is not None: motor.set_slip(slip)
             if starting_current_pu is not None: motor.set_starting_current(starting_current_pu)
             if in_service is not None: motor.put_in_service() if in_service else motor.take_out_of_service()
+            if in_service is not None: self._network.invalidate_topology()
             if running is not None:
                 if running and not motor.in_service: raise DomainError(code="MOTOR_CANNOT_RUN_OUT_OF_SERVICE", message="Motor cannot be running while out of service.", details={"motor_id": motor_id})
                 motor.start() if running else motor.stop()
@@ -60,7 +61,7 @@ class MotorModelService(ModelServiceSupport):
             motor.rated_mva = old["rated_mva"]; motor.rated_kv = old["rated_kv"]; motor.power_factor = old["power_factor"]; motor.p = old["p"]; motor.q = old["q"]; motor.efficiency = old["efficiency"]; motor.slip = old["slip"]; motor.starting_current_pu = old["starting_current_pu"]; motor.running = old["running"]; motor.in_service = old["in_service"]; motor.name = old["name"]
             raise
         def restore() -> None:
-            motor.rated_mva = old["rated_mva"]; motor.rated_kv = old["rated_kv"]; motor.power_factor = old["power_factor"]; motor.p = old["p"]; motor.q = old["q"]; motor.efficiency = old["efficiency"]; motor.slip = old["slip"]; motor.starting_current_pu = old["starting_current_pu"]; motor.running = old["running"]; motor.in_service = old["in_service"]; motor.name = old["name"]; motor.validate_parameters()
+            motor.rated_mva = old["rated_mva"]; motor.rated_kv = old["rated_kv"]; motor.power_factor = old["power_factor"]; motor.p = old["p"]; motor.q = old["q"]; motor.efficiency = old["efficiency"]; motor.slip = old["slip"]; motor.starting_current_pu = old["starting_current_pu"]; motor.running = old["running"]; motor.in_service = old["in_service"]; motor.name = old["name"]; self._network.invalidate_topology() motor.validate_parameters()
         transaction.record_undo(restore); return self._success(motor, "motor", motor_id, f"Motor updated: {motor_id}")
 
     def delete_motor(self, *, motor_id: str, transaction: Transaction) -> ApplicationResult[Motor]:

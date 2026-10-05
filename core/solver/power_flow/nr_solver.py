@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/solver/power_flow/nr_solver.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 """Numerical-only Newton-Raphson AC power-flow solver."""
 
 from __future__ import annotations
@@ -49,7 +55,7 @@ class NewtonRaphsonSolver:
         else:
             vm = tuple(float(x) for x in self.runtime_state.vm)
             va = tuple(float(x) for x in self.runtime_state.va)
-        return PowerFlowResult(success=success, iterations=iterations, error=float(error), pv_to_pq=tuple(self._converted_pv), history=tuple(self.history), message=message, voltage_magnitudes=vm, voltage_angles=va)
+        return PowerFlowResult(success=success, iterations=iterations, error=float(error), pv_to_pq=tuple(self._converted_pv), history=tuple(self.history), message=message, voltage_magnitudes=vm, voltage_angles=va, bus_ids=tuple(self.input.bus_ids))
 
     def solve(self) -> PowerFlowResult:
         self.options.validate()
