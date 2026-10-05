@@ -66,6 +66,11 @@ class WorkspaceRealizer:
         return self._realized_layout
 
     @property
+    def realized_workspace_id(self) -> str | None:
+        """Workspace identity of the currently realized layout."""
+        return self._realized_workspace_id
+
+    @property
     def focused_area_id(self) -> str | None:
         return self._focused_area_id
 
@@ -104,7 +109,11 @@ class WorkspaceRealizer:
         if not layout.areas:
             raise WorkspaceRealizationError("Workspace layout contains no Areas.")
 
+        if workspace_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
+            raise WorkspaceRealizationError("Workspace realization requires a non-empty workspace_id.")
         previous = self._realized_layout
+        previous_workspace_id = self._realized_workspace_id
+        previous_focused_area_id = self._focused_area_id
         try:
             self._realize_areas(
                 layout,
@@ -115,10 +124,13 @@ class WorkspaceRealizer:
                 try:
                     self._realize_areas(
                         previous,
-                        workspace_id=workspace_id,
+                        workspace_id=previous_workspace_id,
                     )
                 except BaseException as restore_exc:
-                    raise WorkspaceRealizationError(
+                    self._realized_layout = previous
+                self._realized_workspace_id = previous_workspace_id
+                self._focused_area_id = previous_focused_area_id
+                raise WorkspaceRealizationError(
                         "Workspace realization failed and previous editor state could not be restored."
                     ) from restore_exc
             raise
@@ -173,7 +185,7 @@ class WorkspaceRealizer:
         context = (
             self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
             if self._context_factory is not None
-            else EditorContext(workspace=None, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
         )
         activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id
