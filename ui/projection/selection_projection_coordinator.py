@@ -108,6 +108,11 @@ class SelectionProjectionCoordinator:
 
         element = self._read_selected_element(object_id)
         if element is None:
+            # A committed Core object can disappear during undo. Do not leave
+            # a stale Core identity selected after the authoritative read model
+            # has reconciled. SelectionManager remains the sole selection
+            # authority; this coordinator only reconciles its transient state.
+            self.selection_manager.clear()
             self.clear_projection()
             return
 
