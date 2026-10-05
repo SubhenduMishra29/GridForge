@@ -102,13 +102,37 @@ class SLDService:
         changed = False
         for connection in self.document.model.connections:
             kind = str(connection.properties.get("connection_kind", "")).upper()
+            lifecycle = str(connection.properties.get("lifecycle_state", "BOUND")).upper()
             core_id = connection.properties.get("core_connection_id")
+
             if kind != "SIMPLE_WIRE" and not core_id:
                 continue
             if kind != "SIMPLE_WIRE":
                 raise ValueError(
                     f"SLD connection {connection.connection_id!r} has Core connection mapping but kind {kind!r}, expected SIMPLE_WIRE."
                 )
+
+            # An engineer-owned presentation intentionally survives Core
+            # deletion as a document artifact. It is not an active companion
+            # and therefore must never participate in Core-ID reconciliation.
+            if lifecycle == "ORPHANED":
+                if connection.properties.get("presentation_owner") != "engineer":
+                    raise ValueError(
+                        f"SLD Simple Wire {connection.connection_id!r} is ORPHANED "
+                        "but is not engineer-owned."
+                    )
+                if core_id is not None:
+                    raise ValueError(
+                        f"ORPHANED SLD Simple Wire {connection.connection_id!r} "
+                        "must not retain an active Core connection binding."
+                    )
+                continue
+
+            if lifecycle != "BOUND":
+                raise ValueError(
+                    f"SLD Simple Wire {connection.connection_id!r} has unsupported lifecycle state {lifecycle!r}."
+                )
+
             if not core_id and str(connection.connection_id).startswith("sld-wire-"):
                 # Deterministic legacy migration is centralized here; UI never
                 # reconstructs Core identity from a presentation string.
@@ -564,11 +588,18 @@ class SLDService:
         connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
             # Core Simple Wire identity and persistent SLD presentation identity
-            # are distinct. Resolve the companion through its persisted mapping.
+            # are distinct. Resolve the active companion through its persisted
+            # Core mapping, or resolve an already-orphaned authored presentation
+            # through its non-authoritative deletion provenance so redo can record
+            # the same SLD inverse without resurrecting a Core binding.
             candidates = tuple(
                 item
                 for item in self.document.model.connections
                 if item.properties.get("core_connection_id") == connection_id
+                or (
+                    str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+                    and item.properties.get("orphaned_from_core_connection_id") == connection_id
+                )
             )
             if len(candidates) > 1:
                 raise ValueError(
@@ -587,6 +618,10 @@ class SLDService:
         connection.source_endpoint = None
         connection.target_endpoint = None
         connection.properties.pop("projection_source", None)
+        # Core deletion severs the binding. The authored SLD presentation
+        # remains, but its old Core ID is no longer authoritative identity.
+        connection.properties.pop("core_connection_id", None)
+        connection.properties["orphaned_from_core_connection_id"] = connection_id
         connection.properties["lifecycle_state"] = "ORPHANED"
         self.document.mark_modified()
         transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
