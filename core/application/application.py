@@ -595,7 +595,7 @@ class Application:
                 for item in tuple(result.metadata.get("committed_connections", ())):
                     connection_id = str(
                         item.get("sld_connection_id")
-                        or f"sld-wire-{item['connection_id']}"
+                        or self._sld_service.presentation_connection_id(str(item["connection_id"]))
                     )
                     existing = self._sld_service.document.model.get_connection_optional(connection_id)
                     if existing is not None:
