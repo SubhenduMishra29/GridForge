@@ -114,6 +114,7 @@ class SelectionProjectionCoordinator:
 
         wire = self._read_selected_simple_wire(object_id)
         if wire is not None:
+            presentation = self._read_selected_wire_presentation(wire.connection_id)
             state = ProjectionState(
                 object_id=wire.connection_id,
                 display_type="SIMPLE_WIRE",
@@ -121,8 +122,12 @@ class SelectionProjectionCoordinator:
                 connectivity_refs=(wire.connection_id,),
                 status="committed",
                 identity_kind="simple_wire",
+                presentation_id=(presentation.get("presentation_id") if presentation else None),
+                connection_kind=(presentation.get("connection_kind") if presentation else wire.kind),
                 endpoint_a=wire.endpoint_a,
                 endpoint_b=wire.endpoint_b,
+                route_ownership=(presentation.get("route_ownership") if presentation else None),
+                route_points=(presentation.get("route_points") if presentation else ()),
             )
             self._set_panel_target(state)
             return
@@ -202,6 +207,28 @@ class SelectionProjectionCoordinator:
             return self.application.read_simple_wire(object_id)
         except (KeyError, RuntimeError, ValueError):
             return None
+
+    def _read_selected_wire_presentation(self, connection_id: str) -> dict[str, Any] | None:
+        if self.application is None:
+            return None
+        document = getattr(getattr(self.application, "presentation", None), "model", None)
+        if document is None:
+            return None
+        matches = tuple(
+            connection
+            for connection in getattr(document, "connections", ())
+            if str(getattr(connection, "properties", {}).get("core_connection_id", "")) == connection_id
+        )
+        if len(matches) != 1:
+            return None
+        connection = matches[0]
+        route = getattr(connection, "route", None)
+        return {
+            "presentation_id": str(connection.connection_id),
+            "connection_kind": str(connection.properties.get("connection_kind", "SIMPLE_WIRE")),
+            "route_ownership": getattr(route, "ownership", None),
+            "route_points": tuple(getattr(route, "points", ()) or ()),
+        }
 
     def _read_selected_element(self, object_id: Any) -> Any | None:
         if self.application is None:
