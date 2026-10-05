@@ -420,10 +420,24 @@ class SLDService:
         """Remove or orphan a Core-bound SLD connection by route ownership."""
         connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
+            # Core Simple Wire identity and persistent SLD presentation identity
+            # are distinct. Resolve the companion through its persisted mapping.
+            candidates = tuple(
+                item
+                for item in self.document.model.connections
+                if item.properties.get("core_connection_id") == connection_id
+            )
+            if len(candidates) > 1:
+                raise ValueError(
+                    f"Multiple SLD connection companions map to Core connection {connection_id!r}."
+                )
+            connection = candidates[0] if candidates else None
+        if connection is None:
             return "REMOVED"
+        presentation_id = connection.connection_id
         snapshot = connection.to_dict()
         if not self.has_engineer_presentation_overrides_for_connection(connection):
-            self.document.model.remove_connection(connection_id)
+            self.document.model.remove_connection(presentation_id)
             self.document.mark_modified()
             transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
             return "REMOVED"
