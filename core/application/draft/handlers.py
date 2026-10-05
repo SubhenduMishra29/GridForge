@@ -5,7 +5,6 @@
 # ============================================================
 from __future__ import annotations
 
-from uuid import uuid4
 from core.model import EndpointReference, EquipmentType
 from ..creation import CreationCommitIntent, CreationCommandPreparer
 from ..results import ApplicationResult
@@ -72,7 +71,7 @@ class CommitNetworkHandler:
         errors=draft.validate(getattr(context, "network", None))
         if errors: raise ValueError("Draft validation failed: "+"; ".join(errors))
         snapshot=DraftNetwork.from_dict(draft.to_dict(), project_id=draft.project_id, activation_generation=draft.activation_generation)
-        model=ModelService(context.network); core_ids={item.draft_id:f"{item.equipment_type}-{uuid4().hex}" for item in snapshot.equipment}; created=[]
+        model=ModelService(context.network); core_ids={item.draft_id:f"{item.equipment_type}-{item.draft_id}" for item in snapshot.equipment}; created=[]
         from ..command_handlers import ModelCommandHandlers
         model_handlers=ModelCommandHandlers(model).handlers()
         for item in snapshot.equipment:
