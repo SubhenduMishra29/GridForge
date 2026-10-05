@@ -34,7 +34,14 @@ class DraftCommandHandlers:
         transaction.record_undo(lambda: draft.update_equipment(before.draft_id, display_name=before.display_name, engineering_data=dict(before.engineering_data), endpoints=dict(before.endpoints), placement=before.placement, presentation=dict(before.presentation), validation_state=dict(before.validation_state)))
         return ApplicationResult.success_result(message=f"Draft equipment {item.draft_id} updated.", metadata={"draft_id":item.draft_id})
     def remove_equipment(self, command, context, transaction):
-        draft=self._draft(); item=draft.remove_equipment(str(command.payload["draft_id"])); transaction.record_undo(lambda:draft.add_equipment(item))
+        draft=self._draft(); draft_id=str(command.payload["draft_id"])
+        item=draft.require_equipment(draft_id)
+        incident=tuple(connection for connection in draft.connections if connection.source.object_id == draft_id or connection.target.object_id == draft_id)
+        draft.remove_equipment(draft_id)
+        def restore():
+            draft.add_equipment(item)
+            for connection in incident: draft.add_connection(connection)
+        transaction.record_undo(restore)
         return ApplicationResult.success_result(message=f"Draft equipment {item.draft_id} removed.", metadata={"draft_id":item.draft_id})
     def add_connection(self, command, context, transaction):
         draft=self._draft(); item=DraftConnection.from_dict(command.payload["connection"]); draft.add_connection(item); transaction.record_undo(lambda:draft.remove_connection(item.connection_id))
