@@ -104,9 +104,15 @@ class SLDService:
             if str(connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
                 continue
             core_id = connection.properties.get("core_connection_id")
+            if not core_id and str(connection.connection_id).startswith("sld-wire-"):
+                # Deterministic legacy migration is centralized here; UI never
+                # reconstructs Core identity from a presentation string.
+                core_id = str(connection.connection_id)[len("sld-wire-"):]
+                connection.properties["core_connection_id"] = core_id
+                changed = True
             if not core_id:
                 raise ValueError(
-                    f"SLD Simple Wire {connection.connection_id!r} has no persisted core_connection_id mapping."
+                    f"SLD Simple Wire {connection.connection_id!r} has no Core connection mapping."
                 )
             core_id = str(core_id)
             if core_id in companions:
