@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/electrical_boundary.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from dataclasses import dataclass
