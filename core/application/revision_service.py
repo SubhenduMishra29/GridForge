@@ -138,7 +138,7 @@ class RevisionService:
         return False
 
     @classmethod
-    def _next_for_command(cls, revision: ProjectRevision, command: Command) -> ProjectRevision:
+    def _next_for_command(cls, revision: ProjectRevision, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
         """Derive the next revision from the canonical Application mutation contract."""
         if not isinstance(revision, ProjectRevision):
             raise TypeError("revision must be a ProjectRevision")
@@ -149,9 +149,13 @@ class RevisionService:
             return revision
 
         model_revision = revision.model_revision + 1
-        topology_revision = revision.topology_revision + (
-            1 if cls.is_topology_command(command) else 0
-        )
+        if cls.is_topology_command(command):
+            if topology_revision is None:
+                topology_revision = revision.topology_revision + 1
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < revision.topology_revision:
+                raise ValueError("topology_revision must be a non-decreasing Core topology revision.")
+        else:
+            topology_revision = revision.topology_revision
         return ProjectRevision(
             model_revision=model_revision,
             topology_revision=topology_revision,
@@ -167,9 +171,9 @@ class RevisionService:
         self._redo.clear()
         return self._current
 
-    def record_command_success(self, command: Command) -> ProjectRevision:
-        """Record every successful Application mutation command as project-dirty."""
-        return self._record_transition(self._next_for_command(self._current, command))
+    def record_command_success(self, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
+        """Record a successful mutation using the committed Core topology revision when supplied."""
+        return self._record_transition(self._next_for_command(self._current, command, topology_revision=topology_revision))
 
     def record_presentation_change(self) -> ProjectRevision:
         """Record one successfully committed persistent SLD presentation command.
@@ -186,15 +190,18 @@ class RevisionService:
         )
         return self._record_transition(next_revision)
 
-    def record_undo(self) -> ProjectRevision:
-        """Restore the exact revision state represented by the latest undo transition."""
+    def record_undo(self, *, topology_revision: int | None = None) -> ProjectRevision:
+        """Restore model/presentation revision while adopting the actual Core topology revision."""
         if not self._undo:
             raise RuntimeError("No revision transition is available to undo.")
         transition = self._undo.pop()
         if transition.after != self._current:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
-        self._current = transition.before
-        self._redo.append(transition)
+        before = transition.before
+        if topology_revision is not None:
+            before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
+        self._current = before
+        self._redo.append(_RevisionTransition(before, transition.after))
         return self._current
 
     def record_redo(self) -> ProjectRevision:
