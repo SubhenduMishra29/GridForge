@@ -62,8 +62,7 @@ class CommitNetworkHandler:
             return EndpointReference.bus(ref.object_id, ref.attachment_id or "")
         try: equipment_type = EquipmentType(ref.equipment_type or "")
         except ValueError as exc: raise ValueError(f"Unsupported draft endpoint equipment type: {ref.equipment_type!r}") from exc
-        try: core_id = core_id_map[ref.object_id]
-        except KeyError as exc: raise ValueError(f"No committed Core identity exists for draft equipment {ref.object_id!r}.") from exc
+        core_id = core_id_map.get(ref.object_id, ref.object_id)
         return EndpointReference.terminal(equipment_type=equipment_type, equipment_id=core_id, terminal_role=ref.terminal_role or "")
 
     def __call__(self, command, context, transaction):
