@@ -83,13 +83,16 @@ class MenuPlugin(QObject):
                 self._menus[spec.menu_id] = menu
                 for action_spec in spec.actions:
                     router.require(action_spec.action_id)
+                    definition = router.definition(action_spec.action_id)
                     if action_spec.separator_before:
                         menu.addSeparator()
-                    action = QAction(action_spec.text, self)
+                    action = QAction(definition.title, self)
                     action.setObjectName(action_spec.action_id)
+                    action.setToolTip(definition.description)
+                    action.setStatusTip(definition.description)
                     action.setEnabled(router.is_enabled(action_spec.action_id))
-                    if action_spec.shortcut:
-                        action.setShortcut(action_spec.shortcut)
+                    if definition.shortcut:
+                        action.setShortcut(definition.shortcut)
                     action.triggered.connect(lambda _checked=False, action_id=action_spec.action_id: router.dispatch(action_id))
                     menu.addAction(action)
                     self._actions[action_spec.action_id] = action
@@ -154,10 +157,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.zoom_out", "Zoom Out"),
             a("view.pan", "Pan"),
         )),
-        MenuSpec("project", "Project", (
-            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter"),
-        )),
-        MenuSpec("engineering", "Engineering", (
+        MenuSpec("workspace", "Workspace", (
             a("view.sld_workspace", "SLD"),
             a("view.control_workspace", "Control"),
             a("view.protection_workspace", "Protection"),
@@ -165,6 +165,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.map", "Map"),
             a("view.reports", "Reports"),
             a("view.equipment_browser", "Equipment Browser", None, True),
+            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("study", "Study", (
             a("study.cases", "Study Cases"),
@@ -174,7 +175,6 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("tool.bus", "Bus"),
             a("tool.wire", "Simple Wired Connection"),
         )),
-        MenuSpec("window", "Window", ()),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
         )),

@@ -1,25 +1,22 @@
-# ============================================================
-# File: ui/editors/common/tool_shelf.py
-# GridForge V2 — Contextual Tool Shelf
-# Author: Subhendu Mishra
-# ============================================================
-"""Metadata-driven Qt realization of ToolDefinition items."""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from typing import Any
+
 from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget
+from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
 
 
 class ToolShelf(QWidget):
-    """Present contextual ToolDefinitions and route activation to a runtime owner."""
+    """Presentation surface over canonical ToolDefinitions and ActionRouter."""
 
     def __init__(
         self,
         *,
         definitions: Iterable[ToolDefinition] = (),
         activate: Callable[[str], object] | None = None,
+        action_router: UIActionRouter | None = None,
         editor_type: str | None = None,
         icon_provider: Callable[[str], QIcon | None] | None = None,
         active_tool_provider: Callable[[], str | None] | None = None,
@@ -27,6 +24,7 @@ class ToolShelf(QWidget):
     ) -> None:
         super().__init__(parent)
         self._activate = activate
+        self._action_router = action_router
         self._editor_type = editor_type
         self._icon_provider = icon_provider
         self._active_tool_provider = active_tool_provider
@@ -35,11 +33,18 @@ class ToolShelf(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(2, 2, 2, 2)
         self.setObjectName("GridForgeToolShelf")
+        self.set_action_router(action_router)
         self.set_definitions(definitions)
 
     @property
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(self._definitions.values())
+
+    def set_action_router(self, router: UIActionRouter | None) -> None:
+        if router is not None and not isinstance(router, UIActionRouter):
+            raise TypeError("action_router must be a UIActionRouter or None.")
+        self._action_router = router
+        self.refresh_runtime_state()
 
     def set_activate_handler(self, activate: Callable[[str], object] | None) -> None:
         self._activate = activate
@@ -49,16 +54,25 @@ class ToolShelf(QWidget):
         self.refresh_runtime_state()
 
     def refresh_runtime_state(self) -> None:
-        """Project the discipline runtime active-tool identity into the shelf."""
         tool_id = self._active_tool_provider() if self._active_tool_provider is not None else None
         self.set_active_tool(tool_id)
+        router = self._action_router
+        for definition in self._definitions.values():
+            action_id = f"tool.{definition.tool_id}"
+            button = self._buttons.get(definition.tool_id)
+            if button is not None and router is not None and router.has(action_id):
+                button.setEnabled(router.is_enabled(action_id))
 
     def set_definitions(self, definitions: Iterable[ToolDefinition]) -> None:
         values = tuple(definitions)
         for definition in values:
             if not isinstance(definition, ToolDefinition):
                 raise TypeError("ToolShelf definitions must contain ToolDefinition objects.")
-        self._definitions = {definition.tool_id: definition for definition in values if self._editor_type is None or definition.supports_editor(self._editor_type)}
+        self._definitions = {
+            definition.tool_id: definition
+            for definition in values
+            if self._editor_type is None or definition.supports_editor(self._editor_type)
+        }
         self._rebuild()
 
     def _rebuild(self) -> None:
@@ -83,9 +97,14 @@ class ToolShelf(QWidget):
             self._layout.addWidget(button)
             self._buttons[definition.tool_id] = button
         self._layout.addStretch(1)
+        self.refresh_runtime_state()
 
     def _activate_tool(self, tool_id: str) -> None:
-        if self._activate is not None:
+        action_router = self._action_router
+        action_id = f"tool.{tool_id}"
+        if action_router is not None and action_router.has(action_id):
+            action_router.dispatch(action_id)
+        elif self._activate is not None:
             self._activate(tool_id)
         self.refresh_runtime_state()
 
@@ -116,5 +135,6 @@ class ToolSettingsPanel(QWidget):
             return
         for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):
             self._form.addRow(QLabel(str(key), self), QLabel(str(value), self))
+
 
 __all__ = ["ToolShelf", "ToolSettingsPanel"]

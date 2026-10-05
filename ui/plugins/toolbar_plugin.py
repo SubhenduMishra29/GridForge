@@ -631,44 +631,28 @@ class ToolbarPlugin(QObject):
         if spec.tool_id is not None:
             self._validate_tool_id(spec.tool_id)
 
+        router = self._context.action_router if self._context is not None else None
+        if not isinstance(router, UIActionRouter):
+            raise RuntimeError("ToolbarPlugin requires the canonical UIActionRouter.")
+        definition = router.definition(spec.action_id)
+
         if spec.separator_before:
             self._toolbar.addSeparator()
 
         action = QAction(self)
+        action.setObjectName(spec.action_id)
+        action.setText(definition.title)
+        action.setEnabled(router.is_enabled(spec.action_id))
+        action.setCheckable(definition.checkable or spec.checkable)
 
-        action.setObjectName(
-            spec.action_id
-        )
+        if action.isCheckable():
+            action.setChecked(definition.checked or spec.checked)
 
-        action.setText(
-            spec.text
-        )
+        action.setToolTip(definition.description)
+        action.setStatusTip(definition.description)
 
-        action.setEnabled(
-            spec.enabled
-        )
-
-        action.setCheckable(
-            spec.checkable
-        )
-
-        if spec.checkable:
-            action.setChecked(
-                spec.checked
-            )
-
-        if spec.tooltip is not None:
-            action.setToolTip(
-                spec.tooltip
-            )
-            action.setStatusTip(
-                spec.tooltip
-            )
-
-        if spec.shortcut is not None:
-            action.setShortcut(
-                spec.shortcut
-            )
+        if definition.shortcut:
+            action.setShortcut(definition.shortcut)
 
         if spec.icon is not None:
             action.setIcon(
