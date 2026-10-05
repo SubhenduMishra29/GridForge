@@ -46,12 +46,13 @@ class SynchronousMachineModelService(ModelServiceSupport):
             if rated_power_mva is not None: machine.rated_power_mva = rated_power_mva
             if rated_voltage_kv is not None: machine.rated_voltage_kv = rated_voltage_kv
             if frequency_hz is not None: machine.frequency_hz = frequency_hz
-            if in_service is not None: machine.put_in_service() if in_service else machine.take_out_of_service()
+            if in_service is not None: machine.put_in_service() if in_service else machine.take_out_of_service()\n            if in_service is not None: self._network.invalidate_topology()
             machine.validate_parameters()
         except Exception:
             machine.name = old["name"]; machine.active_power_injection_mw = old["active_power_injection_mw"]; machine.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; machine.rated_power_mva = old["rated_power_mva"]; machine.rated_voltage_kv = old["rated_voltage_kv"]; machine.frequency_hz = old["frequency_hz"]; machine.in_service = old["in_service"]; raise
         def restore() -> None:
             machine.name = old["name"]; machine.active_power_injection_mw = old["active_power_injection_mw"]; machine.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; machine.rated_power_mva = old["rated_power_mva"]; machine.rated_voltage_kv = old["rated_voltage_kv"]; machine.frequency_hz = old["frequency_hz"]; machine.in_service = old["in_service"]; machine.validate_parameters()
+            if in_service is not None: self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(machine, "synchronous_machine", synchronous_machine_id, f"SynchronousMachine updated: {synchronous_machine_id}")
 
     def delete_synchronous_machine(self, *, synchronous_machine_id: str, transaction: Transaction) -> ApplicationResult[SynchronousMachine]:
