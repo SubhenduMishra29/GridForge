@@ -545,8 +545,8 @@ class Application:
                         self._sld_service.execute(RemoveSLDConnectionCommand(connection_id=connection_id), transaction)
                     self._sld_service.execute(AddSLDConnectionCommand(
                         connection_id=connection_id,
-                        source_node_id=f"sld-draft-{item['source_draft_id']}",
-                        target_node_id=f"sld-draft-{item['target_draft_id']}",
+                        source_node_id=(f"sld-draft-{item['source_draft_id']}" if item.get("source_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_a"])),
+                        target_node_id=(f"sld-draft-{item['target_draft_id']}" if item.get("target_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_b"])),
                         source_endpoint=item["endpoint_a"], target_endpoint=item["endpoint_b"],
                         connection_kind="SIMPLE_WIRE", presentation_owner="projection",
                         projection_source="network.commit_draft",
@@ -685,6 +685,15 @@ class Application:
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
+
+    def _sld_node_id_for_endpoint_mapping(self, mapping: Any) -> str:
+        if self._sld_service is None:
+            raise RuntimeError("SLD service is required for endpoint projection.")
+        object_id = str(mapping.get("object_id") or "")
+        node = self._sld_service.document.model.get_node_by_equipment_id_optional(object_id)
+        if node is None:
+            raise ValueError(f"No SLD presentation node exists for committed endpoint object {object_id!r}.")
+        return node.node_id
 
     def _new_sld_node_id(self) -> str:
         """Generate an independent persistent SLD identity.
