@@ -88,13 +88,16 @@ class LoadModelService(ModelServiceSupport):
         if q is not None:
             load.q = q
         if in_service is not None:
-            load.set_in_service(in_service)
+            load.set_in_service(in_service)\n        if in_service is not None:
+            self._network.invalidate_topology()
 
         def restore() -> None:
             load.name = old["name"]
             load.p = old["p"]
             load.q = old["q"]
             load.set_in_service(old["in_service"])
+            if in_service is not None:
+                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(load, "load", load_id, f"Load updated: {load_id}")
