@@ -74,6 +74,7 @@ endpoints into authoritative electrical topology.
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
+from types import MappingProxyType
 
 if TYPE_CHECKING:
     from .base import ElectricalObject
@@ -102,6 +103,33 @@ class Terminal:
     CVT_PRIMARY_2_ROLE = "H2"
     CVT_SECONDARY_1_ROLE = "X1"
     CVT_SECONDARY_2_ROLE = "X2"
+
+    # Immutable Core vocabulary exposed to Application as a type-level
+    # contract.  No live Terminal instances are retained here.
+    ROLE_CONTRACT_BY_TYPE = MappingProxyType({
+        "bus": (BUS_ROLE,),
+        "line": (BRANCH_FROM_ROLE, BRANCH_TO_ROLE),
+        "cable": (BRANCH_FROM_ROLE, BRANCH_TO_ROLE),
+        "transformer": (BRANCH_FROM_ROLE, BRANCH_TO_ROLE),
+        "switch": (SWITCHING_FROM_ROLE, SWITCHING_TO_ROLE),
+        "breaker": (SWITCHING_FROM_ROLE, SWITCHING_TO_ROLE),
+        "disconnector": (SWITCHING_FROM_ROLE, SWITCHING_TO_ROLE),
+        "fuse": (SWITCHING_FROM_ROLE, SWITCHING_TO_ROLE),
+        "load": (SINGLE_ROLE,),
+        "generator": (SINGLE_ROLE,),
+        "synchronous_machine": (SINGLE_ROLE,),
+        "motor": (SINGLE_ROLE,),
+        "shunt": (SINGLE_ROLE,),
+        "capacitor": (SINGLE_ROLE,),
+        "reactor": (SINGLE_ROLE,),
+        "solar": (SINGLE_ROLE,),
+        "battery": (SINGLE_ROLE,),
+        "grid": (SINGLE_ROLE,),
+        "current_transformer": (CT_PRIMARY_1_ROLE, CT_PRIMARY_2_ROLE, CT_SECONDARY_1_ROLE, CT_SECONDARY_2_ROLE),
+        "potential_transformer": (PT_PRIMARY_A_ROLE, PT_PRIMARY_B_ROLE, PT_SECONDARY_A_ROLE, PT_SECONDARY_B_ROLE),
+        "cvt": (CVT_PRIMARY_1_ROLE, CVT_PRIMARY_2_ROLE, CVT_SECONDARY_1_ROLE, CVT_SECONDARY_2_ROLE),
+        "relay": (),
+    })
 
     Authoritative electrical connection point.
 
