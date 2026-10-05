@@ -23,7 +23,10 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "draft.", "network.")
+    # Draft authoring is transient workspace state in V2. Draft commands are
+    # intentionally excluded from project model/presentation revision and dirty
+    # state; only network.commit_draft crosses into persistent project truth.
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "network.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
@@ -177,6 +180,16 @@ class RevisionService:
         self._current = after
         self._redo.clear()
         return self._current
+
+    @property
+    def has_undo_transition(self) -> bool:
+        """Whether the last revision-bearing command has an undo transition."""
+        return bool(self._undo)
+
+    @property
+    def has_redo_transition(self) -> bool:
+        """Whether an application revision transition is available for redo."""
+        return bool(self._redo)
 
     def record_command_success(self, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
         """Record a successful mutation using the committed Core topology revision when supplied."""
