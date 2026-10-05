@@ -87,7 +87,7 @@ class CommitNetworkHandler:
             a=self._endpoint(item.source, core_ids); b=self._endpoint(item.target, core_ids)
             result=wire_service.execute(CreateSimpleWireConnectionCommand(connection_id=item.connection_id, endpoint_a=a, endpoint_b=b), context, transaction)
             if not result.success: raise RuntimeError(result.message)
-            committed_connections.append({"connection_id":item.connection_id,"sld_connection_id":f"sld-draft-{item.connection_id}","endpoint_a":dict(a.to_mapping()),"endpoint_b":dict(b.to_mapping()),"source_draft_id":item.source.object_id,"target_draft_id":item.target.object_id})
+            committed_connections.append({"connection_id":item.connection_id,"sld_connection_id":f"sld-draft-{item.connection_id}","endpoint_a":dict(a.to_mapping()),"endpoint_b":dict(b.to_mapping()),"source_draft_id":item.source.object_id,"target_draft_id":item.target.object_id,"source_is_draft":item.source.scope == "draft","target_is_draft":item.target.scope == "draft"})
         draft.clear_after_commit(); transaction.record_undo(lambda:draft.restore_snapshot(snapshot.to_dict()))
         return ApplicationResult.success_result(message="Commit Network completed.", metadata={"draft_to_core":core_ids,"created_elements":tuple(created),"committed_connections":tuple(committed_connections),"operation":"network.commit_draft"})
 
