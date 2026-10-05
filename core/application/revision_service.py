@@ -23,11 +23,11 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.")
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "draft.", "network.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
-        "model.create_line", "model.delete_line",
+        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_grid", "model.delete_grid", "model.create_generator", "model.delete_generator", "model.create_synchronous_machine", "model.delete_synchronous_machine", "model.create_load", "model.delete_load", "model.create_motor", "model.delete_motor", "model.create_shunt", "model.delete_shunt", "model.create_capacitor", "model.delete_capacitor", "model.create_reactor", "model.delete_reactor", "model.create_solar", "model.delete_solar", "model.create_battery", "model.delete_battery", "model.create_current_transformer", "model.delete_current_transformer", "model.create_capacitive_voltage_transformer", "model.delete_capacitive_voltage_transformer", "model.create_pt", "model.delete_pt", "model.create_relay", "model.delete_relay", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable",
         "model.create_switch", "model.update_switch", "model.delete_switch",
@@ -43,10 +43,9 @@ class RevisionService:
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
-    _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
+    _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
-        "model.update_transformer",
-        "model.update_breaker",
+        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_line", "model.update_cable", "model.update_transformer", "model.update_breaker",
         "model.update_switch",
         "model.update_disconnector",
         "model.update_fuse",
