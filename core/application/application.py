@@ -516,11 +516,22 @@ class Application:
         it never creates a second command/history boundary.
         """
         revision_state = self._revision_service.snapshot_state()
+        context = self._command_manager.context
+        network = getattr(context, "network", None)
         if command.command_type.startswith("sld."):
             self._revision_service.record_presentation_change()
         else:
-            self._revision_service.record_command_success(command)
-        transaction.record_undo(lambda state=revision_state: self._revision_service.restore_state(state))
+            topology_revision = None
+            if self._revision_service.is_topology_command(command) and network is not None:
+                topology_revision = int(network.state.topology_revision)
+            self._revision_service.record_command_success(command, topology_revision=topology_revision)
+        transaction.record_undo(
+            lambda state=revision_state, tx=transaction: (
+                self._revision_service.restore_state(state)
+                if not tx.committed
+                else None
+            )
+        )
 
         command_type = command.command_type
         if command_type == "network.commit_draft":
@@ -901,6 +912,10 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.undo()
         if result is not None and result.success:
+            network = getattr(self._command_manager.context, "network", None)
+            self._revision_service.record_undo(
+                topology_revision=int(network.state.topology_revision) if network is not None else None
+            )
             if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
