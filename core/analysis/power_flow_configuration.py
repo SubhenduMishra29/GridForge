@@ -94,8 +94,8 @@ class PowerFlowStudyConfiguration:
         object.__setattr__(self, "voltage_bases_kv", MappingProxyType(voltage_bases))
         options = dict(self.numerical_options)
         q_limit_policy = str(options.get("q_limit_policy", "hold_pq")).strip().lower()
-        if q_limit_policy not in {"hold_pq", "restore_pv"}:
-            raise ValueError("q_limit_policy must be 'hold_pq' or 'restore_pv'.")
+        if q_limit_policy != "hold_pq":
+            raise ValueError("q_limit_policy currently supports only the explicit 'hold_pq' policy.")
         options["q_limit_policy"] = q_limit_policy
         object.__setattr__(self, "numerical_options", MappingProxyType(options))
 
