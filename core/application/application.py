@@ -285,27 +285,12 @@ class Application:
             return lambda: service.detach_document() if service.is_bound else None
 
         service.bind_document(value)
-        reconciliation_rollback = None
-        try:
-            network = getattr(context, "network", None)
-            if network is not None:
-                reconciliation_rollback = service.reconcile_simple_wire_projection(network)
-        except BaseException:
+
+        def rollback() -> None:
             if previous is None:
                 service.detach_document()
             else:
                 service.bind_document(previous)
-            raise
-
-        def rollback() -> None:
-            try:
-                if reconciliation_rollback is not None:
-                    reconciliation_rollback()
-            finally:
-                if previous is None:
-                    service.detach_document()
-                else:
-                    service.bind_document(previous)
         return rollback
 
     def attach_sld_service(self, service: SLDService) -> None:
