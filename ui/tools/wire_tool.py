@@ -16,7 +16,7 @@ from core.application.draft.network import DraftEndpointReference
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
-from ui.core.snap_system import SnapType
+from ui.core.snap_system import SnapIntent, SnapType
 from .tool_base import ToolBase
 
 
@@ -155,7 +155,8 @@ class WireTool(ToolBase):
         snap = getattr(self.get_snap_system(), "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
-        result = snap(scene_position, allow_grid=False, allow_object=True, intent="WIRE_TARGET")
+        intent = SnapIntent.WIRE_TARGET if self._preview.source_endpoint is not None else SnapIntent.WIRE_START
+        result = snap(scene_position, allow_grid=False, allow_object=True, intent=intent)
         if getattr(result, "position", None) is None:
             return None
         return result

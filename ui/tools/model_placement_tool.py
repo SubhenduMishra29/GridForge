@@ -173,19 +173,10 @@ class ModelPlacementTool(ToolBase):
         if not getattr(result, "success", False):
             self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
             return False
-        if self._preview_layer is not None:
-            for item in tuple(getattr(self._preview_layer, "items", lambda: ())()):
-                commit_draft = getattr(item, "commit_draft", None)
-                if callable(commit_draft):
-                    commit_draft(
-                        equipment_id,
-                        tuple(item.terminal_name for item in draft.definition.terminal_requirements),
-                        equipment_type,
-                    )
-                    register = getattr(self.get_snap_system(), "register_item", None)
-                    if callable(register):
-                        register(item)
-                    break
+        # The Application commit is the semantic source of truth. The SLD
+        # projection/render pipeline creates the canonical permanent graphics
+        # item and owns its snap registration. Never promote the transient
+        # SymbolPreviewItem into a committed presentation.
         self._require_creation_context().complete()
         self._clear_state()
         selector = getattr(self.selection_manager, "select_single", None)

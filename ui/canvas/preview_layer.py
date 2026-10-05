@@ -377,9 +377,10 @@ class PreviewLayer:
         tool is being deactivated.
         """
         for item in tuple(self._items):
-            if self._is_committed_graphics_item(item):
-                self._items.remove(item)
-                continue
+            # Everything owned by PreviewLayer is transient by contract.
+            # Committed presentation objects belong exclusively to the
+            # canonical SLD render system and therefore must never be retained
+            # here.
             if item.scene() is self.scene:
                 self.scene.removeItem(item)
             self._items.remove(item)
@@ -389,15 +390,6 @@ class PreviewLayer:
     ) -> None:
         """Backward-compatible preview-only cleanup alias."""
         self.clear_preview()
-
-    @staticmethod
-    def _is_committed_graphics_item(item: QGraphicsItem) -> bool:
-        """Return whether an item exposes canonical committed object identity."""
-        object_id = getattr(item, "object_id", None)
-        if isinstance(object_id, str) and object_id.strip():
-            return True
-        equipment_id = getattr(item, "equipment_id", None)
-        return isinstance(equipment_id, str) and bool(equipment_id.strip())
 
     # ========================================================
     # QUERY
