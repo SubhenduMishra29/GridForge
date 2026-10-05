@@ -82,8 +82,15 @@ class EngineeringEditorHost(QWidget):
             raise KeyError(f"Unknown editor: {editor_id!r}")
         if context is not None and getattr(context, "editor", None) is not None:
             canonical_editor_id = getattr(context.editor, "editor_id", editor_id)
-            if canonical_editor_id != editor_id and canonical_editor_id in self._editors:
+            if canonical_editor_id != editor_id:
                 raise ValueError(f"Editor activation ID {editor_id!r} does not match context editor {canonical_editor_id!r}.")
+            if area is not None and getattr(context, "area", None) is not area and getattr(context.area, "area_id", None) != getattr(area, "area_id", None):
+                raise ValueError("EditorContext area does not match the activated Area.")
+            if region_id is not None and getattr(context, "region", None) is not None and getattr(context.region, "region_id", None) != region_id:
+                raise ValueError("EditorContext region does not match the activated Region.")
+            workspace_id = getattr(context, "workspace", None)
+            if workspace_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
+                raise ValueError("EditorContext must identify the active workspace.")
         resolved_region_id = region_id or self._default_region_id(widget)
         if resolved_region_id is not None:
             resolver = getattr(widget, "region_widget", None)
@@ -92,6 +99,9 @@ class EngineeringEditorHost(QWidget):
         if context is not None and callable(getattr(context, "with_updates", None)):
             context = context.with_updates(view_state=self._read_view_state(widget))
         self._stack.setCurrentWidget(widget)
+        configure = getattr(widget, "apply_editor_definition", None)
+        if callable(configure) and context is not None and getattr(context, "editor", None) is not None:
+            configure(context.editor)
         self._active_editor_id = editor_id
         self._active_area = area
         self._active_region_id = resolved_region_id

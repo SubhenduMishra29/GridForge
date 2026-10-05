@@ -19,7 +19,7 @@ from typing import Any, Callable, Mapping
 from ui.core.qt import QDockWidget, Qt
 
 from .workspace_layout import WorkspaceLayout
-from .engineering_context import EditorContext
+from .engineering_context import EditorContext, EngineeringContext
 
 
 class WorkspaceRealizationError(RuntimeError):
@@ -66,6 +66,11 @@ class WorkspaceRealizer:
         return self._realized_layout
 
     @property
+    def realized_workspace_id(self) -> str | None:
+        """Workspace identity of the currently realized layout."""
+        return self._realized_workspace_id
+
+    @property
     def focused_area_id(self) -> str | None:
         return self._focused_area_id
 
@@ -103,24 +108,32 @@ class WorkspaceRealizer:
             raise TypeError("layout must be a WorkspaceLayout.")
         if not layout.areas:
             raise WorkspaceRealizationError("Workspace layout contains no Areas.")
+        if workspace_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
+            raise WorkspaceRealizationError("Workspace realization requires a non-empty workspace_id.")
 
         previous = self._realized_layout
+        previous_workspace_id = self._realized_workspace_id
+        previous_focused_area_id = self._focused_area_id
         try:
-            self._realize_areas(
-                layout,
-                workspace_id=workspace_id,
-            )
+            self._realize_areas(layout, workspace_id=workspace_id)
         except BaseException:
-            if previous is not None:
+            if previous is not None and previous_workspace_id is not None:
                 try:
-                    self._realize_areas(
-                        previous,
-                        workspace_id=workspace_id,
-                    )
+                    self._realize_areas(previous, workspace_id=previous_workspace_id)
                 except BaseException as restore_exc:
+                    self._realized_layout = previous
+                    self._realized_workspace_id = previous_workspace_id
+                    self._focused_area_id = previous_focused_area_id
                     raise WorkspaceRealizationError(
                         "Workspace realization failed and previous editor state could not be restored."
                     ) from restore_exc
+            else:
+                deactivate = getattr(self._editor_host, "deactivate", None)
+                if callable(deactivate):
+                    deactivate()
+                self._realized_layout = None
+                self._realized_workspace_id = None
+                self._focused_area_id = None
             raise
 
         self._realized_layout = layout
@@ -151,7 +164,7 @@ class WorkspaceRealizer:
                 context = (
                     self._context_factory(workspace_id or "", area, editor, region_id)
                     if self._context_factory is not None
-                    else EditorContext(workspace=workspace_id, area=area, editor=editor, region=next(region for region in editor.regions if region.region_id == region_id))
+                    else EditorContext(workspace=workspace_id, area=area, editor=editor, region=next(region for region in editor.regions if region.region_id == region_id), engineering=EngineeringContext(discipline=editor.editor_type))
                 )
                 activate(editor_id, area=area, region_id=region_id, context=context)
                 self._focused_area_id = area.area_id
@@ -173,7 +186,7 @@ class WorkspaceRealizer:
         context = (
             self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
             if self._context_factory is not None
-            else EditorContext(workspace=None, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
         )
         activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id
@@ -193,7 +206,7 @@ class WorkspaceRealizer:
         context = (
             self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
             if self._context_factory is not None
-            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=region)
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=region, engineering=EngineeringContext(discipline=area.editor.editor_type))
         )
         activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id

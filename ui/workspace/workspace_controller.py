@@ -51,6 +51,10 @@ class WorkspaceController:
         return self._realizer.realized_layout
 
     @property
+    def realized_workspace_id(self) -> str | None:
+        return self._realizer.realized_workspace_id
+
+    @property
     def closed(self) -> bool:
         return self._closed
 
@@ -70,13 +74,13 @@ class WorkspaceController:
     def apply_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
         self._ensure_open()
         candidate = self._manager.prepare_layout(layout)
-        self._realizer.realize(candidate.layout)
+        self._realizer.realize(candidate.layout, workspace_id=candidate.workspace_id)
         return self._manager.commit(candidate)
 
     def reset(self) -> WorkspaceState:
         self._ensure_open()
         candidate = self._manager.prepare_reset_active()
-        self._realizer.realize(candidate.layout)
+        self._realizer.realize(candidate.layout, workspace_id=candidate.workspace_id)
         return self._manager.commit(candidate)
 
     def deactivate(self) -> None:

@@ -43,6 +43,7 @@ class RegionDefinition:
 
 HEADER_REGION = "header"
 TOOL_SHELF_REGION = "tool_shelf"
+TOOL_SETTINGS_REGION = "tool_settings"
 CANVAS_REGION = "canvas"
 SIDEBAR_REGION = "sidebar"
 OVERLAY_REGION = "overlay"
@@ -58,6 +59,7 @@ __all__ = [
     "Region",
     "HEADER_REGION",
     "TOOL_SHELF_REGION",
+    "TOOL_SETTINGS_REGION",
     "CANVAS_REGION",
     "SIDEBAR_REGION",
     "OVERLAY_REGION",
