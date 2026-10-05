@@ -54,6 +54,16 @@ class UIActionRouter:
         self.register(definition.action_id, handler)
         self._definitions[definition.action_id] = definition
 
+    def set_definition(self, definition: ActionDefinition) -> None:
+        """Attach immutable metadata to an already-registered routed action."""
+        self._ensure_active()
+        if not isinstance(definition, ActionDefinition):
+            raise TypeError("definition must be an ActionDefinition.")
+        canonical = self._canonical_id(definition.action_id)
+        if canonical not in self._handlers:
+            raise KeyError(f"Cannot define unknown UI action: {definition.action_id!r}")
+        self._definitions[canonical] = definition
+
     def register_alias(self, alias: str, action_id: str) -> None:
         self._ensure_active()
         self._validate_action_id(alias)
