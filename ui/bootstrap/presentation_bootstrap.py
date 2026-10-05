@@ -38,7 +38,8 @@ class PresentationBootstrap:
     def __post_init__(self) -> None:
         if not self.symbol_registry.symbol_ids():
             register_builtin_symbols(self.symbol_registry)
-        self.equipment_registry.validate_symbol_anchors(self.symbol_registry)
+        if self.application is not None:
+            self._validate_terminal_contract(self.application)
         self.symbol_factory = self.symbol_factory or SymbolFactory(self.symbol_registry)
         self.semantic_realization = self.semantic_realization or SemanticPresentationRealization(
             self.equipment_registry, self.symbol_registry
@@ -50,6 +51,8 @@ class PresentationBootstrap:
     @classmethod
     def create(cls, workspace_manager: WorkspaceManager | None = None, application: Any = None,
                sld_read_synchronizer: SLDReadSynchronizer | None = None) -> "PresentationBootstrap":
+        if application is None:
+            raise TypeError("PresentationBootstrap.create() requires the Application facade for terminal-contract validation.")
         bootstrap = cls(workspace_manager=workspace_manager or WorkspaceManager(), application=application,
                         sld_read_synchronizer=sld_read_synchronizer)
         bootstrap._synchronize_application_boundary()
@@ -58,6 +61,7 @@ class PresentationBootstrap:
     def attach_application(self, application: Any) -> None:
         if application is None:
             raise TypeError("application must not be None")
+        self._validate_terminal_contract(application)
         self.application = application
         self._synchronize_application_boundary()
 
@@ -141,6 +145,23 @@ class PresentationBootstrap:
         shell = self.shell
         self.shell = None
         return shell
+
+    def _validate_terminal_contract(self, application: Any) -> None:
+        """Validate presentation terminal semantics against the immutable Application contract."""
+        if application is None:
+            raise TypeError("application must not be None")
+        roles = getattr(application, "terminal_roles_by_type", None)
+        if roles is None:
+            raise TypeError("Application must expose terminal_roles_by_type before presentation composition.")
+        if not hasattr(roles, "items"):
+            raise TypeError("Application terminal_roles_by_type must be a mapping.")
+        self.equipment_registry.validate_terminal_contracts(
+            self.symbol_registry,
+            core_roles_by_type=roles,
+        )
+        creation_errors = self.equipment_registry.validate_creation_contracts()
+        if creation_errors:
+            raise ValueError("Creation contract mismatch: " + " ".join(creation_errors))
 
     def _synchronize_application_boundary(self) -> None:
         if self.sld_read_synchronizer is None:
