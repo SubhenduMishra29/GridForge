@@ -116,6 +116,7 @@ class SLDGraphicsItemFactory:
             connection_kind=connection.connection_kind,
             presentation_owner=connection.presentation_owner,
             projection_source=connection.projection_source,
+            core_connection_id=connection.properties.get("core_connection_id"),
         )
         route = connection.route
         item.set_visual_route(source, target, route.points, ownership=route.ownership)
