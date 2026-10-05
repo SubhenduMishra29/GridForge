@@ -121,6 +121,13 @@ class Controller(QObject):
             raise RuntimeError("Controller requires the canonical ToolManager for tool activation.")
         manager.activate(tool_id, cancel_active_creation=cancel_active_creation)
 
+    def commit_network(self) -> Any:
+        """Commit the complete Application DraftNetwork through the canonical Application boundary."""
+        self._ensure_active()
+        result = self._require_application().commit_draft_network()
+        self.state_changed.emit()
+        return result
+
     def commit_creation(self) -> bool:
         """Commit the active equipment creation through ToolManager/Application."""
         self._ensure_active()
