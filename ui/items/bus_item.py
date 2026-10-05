@@ -80,10 +80,6 @@ class BusItem(BaseItem):
             True,
         )
         self.setFlag(
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-            True,
-        )
-        self.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
             True,
         )
