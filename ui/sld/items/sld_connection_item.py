@@ -54,7 +54,7 @@ class SLDConnectionItem(QGraphicsPathItem):
         self.setAcceptHoverEvents(True)
 
     @property
-    def object_id(self) -> str:
+    def object_id(self) -> str | None:
         return self._object_id
 
     @property
