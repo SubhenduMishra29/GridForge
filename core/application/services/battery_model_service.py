@@ -92,7 +92,8 @@ class BatteryModelService(ModelServiceSupport):
         battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
         old = battery.in_service
         battery.in_service = in_service
-        transaction.record_undo(lambda battery=battery, old=old: setattr(battery, "in_service", old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda battery=battery, old=old: (setattr(battery, "in_service", old), self._network.invalidate_topology()))
         message = "put in service" if in_service else "taken out of service"
         return self._success(battery, "battery", battery_id, f"Battery {message}: {battery_id}")
 
