@@ -25,6 +25,8 @@ from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.controllers.study_case_controller import StudyCaseController
 from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
+from ui.core.action_definition import ActionDefinition
+from ui.core.action_catalog import build_action_definitions
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
 from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout
@@ -251,6 +253,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     window.setWindowTitle(branding.DEFAULT_TITLE)
 
     action_router = UIActionRouter()
+    workspace_surface_host.set_action_router(action_router)
     engineering_context = EngineeringContextStore()
 
     def _editor_context_factory(workspace_id: str, area: object, editor: object, region_id: str) -> object:
@@ -653,6 +656,79 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "control.panel": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
     })
+
+    # Canonical immutable action definitions are composed from the existing
+    # ToolDefinitions. Legacy surface IDs remain aliases so existing menu and
+    # toolbar callers converge on the same routing boundary.
+    canonical_handlers = {
+        "select": lambda: controller.set_tool("select"),
+        "move": _activate_select_for_editing,
+        "pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
+        "zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
+        "zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
+        "fit_view": lambda: canvas_composition.navigation_controller.fit_content(50.0),
+        "copy": _copy_selection,
+        "paste": _paste_selection,
+        "delete": _delete_selection,
+        "undo": controller.undo,
+        "redo": controller.redo,
+        "sld_select": lambda: controller.set_tool("select"),
+        "sld_move": _activate_select_for_editing,
+        "sld_wire": lambda: controller.set_tool("wire"),
+    }
+    canonical_definitions = {
+        definition.action_id: definition
+        for definition in build_action_definitions(contextual_tool_definitions_all)
+    }
+    canonical_definitions.update({
+        "select": ActionDefinition("select", "Select", "Select and inspect engineering objects.", "select", None, "selection", True, True, True, "editor", "select"),
+        "move": ActionDefinition("move", "Move", "Move selected engineering objects.", "move", None, "selection", True, False, False, "editor", "move"),
+        "pan": ActionDefinition("pan", "Pan", "Pan the active engineering view.", "pan", None, "navigation"),
+        "zoom_in": ActionDefinition("zoom_in", "Zoom In", "Zoom into the active engineering view.", "zoom_in", "Ctrl+=", "navigation"),
+        "zoom_out": ActionDefinition("zoom_out", "Zoom Out", "Zoom out of the active engineering view.", "zoom_out", "Ctrl+-", "navigation"),
+        "fit_view": ActionDefinition("fit_view", "Fit", "Fit the active engineering view.", "fit_view", "F", "navigation"),
+        "copy": ActionDefinition("copy", "Copy", "Copy the semantic selection.", "copy", "Ctrl+C", "edit"),
+        "paste": ActionDefinition("paste", "Paste", "Paste the semantic clipboard.", "paste", "Ctrl+V", "edit"),
+        "delete": ActionDefinition("delete", "Delete", "Delete the semantic selection.", "delete", "Delete", "edit"),
+        "undo": ActionDefinition("undo", "Undo", "Undo the last Application command.", "undo", "Ctrl+Z", "history"),
+        "redo": ActionDefinition("redo", "Redo", "Redo the last Application command.", "redo", "Ctrl+Y", "history"),
+        "sld_select": ActionDefinition("sld_select", "SLD Select", "Select SLD objects.", "select", None, "sld", True, True, True, "sld", "select"),
+        "sld_move": ActionDefinition("sld_move", "SLD Move", "Move selected SLD objects.", "move", None, "sld", True, False, False, "sld", "move"),
+        "sld_wire": ActionDefinition("sld_wire", "SLD Wire", "Create an SLD connection.", "wire", None, "sld", True, True, False, "sld", "wire"),
+    })
+    for action_id, handler in canonical_handlers.items():
+        if not action_router.has(action_id):
+            action_router.register_definition(canonical_definitions[action_id], handler)
+
+    # Existing menu/toolbar IDs are compatibility aliases, not a second action system.
+    for alias, canonical in {
+        "edit.undo": "undo", "edit.redo": "redo",
+        "edit.delete_selection": "delete", "edit.copy": "copy", "edit.paste": "paste",
+        "view.zoom_in": "zoom_in", "view.zoom_out": "zoom_out",
+        "view.fit": "fit_view", "view.pan": "pan",
+        "tool.select": "select", "tool.wire": "sld_wire",
+    }.items():
+        if not action_router.has(alias):
+            action_router.register_alias(alias, canonical)
+
+    # Every registered engineering tool is exposed as the same action family.
+    for definition in build_action_definitions(contextual_tool_definitions_all):
+        if definition.action_id in canonical_definitions or action_router.has(definition.action_id):
+            continue
+        tool_id = definition.tool_id
+        if tool_id is None:
+            continue
+        if tool_id in tool_manager.get_tool_ids():
+            handler = lambda tool_id=tool_id: controller.set_tool(tool_id)
+        elif definition.editor_types and "control" in definition.editor_types:
+            handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
+        elif definition.editor_types and "protection" in definition.editor_types:
+            handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
+        elif definition.editor_types and "study" in definition.editor_types:
+            handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
+        else:
+            continue
+        action_router.register_definition(definition, handler)
 
     def _action_enabled(action_id: str) -> bool:
         context = engineering_context.current
