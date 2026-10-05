@@ -786,6 +786,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 definition = action_router.definition(action_id)
             except (KeyError, RuntimeError, ValueError):
                 return False
+            if action_id == "tool.bus":
+                return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
+            if action_id == "tool.wire":
+                return project_active and discipline == "sld" and gridforge_application.supports(CREATE_SIMPLE_WIRE)
             if definition.tool_id is None:
                 return project_active
             allowed_editors = tuple(definition.metadata.get("editor_types", ()))
