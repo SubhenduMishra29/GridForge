@@ -27,7 +27,7 @@ class RevisionService:
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
-        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_grid", "model.delete_grid", "model.create_generator", "model.delete_generator", "model.create_synchronous_machine", "model.delete_synchronous_machine", "model.create_load", "model.delete_load", "model.create_motor", "model.delete_motor", "model.create_shunt", "model.delete_shunt", "model.create_capacitor", "model.delete_capacitor", "model.create_reactor", "model.delete_reactor", "model.create_solar", "model.delete_solar", "model.create_battery", "model.delete_battery", "model.create_current_transformer", "model.delete_current_transformer", "model.create_capacitive_voltage_transformer", "model.delete_capacitive_voltage_transformer", "model.create_pt", "model.delete_pt", "model.create_relay", "model.delete_relay", "model.create_line", "model.delete_line",
+        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable",
         "model.create_switch", "model.update_switch", "model.delete_switch",
