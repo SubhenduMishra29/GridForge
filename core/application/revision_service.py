@@ -204,15 +204,25 @@ class RevisionService:
         self._redo.append(_RevisionTransition(before, transition.after))
         return self._current
 
-    def record_redo(self) -> ProjectRevision:
+    def record_redo(self, *, topology_revision: int | None = None) -> ProjectRevision:
         """Restore the exact revision state represented by the latest redo transition."""
         if not self._redo:
             raise RuntimeError("No revision transition is available to redo.")
         transition = self._redo.pop()
         if transition.before != self._current:
             raise RuntimeError("Revision redo state is inconsistent with current revision.")
-        self._current = transition.after
-        self._undo.append(transition)
+        after = transition.after
+        if topology_revision is not None:
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
+                raise ValueError("topology_revision must be a non-negative integer.")
+            after = ProjectRevision(
+                model_revision=after.model_revision,
+                topology_revision=topology_revision,
+                presentation_revision=after.presentation_revision,
+                persisted_revision=after.persisted_revision,
+            )
+        self._current = after
+        self._undo.append(_RevisionTransition(transition.before, after))
         return self._current
 
     def initialize_from_network(self, *, topology_revision: int) -> ProjectRevision:
