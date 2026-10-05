@@ -267,13 +267,27 @@ __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
     "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
-    "ProjectLoaded", "ProjectSaved", "ProjectClosed",
+    "ProjectLoaded", "ProjectSaved", "ProjectClosed", "DraftChanged",
     "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
     "ControlConnectionCreated", "ControlConnectionRemoved", "ControlDependencyCreated", "ControlDependencyRemoved",
     "ControlProgramChanged", "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
     "ControlExecutionFailed",
 ]
+
+
+@dataclass(frozen=True)
+class DraftChanged(ApplicationEvent):
+    """Semantic fact that Application-owned DraftNetwork authoring changed.
+
+    This event never asserts a Core electrical mutation or topology change.
+    """
+    def __init__(self, *, operation: str, metadata: Mapping[str, Any] | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        payload = {"operation": operation}
+        if metadata:
+            payload.update(metadata)
+        super().__init__("draft.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
 @dataclass(frozen=True)
