@@ -232,12 +232,23 @@ class DraftConnectivityResolver:
             if boundaries:
                 boundary = next(iter(boundaries))
                 resolved_ref = boundary.to_core_reference()
-                if declared_bus is not None and declared_bus != resolved_ref:
-                    raise ValueError(
-                        f"Contradictory endpoint declaration: equipment={item.draft_id!r} "
-                        f"terminal={role!r} declares {declared_bus!r} but draft "
-                        f"connectivity resolves to {resolved_ref!r}."
-                    )
+                # An explicit endpoint declaration is an acquired external
+                # electrical fact.  The authoring graph may refine/agree with
+                # it, but it may never silently override it.  A Core terminal
+                # declaration and a Bus boundary are therefore contradictory.
+                if declared is not None:
+                    if declared.is_bus:
+                        declared_ref = declared.to_core_reference()
+                    elif declared.scope == "core":
+                        declared_ref = self._to_core_endpoint(declared, core_id_map)
+                    else:
+                        declared_ref = None
+                    if declared_ref is not None and declared_ref != resolved_ref:
+                        raise ValueError(
+                            f"Contradictory endpoint declaration: equipment={item.draft_id!r} "
+                            f"terminal={role!r} declares {declared_ref!r} but draft "
+                            f"connectivity resolves to {resolved_ref!r}."
+                        )
                 resolved[item.draft_id][role] = resolved_ref
                 continue
 
@@ -267,10 +278,16 @@ class DraftConnectivityResolver:
             a = self._to_core_connection_endpoint(connection.source, core_id_map)
             b = self._to_core_connection_endpoint(connection.target, core_id_map)
             try:
-                if a.is_bus:
-                    EndpointCompatibility.validate_reference(a, network)
-                if b.is_bus:
-                    EndpointCompatibility.validate_reference(b, network)
+                # Existing Core endpoints (including explicitly acquired
+                # external terminals) must be proven against the active Core
+                # network during preparation.  Draft endpoints are mapped to
+                # deterministic future Core identities and are validated by
+                # their DraftEquipment contract plus pair compatibility now;
+                # their concrete Core existence is checked immediately before
+                # the wire mutation after all equipment creations succeed.
+                for endpoint in (a, b):
+                    if endpoint.is_bus or endpoint.object_id not in core_id_map.values():
+                        EndpointCompatibility.validate_reference(endpoint, network)
                 EndpointCompatibility.validate_pair(a, b, None)
             except EndpointCompatibilityError as exc:
                 raise ValueError(
@@ -429,6 +446,12 @@ class CommitNetworkHandler:
         wire_service = SimpleWireConnectionService()
         committed_connections: list[dict[str, Any]] = []
         for item in commit_plan.connections:
+            # All creation intents have already been prepared.  At this point
+            # deterministic Core identities exist, so every wire endpoint can
+            # now be resolved against the actual transaction-visible Core
+            # network before Simple Wire mutation is attempted.
+            EndpointCompatibility.validate_reference(item.endpoint_a, context.network)
+            EndpointCompatibility.validate_reference(item.endpoint_b, context.network)
             result = wire_service.execute(
                 __import__(
                     "core.application.commands.simple_wire_commands",

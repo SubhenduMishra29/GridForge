@@ -525,12 +525,10 @@ class Application:
             if self._revision_service.is_topology_command(command) and network is not None:
                 topology_revision = int(network.state.topology_revision)
             self._revision_service.record_command_success(command, topology_revision=topology_revision)
+        # Committed history inverses execute after Transaction.commit().
+        # Transaction.COMMITTED is not an undo-validity guard.
         transaction.record_undo(
-            lambda state=revision_state, tx=transaction: (
-                self._revision_service.restore_state(state)
-                if not tx.committed
-                else None
-            )
+            lambda state=revision_state: self._revision_service.restore_state(state)
         )
 
         command_type = command.command_type
@@ -570,6 +568,7 @@ class Application:
                                 causation_id=command.command_id,
                             ),
                             transaction,
+                            authoritative_value=context.network.get_by_identity(core_id),
                         )
 
                 for item in tuple(result.metadata.get("committed_connections", ())):
@@ -728,6 +727,7 @@ class Application:
                 causation_id=command.command_id,
             ),
             transaction,
+            authoritative_value=created_object,
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
@@ -800,6 +800,7 @@ class Application:
                 causation_id=command.command_id,
             ),
             transaction,
+            authoritative_value=created_object,
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
