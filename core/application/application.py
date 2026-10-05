@@ -515,6 +515,13 @@ class Application:
         performs the persistent presentation mutation requested by this hook;
         it never creates a second command/history boundary.
         """
+        revision_state = self._revision_service.snapshot_state()
+        if command.command_type.startswith("sld."):
+            self._revision_service.record_presentation_change()
+        else:
+            self._revision_service.record_command_success(command)
+        transaction.record_undo(lambda state=revision_state: self._revision_service.restore_state(state))
+
         command_type = command.command_type
         if command_type == "network.commit_draft":
             if self._sld_service is not None:
@@ -859,10 +866,7 @@ class Application:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
         if result.success:
-            if command.command_type.startswith("sld."): self._revision_service.record_presentation_change()
-            else:
-                self._revision_service.record_command_success(command)
-                if self._validation_service is not None:
+            if self._validation_service is not None:
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
             self._publish_semantic_events(command, result, operation="execute")
@@ -888,7 +892,6 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.undo()
         if result is not None and result.success:
-            self._revision_service.record_undo()
             if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
@@ -900,7 +903,6 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
-            self._revision_service.record_redo()
             if self._validation_service is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
