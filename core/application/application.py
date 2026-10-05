@@ -519,7 +519,7 @@ class Application:
         context = self._command_manager.context
         network = getattr(context, "network", None)
         if command.command_type.startswith("sld."):
-            self._revision_service.record_presentation_change()
+            self._revision_service.record_presentation_change(command)
         else:
             topology_revision = None
             if self._revision_service.is_topology_command(command) and network is not None:
@@ -913,7 +913,7 @@ class Application:
         result = self._command_manager.undo()
         if result is not None and result.success:
             network = getattr(self._command_manager.context, "network", None)
-            if self._revision_service.has_undo_transition:
+            if command is not None and self._revision_service.has_undo_transition_for(command):
                 self._revision_service.record_undo(
                     topology_revision=int(network.state.topology_revision) if network is not None else None
                 )
@@ -929,7 +929,7 @@ class Application:
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
             network = getattr(self._command_manager.context, "network", None)
-            if self._revision_service.has_redo_transition:
+            if command is not None and self._revision_service.has_redo_transition_for(command):
                 self._revision_service.record_redo(
                     topology_revision=int(network.state.topology_revision)
                     if network is not None and self._revision_service.is_topology_command(command)
