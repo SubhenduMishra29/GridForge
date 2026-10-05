@@ -77,6 +77,13 @@ class SLDService:
                 )
         self._document = document
 
+    @staticmethod
+    def presentation_connection_id(core_connection_id: str) -> str:
+        """Return the deterministic persistent SLD presentation identity for a Core connection."""
+        if not isinstance(core_connection_id, str) or not core_connection_id:
+            raise ValueError("core_connection_id must be a non-empty string")
+        return f"sld-wire-{core_connection_id}"
+
     def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
         """Reconcile persistent projection companions against authoritative Core Simple Wires.
         
@@ -137,7 +144,7 @@ class SLDService:
                     changed = True
                 continue
 
-            presentation_id = f"sld-wire-{core_id}"
+            presentation_id = self.presentation_connection_id(core_id)
             if self.document.model.get_connection_optional(presentation_id) is not None:
                 raise ValueError(
                     f"SLD connection identity collision for Core Simple Wire {core_id!r}: {presentation_id!r}."
