@@ -588,11 +588,18 @@ class SLDService:
         connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
             # Core Simple Wire identity and persistent SLD presentation identity
-            # are distinct. Resolve the companion through its persisted mapping.
+            # are distinct. Resolve the active companion through its persisted
+            # Core mapping, or resolve an already-orphaned authored presentation
+            # through its non-authoritative deletion provenance so redo can record
+            # the same SLD inverse without resurrecting a Core binding.
             candidates = tuple(
                 item
                 for item in self.document.model.connections
                 if item.properties.get("core_connection_id") == connection_id
+                or (
+                    str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+                    and item.properties.get("orphaned_from_core_connection_id") == connection_id
+                )
             )
             if len(candidates) > 1:
                 raise ValueError(
@@ -614,6 +621,7 @@ class SLDService:
         # Core deletion severs the binding. The authored SLD presentation
         # remains, but its old Core ID is no longer authoritative identity.
         connection.properties.pop("core_connection_id", None)
+        connection.properties["orphaned_from_core_connection_id"] = connection_id
         connection.properties["lifecycle_state"] = "ORPHANED"
         self.document.mark_modified()
         transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
