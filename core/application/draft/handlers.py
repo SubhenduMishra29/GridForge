@@ -22,7 +22,7 @@ class DraftCommandHandlers:
         return draft
     def handlers(self):
         return {"draft.add_equipment": self.add_equipment, "draft.update_equipment": self.update_equipment,
-                "draft.remove_equipment": self.remove_equipment, "draft.add_connection": self.add_connection,
+                "draft.remove_equipment": self.remove_equipment, "draft.add_connection": self.add_connection, "draft.create_connection": self.add_connection,
                 "draft.remove_connection": self.remove_connection}
     def add_equipment(self, command, context, transaction):
         draft=self._draft(); item=DraftEquipment.from_dict(command.payload["equipment"]); draft.add_equipment(item)
