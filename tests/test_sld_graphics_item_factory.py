@@ -72,11 +72,13 @@ def test_create_connection_returns_presentation_connection_item():
         connection_kind="SIMPLE_WIRE",
         presentation_owner="SLD",
         projection_source="test",
-        properties={},
+        properties={"core_connection_id": "SIMPLE-WIRE-001"},
     )
     item = factory.create_connection(connection, QPointF(10.0, 20.0), QPointF(40.0, 50.0))
     assert isinstance(item, SLDConnectionItem)
-    assert item.object_id == "line-1"
+    assert item.presentation_id == "line-1"
+    assert item.core_connection_id == "SIMPLE-WIRE-001"
+    assert item.object_id == "SIMPLE-WIRE-001"
 
 
 def test_factory_rejects_invalid_node_descriptor():
@@ -87,3 +89,22 @@ def test_factory_rejects_invalid_node_descriptor():
 def test_factory_rejects_invalid_connection_descriptor():
     with pytest.raises(TypeError, match="SLDCanvasConnection"):
         _factory().create_connection(SimpleNamespace(connection_id="line-1"), QPointF(), QPointF())
+
+def test_factory_keeps_missing_core_connection_identity_non_selectable() -> None:
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="line-orphan",
+        source_node_id="bus-1",
+        target_node_id="bus-2",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(),
+        connection_kind="SIMPLE_WIRE",
+        presentation_owner="SLD",
+        projection_source="test",
+        properties={},
+    )
+    item = factory.create_connection(connection, QPointF(10.0, 20.0), QPointF(40.0, 50.0))
+    assert item.presentation_id == "line-orphan"
+    assert item.core_connection_id is None
+    assert item.object_id is None
