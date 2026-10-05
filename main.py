@@ -713,7 +713,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     # Every registered engineering tool is exposed as the same action family.
     for definition in build_action_definitions(contextual_tool_definitions_all):
-        if definition.action_id in canonical_definitions or action_router.has(definition.action_id):
+        if action_router.has(definition.action_id):
             continue
         tool_id = definition.tool_id
         if tool_id is None:
