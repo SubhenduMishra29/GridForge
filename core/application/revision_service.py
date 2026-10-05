@@ -48,6 +48,7 @@ class RevisionService:
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
+    _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "pt", "relay"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
         "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
@@ -135,6 +136,18 @@ class RevisionService:
         if not isinstance(command, Command):
             raise TypeError("command must be a Command")
         command_type = command.command_type
+        # Measurement/protection equipment is not conductive topology. Its
+        # creation or engineering/protection updates must never acquire a
+        # topology revision merely because an endpoint association field is
+        # present in the command payload.
+        command_element = command_type.split("model.", 1)[-1]
+        command_element = command_element.split(".", 1)[-1]
+        for prefix in ("create_", "update_", "delete_", "open_", "close_", "trip_", "put_", "take_", "blow_", "reset_"):
+            if command_element.startswith(prefix):
+                command_element = command_element[len(prefix):]
+                break
+        if command_element in cls._NON_ELECTRICAL_TOPOLOGY_TYPES:
+            return False
         if command_type in cls._TOPOLOGY_COMMANDS:
             return True
         # Single-terminal equipment changes topology only when the mutation
