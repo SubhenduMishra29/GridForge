@@ -927,6 +927,12 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
+            network = getattr(self._command_manager.context, "network", None)
+            self._revision_service.record_redo(
+                topology_revision=int(network.state.topology_revision)
+                if network is not None and self._revision_service.is_topology_command(command)
+                else None
+            )
             if self._validation_service is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
                 self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
