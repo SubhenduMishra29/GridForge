@@ -67,9 +67,6 @@ class DraftEndpointReference:
         return cls(str(value["kind"]), str(value["object_id"]), value.get("terminal_role"), value.get("attachment_id"), value.get("equipment_type"))
 
 
-# Semantic rename: all internal code uses DraftEndpointReference. This export
-# is intentionally the canonical class name, not a second identity model.
-DraftEndpoint = DraftEndpointReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,4 +251,4 @@ class DraftNetwork:
     def empty(cls, project_id: str, activation_generation: int) -> "DraftNetwork": return cls(project_id, activation_generation)
 
 
-__all__ = ["DraftEndpointReference", "DraftEndpoint", "DraftEquipment", "DraftConnection", "DraftNetwork"]
+__all__ = ["DraftEndpointReference", "DraftEquipment", "DraftConnection", "DraftNetwork"]
