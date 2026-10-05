@@ -180,16 +180,15 @@ class SLDService:
         return str(nodes[0].node_id)
 
     @staticmethod
-    def _sld_endpoint_from_mapping(mapping: Mapping[str, Any]) -> Any:
-        from ui.sld.sld_model import SLDEndpoint
-        return SLDEndpoint.from_dict({
+    def _sld_endpoint_from_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
+        return {
             "kind": "bus" if mapping.get("kind") == "bus" else "equipment",
             "node_id": str(mapping.get("object_id") or ""),
             "equipment_id": mapping.get("object_id") if mapping.get("kind") != "bus" else None,
             "terminal_role": mapping.get("terminal_role") if mapping.get("kind") != "bus" else None,
             "bus_id": mapping.get("object_id") if mapping.get("kind") == "bus" else None,
             "attachment_id": mapping.get("attachment_id") if mapping.get("kind") == "bus" else None,
-        })
+        }
 
     def attach_application(self, application: Any) -> None:
         """Attach the Application whose presentation state is authoritative."""
