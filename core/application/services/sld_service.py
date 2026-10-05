@@ -175,10 +175,9 @@ class SLDService:
 
         for core_id, connection in companions.items():
             if core_id not in core_by_id:
-                if connection.properties.get("presentation_owner") == "projection":
-                    raise ValueError(
-                        f"SLD Simple Wire {connection.connection_id!r} has no authoritative Core connection {core_id!r}."
-                    )
+                raise ValueError(
+                    f"SLD Simple Wire {connection.connection_id!r} has no authoritative Core connection {core_id!r}."
+                )
 
         if changed:
             self.document.mark_modified()
