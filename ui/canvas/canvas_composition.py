@@ -268,6 +268,9 @@ class CanvasComposer:
             raise ValueError("ToolManager must use the prepared PreviewLayer.")
         if sld_canvas_render_system.snap_system is not snap_system:
             raise ValueError("SLDCanvasRenderSystem must use the same canonical SnapSystem as ToolManager and the active Canvas scene.")
+        if sld_canvas_render_system.selection_manager is not None and sld_canvas_render_system.selection_manager is not selection_manager:
+            raise ValueError("SLDCanvasRenderSystem must use the prepared SelectionManager.")
+        sld_canvas_render_system.bind_selection_manager(selection_manager)
 
         view = GraphicsView(
             controller=controller,
