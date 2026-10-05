@@ -149,6 +149,34 @@ class SLDCanvasRenderSystem:
         if callable(setter):
             setter(selected)
 
+    def _restore_connection_selection(self, connection: Any, item: Any) -> None:
+        """Project canonical Core connection selection onto a recreated item.
+
+        Renderer reconciliation is presentation-only: the SelectionManager remains
+        the sole semantic selection authority, and the persistent SLD presentation
+        identity is never used to decide selection.
+        """
+        if self._selection_manager is None:
+            return
+        core_connection_id = getattr(connection, "properties", {}).get("core_connection_id")
+        if core_connection_id is None:
+            return
+        selected = bool(self._selection_manager.is_selected(str(core_connection_id)))
+        setter = getattr(item, "setSelected", None)
+        if callable(setter):
+            setter(selected)
+            refresh = getattr(item, "_refresh_pen", None)
+            if callable(refresh):
+                refresh()
+            return
+        setter = getattr(item, "set_visual_selected", None)
+        if callable(setter):
+            setter(selected)
+            return
+        setter = getattr(item, "set_graphical_selected", None)
+        if callable(setter):
+            setter(selected)
+
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the presentation route-edit boundary to realized connection items."""
         if controller is None or not callable(getattr(controller, "handle_route_edit_request", None)):
@@ -251,6 +279,7 @@ class SLDCanvasRenderSystem:
         for connection in snapshot.connections:
             signature = self._connection_signature(connection, node_by_id)
             if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
+                self._restore_connection_selection(connection, self._items[connection.connection_id][0])
                 continue
             if connection.connection_id in self._items:
                 self._remove_realized(connection.connection_id)
@@ -285,6 +314,7 @@ class SLDCanvasRenderSystem:
                     )
                 if callable(getattr(item, "set_visual_state", None)):
                     item.set_visual_state(VisualState.NORMAL)
+                self._restore_connection_selection(connection, item)
                 self._scene.addItem(item)
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
