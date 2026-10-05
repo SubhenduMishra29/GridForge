@@ -67,10 +67,12 @@ class ShuntModelService(ModelServiceSupport):
         if endpoint is not None: capacitor.connect(endpoint)
         if reactive_power_injection_mvar is not None: capacitor.reactive_power_injection_mvar = reactive_power_injection_mvar
         if in_service is not None: capacitor.in_service = in_service
+        if in_service is not None: self._network.invalidate_topology()
         def restore() -> None:
             if old_endpoint is None: capacitor.disconnect()
             else: capacitor.connect(old_endpoint)
             capacitor.name = old["name"]; capacitor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; capacitor.in_service = old["in_service"]
+            if in_service is not None: self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(capacitor, "capacitor", capacitor_id, f"Capacitor updated: {capacitor_id}")
 
     def delete_capacitor(self, *, capacitor_id: str, transaction: Transaction) -> ApplicationResult[Capacitor]:
