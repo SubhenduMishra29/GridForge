@@ -228,9 +228,9 @@ class EquipmentRegistry:
         registry = cls()
         definitions = (
             ("bus", "Bus", ("terminal",), "network"),
-            ("line", "Line", ("from", "to"), "branch"),
-            ("cable", "Cable", ("from", "to"), "branch"),
-            ("transformer", "Transformer", ("from", "to"), "branch"),
+            ("line", "Line", ("FROM", "TO"), "branch"),
+            ("cable", "Cable", ("FROM", "TO"), "branch"),
+            ("transformer", "Transformer", ("FROM", "TO"), "branch"),
             ("switch", "Switch", ("from", "to"), "switching"),
             ("breaker", "Breaker", ("from", "to"), "switching"),
             ("disconnector", "Disconnector", ("from", "to"), "switching"),
