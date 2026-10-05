@@ -92,6 +92,7 @@ class SLDService:
         core_by_id = {str(connection.connection_id): connection for connection in core_connections}
 
         companions = {}
+        changed = False
         for connection in self.document.model.connections:
             if str(connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
                 continue
@@ -124,6 +125,7 @@ class SLDService:
                     connection.source_endpoint = self._sld_endpoint_from_mapping(expected_a)
                     connection.target_endpoint = self._sld_endpoint_from_mapping(expected_b)
                     connection.properties["core_connection_id"] = core_id
+                    changed = True
                 continue
 
             presentation_id = f"sld-wire-{core_id}"
@@ -147,6 +149,7 @@ class SLDService:
                 },
             )
             companions[core_id] = self.document.model.get_connection(presentation_id)
+            changed = True
 
         for core_id, connection in companions.items():
             if core_id not in core_by_id:
@@ -155,7 +158,8 @@ class SLDService:
                         f"SLD Simple Wire {connection.connection_id!r} has no authoritative Core connection {core_id!r}."
                     )
 
-        self.document.mark_modified()
+        if changed:
+            self.document.mark_modified()
 
         def rollback() -> None:
             for connection in tuple(self.document.model.connections):
