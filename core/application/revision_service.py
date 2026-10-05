@@ -27,16 +27,16 @@ class RevisionService:
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
-        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_grid", "model.delete_grid", "model.create_generator", "model.delete_generator", "model.create_synchronous_machine", "model.delete_synchronous_machine", "model.create_load", "model.delete_load", "model.create_motor", "model.delete_motor", "model.create_shunt", "model.delete_shunt", "model.create_capacitor", "model.delete_capacitor", "model.create_reactor", "model.delete_reactor", "model.create_solar", "model.delete_solar", "model.create_battery", "model.delete_battery", "model.create_current_transformer", "model.delete_current_transformer", "model.create_capacitive_voltage_transformer", "model.delete_capacitive_voltage_transformer", "model.create_pt", "model.delete_pt", "model.create_relay", "model.delete_relay", "model.create_line", "model.delete_line",
+        "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
-        "model.create_cable", "model.update_cable", "model.delete_cable",
-        "model.create_switch", "model.update_switch", "model.delete_switch",
+        "model.create_cable", "model.delete_cable",
+        "model.create_switch", "model.delete_switch",
         "model.open_switch", "model.close_switch",
         "model.put_switch_in_service", "model.take_switch_out_of_service",
-        "model.create_disconnector", "model.update_disconnector", "model.delete_disconnector",
+        "model.create_disconnector", "model.delete_disconnector",
         "model.open_disconnector", "model.close_disconnector",
         "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
-        "model.create_fuse", "model.update_fuse", "model.delete_fuse",
+        "model.create_fuse", "model.delete_fuse",
         "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
         "model.create_breaker", "model.delete_breaker",
@@ -45,7 +45,7 @@ class RevisionService:
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
-        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_line", "model.update_cable", "model.update_transformer", "model.update_breaker",
+        "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
         "model.update_disconnector",
         "model.update_fuse",
@@ -133,6 +133,13 @@ class RevisionService:
         command_type = command.command_type
         if command_type in cls._TOPOLOGY_COMMANDS:
             return True
+        # Single-terminal equipment changes topology only when the mutation
+        # actually supplies/changes a physical Bus attachment. Merely adding
+        # an isolated injection is a model mutation, not a topology mutation.
+        if command_type.startswith("model.create_") and command_type not in cls._TOPOLOGY_COMMANDS:
+            return any(command.payload.get(field) is not None for field in ("endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"))
+        if command_type.startswith("model.delete_") and command_type not in cls._TOPOLOGY_COMMANDS:
+            return False
         if command_type in cls._TOPOLOGY_UPDATE_COMMANDS:
             return any(command.payload.get(field) is not None for field in cls._TOPOLOGY_STATE_FIELDS)
         return False
@@ -204,15 +211,25 @@ class RevisionService:
         self._redo.append(_RevisionTransition(before, transition.after))
         return self._current
 
-    def record_redo(self) -> ProjectRevision:
+    def record_redo(self, *, topology_revision: int | None = None) -> ProjectRevision:
         """Restore the exact revision state represented by the latest redo transition."""
         if not self._redo:
             raise RuntimeError("No revision transition is available to redo.")
         transition = self._redo.pop()
         if transition.before != self._current:
             raise RuntimeError("Revision redo state is inconsistent with current revision.")
-        self._current = transition.after
-        self._undo.append(transition)
+        after = transition.after
+        if topology_revision is not None:
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
+                raise ValueError("topology_revision must be a non-negative integer.")
+            after = ProjectRevision(
+                model_revision=after.model_revision,
+                topology_revision=topology_revision,
+                presentation_revision=after.presentation_revision,
+                persisted_revision=after.persisted_revision,
+            )
+        self._current = after
+        self._undo.append(_RevisionTransition(transition.before, after))
         return self._current
 
     def initialize_from_network(self, *, topology_revision: int) -> ProjectRevision:

@@ -10,7 +10,7 @@ from core.solver.power_flow.runtime_state import PowerFlowRuntimeState
 class QLimitHandler:
     """Detect PV reactive-limit violations and update RuntimeState only."""
 
-    def __init__(self, input_data: PowerFlowInput, runtime_state: PowerFlowRuntimeState, tolerance: float = 1e-8, ybus=None):
+    def __init__(self, input_data: PowerFlowInput, runtime_state: PowerFlowRuntimeState, tolerance: float = 1e-8, ybus=None, *, policy: str = "hold_pq"):
         if not isinstance(input_data, PowerFlowInput):
             raise TypeError("input_data must be PowerFlowInput.")
         if not isinstance(runtime_state, PowerFlowRuntimeState):
@@ -19,6 +19,9 @@ class QLimitHandler:
         self.runtime_state = runtime_state
         self.tolerance = float(tolerance)
         self.ybus = ybus
+        self.policy = str(policy).strip().lower()
+        if self.policy != "hold_pq":
+            raise ValueError("QLimitHandler currently supports only the explicit 'hold_pq' policy.")
         self.history: list[dict] = []
         self._validate()
 
@@ -53,7 +56,7 @@ class QLimitHandler:
         return changed
 
     def summary(self):
-        return {"buses": self.input.bus_count, "tolerance": self.tolerance, "conversions": len(self.history)}
+        return {"buses": self.input.bus_count, "tolerance": self.tolerance, "policy": self.policy, "conversions": len(self.history)}
 
     def __repr__(self):
         return f"QLimitHandler(buses={self.input.bus_count}, tolerance={self.tolerance})"

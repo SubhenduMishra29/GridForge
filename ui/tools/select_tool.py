@@ -148,7 +148,7 @@ class SelectTool(ToolBase):
             return
         snap = getattr(self.get_snap_system(), "snap", None)
         if callable(snap):
-            snapped = snap(end, allow_grid=True, allow_object=False)
+            snapped = snap(end, allow_grid=True, allow_object=False, intent="MOVE")
             position = getattr(snapped, "position", None)
             if position is not None:
                 end = (float(position.x()), float(position.y()))
