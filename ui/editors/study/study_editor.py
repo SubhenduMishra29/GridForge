@@ -9,6 +9,7 @@ from __future__ import annotations
 from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QVBoxLayout, QWidget, Qt
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
+from ui.tools.tool_definition import contextual_tool_definitions
 
 
 class StudyEditor(QWidget):
