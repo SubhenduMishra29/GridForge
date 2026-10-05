@@ -155,7 +155,7 @@ class WireTool(ToolBase):
         snap = getattr(self.get_snap_system(), "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
-        result = snap(scene_position, allow_grid=True, allow_object=True)
+        result = snap(scene_position, allow_grid=False, allow_object=True, intent="WIRE_TARGET")
         if getattr(result, "position", None) is None:
             return None
         return result
