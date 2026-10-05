@@ -32,6 +32,7 @@ class SLDReadSynchronizer:
         self._projection_manager = projection_manager
         self._read_adapter = SLDReadAdapter()
         self._application = application
+        self._reconciliation_diagnostics: tuple[dict[str, Any], ...] = ()
 
     @property
     def projection_manager(self) -> SLDProjectionManager:
@@ -51,6 +52,41 @@ class SLDReadSynchronizer:
         self._application = None
         return application
 
+    @property
+    def reconciliation_diagnostics(self) -> tuple[dict[str, Any], ...]:
+        """Return deterministic Core/SLD Simple Wire reconciliation diagnostics."""
+        return self._reconciliation_diagnostics
+
+    def reconcile_simple_wires(self, read_model: NetworkReadModel | None = None) -> tuple[dict[str, Any], ...]:
+        """Audit Core Simple Wires against persistent SLD companions without mutating either side."""
+        if read_model is None:
+            read_model = self._require_application().read_network()
+        if not isinstance(read_model, NetworkReadModel):
+            raise TypeError("read_model must be a NetworkReadModel")
+        presentation = getattr(self._require_application(), "presentation", None)
+        model = getattr(presentation, "model", None)
+        connections = tuple(getattr(model, "connections", ())) if model is not None else ()
+        core_ids = {wire.connection_id for wire in read_model.simple_wires}
+        sld_projection = {}
+        diagnostics = []
+        for connection in connections:
+            if str(getattr(connection, "properties", {}).get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+                continue
+            core_id = getattr(connection, "properties", {}).get("core_connection_id")
+            if not core_id:
+                diagnostics.append({"code": "MISSING_CORE_CONNECTION_ID", "presentation_id": connection.connection_id})
+                continue
+            core_id = str(core_id)
+            if core_id in sld_projection:
+                diagnostics.append({"code": "DUPLICATE_PRESENTATION_COMPANION", "connection_id": core_id})
+            sld_projection[core_id] = connection
+        for core_id in sorted(core_ids - set(sld_projection)):
+            diagnostics.append({"code": "CORE_WIRE_WITHOUT_SLD_COMPANION", "connection_id": core_id})
+        for core_id in sorted(set(sld_projection) - core_ids):
+            diagnostics.append({"code": "SLD_WIRE_WITHOUT_CORE", "connection_id": core_id, "presentation_id": sld_projection[core_id].connection_id})
+        self._reconciliation_diagnostics = tuple(diagnostics)
+        return self._reconciliation_diagnostics
+
     def synchronize_network_from_application(self) -> tuple[SLDProjection, ...]:
         return self.synchronize_network(None, self._require_application().read_network())
 
@@ -65,6 +101,7 @@ class SLDReadSynchronizer:
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
         adapted = self._read_adapter.network(read_model)
+        self.reconcile_simple_wires(adapted)
         projections = self._projection_manager.project_network(adapted)
         self._projection_manager.reconcile_network(frozenset(e.object_id for e in adapted.elements))
         return projections

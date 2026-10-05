@@ -77,6 +77,149 @@ class SLDService:
                 )
         self._document = document
 
+    @staticmethod
+    def presentation_connection_id(core_connection_id: str) -> str:
+        """Return the deterministic persistent SLD presentation identity for a Core connection."""
+        if not isinstance(core_connection_id, str) or not core_connection_id:
+            raise ValueError("core_connection_id must be a non-empty string")
+        return f"sld-wire-{core_connection_id}"
+
+    def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
+        """Reconcile persistent projection companions against authoritative Core Simple Wires.
+        
+        This is a project-activation boundary operation. It does not create a
+        command/history entry; the returned rollback restores the exact
+        persistent SLD connection snapshot if activation fails.
+        """
+        if network is None or not hasattr(network, "connectivity"):
+            raise TypeError("network must expose the authoritative connectivity aggregate")
+
+        previous = tuple(connection.to_dict() for connection in self.document.model.connections)
+        core_connections = tuple(network.connectivity.connections)
+        core_by_id = {str(connection.connection_id): connection for connection in core_connections}
+
+        companions = {}
+        changed = False
+        for connection in self.document.model.connections:
+            kind = str(connection.properties.get("connection_kind", "")).upper()
+            core_id = connection.properties.get("core_connection_id")
+            if kind != "SIMPLE_WIRE" and not core_id:
+                continue
+            if kind != "SIMPLE_WIRE":
+                raise ValueError(
+                    f"SLD connection {connection.connection_id!r} has Core connection mapping but kind {kind!r}, expected SIMPLE_WIRE."
+                )
+            if not core_id and str(connection.connection_id).startswith("sld-wire-"):
+                # Deterministic legacy migration is centralized here; UI never
+                # reconstructs Core identity from a presentation string.
+                core_id = str(connection.connection_id)[len("sld-wire-"):]
+                connection.properties["core_connection_id"] = core_id
+                changed = True
+            if not core_id:
+                raise ValueError(
+                    f"SLD Simple Wire {connection.connection_id!r} has no Core connection mapping."
+                )
+            core_id = str(core_id)
+            if core_id in companions:
+                raise ValueError(
+                    f"Multiple SLD Simple Wire companions map to Core connection {core_id!r}."
+                )
+            companions[core_id] = connection
+
+        for core_id, core in core_by_id.items():
+            if core_id in companions:
+                connection = companions[core_id]
+                expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
+                expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+                actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
+                actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
+                if connection.properties.get("connection_kind") != "SIMPLE_WIRE":
+                    raise ValueError(f"SLD connection {connection.connection_id!r} has an invalid connection kind.")
+                if actual_a != expected_a or actual_b != expected_b:
+                    if connection.properties.get("presentation_owner") != "projection":
+                        raise ValueError(
+                            f"Engineer-owned SLD Simple Wire {connection.connection_id!r} conflicts with Core endpoints."
+                        )
+                    snapshot = connection.to_dict()
+                    self.document.model.remove_connection(connection.connection_id)
+                    self.document.model.create_connection(
+                        connection_id=snapshot["connection_id"],
+                        source_node_id=snapshot["source_node_id"],
+                        target_node_id=snapshot["target_node_id"],
+                        source_endpoint=expected_a,
+                        target_endpoint=expected_b,
+                        route=snapshot.get("route"),
+                        properties=dict(snapshot.get("properties", {}), core_connection_id=core_id),
+                    )
+                    companions[core_id] = self.document.model.get_connection(snapshot["connection_id"])
+                    changed = True
+                continue
+
+            presentation_id = self.presentation_connection_id(core_id)
+            if self.document.model.get_connection_optional(presentation_id) is not None:
+                raise ValueError(
+                    f"SLD connection identity collision for Core Simple Wire {core_id!r}: {presentation_id!r}."
+                )
+            source = self._sld_node_for_endpoint_mapping(core.endpoint_a.to_mapping())
+            target = self._sld_node_for_endpoint_mapping(core.endpoint_b.to_mapping())
+            self.document.model.create_connection(
+                connection_id=presentation_id,
+                source_node_id=source,
+                target_node_id=target,
+                source_endpoint=self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping()),
+                target_endpoint=self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping()),
+                properties={
+                    "connection_kind": "SIMPLE_WIRE",
+                    "presentation_owner": "projection",
+                    "projection_source": "core_reconciliation",
+                    "core_connection_id": core_id,
+                },
+            )
+            companions[core_id] = self.document.model.get_connection(presentation_id)
+            changed = True
+
+        for core_id, connection in companions.items():
+            if core_id not in core_by_id:
+                raise ValueError(
+                    f"SLD Simple Wire {connection.connection_id!r} has no authoritative Core connection {core_id!r}."
+                )
+
+        if changed:
+            self.document.mark_modified()
+
+        def rollback() -> None:
+            for connection in tuple(self.document.model.connections):
+                self.document.model.remove_connection(connection.connection_id)
+            for snapshot in previous:
+                self._restore_connection_snapshot(snapshot)
+
+        return rollback
+
+    def _sld_node_for_endpoint_mapping(self, mapping: Mapping[str, Any]) -> str:
+        object_id = str(mapping.get("object_id") or "")
+        if not object_id:
+            raise ValueError("Simple Wire endpoint mapping requires object_id.")
+        nodes = tuple(
+            node for node in self.document.model.nodes
+            if str(getattr(node, "equipment_id", "") or "") == object_id
+        )
+        if len(nodes) != 1:
+            raise ValueError(
+                f"Expected exactly one SLD node for Core endpoint object {object_id!r}; found {len(nodes)}."
+            )
+        return str(nodes[0].node_id)
+
+    @staticmethod
+    def _sld_endpoint_from_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "kind": "bus" if mapping.get("kind") == "bus" else "equipment",
+            "node_id": str(mapping.get("object_id") or ""),
+            "equipment_id": mapping.get("object_id") if mapping.get("kind") != "bus" else None,
+            "terminal_role": mapping.get("terminal_role") if mapping.get("kind") != "bus" else None,
+            "bus_id": mapping.get("object_id") if mapping.get("kind") == "bus" else None,
+            "attachment_id": mapping.get("attachment_id") if mapping.get("kind") == "bus" else None,
+        }
+
     def attach_application(self, application: Any) -> None:
         """Attach the Application whose presentation state is authoritative."""
         if application is None:
@@ -420,10 +563,24 @@ class SLDService:
         """Remove or orphan a Core-bound SLD connection by route ownership."""
         connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
+            # Core Simple Wire identity and persistent SLD presentation identity
+            # are distinct. Resolve the companion through its persisted mapping.
+            candidates = tuple(
+                item
+                for item in self.document.model.connections
+                if item.properties.get("core_connection_id") == connection_id
+            )
+            if len(candidates) > 1:
+                raise ValueError(
+                    f"Multiple SLD connection companions map to Core connection {connection_id!r}."
+                )
+            connection = candidates[0] if candidates else None
+        if connection is None:
             return "REMOVED"
+        presentation_id = connection.connection_id
         snapshot = connection.to_dict()
         if not self.has_engineer_presentation_overrides_for_connection(connection):
-            self.document.model.remove_connection(connection_id)
+            self.document.model.remove_connection(presentation_id)
             self.document.mark_modified()
             transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
             return "REMOVED"

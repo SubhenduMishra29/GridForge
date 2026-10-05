@@ -90,6 +90,7 @@ class ProjectLifecycleService:
         self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
         self._presentation_activator = presentation_activator
+        self._post_network_activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None] | None = None
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
         self._rollback_error: Exception | None = None
@@ -166,6 +167,15 @@ class ProjectLifecycleService:
         self._presentation_factory = factory
         self._serialize_presentation = serializer
         self._deserialize_presentation = deserializer
+
+    def configure_post_network_activator(
+        self,
+        activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None],
+    ) -> None:
+        """Register one activation-boundary callback that runs after Network activation."""
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        self._post_network_activator = activator
 
     def configure_presentation_activator(self, activator: PresentationActivator) -> None:
         if not callable(activator):
@@ -307,6 +317,11 @@ class ProjectLifecycleService:
             rollback = self._activate_network(network)
             if rollback is not None:
                 rollback_stack.append(rollback)
+
+            if self._post_network_activator is not None:
+                rollback = self._post_network_activator(context, loaded, network, next_generation)
+                if rollback is not None:
+                    rollback_stack.append(rollback)
 
             rollback = self._activate_project_state(context, loaded, network, next_generation)
             if rollback is not None:

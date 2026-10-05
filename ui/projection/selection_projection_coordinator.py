@@ -16,6 +16,8 @@ from core.application.events import (
     NetworkChanged,
     ProjectClosed,
     ProjectLoaded,
+    SimpleWireConnectionCreated,
+    SimpleWireConnectionRemoved,
 )
 
 from .projection_state import EngineeringParameterState, ProjectionState
@@ -34,6 +36,8 @@ class SelectionProjectionCoordinator:
         ElementUpdated,
         ElementRemoved,
         NetworkChanged,
+        SimpleWireConnectionCreated,
+        SimpleWireConnectionRemoved,
         ProjectLoaded,
         ProjectClosed,
     )
@@ -68,6 +72,8 @@ class SelectionProjectionCoordinator:
             raise TypeError("application must provide read_element().")
         if not callable(getattr(application, "read_network", None)):
             raise TypeError("application must provide read_network().")
+        if not callable(getattr(application, "read_simple_wire", None)):
+            raise TypeError("application must provide read_simple_wire().")
         self.application = application
         self.refresh()
 
@@ -95,7 +101,7 @@ class SelectionProjectionCoordinator:
             return
 
         object_id = selected_ids[0]
-        if isinstance(event, ElementRemoved) and self._selected_event_id(event) == object_id:
+        if isinstance(event, (ElementRemoved, SimpleWireConnectionRemoved)) and self._selected_event_id(event) == object_id:
             self.selection_manager.clear()
             self.clear_projection()
             return
@@ -104,6 +110,26 @@ class SelectionProjectionCoordinator:
             return
 
         if isinstance(event, NetworkChanged) and not self.selection_manager.has_selection():
+            return
+
+        wire = self._read_selected_simple_wire(object_id)
+        if wire is not None:
+            presentation = self._read_selected_wire_presentation(wire.connection_id)
+            state = ProjectionState(
+                object_id=wire.connection_id,
+                display_type="SIMPLE_WIRE",
+                labels=(wire.connection_id, wire.kind),
+                connectivity_refs=(wire.connection_id,),
+                status="committed",
+                identity_kind="simple_wire",
+                presentation_id=(presentation.get("presentation_id") if presentation else None),
+                connection_kind=(presentation.get("connection_kind") if presentation else wire.kind),
+                endpoint_a=wire.endpoint_a,
+                endpoint_b=wire.endpoint_b,
+                route_ownership=(presentation.get("route_ownership") if presentation else None),
+                route_points=(presentation.get("route_points") if presentation else ()),
+            )
+            self._set_panel_target(state)
             return
 
         element = self._read_selected_element(object_id)
@@ -122,6 +148,7 @@ class SelectionProjectionCoordinator:
             labels=tuple(str(value) for value in element.labels.values()),
             connectivity_refs=tuple(element.connectivity_refs),
             status=self._status(element.attributes),
+            identity_kind="element",
             engineering_parameters=tuple(
                 EngineeringParameterState(
                     parameter_id=item.parameter_id,
@@ -172,6 +199,36 @@ class SelectionProjectionCoordinator:
         del selected_ids
         if not self._disposed:
             self.refresh()
+
+    def _read_selected_simple_wire(self, object_id: Any) -> Any | None:
+        if self.application is None or not isinstance(object_id, str):
+            return None
+        try:
+            return self.application.read_simple_wire(object_id)
+        except (KeyError, RuntimeError, ValueError):
+            return None
+
+    def _read_selected_wire_presentation(self, connection_id: str) -> dict[str, Any] | None:
+        if self.application is None:
+            return None
+        document = getattr(getattr(self.application, "presentation", None), "model", None)
+        if document is None:
+            return None
+        matches = tuple(
+            connection
+            for connection in getattr(document, "connections", ())
+            if str(getattr(connection, "properties", {}).get("core_connection_id", "")) == connection_id
+        )
+        if len(matches) != 1:
+            return None
+        connection = matches[0]
+        route = getattr(connection, "route", None)
+        return {
+            "presentation_id": str(connection.connection_id),
+            "connection_kind": str(connection.properties.get("connection_kind", "SIMPLE_WIRE")),
+            "route_ownership": getattr(route, "ownership", None),
+            "route_points": tuple(getattr(route, "points", ()) or ()),
+        }
 
     def _read_selected_element(self, object_id: Any) -> Any | None:
         if self.application is None:
@@ -235,7 +292,7 @@ class SelectionProjectionCoordinator:
     @staticmethod
     def _selected_event_id(event: Any) -> Any:
         payload = getattr(event, "payload", {})
-        return payload.get("element_id")
+        return payload.get("element_id") or payload.get("connection_id")
 
     def _ensure_active(self) -> None:
         if self._disposed:

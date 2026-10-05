@@ -225,14 +225,17 @@ class Application:
         self._project_lifecycle = service
         if self._sld_service is not None:
             service.configure_presentation_activator(
-                lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation)
+                lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)
+            )
+            service.configure_post_network_activator(
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
             )
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
         if self._sld_service is not None:
             self.project_lifecycle.configure_presentation_activator(
-                lambda context, value: self._bind_sld_transactionally(self._sld_service, value)
+                lambda context, value: self._bind_sld_transactionally(self._sld_service, value, context)
             )
 
     def configure_project_presentation_contract(self, *, factory: Any, serializer: Any, deserializer: Any) -> None:
@@ -246,7 +249,7 @@ class Application:
         sld_service = self._sld_service
 
         def composite(context: ProjectContext | None, value: Any | None):
-            sld_rollback = self._bind_sld_transactionally(sld_service, value)
+            sld_rollback = self._bind_sld_transactionally(sld_service, value, context)
             try:
                 workspace_rollback = activator(context, value)
             except BaseException:
@@ -264,15 +267,30 @@ class Application:
 
         self.project_lifecycle.configure_presentation_activator(composite)
 
-    @staticmethod
-    def _bind_sld_transactionally(service: SLDService, value: Any) -> Any:
+    def _reconcile_sld_after_network_activation(self, network: Any) -> Any:
+        """Reconcile persistent SLD Simple Wire companions after Core Network activation."""
+        if self._sld_service is None or not self._sld_service.is_bound:
+            return None
+        return self._sld_service.reconcile_simple_wire_projection(network)
+
+    def _bind_sld_transactionally(
+        self,
+        service: SLDService,
+        value: Any,
+        context: ProjectContext | None = None,
+    ) -> Any:
         previous = service.document if service.is_bound else None
-        if value is None: service.detach_document()
-        else: service.bind_document(value)
+        if value is None:
+            service.detach_document()
+            return lambda: service.detach_document() if service.is_bound else None
+
+        service.bind_document(value)
 
         def rollback() -> None:
-            if previous is None: service.detach_document()
-            else: service.bind_document(previous)
+            if previous is None:
+                service.detach_document()
+            else:
+                service.bind_document(previous)
         return rollback
 
     def attach_sld_service(self, service: SLDService) -> None:
@@ -283,7 +301,10 @@ class Application:
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._project_lifecycle is not None:
             self._project_lifecycle.configure_presentation_activator(
-                lambda context, value: self._bind_sld_transactionally(service, value)
+                lambda context, value: self._bind_sld_transactionally(service, value, context)
+            )
+            self._project_lifecycle.configure_post_network_activator(
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
             )
         self._register_sld_handlers(service)
         presentation = self.presentation if self._project_lifecycle is not None else None
@@ -574,7 +595,7 @@ class Application:
                 for item in tuple(result.metadata.get("committed_connections", ())):
                     connection_id = str(
                         item.get("sld_connection_id")
-                        or f"sld-wire-{item['connection_id']}"
+                        or self._sld_service.presentation_connection_id(str(item["connection_id"]))
                     )
                     existing = self._sld_service.document.model.get_connection_optional(connection_id)
                     if existing is not None:
@@ -591,6 +612,7 @@ class Application:
                             connection_kind="SIMPLE_WIRE",
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
+                            core_connection_id=str(item["connection_id"]),
                             correlation_id=command.correlation_id,
                             causation_id=command.command_id,
                         ),
@@ -805,6 +827,7 @@ class Application:
                 connection_kind=connection_kind,
                 presentation_owner="projection",
                 projection_source="core_transaction",
+                core_connection_id=connection_id,
                 correlation_id=command.correlation_id,
                 causation_id=command.command_id,
             ),
