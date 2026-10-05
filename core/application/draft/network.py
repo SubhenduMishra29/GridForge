@@ -193,12 +193,21 @@ class DraftNetwork:
                 self._connections.pop(cid)
         self.validation_state = {}; return equipment
 
-    def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None) -> None:
+    def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None, network: Any | None = None) -> None:
         prefix = f"{connection_id}: " if connection_id else ""
         if endpoint.is_bus:
             if not endpoint.attachment_id: raise ValueError(f"{prefix}Bus endpoint attachment is missing.")
+            if network is not None:
+                from core.network.electrical_boundary import EndpointCompatibility, EndpointCompatibilityError
+                try: EndpointCompatibility.validate_reference(endpoint.to_core_reference(), network)
+                except EndpointCompatibilityError as exc: raise ValueError(f"{prefix}{exc}") from exc
             return
-        if endpoint.scope == "core": return
+        if endpoint.scope == "core":
+            if network is None: return
+            from core.network.electrical_boundary import EndpointCompatibility, EndpointCompatibilityError
+            try: EndpointCompatibility.validate_reference(endpoint.to_core_reference(), network)
+            except EndpointCompatibilityError as exc: raise ValueError(f"{prefix}{exc}") from exc
+            return
         equipment = self._equipment.get(endpoint.object_id)
         if equipment is None: raise ValueError(f"{prefix}unknown draft equipment {endpoint.object_id!r}.")
         if endpoint.terminal_role not in equipment.terminal_contract: raise ValueError(f"{prefix}unknown terminal role {endpoint.terminal_role!r} for {endpoint.object_id!r}.")
@@ -215,7 +224,7 @@ class DraftNetwork:
     def remove_connection(self, connection_id: str) -> DraftConnection:
         return self._connections.pop(connection_id)
 
-    def validate(self) -> tuple[str, ...]:
+    def validate(self, network: Any | None = None) -> tuple[str, ...]:
         errors: list[str] = []
         seen_pairs: set[tuple[DraftEndpointReference, DraftEndpointReference]] = set()
         for item in self._equipment.values():
@@ -227,7 +236,7 @@ class DraftNetwork:
                     errors.append(f"{item.draft_id}: endpoint mapping for {role!r} is inconsistent with DraftEquipment identity.")
         for item in self._connections.values():
             try:
-                self._validate_endpoint(item.source, connection_id=item.connection_id); self._validate_endpoint(item.target, connection_id=item.connection_id)
+                self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
             except (KeyError, TypeError, ValueError) as exc: errors.append(str(exc)); continue
             pair = tuple(sorted((item.source, item.target), key=lambda x: x.to_dict().__repr__()))
             if pair in seen_pairs: errors.append(f"{item.connection_id}: duplicate endpoint pair.")
