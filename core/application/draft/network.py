@@ -20,6 +20,7 @@ class DraftEndpointReference:
     terminal_role: str | None = None
     attachment_id: str | None = None
     equipment_type: str | None = None
+    scope: str = "draft"
 
     def __post_init__(self) -> None:
         if self.kind not in {"terminal", "bus"}:
@@ -27,6 +28,8 @@ class DraftEndpointReference:
         if not isinstance(self.object_id, str) or not self.object_id.strip():
             raise ValueError("Draft endpoint object_id must be non-empty.")
         object.__setattr__(self, "object_id", self.object_id.strip())
+        if self.scope not in {"draft", "core"}:
+            raise ValueError("Draft endpoint scope must be draft or core.")
         if self.kind == "terminal":
             if not isinstance(self.terminal_role, str) or not self.terminal_role.strip():
                 raise ValueError("Draft terminal endpoint requires terminal_role.")
@@ -44,12 +47,12 @@ class DraftEndpointReference:
             object.__setattr__(self, "attachment_id", self.attachment_id.strip())
 
     @classmethod
-    def terminal(cls, *, draft_id: str, equipment_type: str, terminal_role: str) -> "DraftEndpointReference":
-        return cls("terminal", draft_id, terminal_role=terminal_role, equipment_type=equipment_type)
+    def terminal(cls, *, draft_id: str, equipment_type: str, terminal_role: str, scope: str = "draft") -> "DraftEndpointReference":
+        return cls("terminal", draft_id, terminal_role=terminal_role, equipment_type=equipment_type, scope=scope)
 
     @classmethod
     def bus(cls, *, bus_id: str, attachment_id: str) -> "DraftEndpointReference":
-        return cls("bus", bus_id, attachment_id=attachment_id)
+        return cls("bus", bus_id, attachment_id=attachment_id, scope="core")
 
     @property
     def is_terminal(self) -> bool: return self.kind == "terminal"
@@ -58,13 +61,13 @@ class DraftEndpointReference:
 
     def to_dict(self) -> dict[str, Any]:
         return {"kind": self.kind, "object_id": self.object_id, "terminal_role": self.terminal_role,
-                "attachment_id": self.attachment_id, "equipment_type": self.equipment_type}
+                "attachment_id": self.attachment_id, "equipment_type": self.equipment_type, "scope": self.scope}
 
     @classmethod
     def from_value(cls, value: Any) -> "DraftEndpointReference":
         if isinstance(value, cls): return value
         if not isinstance(value, Mapping): raise TypeError("Draft endpoint must be a mapping or DraftEndpointReference.")
-        return cls(str(value["kind"]), str(value["object_id"]), value.get("terminal_role"), value.get("attachment_id"), value.get("equipment_type"))
+        return cls(str(value["kind"]), str(value["object_id"]), value.get("terminal_role"), value.get("attachment_id"), value.get("equipment_type"), str(value.get("scope", "draft")))
 
 
 
@@ -195,6 +198,7 @@ class DraftNetwork:
         if endpoint.is_bus:
             if not endpoint.attachment_id: raise ValueError(f"{prefix}Bus endpoint attachment is missing.")
             return
+        if endpoint.scope == "core": return
         equipment = self._equipment.get(endpoint.object_id)
         if equipment is None: raise ValueError(f"{prefix}unknown draft equipment {endpoint.object_id!r}.")
         if endpoint.terminal_role not in equipment.terminal_contract: raise ValueError(f"{prefix}unknown terminal role {endpoint.terminal_role!r} for {endpoint.object_id!r}.")
