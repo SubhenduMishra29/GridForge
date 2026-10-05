@@ -43,11 +43,12 @@ class ReactorModelService(ModelServiceSupport):
             if name is not None: reactor.name = name
             if reactive_power_injection_mvar is not None: reactor.reactive_power_injection_mvar = reactive_power_injection_mvar
             if in_service is not None: reactor.in_service = in_service
+            if in_service is not None: self._network.invalidate_topology()
             reactor.validate_parameters()
         except Exception:
             reactor.name = old["name"]; reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; reactor.in_service = old["in_service"]; raise
         def restore() -> None:
-            reactor.name = old["name"]; reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; reactor.in_service = old["in_service"]; reactor.validate_parameters()
+            reactor.name = old["name"]; reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; reactor.in_service = old["in_service"]; reactor.validate_parameters(); self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(reactor, "reactor", reactor_id, f"Reactor updated: {reactor_id}")
 
     def delete_reactor(self, *, reactor_id: str, transaction: Transaction) -> ApplicationResult[Reactor]:
