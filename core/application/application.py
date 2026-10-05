@@ -536,33 +536,68 @@ class Application:
         command_type = command.command_type
         if command_type == "network.commit_draft":
             if self._sld_service is not None:
+                # Draft presentation is authoring state. A successful commit
+                # receives one deterministic projection identity per Core
+                # equipment; no sld-draft-* node survives as a second object.
                 for item in tuple(result.metadata.get("created_elements", ())):
-                    node_id = str(item.get("sld_node_id") or f"sld-draft-{item['draft_id']}")
+                    core_id = str(item["core_id"])
+                    node_id = str(item.get("sld_node_id") or f"sld-core-{core_id}")
+                    existing_by_equipment = self._sld_service.document.model.get_node_by_equipment_id_optional(core_id)
+                    if existing_by_equipment is not None:
+                        self._sld_service.execute(
+                            RemoveSLDNodeCommand(node_id=existing_by_equipment.node_id),
+                            transaction,
+                        )
                     existing = self._sld_service.document.model.get_node_optional(node_id)
                     if existing is not None:
-                        self._sld_service.execute(RemoveSLDNodeCommand(node_id=node_id), transaction)
+                        self._sld_service.execute(
+                            RemoveSLDNodeCommand(node_id=node_id),
+                            transaction,
+                        )
                     x, y = item.get("x"), item.get("y")
                     if x is not None and y is not None:
-                        self._sld_service.execute(AddSLDNodeCommand(
-                            node_id=node_id, equipment_id=str(item["core_id"]),
-                            x=float(x), y=float(y), presentation_owner="projection",
-                            projection_source="network.commit_draft", element_type=str(item["element_type"]),
-                            presentation_properties=dict(item.get("presentation", {})),
-                            correlation_id=command.correlation_id, causation_id=command.command_id,
-                        ), transaction)
+                        self._sld_service.execute(
+                            AddSLDNodeCommand(
+                                node_id=node_id,
+                                equipment_id=core_id,
+                                x=float(x),
+                                y=float(y),
+                                presentation_owner="projection",
+                                projection_source="network.commit_draft",
+                                element_type=str(item["element_type"]),
+                                presentation_properties=dict(item.get("presentation", {})),
+                                correlation_id=command.correlation_id,
+                                causation_id=command.command_id,
+                            ),
+                            transaction,
+                        )
+
                 for item in tuple(result.metadata.get("committed_connections", ())):
-                    connection_id = str(item.get("sld_connection_id") or f"sld-draft-{item['connection_id']}")
-                    if self._sld_service.document.model.get_connection_optional(connection_id) is not None:
-                        self._sld_service.execute(RemoveSLDConnectionCommand(connection_id=connection_id), transaction)
-                    self._sld_service.execute(AddSLDConnectionCommand(
-                        connection_id=connection_id,
-                        source_node_id=(f"sld-draft-{item['source_draft_id']}" if item.get("source_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_a"])),
-                        target_node_id=(f"sld-draft-{item['target_draft_id']}" if item.get("target_is_draft") else self._sld_node_id_for_endpoint_mapping(item["endpoint_b"])),
-                        source_endpoint=item["endpoint_a"], target_endpoint=item["endpoint_b"],
-                        connection_kind="SIMPLE_WIRE", presentation_owner="projection",
-                        projection_source="network.commit_draft",
-                        correlation_id=command.correlation_id, causation_id=command.command_id,
-                    ), transaction)
+                    connection_id = str(
+                        item.get("sld_connection_id")
+                        or f"sld-wire-{item['connection_id']}"
+                    )
+                    existing = self._sld_service.document.model.get_connection_optional(connection_id)
+                    if existing is not None:
+                        self._sld_service.execute(
+                            RemoveSLDConnectionCommand(connection_id=connection_id),
+                            transaction,
+                        )
+                    self._sld_service.execute(
+                        AddSLDConnectionCommand(
+                            connection_id=connection_id,
+                            source_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_a"]),
+                            target_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_b"]),
+                            source_endpoint=item["endpoint_a"],
+                            target_endpoint=item["endpoint_b"],
+                            connection_kind="SIMPLE_WIRE",
+                            presentation_owner="projection",
+                            projection_source="network.commit_draft",
+                            correlation_id=command.correlation_id,
+                            causation_id=command.command_id,
+                        ),
+                        transaction,
+                    )
             return
 
         if self._sld_service is None:

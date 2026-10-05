@@ -145,7 +145,18 @@ class ModelPlacementTool(ToolBase):
                 "display_name": draft.definition.equipment_type,
                 "terminal_contract": tuple(item.terminal_name for item in draft.definition.terminal_requirements),
                 "engineering_data": dict(draft.snapshot_values()),
-                "endpoints": {},
+                # Preserve every explicitly acquired creation endpoint using
+                # the canonical persisted DraftEndpointReference. The UI
+                # endpoint object itself never becomes draft/Core identity.
+                "endpoints": {
+                    str(role): self._to_draft_endpoint_reference(
+                        endpoint,
+                        draft_id=equipment_id,
+                        equipment_type=equipment_type,
+                        terminal_role=str(role),
+                    ).to_dict()
+                    for role, endpoint in draft.snapshot_endpoints().items()
+                },
                 "placement": draft.placement_position,
                 "presentation": dict(draft.preview_state),
                 "validation_state": dict(draft.validation_state),
@@ -182,6 +193,39 @@ class ModelPlacementTool(ToolBase):
             selector(equipment_id)
         self._report_feedback(f"{equipment_type} committed.")
         return True
+    @staticmethod
+    def _to_draft_endpoint_reference(
+        endpoint: Any,
+        *,
+        draft_id: str,
+        equipment_type: str,
+        terminal_role: str,
+    ):
+        """Persist only canonical DraftEndpointReference values."""
+        from core.application.draft.network import DraftEndpointReference
+        from core.model import EndpointReference
+
+        if isinstance(endpoint, DraftEndpointReference):
+            return endpoint
+        if not isinstance(endpoint, EndpointReference):
+            raise TypeError(
+                f"Creation endpoint for {terminal_role!r} must be an EndpointReference."
+            )
+        if endpoint.is_bus:
+            return DraftEndpointReference.bus(
+                bus_id=str(endpoint.object_id),
+                attachment_id=str(endpoint.attachment_id),
+            )
+        # A terminal endpoint acquired during creation identifies the external
+        # Core endpoint; it must not be rewritten as the placed equipment's
+        # own terminal identity.
+        return DraftEndpointReference.terminal(
+            draft_id=str(endpoint.object_id),
+            equipment_type=str(endpoint.equipment_type.value),
+            terminal_role=str(endpoint.terminal_role),
+            scope="core",
+        )
+
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
         """Return the first missing explicitly required initial endpoint role."""
