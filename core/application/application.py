@@ -21,6 +21,7 @@ from .creation import CreationCommitIntent, CreationCommandPreparer
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
+from .commands.draft_commands import CommitNetworkCommand
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -41,7 +42,7 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
@@ -958,6 +959,39 @@ class Application:
         """Translate typed engineering intent into the authoritative update command."""
         return EngineeringUpdatePreparer.prepare(intent)
 
+    def commit_draft_network(self) -> ApplicationResult:
+        """Commit the complete Application-owned DraftNetwork through one canonical command.
+
+        UI/controllers call this Application operation for Commit Drawing/Commit
+        Network. The method never mutates Core directly and never creates a
+        second commit/history boundary.
+        """
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        draft = self._draft_network
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot commit DraftNetwork without an active project.")
+        if draft is None:
+            raise RuntimeError("Application DraftNetwork is not configured.")
+        if draft.project_id != context.project_id:
+            raise ValueError("DraftNetwork project_id does not match the active project.")
+        if draft.activation_generation != lifecycle.activation_generation:
+            raise ValueError("DraftNetwork activation_generation does not match the active project.")
+        command = CommitNetworkCommand(
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            draft_network=draft.to_dict(),
+        )
+        return self.execute(command)
+
+    def read_draft_network(self) -> Mapping[str, Any] | None:
+        """Return an isolated serialized snapshot for Application read/projection consumers."""
+        draft = self._draft_network
+        if draft is None:
+            return None
+        from copy import deepcopy
+        return deepcopy(draft.to_dict())
+
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
@@ -1073,6 +1107,17 @@ class Application:
                 correlation_id=command.correlation_id,
                 causation_id=command.causation_id,
                 metadata=metadata,
+            ))
+            return
+        if command.command_type in {
+            "draft.add_equipment", "draft.update_equipment", "draft.remove_equipment",
+            "draft.add_connection", "draft.create_connection", "draft.remove_connection",
+        }:
+            self._event_bus.publish(DraftChanged(
+                operation=operation,
+                metadata=metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
             ))
             return
         if command.command_type == "network.commit_draft":
