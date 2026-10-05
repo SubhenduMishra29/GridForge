@@ -14,6 +14,7 @@ from .tool_base import ToolBase
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
 from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.creation.command_factory import CreationCommandFactory
+from core.application.commands.draft_commands import AddDraftEquipmentCommand
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 
 
@@ -51,6 +52,7 @@ class ModelPlacementTool(ToolBase):
         self._creation_context: CreationContext | None = None
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap: Any | None = None
+        self._active_draft_id: str | None = None
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -108,6 +110,8 @@ class ModelPlacementTool(ToolBase):
         # terminal/topology acquisition is then performed by subsequent
         # object-snap interactions against canonical terminal identities.
         if draft.placement_position is None:
+            if self._active_draft_id is None:
+                self._active_draft_id = f"{draft.definition.tool_id}-draft-{uuid4().hex}"
             position = self._position_tuple(snap.position)
             self._position = position
             draft.set_placement(position)
@@ -127,7 +131,7 @@ class ModelPlacementTool(ToolBase):
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
         equipment_type = draft.equipment_type
-        equipment_id = f"{draft.definition.tool_id}-{uuid4().hex}"
+        equipment_id = self._active_draft_id or f"{draft.definition.tool_id}-draft-{uuid4().hex}"
         if not draft.validate_for_commit():
             self._report_feedback(
                 f"CREATION_INTENT_FAILED: {equipment_type} validation failed: "
@@ -136,23 +140,42 @@ class ModelPlacementTool(ToolBase):
             return False
         try:
             draft.mark_committing()
-            intent = CreationCommandFactory.build(draft, object_id=equipment_id)
-        except Exception as exc:
-            self._report_feedback(f"CREATION_INTENT_FAILED: equipment={equipment_type} id={equipment_id} message={exc}")
-            return False
-        try:
-            command = self.application.prepare_creation_command(intent)
-        except Exception as exc:
-            self._report_feedback(f"COMMAND_PREPARATION_FAILED: equipment={equipment_type} id={equipment_id} command={intent.command_type} message={exc}")
-            return False
-        try:
+            equipment = {
+                "draft_id": equipment_id,
+                "equipment_type": equipment_type,
+                "display_name": draft.definition.equipment_type,
+                "terminal_contract": tuple(item.terminal_name for item in draft.definition.terminal_requirements),
+                "engineering_data": dict(draft.snapshot_values()),
+                "endpoints": {},
+                "placement": draft.placement_position,
+                "presentation": dict(draft.preview_state),
+                "validation_state": dict(draft.validation_state),
+                "command_type": draft.definition.command_type,
+                "id_field": draft.definition.id_field,
+                "parameter_mapping": dict(draft.definition.parameter_mapping),
+                "endpoint_mapping": dict(draft.definition.endpoint_mapping),
+            }
+            command = AddDraftEquipmentCommand(equipment=equipment)
             result = self.execute_command(command)
         except Exception as exc:
-            self._report_feedback(f"COMMAND_EXECUTION_FAILED: equipment={equipment_type} id={equipment_id} command={command.command_type} message={exc}")
+            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={exc}")
             return False
-        if not result.success:
-            self._report_feedback(f"COMMAND_EXECUTION_FAILED: equipment={equipment_type} id={equipment_id} command={command.command_type} message={result.message}")
+        if not getattr(result, "success", False):
+            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
             return False
+        if self._preview_layer is not None:
+            for item in tuple(getattr(self._preview_layer, "items", lambda: ())()):
+                commit_draft = getattr(item, "commit_draft", None)
+                if callable(commit_draft):
+                    commit_draft(
+                        equipment_id,
+                        tuple(item.terminal_name for item in draft.definition.terminal_requirements),
+                        equipment_type,
+                    )
+                    register = getattr(self.get_snap_system(), "register_item", None)
+                    if callable(register):
+                        register(item)
+                    break
         self._require_creation_context().complete()
         self._clear_state()
         selector = getattr(self.selection_manager, "select_single", None)
@@ -304,6 +327,8 @@ class ModelPlacementTool(ToolBase):
             position=position,
             rotation=draft.orientation,
             presentation_state=draft.preview_state,
+            terminal_names=tuple(item.terminal_name for item in draft.definition.terminal_requirements),
+            element_type=draft.equipment_type,
         )
         replace = getattr(self._preview_layer, "replace", None)
         if not callable(replace):
@@ -334,6 +359,7 @@ class ModelPlacementTool(ToolBase):
         self._preview_active = False
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap = None
+        self._active_draft_id = None
         if self._preview_layer is not None:
             clear_preview = getattr(self._preview_layer, "clear_preview", None)
             if callable(clear_preview):
