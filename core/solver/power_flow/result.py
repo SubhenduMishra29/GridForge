@@ -31,12 +31,18 @@ class PowerFlowResult:
     message: str
     voltage_magnitudes: tuple[float, ...]
     voltage_angles: tuple[float, ...]
+    bus_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pv_to_pq", _immutable_records(self.pv_to_pq))
         object.__setattr__(self, "history", _tuple_floats(self.history))
         object.__setattr__(self, "voltage_magnitudes", _tuple_floats(self.voltage_magnitudes))
         object.__setattr__(self, "voltage_angles", _tuple_floats(self.voltage_angles))
+        bus_ids = tuple(str(value).strip() for value in self.bus_ids)
+        if any(not value for value in bus_ids): raise ValueError("Power Flow result bus IDs must be non-empty.")
+        if bus_ids and len(bus_ids) != len(self.voltage_magnitudes): raise ValueError("Power Flow result bus IDs must match voltage result length.")
+        if len(set(bus_ids)) != len(bus_ids): raise ValueError("Power Flow result bus IDs must be unique.")
+        object.__setattr__(self, "bus_ids", bus_ids)
         if len(self.voltage_magnitudes) != len(self.voltage_angles):
             raise ValueError("Voltage magnitude and angle result lengths must match.")
         if self.iterations < 0:
@@ -58,6 +64,7 @@ class PowerFlowResult:
             "pv_to_pq": tuple(dict(item) for item in self.pv_to_pq),
             "history": self.history,
             "message": self.message,
+            "bus_ids": self.bus_ids,
             "voltages": self.voltages,
         }
 
