@@ -133,6 +133,13 @@ class RevisionService:
         command_type = command.command_type
         if command_type in cls._TOPOLOGY_COMMANDS:
             return True
+        # Single-terminal equipment changes topology only when the mutation
+        # actually supplies/changes a physical Bus attachment. Merely adding
+        # an isolated injection is a model mutation, not a topology mutation.
+        if command_type.startswith("model.create_") and command_type not in cls._TOPOLOGY_COMMANDS:
+            return any(command.payload.get(field) is not None for field in ("endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"))
+        if command_type.startswith("model.delete_") and command_type not in cls._TOPOLOGY_COMMANDS:
+            return False
         if command_type in cls._TOPOLOGY_UPDATE_COMMANDS:
             return any(command.payload.get(field) is not None for field in cls._TOPOLOGY_STATE_FIELDS)
         return False
