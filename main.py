@@ -781,6 +781,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                          "study.cases", "view.sld_workspace", "view.control_workspace",
                          "view.protection_workspace", "view.topology", "view.map", "view.reports"}:
             return project_active
+        if action_id.startswith("tool."):
+            try:
+                definition = action_router.definition(action_id)
+            except (KeyError, RuntimeError, ValueError):
+                return False
+            if definition.tool_id is None:
+                return project_active
+            allowed_editors = tuple(definition.metadata.get("editor_types", ()))
+            if not allowed_editors:
+                allowed_editors = (definition.scope,) if definition.scope in {"sld", "control", "protection", "study"} else ()
+            return project_active and (not allowed_editors or discipline in allowed_editors)
         if action_id == "tool.bus":
             return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
         if action_id == "tool.wire":
