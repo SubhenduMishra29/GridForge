@@ -222,8 +222,15 @@ class DraftNetwork:
         equipment = self._equipment.get(endpoint.object_id)
         if equipment is None: raise ValueError(f"{prefix}unknown draft equipment {endpoint.object_id!r}.")
         if endpoint.terminal_role not in equipment.terminal_contract: raise ValueError(f"{prefix}unknown terminal role {endpoint.terminal_role!r} for {endpoint.object_id!r}.")
+        # DraftEquipment.endpoints stores an explicitly acquired external
+        # endpoint for this terminal role. It is not a second copy of the
+        # terminal's own DraftEndpointReference. DraftConnection remains the
+        # authoritative authoring topology; commit-time resolution reconciles
+        # any explicit declaration with that graph.
         declared = equipment.endpoints.get(endpoint.terminal_role)
-        if declared is not None and declared != endpoint: raise ValueError(f"{prefix}terminal identity mapping is contradictory.")
+        if declared is not None and declared.is_terminal and declared.scope == "draft":
+            if declared != endpoint:
+                raise ValueError(f"{prefix}terminal identity mapping is contradictory.")
 
     def add_connection(self, connection: DraftConnection) -> None:
         if connection.connection_id in self._connections: raise ValueError(f"Draft connection already exists: {connection.connection_id}")
@@ -242,9 +249,13 @@ class DraftNetwork:
             if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
             if len(set(item.terminal_contract)) != len(item.terminal_contract): errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
             for role, endpoint in item.endpoints.items():
-                if role not in item.terminal_contract: errors.append(f"{item.draft_id}: endpoint role {role!r} is not canonical.")
-                if endpoint != DraftEndpointReference.terminal(draft_id=item.draft_id, equipment_type=item.equipment_type, terminal_role=role):
-                    errors.append(f"{item.draft_id}: endpoint mapping for {role!r} is inconsistent with DraftEquipment identity.")
+                if role not in item.terminal_contract:
+                    errors.append(f"{item.draft_id}: endpoint role {role!r} is not canonical.")
+                    continue
+                try:
+                    self._validate_endpoint(endpoint, network=network)
+                except (KeyError, TypeError, ValueError) as exc:
+                    errors.append(f"{item.draft_id}:{role}: {exc}")
         for item in self._connections.values():
             try:
                 self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
