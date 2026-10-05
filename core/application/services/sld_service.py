@@ -110,8 +110,8 @@ class SLDService:
         for core_id, core in core_by_id.items():
             if core_id in companions:
                 connection = companions[core_id]
-                expected_a = core.endpoint_a.to_mapping()
-                expected_b = core.endpoint_b.to_mapping()
+                expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
+                expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
                 actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
                 actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
                 if connection.properties.get("connection_kind") != "SIMPLE_WIRE":
