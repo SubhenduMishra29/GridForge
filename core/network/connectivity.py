@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/connectivity.py
+# GridForge V2
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
