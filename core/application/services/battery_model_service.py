@@ -56,7 +56,8 @@ class BatteryModelService(ModelServiceSupport):
         if soc_min is not None: battery.soc_min = soc_min
         if soc_max is not None: battery.soc_max = soc_max
         if soc is not None: battery.soc = soc
-        if in_service is not None: battery.in_service = in_service\n        if in_service is not None: self._network.invalidate_topology()
+        if in_service is not None: battery.in_service = in_service
+        if in_service is not None: self._network.invalidate_topology()
 
         def restore() -> None:
             battery.name = old["name"]
