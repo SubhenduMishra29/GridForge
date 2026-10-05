@@ -43,7 +43,8 @@ class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
-                 semantic_realization: SemanticPresentationRealization, snap_system: Any = None) -> None:
+                 semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
+                 selection_manager: Any = None) -> None:
         if scene is None:
             raise ValueError("scene must not be None")
         if not isinstance(item_factory, SLDGraphicsItemFactory):
@@ -54,6 +55,9 @@ class SLDCanvasRenderSystem:
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
         self._snap_system = snap_system
+        self._selection_manager = None
+        if selection_manager is not None:
+            self.bind_selection_manager(selection_manager)
         if snap_system is not None:
             if getattr(snap_system, "get_scene", lambda: None)() is not scene:
                 raise ValueError("SLDCanvasRenderSystem snap_system must target the same active SLD scene.")
@@ -112,6 +116,39 @@ class SLDCanvasRenderSystem:
         """Return authored connection IDs whose presentation could not be realized."""
         return dict(self._unsupported_connections)
 
+    def bind_selection_manager(self, selection_manager: Any) -> None:
+        """Bind the canonical transient SelectionManager for presentation reconciliation."""
+        if selection_manager is None:
+            raise ValueError("selection_manager must not be None")
+        if not callable(getattr(selection_manager, "get_selected_ids", None)):
+            raise TypeError("selection_manager must expose get_selected_ids().")
+        if not callable(getattr(selection_manager, "is_selected", None)):
+            raise TypeError("selection_manager must expose is_selected().")
+        self._selection_manager = selection_manager
+
+    @property
+    def selection_manager(self) -> Any:
+        """Return the canonical selection projection dependency, if bound."""
+        return self._selection_manager
+
+    def _restore_node_selection(self, node: Any, item: Any) -> None:
+        """Project canonical Core selection onto the current permanent item."""
+        equipment_id = getattr(node, "equipment_id", None)
+        if equipment_id is None or self._selection_manager is None:
+            return
+        selected = bool(self._selection_manager.is_selected(str(equipment_id)))
+        setter = getattr(item, "set_visual_selected", None)
+        if callable(setter):
+            setter(selected)
+            return
+        setter = getattr(item, "set_graphical_selected", None)
+        if callable(setter):
+            setter(selected)
+            return
+        setter = getattr(item, "setSelected", None)
+        if callable(setter):
+            setter(selected)
+
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the presentation route-edit boundary to realized connection items."""
         if controller is None or not callable(getattr(controller, "handle_route_edit_request", None)):
@@ -154,6 +191,7 @@ class SLDCanvasRenderSystem:
                 and node.node_id not in self._degraded_node_ids
             ):
                 realized[node.node_id] = self._items[node.node_id][0]
+                self._restore_node_selection(node, realized[node.node_id])
                 continue
 
             if node.node_id in self._items:
@@ -194,6 +232,7 @@ class SLDCanvasRenderSystem:
                 self._render_signatures[node.node_id] = signature
                 self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
+                self._restore_node_selection(node, degraded)
                 if self._diagnostic_sink is not None:
                     self._diagnostic_sink(diagnostic)
                 continue
@@ -206,6 +245,7 @@ class SLDCanvasRenderSystem:
             self._render_signatures[node.node_id] = signature
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
+            self._restore_node_selection(node, item)
 
         node_by_id = {node.node_id: node for node in snapshot.nodes}
         for connection in snapshot.connections:
