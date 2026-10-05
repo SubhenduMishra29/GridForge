@@ -199,7 +199,7 @@ class Network:
     def add_current_transformer(self, transformer: Any) -> None: self._add(self.registry.add_current_transformer, transformer, affects_topology=True)
     def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer, affects_topology=True)
     def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer, affects_topology=True)
-    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
+    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer, affects_topology=True)
     def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer, affects_topology=True)
     def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer, affects_topology=True)
     def add_relay(self, relay: Any) -> None: self._add(self.registry.add_relay, relay, affects_topology=True)
