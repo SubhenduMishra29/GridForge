@@ -157,10 +157,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.zoom_out", "Zoom Out"),
             a("view.pan", "Pan"),
         )),
-        MenuSpec("project", "Project", (
-            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter"),
-        )),
-        MenuSpec("engineering", "Engineering", (
+        MenuSpec("workspace", "Workspace", (
             a("view.sld_workspace", "SLD"),
             a("view.control_workspace", "Control"),
             a("view.protection_workspace", "Protection"),
@@ -168,6 +165,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.map", "Map"),
             a("view.reports", "Reports"),
             a("view.equipment_browser", "Equipment Browser", None, True),
+            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("study", "Study", (
             a("study.cases", "Study Cases"),
@@ -177,7 +175,6 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("tool.bus", "Bus"),
             a("tool.wire", "Simple Wired Connection"),
         )),
-        MenuSpec("window", "Window", ()),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
         )),
