@@ -790,85 +790,20 @@ class ToolbarPlugin(QObject):
         self,
         tool_id: str,
     ) -> None:
-        """
-        Request selection of a tool through Controller.set_tool().
-
-        Controller remains authoritative.
-
-        The toolbar never assumes that the requested tool became
-        active. After the request, the authoritative current tool
-        is read from Controller.get_current_tool_id().
-        """
-
+        """Compatibility entry point that delegates to the canonical action route."""
         self._require_initialized()
-
         self._validate_tool_id(tool_id)
-
-        context = self._context
-
-        if context is None:
-            raise RuntimeError(
-                "ToolbarPlugin has no PluginContext."
-            )
-
-        controller = context.controller
-
-        if controller is None:
-            raise RuntimeError(
-                "PluginContext.controller is required for tool selection."
-            )
-
-        set_tool = getattr(
-            controller,
-            "set_tool",
-            None,
-        )
-
-        if not callable(set_tool):
-            raise TypeError(
-                (
-                    "PluginContext.controller must provide "
-                    "set_tool(tool_id)."
-                )
-            )
-
-        get_current_tool_id = getattr(
-            controller,
-            "get_current_tool_id",
-            None,
-        )
-
-        if not callable(get_current_tool_id):
-            raise TypeError(
-                (
-                    "PluginContext.controller must provide "
-                    "get_current_tool_id()."
-                )
-            )
-
-        # Toolbar selection is an explicit user request to switch tools.
-        # Authorize cancellation of the previous transient creation session
-        # rather than letting ToolManager destroy it implicitly.
-        set_tool(tool_id, cancel_active_creation=True)
-
-        authoritative_tool_id = get_current_tool_id()
-
-        if authoritative_tool_id is None:
-            self._clear_tool_presentation()
-            return
-
-        self._validate_tool_id(
-            authoritative_tool_id
-        )
-
-        self._set_active_tool_presentation(
-            authoritative_tool_id
-        )
-
+        action_id = f"tool.{tool_id}"
+        router = self._context.action_router if self._context is not None else None
+        if not isinstance(router, UIActionRouter):
+            raise RuntimeError("ToolbarPlugin requires the canonical UIActionRouter.")
+        try:
+            router.dispatch(action_id)
+        finally:
+            self._synchronize_tool_presentation()
+        authoritative_tool_id = self._context.controller.get_current_tool_id()
         if authoritative_tool_id == tool_id:
-            self.tool_selected.emit(
-                authoritative_tool_id
-            )
+            self.tool_selected.emit(authoritative_tool_id)
 
     def synchronize_tool(self) -> None:
         """
@@ -951,27 +886,19 @@ class ToolbarPlugin(QObject):
         self,
         action_id: str,
     ) -> None:
-        """
-        Handle one QAction activation.
-
-        Tool actions are routed through select_tool().
-
-        Non-tool actions are exposed through action_triggered
-        rather than being dispatched through an invented service API.
-        """
-
-        spec = self._specs.get(action_id)
-
-        if spec is None:
+        """Route every toolbar action through the canonical UIActionRouter."""
+        if action_id not in self._specs:
             return
-
-        if spec.tool_id is not None:
-            self.select_tool(spec.tool_id)
-        else:
-            router = self._context.action_router if self._context is not None else None
-            if not isinstance(router, UIActionRouter):
-                raise RuntimeError("ToolbarPlugin has no canonical UIActionRouter.")
+        router = self._context.action_router if self._context is not None else None
+        if not isinstance(router, UIActionRouter):
+            raise RuntimeError("ToolbarPlugin requires the canonical UIActionRouter.")
+        try:
             router.dispatch(action_id)
+        finally:
+            # QAction checked state is presentation-only. Reconcile it from
+            # authoritative Controller/ToolManager state even on failure.
+            self._synchronize_tool_presentation()
+            self.refresh_enabled_states()
 
     # ========================================================
     # PRESENTATION SYNCHRONIZATION

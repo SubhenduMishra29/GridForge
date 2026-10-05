@@ -102,11 +102,17 @@ class ToolShelf(QWidget):
     def _activate_tool(self, tool_id: str) -> None:
         action_router = self._action_router
         action_id = f"tool.{tool_id}"
-        if action_router is not None and action_router.has(action_id):
-            action_router.dispatch(action_id)
-        elif self._activate is not None:
-            self._activate(tool_id)
-        self.refresh_runtime_state()
+        try:
+            if action_router is not None and action_router.has(action_id):
+                action_router.dispatch(action_id)
+            elif self._activate is not None:
+                # Compatibility only: the normal GridForge runtime path is
+                # always ActionRouter → canonical tool handler.
+                self._activate(tool_id)
+        finally:
+            # Button state is never authoritative; always reconcile from the
+            # canonical ToolManager/Controller state after success or failure.
+            self.refresh_runtime_state()
 
     def set_active_tool(self, tool_id: str | None) -> None:
         for current_id, button in self._buttons.items():

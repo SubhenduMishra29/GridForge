@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Mapping
 
 
@@ -58,7 +59,7 @@ class ActionDefinition:
             raise ValueError("checked actions must be checkable.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping.")
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, object]:
         return {

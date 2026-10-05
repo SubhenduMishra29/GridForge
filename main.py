@@ -622,12 +622,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "project.save_as": _save_project_as,
         "project.close": _close_project,
         "application.exit": window.close,
-        "edit.undo": controller.undo,
-        "edit.redo": controller.redo,
-        "edit.delete_selection": _delete_selection,
         "edit.select_all": _select_all,
-        "edit.copy": _copy_selection,
-        "edit.paste": _paste_selection,
         "edit.cut": _cut_selection,
         "edit.box_select": _activate_select_for_editing,
         "edit.move": _activate_select_for_editing,
@@ -644,24 +639,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.equipment_browser": _show_equipment_browser,
-        "view.zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
-        "view.zoom_out": lambda: canvas_composition.navigation_controller.zoom_out(1),
-        "view.fit": lambda: canvas_composition.navigation_controller.fit_content(50.0),
-        "view.pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
-        "tool.select": lambda: controller.set_tool("select"),
-        "tool.bus": lambda: controller.set_tool("bus"),
-        "tool.wire": lambda: controller.set_tool("wire"),
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
         "control.panel": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
     })
 
-    # Canonical immutable action definitions are composed from the existing
-    # ToolDefinitions. Legacy surface IDs remain aliases so existing menu and
-    # toolbar callers converge on the same routing boundary.
+    # The action catalog is the sole source of canonical presentation metadata.
+    # main.py only composes runtime handlers and compatibility aliases.
+    canonical_definitions = {
+        definition.action_id: definition
+        for definition in build_action_definitions(contextual_tool_definitions_all)
+    }
     canonical_handlers = {
-        "select": lambda: controller.set_tool("select"),
+        "select": lambda: controller.set_tool("select", cancel_active_creation=True),
         "move": _activate_select_for_editing,
         "pan": lambda: canvas_composition.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag),
         "zoom_in": lambda: canvas_composition.navigation_controller.zoom_in(1),
@@ -672,54 +663,34 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "delete": _delete_selection,
         "undo": controller.undo,
         "redo": controller.redo,
-        "sld_select": lambda: controller.set_tool("select"),
+        "sld_select": lambda: controller.set_tool("select", cancel_active_creation=True),
         "sld_move": _activate_select_for_editing,
-        "sld_wire": lambda: controller.set_tool("wire"),
+        "sld_wire": lambda: controller.set_tool("wire", cancel_active_creation=True),
     }
-    canonical_definitions = {
-        definition.action_id: definition
-        for definition in build_action_definitions(contextual_tool_definitions_all)
-    }
-    canonical_definitions.update({
-        "select": ActionDefinition("select", "Select", "Select and inspect engineering objects.", "select", None, "selection", True, True, True, "editor", "select"),
-        "move": ActionDefinition("move", "Move", "Move selected engineering objects.", "move", None, "selection", True, False, False, "editor", "move"),
-        "pan": ActionDefinition("pan", "Pan", "Pan the active engineering view.", "pan", None, "navigation"),
-        "zoom_in": ActionDefinition("zoom_in", "Zoom In", "Zoom into the active engineering view.", "zoom_in", "Ctrl+=", "navigation"),
-        "zoom_out": ActionDefinition("zoom_out", "Zoom Out", "Zoom out of the active engineering view.", "zoom_out", "Ctrl+-", "navigation"),
-        "fit_view": ActionDefinition("fit_view", "Fit", "Fit the active engineering view.", "fit_view", "F", "navigation"),
-        "copy": ActionDefinition("copy", "Copy", "Copy the semantic selection.", "copy", "Ctrl+C", "edit"),
-        "paste": ActionDefinition("paste", "Paste", "Paste the semantic clipboard.", "paste", "Ctrl+V", "edit"),
-        "delete": ActionDefinition("delete", "Delete", "Delete the semantic selection.", "delete", "Delete", "edit"),
-        "undo": ActionDefinition("undo", "Undo", "Undo the last Application command.", "undo", "Ctrl+Z", "history"),
-        "redo": ActionDefinition("redo", "Redo", "Redo the last Application command.", "redo", "Ctrl+Y", "history"),
-        "sld_select": ActionDefinition("sld_select", "SLD Select", "Select SLD objects.", "select", None, "sld", True, True, True, "sld", "select"),
-        "sld_move": ActionDefinition("sld_move", "SLD Move", "Move selected SLD objects.", "move", None, "sld", True, False, False, "sld", "move"),
-        "sld_wire": ActionDefinition("sld_wire", "SLD Wire", "Create an SLD connection.", "wire", None, "sld", True, True, False, "sld", "wire"),
-    })
     for action_id, handler in canonical_handlers.items():
+        definition = canonical_definitions.get(action_id)
+        if definition is None:
+            raise RuntimeError(f"Canonical action definition is missing: {action_id!r}")
         if not action_router.has(action_id):
-            action_router.register_definition(canonical_definitions[action_id], handler)
+            action_router.register_definition(definition, handler)
+        else:
+            action_router.set_definition(definition)
 
-    # Existing menu/toolbar IDs are compatibility aliases, not a second action system.
-    for alias, canonical in {
-        "edit.undo": "undo", "edit.redo": "redo",
-        "edit.delete_selection": "delete", "edit.copy": "copy", "edit.paste": "paste",
-        "view.zoom_in": "zoom_in", "view.zoom_out": "zoom_out",
-        "view.fit": "fit_view", "view.pan": "pan",
-        "tool.select": "select", "tool.wire": "sld_wire",
-    }.items():
-        if not action_router.has(alias):
-            action_router.register_alias(alias, canonical)
-
-    # Every registered engineering tool is exposed as the same action family.
+    # Every registered engineering tool is exposed through the same action family.
+    # ToolManager remains the lifecycle authority; Controller only coordinates
+    # the explicit cancellation-enabled transition.
     for definition in build_action_definitions(contextual_tool_definitions_all):
-        if action_router.has(definition.action_id):
+        action_id = definition.action_id
+        if not action_id.startswith("tool.") or action_router.has(action_id):
             continue
         tool_id = definition.tool_id
         if tool_id is None:
             continue
         if tool_id in tool_manager.get_tool_ids():
-            handler = lambda tool_id=tool_id: controller.set_tool(tool_id)
+            handler = lambda tool_id=tool_id: controller.set_tool(
+                tool_id,
+                cancel_active_creation=True,
+            )
         elif definition.editor_types and "control" in definition.editor_types:
             handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
         elif definition.editor_types and "protection" in definition.editor_types:
@@ -730,14 +701,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             continue
         action_router.register_definition(definition, handler)
 
-    # Attach canonical metadata to pre-registered tool routes as well;
-    # registration ownership stays with the single UIActionRouter.
-    for _definition in build_action_definitions(contextual_tool_definitions_all):
-        if action_router.has(_definition.action_id):
-            action_router.set_definition(_definition)
+    # Existing surface IDs are compatibility aliases only.
+    for alias, canonical in {
+        "edit.undo": "undo", "edit.redo": "redo",
+        "edit.delete_selection": "delete", "edit.copy": "copy", "edit.paste": "paste",
+        "view.zoom_in": "zoom_in", "view.zoom_out": "zoom_out",
+        "view.fit": "fit_view", "view.pan": "pan",
+    }.items():
+        if not action_router.has(alias):
+            action_router.register_alias(alias, canonical)
 
-    # Legacy surface IDs that are not aliases receive metadata here so
-    # MenuPlugin and ToolbarPlugin still render from router-owned definitions.
+    # Legacy surface actions that are not aliases retain presentation metadata.
     _legacy_action_metadata = {
         "project.new": ("New Project", "Create a new project.", "Ctrl+N", "file"),
         "project.open": ("Open Project…", "Open an existing project.", "Ctrl+O", "file"),
@@ -749,7 +723,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "edit.cut": ("Cut", "Copy and remove the selection.", "Ctrl+X", "edit"),
         "edit.box_select": ("Box Select", "Select objects inside a rectangle.", None, "edit"),
         "edit.move": ("Move", "Move selected objects.", None, "edit"),
-        "edit.drag_move": ("Drag Move", "Move selected objects by dragging.", None, "edit"),
+        "edit.drag_move": ("Drag Move", "Drag selected objects through the Select tool.", None, "edit"),
         "edit.rotate": ("Rotate", "Rotate selected symbols.", None, "edit"),
         "edit.mirror_horizontal": ("Mirror H", "Mirror selected symbols horizontally.", None, "edit"),
         "edit.mirror_vertical": ("Mirror V", "Mirror selected symbols vertically.", None, "edit"),
@@ -806,14 +780,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
         if action_id == "tool.wire":
             return project_active and discipline == "sld" and gridforge_application.supports(CREATE_SIMPLE_WIRE)
-        if action_id == "edit.undo":
+        if action_id in {"undo", "edit.undo"}:
             return project_active and bool(getattr(controller, "can_undo", lambda: False)())
-        if action_id == "edit.redo":
+        if action_id in {"redo", "edit.redo"}:
             return project_active and bool(getattr(controller, "can_redo", lambda: False)())
-        if action_id in {"edit.delete_selection", "edit.copy", "edit.cut", "edit.rotate",
+        if action_id in {"delete", "edit.delete_selection", "copy", "edit.copy", "edit.cut", "edit.rotate",
                          "edit.mirror_horizontal", "edit.mirror_vertical"}:
             return project_active and selected
-        if action_id == "edit.paste":
+        if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
         if action_id in {"edit.box_select", "edit.move", "edit.drag_move"}:
             return project_active and discipline == "sld" and active_tool in {None, "select"}

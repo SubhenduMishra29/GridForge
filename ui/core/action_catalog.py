@@ -53,7 +53,11 @@ def build_action_definitions(tool_definitions: Iterable[ToolDefinition] = ()) ->
                 checkable=True,
                 scope=definition.editor_types[0] if definition.editor_types else "editor",
                 tool_id=definition.tool_id,
-                metadata={"tool_definition": definition.tool_id},
+                metadata={
+                    "tool_definition": definition.tool_id,
+                    "editor_types": tuple(definition.editor_types),
+                    "capabilities": tuple(definition.capabilities),
+                },
             )
         )
         seen.add(action_id)
