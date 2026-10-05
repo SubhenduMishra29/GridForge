@@ -267,10 +267,10 @@ def _definition(
 
 def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]) -> CreationDefinition:
     endpoint_pair = (
-        CreationTopologyRequirement("from", required=True),
-        CreationTopologyRequirement("to", required=True),
+        CreationTopologyRequirement("FROM", required=True),
+        CreationTopologyRequirement("TO", required=True),
     )
-    common_endpoints = {"from": "endpoint_from", "to": "endpoint_to"}
+    common_endpoints = {"FROM": "endpoint_from", "TO": "endpoint_to"}
 
     definitions: dict[str, CreationDefinition] = {
         "bus": _definition("bus", "bus", (

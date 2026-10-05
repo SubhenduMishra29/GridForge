@@ -228,9 +228,9 @@ class EquipmentRegistry:
         registry = cls()
         definitions = (
             ("bus", "Bus", ("terminal",), "network"),
-            ("line", "Line", ("from", "to"), "branch"),
-            ("cable", "Cable", ("from", "to"), "branch"),
-            ("transformer", "Transformer", ("from", "to"), "branch"),
+            ("line", "Line", ("FROM", "TO"), "branch"),
+            ("cable", "Cable", ("FROM", "TO"), "branch"),
+            ("transformer", "Transformer", ("FROM", "TO"), "branch"),
             ("switch", "Switch", ("from", "to"), "switching"),
             ("breaker", "Breaker", ("from", "to"), "switching"),
             ("disconnector", "Disconnector", ("from", "to"), "switching"),
@@ -302,8 +302,13 @@ class EquipmentRegistry:
                 core_roles=None if core_roles_by_type is None else core_roles_by_type.get(definition.equipment_type),
             )
             if report.errors:
+                core_roles = report.core_roles if report.core_roles is not None else ("<not supplied>",)
                 raise ValueError(
                     f"Terminal contract mismatch for {definition.equipment_type!r}: "
+                    f"Core roles={core_roles!r}; "
+                    f"presentation roles={report.declared_roles!r}; "
+                    f"creation roles={report.creation_roles!r}; "
+                    f"symbol roles={report.symbol_roles!r}; "
                     + " ".join(report.errors)
                 )
             reports.append(report)

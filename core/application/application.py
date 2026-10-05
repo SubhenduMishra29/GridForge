@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from core.control.context import ControlExecutionContext
 from core.control.engine import ControlEngine
-from core.model import EndpointReference
+from core.model import EndpointReference, Terminal
 
 from .command import Command
 from .creation import CreationCommitIntent, CreationCommandPreparer
@@ -72,6 +72,10 @@ class Application:
     })
     _STATE_CHANGE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
 
+    # Immutable Application exposure derived from the Core Terminal contract.
+    # UI/bootstrap consumers receive values only; no live Core objects cross this boundary.
+    TERMINAL_ROLES_BY_TYPE = Terminal.ROLE_CONTRACT_BY_TYPE
+
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
                  protection_read_service: ProtectionReadService | None = None,
@@ -113,6 +117,11 @@ class Application:
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._sld_service is not None:
             self._register_sld_handlers(self._sld_service)
+
+    @property
+    def terminal_roles_by_type(self) -> Mapping[str, tuple[str, ...]]:
+        """Return the immutable Core-derived terminal-role contract."""
+        return self.TERMINAL_ROLES_BY_TYPE
 
     @property
     def draft_network(self) -> Any | None:
