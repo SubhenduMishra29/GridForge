@@ -132,7 +132,7 @@ class ControlSurfaceHost(QWidget):
     def editor_host(self) -> EngineeringEditorHost:
         return self._host
 
-    def active_tool_id_for(self, editor_type: str) -> str | None:
+    def set_action_router(self, router: UIActionRouter | None) -> None:\n        if router is not None and not isinstance(router, UIActionRouter):\n            raise TypeError("router must be a UIActionRouter or None.")\n        for shelf in self._shelves.values():\n            shelf.set_action_router(router)\n\n    def active_tool_id_for(self, editor_type: str) -> str | None:
         provider = getattr(self._shelves.get(editor_type), "_active_tool_provider", None)
         return provider() if callable(provider) else None
 
