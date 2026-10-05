@@ -68,6 +68,8 @@ class SelectionProjectionCoordinator:
             raise TypeError("application must provide read_element().")
         if not callable(getattr(application, "read_network", None)):
             raise TypeError("application must provide read_network().")
+        if not callable(getattr(application, "read_simple_wire", None)):
+            raise TypeError("application must provide read_simple_wire().")
         self.application = application
         self.refresh()
 
@@ -106,6 +108,21 @@ class SelectionProjectionCoordinator:
         if isinstance(event, NetworkChanged) and not self.selection_manager.has_selection():
             return
 
+        wire = self._read_selected_simple_wire(object_id)
+        if wire is not None:
+            state = ProjectionState(
+                object_id=wire.connection_id,
+                display_type="SIMPLE_WIRE",
+                labels=(wire.connection_id, wire.kind),
+                connectivity_refs=(wire.connection_id,),
+                status="committed",
+                identity_kind="simple_wire",
+                endpoint_a=wire.endpoint_a,
+                endpoint_b=wire.endpoint_b,
+            )
+            self._set_panel_target(state)
+            return
+
         element = self._read_selected_element(object_id)
         if element is None:
             # A committed Core object can disappear during undo. Do not leave
@@ -122,6 +139,7 @@ class SelectionProjectionCoordinator:
             labels=tuple(str(value) for value in element.labels.values()),
             connectivity_refs=tuple(element.connectivity_refs),
             status=self._status(element.attributes),
+            identity_kind="element",
             engineering_parameters=tuple(
                 EngineeringParameterState(
                     parameter_id=item.parameter_id,
@@ -172,6 +190,14 @@ class SelectionProjectionCoordinator:
         del selected_ids
         if not self._disposed:
             self.refresh()
+
+    def _read_selected_simple_wire(self, object_id: Any) -> Any | None:
+        if self.application is None or not isinstance(object_id, str):
+            return None
+        try:
+            return self.application.read_simple_wire(object_id)
+        except (KeyError, RuntimeError, ValueError):
+            return None
 
     def _read_selected_element(self, object_id: Any) -> Any | None:
         if self.application is None:
