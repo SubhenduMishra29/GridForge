@@ -225,14 +225,14 @@ class Application:
         self._project_lifecycle = service
         if self._sld_service is not None:
             service.configure_presentation_activator(
-                lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation)
+                lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)
             )
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
         if self._sld_service is not None:
             self.project_lifecycle.configure_presentation_activator(
-                lambda context, value: self._bind_sld_transactionally(self._sld_service, value)
+                lambda context, value: self._bind_sld_transactionally(self._sld_service, value, context)
             )
 
     def configure_project_presentation_contract(self, *, factory: Any, serializer: Any, deserializer: Any) -> None:
@@ -264,15 +264,39 @@ class Application:
 
         self.project_lifecycle.configure_presentation_activator(composite)
 
-    @staticmethod
-    def _bind_sld_transactionally(service: SLDService, value: Any) -> Any:
+    def _bind_sld_transactionally(
+        self,
+        service: SLDService,
+        value: Any,
+        context: ProjectContext | None = None,
+    ) -> Any:
         previous = service.document if service.is_bound else None
-        if value is None: service.detach_document()
-        else: service.bind_document(value)
+        if value is None:
+            service.detach_document()
+            return lambda: service.detach_document() if service.is_bound else None
+
+        service.bind_document(value)
+        reconciliation_rollback = None
+        try:
+            network = getattr(context, "network", None)
+            if network is not None:
+                reconciliation_rollback = service.reconcile_simple_wire_projection(network)
+        except BaseException:
+            if previous is None:
+                service.detach_document()
+            else:
+                service.bind_document(previous)
+            raise
 
         def rollback() -> None:
-            if previous is None: service.detach_document()
-            else: service.bind_document(previous)
+            try:
+                if reconciliation_rollback is not None:
+                    reconciliation_rollback()
+            finally:
+                if previous is None:
+                    service.detach_document()
+                else:
+                    service.bind_document(previous)
         return rollback
 
     def attach_sld_service(self, service: SLDService) -> None:
