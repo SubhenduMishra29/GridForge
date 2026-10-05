@@ -103,8 +103,9 @@ class WorkspaceManager:
             raise TypeError("state must be a WorkspaceState.")
         if state.workspace_id not in self._definitions:
             raise KeyError(f"Cannot commit unknown workspace: {state.workspace_id!r}")
-        if self._active_workspace_id is not None and state.workspace_id != self._active_workspace_id:
-            raise ValueError(f"Cannot commit {state.workspace_id!r} while {self._active_workspace_id!r} is active.")
+        # A prepared state may intentionally replace the currently active
+        # workspace. Realization is the external presentation transaction;
+        # commit() publishes the already-realized candidate as authoritative.
         self._active_workspace_id = state.workspace_id
         self._state = state
         return state
