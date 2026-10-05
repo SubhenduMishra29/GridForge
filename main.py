@@ -730,6 +730,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             continue
         action_router.register_definition(definition, handler)
 
+    # Attach canonical metadata to pre-registered tool routes as well;
+    # registration ownership stays with the single UIActionRouter.
+    for _definition in build_action_definitions(contextual_tool_definitions_all):
+        if action_router.has(_definition.action_id):
+            action_router.set_definition(_definition)
+
     # Legacy surface IDs that are not aliases receive metadata here so
     # MenuPlugin and ToolbarPlugin still render from router-owned definitions.
     _legacy_action_metadata = {
