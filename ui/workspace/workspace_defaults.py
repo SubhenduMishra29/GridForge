@@ -11,7 +11,7 @@ from .area import AreaDefinition
 from .editor import EditorDefinition, SLD_EDITOR, CONTROL_EDITOR, PROTECTION_EDITOR, STUDY_EDITOR
 from .region import (
     CANVAS_REGION, DIAGNOSTICS_REGION, HEADER_REGION, OVERLAY_REGION,
-    SIDEBAR_REGION, STATUS_REGION, TOOL_SHELF_REGION, RegionDefinition,
+    SIDEBAR_REGION, STATUS_REGION, TOOL_SHELF_REGION, TOOL_SETTINGS_REGION, RegionDefinition,
 )
 
 SLD_WORKSPACE_ID = "sld"
@@ -33,14 +33,14 @@ CANONICAL_PANEL_IDS = (
 )
 
 EDITOR_REGIONS = (
-    RegionDefinition(HEADER_REGION, HEADER_REGION),
-    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION),
-    RegionDefinition("tool_settings", "tool_settings"),
-    RegionDefinition(CANVAS_REGION, CANVAS_REGION),
-    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION),
-    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION),
-    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION),
-    RegionDefinition(STATUS_REGION, STATUS_REGION),
+    RegionDefinition(HEADER_REGION, HEADER_REGION, minimum_size=34, preferred_size=44),
+    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION, minimum_size=180, preferred_size=250),
+    RegionDefinition(TOOL_SETTINGS_REGION, TOOL_SETTINGS_REGION, minimum_size=34, preferred_size=42),
+    RegionDefinition(CANVAS_REGION, CANVAS_REGION, minimum_size=120),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, minimum_size=260, preferred_size=320),
+    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION, minimum_size=80, preferred_size=120),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, minimum_size=110, preferred_size=180),
+    RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=28, preferred_size=32),
 )
 
 SLD_EDITOR_DEFINITION = EditorDefinition("sld-editor", SLD_EDITOR, "SLD Editor", EDITOR_REGIONS)
