@@ -343,6 +343,19 @@ class CommitNetworkHandler:
             for item in sorted(snapshot.equipment, key=lambda item: item.draft_id)
         }
 
+        # Identity validation is part of the prepare phase. A deterministic
+        # redo identity must never collide with an existing Core object after
+        # another object has already been created in this transaction.
+        for draft_id, core_id in core_ids.items():
+            try:
+                context.network.get_by_identity(core_id)
+            except KeyError:
+                continue
+            raise ValueError(
+                f"Core identity collision: draft equipment {draft_id!r} "
+                f"maps to existing Core identity {core_id!r}."
+            )
+
         resolved_endpoints, connection_plan = self._resolver.resolve(
             snapshot, core_ids, context.network
         )
