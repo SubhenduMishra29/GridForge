@@ -14,21 +14,21 @@ _BUILTIN_SYMBOLS = (
     ("bus", "Bus", ("terminal",), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
-    ("line", "Line", ("from", "to"), (
+    ("line", "Line", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
-    ), {"from": (-28.0, 0.0), "to": (28.0, 0.0)}),
-    ("cable", "Cable", ("from", "to"), (
+    ), {"FROM": (-28.0, 0.0), "TO": (28.0, 0.0)}),
+    ("cable", "Cable", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
         {"kind": "line", "x1": -18, "y1": -3, "x2": -10, "y2": 3},
         {"kind": "line", "x1": -10, "y1": -3, "x2": -2, "y2": 3},
         {"kind": "line", "x1": -2, "y1": -3, "x2": 6, "y2": 3},
-    ), {"from": (-28.0, 0.0), "to": (28.0, 0.0)}),
-    ("transformer", "Transformer", ("from", "to"), (
+    ), {"FROM": (-28.0, 0.0), "TO": (28.0, 0.0)}),
+    ("transformer", "Transformer", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "circle", "cx": -6, "cy": 0, "r": 10},
         {"kind": "circle", "cx": 10, "cy": 0, "r": 10},
         {"kind": "line", "x1": 20, "y1": 0, "x2": 28, "y2": 0},
-    ), {"from": (-28.0, 0.0), "to": (28.0, 0.0)}),
+    ), {"FROM": (-28.0, 0.0), "TO": (28.0, 0.0)}),
     ("switch", "Switch", ("from", "to"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": -4, "y2": 0},
         {"kind": "line", "x1": -4, "y1": 0, "x2": 12, "y2": -11},
