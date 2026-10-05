@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ui.core.qt import QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
+from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
@@ -45,7 +45,7 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_source = QPointF()
         self._visual_target = QPointF()
         self._visual_state = VisualState.NORMAL
-        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)\n        self.setAcceptHoverEvents(True)
 
     @property
     def object_id(self) -> str:
