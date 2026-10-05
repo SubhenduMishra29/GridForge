@@ -61,6 +61,7 @@ def test_engineer_owned_delete_clears_core_binding_and_preserves_orphan_snapshot
     orphan = document.model.get_connection("sld-wire-SWC-1")
     assert orphan.properties["lifecycle_state"] == "ORPHANED"
     assert "core_connection_id" not in orphan.properties
+    assert orphan.properties["orphaned_from_core_connection_id"] == "SWC-1"
     assert orphan.source_endpoint is None
     assert orphan.target_endpoint is None
     assert orphan.route.to_dict() == before["route"]
