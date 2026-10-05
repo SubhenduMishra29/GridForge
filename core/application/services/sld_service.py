@@ -122,9 +122,18 @@ class SLDService:
                         raise ValueError(
                             f"Engineer-owned SLD Simple Wire {connection.connection_id!r} conflicts with Core endpoints."
                         )
-                    connection.source_endpoint = self._sld_endpoint_from_mapping(expected_a)
-                    connection.target_endpoint = self._sld_endpoint_from_mapping(expected_b)
-                    connection.properties["core_connection_id"] = core_id
+                    snapshot = connection.to_dict()
+                    self.document.model.remove_connection(connection.connection_id)
+                    self.document.model.create_connection(
+                        connection_id=snapshot["connection_id"],
+                        source_node_id=snapshot["source_node_id"],
+                        target_node_id=snapshot["target_node_id"],
+                        source_endpoint=expected_a,
+                        target_endpoint=expected_b,
+                        route=snapshot.get("route"),
+                        properties=dict(snapshot.get("properties", {}), core_connection_id=core_id),
+                    )
+                    companions[core_id] = self.document.model.get_connection(snapshot["connection_id"])
                     changed = True
                 continue
 
