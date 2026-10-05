@@ -27,12 +27,15 @@ class SLDConnectionItem(QGraphicsPathItem):
         connection_kind: str | None = None,
         presentation_owner: str | None = None,
         projection_source: str | None = None,
+        core_connection_id: str | None = None,
     ) -> None:
         for name, value in (("object_id", object_id), ("source_object_id", source_object_id), ("target_object_id", target_object_id)):
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{name} must be a non-empty string")
         super().__init__()
-        self._object_id = object_id
+        self._presentation_id = object_id
+        self._core_connection_id = core_connection_id or object_id
+        self._object_id = self._core_connection_id
         self._source_object_id = source_object_id
         self._target_object_id = target_object_id
         self._source_endpoint = source_endpoint
@@ -51,6 +54,14 @@ class SLDConnectionItem(QGraphicsPathItem):
     @property
     def object_id(self) -> str:
         return self._object_id
+
+    @property
+    def presentation_id(self) -> str:
+        return self._presentation_id
+
+    @property
+    def core_connection_id(self) -> str:
+        return self._core_connection_id
 
     @property
     def source_object_id(self) -> str:
@@ -142,7 +153,8 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._route_points = tuple(points)
         self._rebuild_visual_path()
         self.route_edit_requested.emit({
-            "connection_id": self._object_id,
+            "connection_id": self._presentation_id,
+            "core_connection_id": self._core_connection_id,
             "points": self._route_points,
         })
         return self._route_points
