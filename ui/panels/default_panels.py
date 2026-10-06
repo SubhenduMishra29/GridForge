@@ -513,10 +513,9 @@ class PropertiesPanelWidget(QWidget):
                 pass
         if self._apply_button is not None:
             self._apply_button.setText("Place Draft Equipment")
-            self._apply_button.setProperty("role", "commitAction")
+            self._apply_button.setProperty("role", "draftPlacementAction")
             self._apply_button.setEnabled(
                 draft.configuration_complete
-                and draft.placement_position is not None
                 and draft.placement_position is not None
             )
             if self._apply_changes_connected:
