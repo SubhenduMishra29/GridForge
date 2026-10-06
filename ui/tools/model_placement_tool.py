@@ -360,6 +360,7 @@ class ModelPlacementTool(ToolBase):
             position=position,
             rotation=draft.orientation,
             presentation_state=draft.preview_state,
+            draft_id=self._active_draft_id,
             terminal_names=tuple(item.terminal_name for item in draft.definition.terminal_requirements),
             element_type=draft.equipment_type,
         )
