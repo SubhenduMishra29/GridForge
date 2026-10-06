@@ -271,6 +271,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
         CreationTopologyRequirement("TO", required=True),
     )
     common_endpoints = {"FROM": "endpoint_from", "TO": "endpoint_to"}
+    switching_endpoints = {"from": "endpoint_from", "to": "endpoint_to"}
 
     definitions: dict[str, CreationDefinition] = {
         "bus": _definition("bus", "bus", (
@@ -375,15 +376,15 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("interrupting_ka", unit="kA", required=True, minimum=0.0),
             _p("closed", "Closed", "bool", default=True),
             _p("in_service", "In service", "bool", default=True),
-        ), "model.create_breaker", "breaker_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_breaker", "breaker_id", endpoint_mapping=switching_endpoints, terminal_names=terminal_names),
         "disconnector": _definition("disconnector", "disconnector", (
             _p("voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
-        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_disconnector", "disconnector_id", endpoint_mapping=switching_endpoints, terminal_names=terminal_names),
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
-        ), "model.create_fuse", "fuse_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_fuse", "fuse_id", endpoint_mapping=switching_endpoints, terminal_names=terminal_names),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
             _p("secondary_rated_current_a", unit="A", required=True, minimum=0.0),
