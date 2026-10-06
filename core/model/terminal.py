@@ -82,6 +82,29 @@ if TYPE_CHECKING:
 
 class Terminal:
     """
+    Authoritative electrical connection point.
+
+    A Terminal belongs to exactly one Equipment object and may
+    reference one endpoint.
+
+    Parameters
+    ----------
+    owner:
+        Authoritative owning Equipment object.
+
+    role:
+        Semantic role of the terminal within its owner.
+
+    endpoint:
+        Optional endpoint object. The endpoint is intentionally
+        not resolved into Network topology by Terminal.
+
+    Notes
+    -----
+    Terminal is deliberately small. Global connectivity belongs
+    to the Network layer.
+    """
+
     # Terminal roles are case-sensitive canonical Core vocabulary. Existing
     # model families retain their established spellings; FROM and from are
     # distinct role identifiers and are not silently normalized.
@@ -130,29 +153,6 @@ class Terminal:
         "cvt": (CVT_PRIMARY_1_ROLE, CVT_PRIMARY_2_ROLE, CVT_SECONDARY_1_ROLE, CVT_SECONDARY_2_ROLE),
         "relay": (),
     })
-
-    Authoritative electrical connection point.
-
-    A Terminal belongs to exactly one Equipment object and may
-    reference one endpoint.
-
-    Parameters
-    ----------
-    owner:
-        Authoritative owning Equipment object.
-
-    role:
-        Semantic role of the terminal within its owner.
-
-    endpoint:
-        Optional endpoint object. The endpoint is intentionally
-        not resolved into Network topology by Terminal.
-
-    Notes
-    -----
-    Terminal is deliberately small. Global connectivity belongs
-    to the Network layer.
-    """
 
     __slots__ = (
         "_owner",
