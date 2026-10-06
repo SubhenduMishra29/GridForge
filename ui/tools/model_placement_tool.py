@@ -178,11 +178,12 @@ class ModelPlacementTool(ToolBase):
         if not getattr(result, "success", False):
             self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
             return False
-        # AddDraftEquipmentCommand ends the transient placement session only.
+        # AddDraftEquipmentCommand ends only the transient placement interaction.
         # It does NOT cross the DraftNetwork -> Core boundary. The authoritative
         # draft identity remains in Application.draft_network until the explicit
         # CommitNetworkCommand operation is invoked.
-        self._require_creation_context().complete()
+        self.get_selection_manager().select_single(equipment_id)
+        self._require_creation_context().end_interaction()
         self._clear_state()
         self._report_feedback(
             f"{equipment_type} draft placed. Use Commit Network to commit the drawing."
