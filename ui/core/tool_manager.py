@@ -294,9 +294,9 @@ class ToolManager:
         if tool is None:
             return False
 
-        # A creation tool may remain selected after a successful commit. The
-        # commit completes and clears the previous CreationDraft, but the tool
-        # itself remains active so repeated placements are still possible.
+        # A creation tool may remain selected after draft placement. The
+        # placement interaction ends and clears the transient CreationDraft,
+        # while the tool remains active so repeated placements are still possible.
         # Re-establish the canonical transient session at the next input
         # boundary instead of allowing the tool to reach require_draft()
         # without an active session.
