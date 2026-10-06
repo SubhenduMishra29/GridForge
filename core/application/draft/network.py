@@ -51,8 +51,20 @@ class DraftEndpointReference:
         return cls("terminal", draft_id, terminal_role=terminal_role, equipment_type=equipment_type, scope=scope)
 
     @classmethod
-    def bus(cls, *, bus_id: str, attachment_id: str) -> "DraftEndpointReference":
-        return cls("bus", bus_id, attachment_id=attachment_id, scope="core")
+    def bus(
+        cls,
+        *,
+        bus_id: str,
+        attachment_id: str,
+        scope: str = "draft",
+    ) -> "DraftEndpointReference":
+        """Create a canonical draft or committed Bus attachment boundary."""
+        return cls(
+            "bus",
+            bus_id,
+            attachment_id=attachment_id,
+            scope=scope,
+        )
 
     @property
     def is_terminal(self) -> bool: return self.kind == "terminal"
@@ -200,19 +212,50 @@ class DraftNetwork:
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
         equipment = self._equipment.pop(draft_id)
         for cid, connection in tuple(self._connections.items()):
-            if (connection.source.is_terminal and connection.source.object_id == draft_id) or (connection.target.is_terminal and connection.target.object_id == draft_id):
+            if connection.source.object_id == draft_id or connection.target.object_id == draft_id:
                 self._connections.pop(cid)
         self.validation_state = {}; return equipment
 
     def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None, network: Any | None = None) -> None:
         prefix = f"{connection_id}: " if connection_id else ""
         if endpoint.is_bus:
-            if not endpoint.attachment_id: raise ValueError(f"{prefix}Bus endpoint attachment is missing.")
-            if network is not None:
+            if endpoint.terminal_role is not None or endpoint.equipment_type is not None:
+                raise ValueError(f"{prefix}Draft Bus endpoint cannot carry terminal identity.")
+            if not endpoint.attachment_id:
+                raise ValueError(f"{prefix}Bus endpoint attachment is missing.")
+            if endpoint.scope == "draft":
+                equipment = self._equipment.get(endpoint.object_id)
+                if equipment is None:
+                    raise ValueError(
+                        f"{prefix}unknown draft Bus {endpoint.object_id!r}."
+                    )
+                if str(equipment.equipment_type).strip().lower() != "bus":
+                    raise ValueError(
+                        f"{prefix}draft Bus endpoint {endpoint.object_id!r} "
+                        "does not identify DraftEquipment(type='bus')."
+                    )
+                try:
+                    attachment_index = int(endpoint.attachment_id.rsplit("-", 1)[1])
+                except (ValueError, IndexError) as exc:
+                    raise ValueError(
+                        f"{prefix}Bus attachment_id must use canonical 'attachment-N' form."
+                    ) from exc
+                if attachment_index < 0 or attachment_index >= 9:
+                    raise ValueError(
+                        f"{prefix}Bus attachment index {attachment_index} "
+                        "is outside the canonical attachment range."
+                    )
+                return
+            if endpoint.scope == "core":
+                if network is None:
+                    return
                 from core.network.electrical_boundary import EndpointCompatibility, EndpointCompatibilityError
-                try: EndpointCompatibility.validate_reference(endpoint.to_core_reference(), network)
-                except EndpointCompatibilityError as exc: raise ValueError(f"{prefix}{exc}") from exc
-            return
+                try:
+                    EndpointCompatibility.validate_reference(endpoint.to_core_reference(), network)
+                except EndpointCompatibilityError as exc:
+                    raise ValueError(f"{prefix}{exc}") from exc
+                return
+            raise ValueError(f"{prefix}unsupported Bus endpoint scope {endpoint.scope!r}.")
         if endpoint.scope == "core":
             if network is None: return
             from core.network.electrical_boundary import EndpointCompatibility, EndpointCompatibilityError
