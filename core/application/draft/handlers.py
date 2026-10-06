@@ -177,6 +177,11 @@ class DraftConnectivityResolver:
         all_terminals: dict[DraftEndpointReference, DraftEquipment] = {}
 
         for item in snapshot.equipment:
+            # A draft Bus is an electrical boundary, never an ordinary
+            # terminal in the authoring graph. Its attachment candidates are
+            # introduced only by DraftConnection endpoint references.
+            if str(item.equipment_type).strip().lower() == "bus":
+                continue
             for role in item.terminal_contract:
                 endpoint = self._terminal(item, role)
                 all_terminals[endpoint] = item
@@ -305,7 +310,22 @@ class DraftConnectivityResolver:
         core_id_map: Mapping[str, str],
     ) -> EndpointReference:
         if endpoint.is_bus:
-            return endpoint.to_core_reference()
+            if endpoint.scope == "core":
+                return endpoint.to_core_reference()
+            if endpoint.scope != "draft":
+                raise ValueError(
+                    f"Unsupported Bus endpoint scope: {endpoint.scope!r}"
+                )
+            core_id = core_id_map.get(endpoint.object_id)
+            if not core_id:
+                raise ValueError(
+                    f"No deterministic Core Bus identity for draft Bus "
+                    f"{endpoint.object_id!r}."
+                )
+            return EndpointReference.bus(
+                core_id,
+                endpoint.attachment_id or "",
+            )
         try:
             equipment_type = EquipmentType(endpoint.equipment_type or "")
         except ValueError as exc:
