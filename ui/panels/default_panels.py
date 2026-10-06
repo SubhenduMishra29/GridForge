@@ -319,7 +319,7 @@ class PropertiesPanelWidget(QWidget):
         self._creation_mode = False
         self._creation_controller: Any | None = None
         self._apply_changes_connected = True
-        self._commit_creation_connected = False
+        self._place_draft_connected = False
         self._commit_network_button: QPushButton | None = None
         self._build_controls()
 
@@ -437,12 +437,12 @@ class PropertiesPanelWidget(QWidget):
                    else "Core validation is authoritative on commit.")
             )
         if self._apply_button is not None:
-            if self._commit_creation_connected:
+            if self._place_draft_connected:
                 try:
-                    self._apply_button.clicked.disconnect(self._commit_creation)
+                    self._apply_button.clicked.disconnect(self._place_draft)
                 except (RuntimeError, TypeError):
                     pass
-                self._commit_creation_connected = False
+                self._place_draft_connected = False
             if not self._apply_changes_connected:
                 self._apply_button.clicked.connect(self._apply_changes)
                 self._apply_changes_connected = True
@@ -512,7 +512,7 @@ class PropertiesPanelWidget(QWidget):
             except Exception:
                 pass
         if self._apply_button is not None:
-            self._apply_button.setText("Create / Commit Equipment")
+            self._apply_button.setText("Place Draft Equipment")
             self._apply_button.setProperty("role", "commitAction")
             self._apply_button.setEnabled(
                 draft.configuration_complete
@@ -525,18 +525,18 @@ class PropertiesPanelWidget(QWidget):
                 except (RuntimeError, TypeError):
                     pass
                 self._apply_changes_connected = False
-            if not self._commit_creation_connected:
-                self._apply_button.clicked.connect(self._commit_creation)
-                self._commit_creation_connected = True
+            if not self._place_draft_connected:
+                self._apply_button.clicked.connect(self._place_draft)
+                self._place_draft_connected = True
 
-    def _commit_creation(self) -> None:
+    def _place_draft(self) -> None:
         if not self._creation_mode or self._creation_context is None:
             return
         controller = self._creation_controller
         commit = getattr(controller, "commit_creation", None) if controller is not None else None
         if not callable(commit):
             if self._validation_label is not None:
-                self._validation_label.setText("Creation commit runtime is not bound.")
+                self._validation_label.setText("Draft placement runtime is not bound.")
             return
         try:
             committed = bool(commit())
@@ -547,12 +547,12 @@ class PropertiesPanelWidget(QWidget):
         if committed:
             self._creation_mode = False
             if self._apply_button is not None:
-                if self._commit_creation_connected:
+                if self._place_draft_connected:
                     try:
-                        self._apply_button.clicked.disconnect(self._commit_creation)
+                        self._apply_button.clicked.disconnect(self._place_draft)
                     except (RuntimeError, TypeError):
                         pass
-                    self._commit_creation_connected = False
+                    self._place_draft_connected = False
                 if not self._apply_changes_connected:
                     self._apply_button.clicked.connect(self._apply_changes)
                     self._apply_changes_connected = True
