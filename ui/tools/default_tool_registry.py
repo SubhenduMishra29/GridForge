@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ui.tools.battery_tool import BatteryTool
+from ui.tools.line_tool import LineTool
 from ui.tools.breaker_tool import BreakerTool
 from ui.tools.bus_tool import BusTool
 from ui.tools.cable_tool import CableTool
@@ -107,6 +108,7 @@ def create_default_tool_factories(
         "select": factory(SelectTool),
         "bus": bus_factory,
         "wire": factory(WireTool),
+        "line": factory(LineTool),
         "cable": factory(CableTool),
         "transformer": transformer_factory,
         "switch": factory(SwitchTool),
