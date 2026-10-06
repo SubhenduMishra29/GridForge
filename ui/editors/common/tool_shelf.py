@@ -1,9 +1,15 @@
+# ============================================================
+# File: ui/editors/common/tool_shelf.py
+# GridForge V2 — Editor Tool Shelf
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget
+from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
 
@@ -88,7 +94,7 @@ class ToolShelf(QWidget):
             button.setToolTip(definition.description or definition.display_name)
             button.setText(definition.display_name)
             button.setCheckable(True)
-            button.setToolButtonStyle(QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             if definition.icon_id and self._icon_provider is not None:
                 icon = self._icon_provider(definition.icon_id)
                 if icon is not None:
