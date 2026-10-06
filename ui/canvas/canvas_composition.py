@@ -25,7 +25,8 @@ from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
-from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
+from ui.canvas.draft_sld_projection import DraftSLDProjection, DraftSLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.sld.sld_document import SLDDocument
 
@@ -146,6 +147,23 @@ class SLDCanvasSurface(QWidget):
         self._sld_canvas_snapshot = snapshot
         return snapshot
 
+    def present_composite_document(
+        self,
+        document: SLDDocument,
+        draft_snapshot: DraftSLDCanvasSnapshot,
+    ) -> CompositeSLDCanvasSnapshot:
+        """Present committed and DraftNetwork state as one complete canvas snapshot."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument.")
+        if not isinstance(draft_snapshot, DraftSLDCanvasSnapshot):
+            raise TypeError("draft_snapshot must be a DraftSLDCanvasSnapshot.")
+        committed = self._sld_canvas_projection.project(document.model)
+        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
+        self._sld_canvas_render_system.synchronize(composite)
+        self._document_id = document.document_id
+        self._sld_canvas_snapshot = committed
+        return composite
+
     def clear_document(self) -> None:
         """Clear canonical SLD graphics without mutating Core/Application state."""
         self._sld_canvas_render_system.clear()
@@ -184,6 +202,7 @@ class CanvasComposition:
     application: Any
     sld_canvas_projection: SLDCanvasProjection
     sld_canvas_render_system: SLDCanvasRenderSystem
+    draft_sld_projection: DraftSLDProjection
     selection_projection: SelectionProjectionCoordinator
     interaction_contract: CanvasInteractionContract
 
@@ -298,6 +317,8 @@ class CanvasComposer:
             interaction_manager=interaction_manager,
             navigation_controller=navigation_controller,
         )
+        draft_sld_projection = DraftSLDProjection(application=application)
+
         surface = SLDCanvasSurface(
             view=view,
             navigation_controller=navigation_controller,
@@ -327,6 +348,7 @@ class CanvasComposer:
             application=application,
             sld_canvas_projection=sld_canvas_projection,
             sld_canvas_render_system=sld_canvas_render_system,
+            draft_sld_projection=draft_sld_projection,
             selection_projection=selection_projection,
             interaction_contract=interaction_contract,
         )
