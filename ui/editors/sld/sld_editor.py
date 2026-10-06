@@ -102,17 +102,26 @@ class SLDEditor(QWidget):
             root.addWidget(bottom, 0)
         self.setObjectName("SLDEditor")
         self._region_widgets = {
-            "header": header, "explorer": explorer_region, "tool_shelf": shelf_region,
-            "tool_settings": settings_region, "canvas": canvas_region, "sidebar": inspector_region,
-            "overlay": sidebar.itemAt(1).widget() if overlay is not None else None,
-            "diagnostics": diagnostics_region if diagnostics is not None else None,
-            "status": status_region if status is not None else None,
+            "header": header,
+            "explorer": explorer_region,
+            "tool_shelf": shelf_region,
+            "tool_settings": settings_region,
+            "canvas": canvas_region,
+            "sidebar": inspector_region,
+            "overlay": overlay_region,
+            "diagnostics": diagnostics_region,
+            "status": status_region,
         }
         self._tool_shelf = shelf
         self._tool_settings = settings
         self._editor_context = None
-        self._region_splitters = {"body": body, "left": left, "center": center, "sidebar": sidebar, "bottom": bottom}
-
+        self._region_splitters = {
+            "body": body,
+            "left": left,
+            "center": center,
+            "sidebar": sidebar,
+            "bottom": bottom,
+        }
 
     def region_widget(self, region_id: str) -> QWidget | None:
         return self._region_widgets.get(region_id)
@@ -159,9 +168,11 @@ class SLDEditor(QWidget):
     def set_editor_context(self, context: object | None) -> None:
         self._editor_context = context
         setter = getattr(self._tool_shelf, "refresh_runtime_state", None)
-        if callable(setter): setter()
+        if callable(setter):
+            setter()
         settings = getattr(self._tool_settings, "set_context", None)
-        if callable(settings): settings(context)
+        if callable(settings):
+            settings(context)
         active = getattr(context, "active_tool", None) if context is not None else None
         self._tool_shelf.set_active_tool(active)
 
