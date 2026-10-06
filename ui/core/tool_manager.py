@@ -318,16 +318,16 @@ class ToolManager:
         if definition is not None:
             self.creation_context.begin(definition)
 
-    def commit_creation(self) -> bool:
-        """Commit the active equipment creation through the active Tool."""
+    def place_creation_draft(self) -> bool:
+        """Persist the active placement as Application-owned DraftNetwork state."""
         self._ensure_active()
         tool = self._active_tool
         if tool is None:
-            raise RuntimeError("No active tool is available for equipment creation.")
-        commit = getattr(tool, "commit_creation", None)
-        if not callable(commit):
-            raise RuntimeError(f"Active tool {self._active_tool_id!r} does not support equipment creation commit.")
-        return bool(commit())
+            raise RuntimeError("No active tool is available for equipment placement.")
+        place = getattr(tool, "place_creation_draft", None)
+        if not callable(place):
+            raise RuntimeError(f"Active tool {self._active_tool_id!r} does not support draft placement.")
+        return bool(place())
 
     def cancel(self) -> bool:
         self._ensure_active()
