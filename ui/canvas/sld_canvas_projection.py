@@ -57,6 +57,18 @@ class SLDCanvasSnapshot:
     connections: tuple[SLDCanvasConnection, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CompositeSLDCanvasSnapshot:
+    """Complete visible SLD canvas state: committed plus uncommitted DraftNetwork presentation."""
+
+    committed: SLDCanvasSnapshot
+    draft: Any
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "committed", self.committed)
+        object.__setattr__(self, "draft", self.draft)
+
+
 class SLDCanvasProjection:
     """Create renderer-neutral canvas input from an SLDModel."""
 
@@ -118,5 +130,6 @@ __all__ = [
     "SLDCanvasNode",
     "SLDCanvasConnection",
     "SLDCanvasSnapshot",
+    "CompositeSLDCanvasSnapshot",
     "SLDCanvasProjection",
 ]
