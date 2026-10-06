@@ -91,7 +91,7 @@ class ControlEditor(QWidget):
             root.addWidget(bottom, 0)
 
         self.setObjectName("ControlEditor")
-        self._region_widgets = {"header": header, "explorer": explorer_region, "tool_shelf": shelf, "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region, "overlay": overlay_region, "diagnostics": diagnostics_region, "status": status_region
+        self._region_widgets = {"header": header, "explorer": explorer_region, "tool_shelf": shelf, "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region, "overlay": overlay_region, "diagnostics": diagnostics_region, "status": status_region}
         self._tool_shelf = shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
