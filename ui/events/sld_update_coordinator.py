@@ -23,6 +23,7 @@ from core.application.events import (
     ProtectionChanged,
     SLDPresentationChanged,
     TopologyChanged,
+    DraftChanged,
 )
 
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
