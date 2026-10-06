@@ -517,7 +517,7 @@ class PropertiesPanelWidget(QWidget):
             self._apply_button.setEnabled(
                 draft.configuration_complete
                 and draft.placement_position is not None
-                and draft.validate_for_commit()
+                and draft.placement_position is not None
             )
             if self._apply_changes_connected:
                 try:
@@ -533,7 +533,7 @@ class PropertiesPanelWidget(QWidget):
         if not self._creation_mode or self._creation_context is None:
             return
         controller = self._creation_controller
-        commit = getattr(controller, "commit_creation", None) if controller is not None else None
+        commit = getattr(controller, "place_creation_draft", None) if controller is not None else None
         if not callable(commit):
             if self._validation_label is not None:
                 self._validation_label.setText("Draft placement runtime is not bound.")
@@ -557,8 +557,10 @@ class PropertiesPanelWidget(QWidget):
                     self._apply_button.clicked.connect(self._apply_changes)
                     self._apply_changes_connected = True
                 self._apply_button.setEnabled(False)
-                self._apply_button.setText("Apply / Commit")
-            self._render_projection(None)
+                self._apply_button.setText("Apply Draft Changes")
+            target = self.logical_panel.target
+            if target is not None:
+                self._render_projection(target)
 
     def _create_creation_control(self, definition: Any, value: Any) -> QWidget:
         datatype = str(definition.datatype).strip().lower()
