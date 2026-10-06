@@ -86,12 +86,9 @@ def reconcile_terminal_contract(
         else ()
     )
 
-    bus_presentation_anchor = definition.equipment_type.strip().lower() == "bus"
-    if creation is None and declared_roles and not bus_presentation_anchor:
+    if creation is None and declared_roles:
         errors.append("Missing CreationDefinition for declared terminal roles.")
-    elif creation is not None and creation_roles != declared_roles and not (
-        bus_presentation_anchor and not creation_roles
-    ):
+    elif creation is not None and creation_roles != declared_roles:
         errors.append(
             "CreationDefinition terminal roles do not exactly match "
             "EquipmentDefinition.terminal_names."
@@ -114,7 +111,7 @@ def reconcile_terminal_contract(
         errors.append("Missing SymbolDefinition for declared terminal roles.")
 
     normalized_core_roles: tuple[str, ...] | None = None
-    if core_roles is not None and not bus_presentation_anchor:
+    if core_roles is not None:
         normalized_core_roles = tuple(core_roles)
         if len(normalized_core_roles) != len(set(normalized_core_roles)):
             errors.append("Core equipment owns duplicate terminal roles.")

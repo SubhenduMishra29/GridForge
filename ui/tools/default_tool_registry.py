@@ -81,15 +81,6 @@ def create_default_tool_factories(
             snap_system=snap_system,
         )
 
-    def bus_factory(**_ignored: Any) -> BusTool:
-        return BusTool(
-            controller=controller,
-            application=application,
-            selection_manager=selection_manager,
-            snap_system=snap_system,
-            preview_layer=preview_layer,
-        )
-
     def transformer_factory(**_ignored: Any) -> TransformerTool:
         if symbol_registry is None:
             raise ValueError(
@@ -106,7 +97,7 @@ def create_default_tool_factories(
 
     return {
         "select": factory(SelectTool),
-        "bus": bus_factory,
+        "bus": factory(BusTool),
         "wire": factory(WireTool),
         "line": factory(LineTool),
         "cable": factory(CableTool),

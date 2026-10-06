@@ -227,7 +227,7 @@ class EquipmentRegistry:
         """Compose the built-in engineering equipment catalogue once."""
         registry = cls()
         definitions = (
-            ("bus", "Bus", ("terminal",), "network"),
+            ("bus", "Bus", ("bus",), "network"),
             ("line", "Line", ("FROM", "TO"), "branch"),
             ("cable", "Cable", ("FROM", "TO"), "branch"),
             ("transformer", "Transformer", ("FROM", "TO"), "branch"),

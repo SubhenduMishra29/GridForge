@@ -11,9 +11,9 @@ from .symbol_registry import SymbolRegistry
 
 
 _BUILTIN_SYMBOLS = (
-    ("bus", "Bus", ("terminal",), (
+    ("bus", "Bus", ("bus",), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
-    ), {"terminal": (-28.0, 0.0)}),
+    ), {"bus": (-28.0, 0.0)}),
     ("line", "Line", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
     ), {"FROM": (-28.0, 0.0), "TO": (28.0, 0.0)}),
