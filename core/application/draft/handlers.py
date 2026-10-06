@@ -7,22 +7,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any, Mapping
 
 from core.model import EndpointReference, EquipmentType
-from core.network.electrical_boundary import EndpointCompatibility, EndpointCompatibilityError
-
 from ..creation import CreationCommitIntent, CreationCommandPreparer
 from ..results import ApplicationResult
 from ..services.model_service import ModelService
 from ..services.simple_wire_service import SimpleWireConnectionService
-from .network import DraftConnection, DraftEndpointReference, DraftEquipment, DraftNetwork
+from .network import DraftConnection, DraftNetwork
 
 
 def _thaw_payload(value: Any) -> Any:
-    """Convert the immutable Command payload back to canonical containers."""
+    """Convert immutable Command containers into canonical mutable containers."""
     if isinstance(value, Mapping):
         return {key: _thaw_payload(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -54,15 +50,18 @@ class DraftCommandHandlers:
 
     def add_equipment(self, command, context, transaction):
         draft = self._draft()
-        equipment = DraftEquipment.from_dict(command.payload["equipment"])
+        equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
+            _thaw_payload(command.payload["equipment"])
+        )
         draft.add_equipment(equipment)
         return ApplicationResult.success_result({"draft_id": equipment.draft_id})
 
     def update_equipment(self, command, context, transaction):
         draft = self._draft()
-        draft_id = str(command.payload["draft_id"])
-        changes = _thaw_payload(command.payload["changes"])
-        equipment = draft.update_equipment(draft_id, **changes)
+        equipment = draft.update_equipment(
+            str(command.payload["draft_id"]),
+            **_thaw_payload(command.payload["changes"]),
+        )
         return ApplicationResult.success_result({"draft_id": equipment.draft_id})
 
     def remove_equipment(self, command, context, transaction):
@@ -74,6 +73,11 @@ class DraftCommandHandlers:
         draft = self._draft()
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
         draft.add_connection(connection)
+        return ApplicationResult.success_result({"connection_id": connection.connection_id})
+
+    def remove_connection(self, command, context, transaction):
+        draft = self._draft()
+        connection = draft.remove_connection(str(command.payload["connection_id"]))
         return ApplicationResult.success_result({"connection_id": connection.connection_id})
 
 
@@ -136,9 +140,6 @@ class CommitNetworkHandler:
             for item in sorted(snapshot.equipment, key=lambda item: item.draft_id)
         }
 
-        # Identity validation is part of the prepare phase. A deterministic
-        # redo identity must never collide with an existing Core object after
-        # another object has already been created in this transaction.
         for draft_id, core_id in core_ids.items():
             try:
                 context.network.get_by_identity(core_id)
@@ -149,25 +150,22 @@ class CommitNetworkHandler:
                 f"maps to existing Core identity {core_id!r}."
             )
 
-        intents = []
-        for item in sorted(snapshot.equipment, key=lambda value: value.draft_id):
-            intents.append(
-                CreationCommitIntent(
-                    equipment_type=item.equipment_type,
-                    draft_id=item.draft_id,
-                    display_name=item.display_name,
-                    engineering_data=dict(item.engineering_data),
-                    placement=item.placement,
-                    command_type=item.command_type,
-                    id_field=item.id_field,
-                    parameter_mapping=dict(item.parameter_mapping),
-                    endpoint_mapping=dict(item.endpoint_mapping),
-                )
+        intents = [
+            CreationCommitIntent(
+                equipment_type=item.equipment_type,
+                draft_id=item.draft_id,
+                display_name=item.display_name,
+                engineering_data=dict(item.engineering_data),
+                placement=item.placement,
+                command_type=item.command_type,
+                id_field=item.id_field,
+                parameter_mapping=dict(item.parameter_mapping),
+                endpoint_mapping=dict(item.endpoint_mapping),
             )
+            for item in sorted(snapshot.equipment, key=lambda value: value.draft_id)
+        ]
 
-        preparer = CreationCommandPreparer(model=model)
-        prepared = preparer.prepare_many(intents)
-
+        prepared = CreationCommandPreparer(model=model).prepare_many(intents)
         for prepared_command in prepared:
             transaction.execute(prepared_command)
 
@@ -184,17 +182,11 @@ class CommitNetworkHandler:
             )
 
         active_draft.clear_after_commit()
-        return ApplicationResult.success_result(
-            {
-                "project_id": project_id,
-                "equipment_count": len(snapshot.equipment),
-                "connection_count": len(snapshot.connections),
-            }
-        )
+        return ApplicationResult.success_result({
+            "project_id": project_id,
+            "equipment_count": len(snapshot.equipment),
+            "connection_count": len(snapshot.connections),
+        })
 
 
-__all__ = [
-    "DraftCommandHandlers",
-    "DraftConnectivityResolver",
-    "CommitNetworkHandler",
-]
+__all__ = ["DraftCommandHandlers", "DraftConnectivityResolver", "CommitNetworkHandler"]
