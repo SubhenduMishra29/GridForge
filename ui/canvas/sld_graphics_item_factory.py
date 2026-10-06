@@ -107,6 +107,30 @@ class SLDGraphicsItemFactory:
             symbol_instance=symbol_instance,
         )
 
+    def create_draft_connection(
+        self,
+        connection: Any,
+        source: QPointF,
+        target: QPointF,
+        *,
+        source_object_id: str,
+        target_object_id: str,
+    ) -> SLDConnectionItem:
+        """Reuse the canonical connection graphics item for a DraftNetwork wire."""
+        self._validate_point(source, "source")
+        self._validate_point(target, "target")
+        item = SLDConnectionItem(
+            object_id=str(connection.connection_id),
+            source_object_id=str(source_object_id),
+            target_object_id=str(target_object_id),
+            connection_kind=str(connection.connection_kind),
+            presentation_owner="projection",
+            projection_source="draft_network",
+            core_connection_id=None,
+        )
+        item.set_visual_route(source, target, connection.route, ownership="engineer" if connection.route else "auto")
+        return item
+
     def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> SLDConnectionItem:
         if not isinstance(connection, SLDCanvasConnection):
             raise TypeError("connection must be an SLDCanvasConnection")
