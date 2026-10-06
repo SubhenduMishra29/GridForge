@@ -310,6 +310,7 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel = PropertiesPanel()
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
+        self._application: Any | None = None
         self._parameter_controls: dict[str, QWidget] = {}
         self._parameter_states: dict[str, EngineeringParameterState] = {}
         self._apply_button: QPushButton | None = None
@@ -343,6 +344,7 @@ class PropertiesPanelWidget(QWidget):
         root.addWidget(self._commit_network_button)
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
+        self._application = application
         self._engineering_editor = EngineeringParameterEditor(application)
         self._creation_context = creation_context
         self._creation_controller = controller
@@ -457,7 +459,7 @@ class PropertiesPanelWidget(QWidget):
         button = self._commit_network_button
         if button is None or self._engineering_editor is None:
             return
-        application = getattr(self._engineering_editor, "_application", None)
+        application = self._application
         try:
             has_draft = bool(application is not None and application.read_draft_network())
         except (RuntimeError, TypeError, ValueError):
