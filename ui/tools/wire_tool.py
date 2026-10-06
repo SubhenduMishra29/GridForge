@@ -253,6 +253,7 @@ class WireTool(ToolBase):
             return DraftEndpointReference.bus(
                 bus_id=str(endpoint.object_id),
                 attachment_id=str(endpoint.attachment_id),
+                scope="core",
             )
         return DraftEndpointReference.terminal(
             draft_id=str(endpoint.object_id),
