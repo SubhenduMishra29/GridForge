@@ -19,6 +19,7 @@ from typing import Any, Mapping
 
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
+from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +63,7 @@ class CompositeSLDCanvasSnapshot:
     """Complete visible SLD canvas state: committed plus uncommitted DraftNetwork presentation."""
 
     committed: SLDCanvasSnapshot
-    draft: Any
+    draft: DraftSLDCanvasSnapshot
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "committed", self.committed)
