@@ -52,6 +52,11 @@ class SLDGraphicsItemFactory:
     def symbol_registry(self) -> SymbolRegistry:
         return self._symbol_registry
 
+    @property
+    def equipment_registry(self) -> EquipmentRegistry:
+        """Return the presentation-only equipment definition registry."""
+        return self._equipment_registry
+
     def create_node(self, node: SLDCanvasNode, selection: PresentationSelection):
         if not isinstance(node, SLDCanvasNode):
             raise TypeError("node must be an SLDCanvasNode")
