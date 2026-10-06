@@ -11,6 +11,7 @@ from typing import Any
 
 from core.application.events import (
     ApplicationEvent,
+    DraftChanged,
     ElementRemoved,
     ElementUpdated,
     NetworkChanged,
@@ -21,6 +22,7 @@ from core.application.events import (
 )
 
 from .projection_state import EngineeringParameterState, ProjectionState
+from ui.creation.creation_definition import creation_definition_for
 
 
 class SelectionProjectionCoordinator:
@@ -38,6 +40,7 @@ class SelectionProjectionCoordinator:
         NetworkChanged,
         SimpleWireConnectionCreated,
         SimpleWireConnectionRemoved,
+        DraftChanged,
         ProjectLoaded,
         ProjectClosed,
     )
@@ -74,6 +77,8 @@ class SelectionProjectionCoordinator:
             raise TypeError("application must provide read_network().")
         if not callable(getattr(application, "read_simple_wire", None)):
             raise TypeError("application must provide read_simple_wire().")
+        if not callable(getattr(application, "read_draft_network", None)):
+            raise TypeError("application must provide read_draft_network().")
         self.application = application
         self.refresh()
 
@@ -110,6 +115,11 @@ class SelectionProjectionCoordinator:
             return
 
         if isinstance(event, NetworkChanged) and not self.selection_manager.has_selection():
+            return
+
+        draft = self._read_selected_draft(object_id)
+        if draft is not None:
+            self._set_panel_target(self._project_draft(draft))
             return
 
         wire = self._read_selected_simple_wire(object_id)
@@ -199,6 +209,53 @@ class SelectionProjectionCoordinator:
         del selected_ids
         if not self._disposed:
             self.refresh()
+
+    def _read_selected_draft(self, object_id: Any) -> Mapping[str, Any] | None:
+        if self.application is None or not isinstance(object_id, str):
+            return None
+        snapshot = self.application.read_draft_network()
+        if not snapshot:
+            return None
+        for item in tuple(snapshot.get("equipment", ())):
+            if str(item.get("draft_id", "")) == object_id:
+                return item
+        return None
+
+    @staticmethod
+    def _project_draft(item: Mapping[str, Any]) -> ProjectionState:
+        equipment_type = str(item.get("equipment_type", "")).strip().lower()
+        terminal_contract = tuple(str(value) for value in item.get("terminal_contract", ()))
+        definition = creation_definition_for(equipment_type, terminal_contract)
+        values = dict(item.get("engineering_data", {}))
+        parameters = tuple(
+            EngineeringParameterState(
+                parameter_id=parameter.parameter_id,
+                value=values.get(parameter.parameter_id),
+                unit=parameter.unit,
+                datatype=parameter.datatype,
+                choices=tuple(str(choice) for choice in parameter.choices),
+                editable=parameter.editable,
+                derived=parameter.derived,
+                validation=parameter.validation,
+            )
+            for parameter in definition.parameter_definitions
+        )
+        return ProjectionState(
+            object_id=str(item["draft_id"]),
+            display_type=equipment_type,
+            labels=(str(item.get("display_name") or equipment_type), "Draft"),
+            status="draft",
+            engineering_parameters=parameters,
+            identity_kind="draft",
+            geometry=item.get("placement"),
+            placement=(
+                None if item.get("placement") is None
+                else (float(item["placement"][0]), float(item["placement"][1]))
+            ),
+            terminal_contract=terminal_contract,
+            endpoint_references=dict(item.get("endpoints", {})),
+            validation_state=dict(item.get("validation_state", {})),
+        )
 
     def _read_selected_simple_wire(self, object_id: Any) -> Any | None:
         if self.application is None or not isinstance(object_id, str):
