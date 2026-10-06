@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from .area import AreaDefinition
+from .workspace_definition import WorkspaceDefinition
 from .editor import EditorDefinition, SLD_EDITOR, CONTROL_EDITOR, PROTECTION_EDITOR, STUDY_EDITOR
 from .region import (
     CANVAS_REGION, DIAGNOSTICS_REGION, HEADER_REGION, OVERLAY_REGION,
@@ -52,7 +53,6 @@ STUDY_EDITOR_DEFINITION = EditorDefinition(
 )
 
 def _workspace(workspace_id: str, title: str, editor: EditorDefinition, central_surface: str) -> WorkspaceDefinition:
-    from .workspace_definition import WorkspaceDefinition
     return WorkspaceDefinition(
         workspace_id=workspace_id,
         title=title,
