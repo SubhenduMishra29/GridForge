@@ -202,9 +202,9 @@ class CanvasComposition:
     application: Any
     sld_canvas_projection: SLDCanvasProjection
     sld_canvas_render_system: SLDCanvasRenderSystem
-    draft_sld_projection: DraftSLDProjection
     selection_projection: SelectionProjectionCoordinator
     interaction_contract: CanvasInteractionContract
+    draft_sld_projection: DraftSLDProjection | None = None
 
     @property
     def widget(self) -> QWidget:
