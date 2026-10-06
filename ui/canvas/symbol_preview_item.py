@@ -40,6 +40,7 @@ class SymbolPreviewItem(QGraphicsItem):
         self._visual_state = VisualState.PREVIEW
         self.setPos(self._point(position))
         self.setRotation(float(rotation))
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
     @property
@@ -80,8 +81,9 @@ class SymbolPreviewItem(QGraphicsItem):
     def paint(self, painter: QPainter, option: Any, widget: Any = None) -> None:
         del option, widget
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(visual_pen("symbol", self._visual_state, width=1.8))
-        painter.setBrush(visual_brush("symbol", self._visual_state))
+        visual_state = VisualState.SELECTED if self.isSelected() else self._visual_state
+        painter.setPen(visual_pen("symbol", visual_state, width=1.8))
+        painter.setBrush(visual_brush("symbol", visual_state))
         painter.setFont(visual_font("engineering"))
         for primitive in self._definition.primitives:
             kind = primitive.get("kind")
