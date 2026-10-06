@@ -28,7 +28,7 @@ from ui.core.qt import QGraphicsScene, QWidget
 
 from ui.canvas.canvas_composition import CanvasComposition
 from ui.canvas.graphics_view import GraphicsView
-from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import RenderDiagnostic, SLDCanvasRenderSystem
 from ui.plugins.plugin_context import PluginContext
 from ui.sld.sld_document import SLDDocument
@@ -48,7 +48,7 @@ class CanvasPlugin:
         self._context: Optional[PluginContext] = None
         self._composition: Optional[CanvasComposition] = None
         self._initialized = False
-        self._sld_canvas_snapshot: Optional[SLDCanvasSnapshot] = None
+        self._sld_canvas_snapshot: Optional[SLDCanvasSnapshot | CompositeSLDCanvasSnapshot] = None
         self._workspace_surface: Optional[QWidget] = None
         self._sld_canvas_render_system: Optional[SLDCanvasRenderSystem] = None
 
@@ -152,7 +152,7 @@ class CanvasPlugin:
             "CanvasPlugin has no Application-authoritative active SLD document."
         )
 
-    def synchronize_sld(self) -> SLDCanvasSnapshot:
+    def synchronize_sld(self) -> SLDCanvasSnapshot | CompositeSLDCanvasSnapshot:
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         projection = getattr(self._composition, "sld_canvas_projection", None)
@@ -167,23 +167,32 @@ class CanvasPlugin:
         if surface is None:
             raise RuntimeError("CanvasComposition must expose the canonical SLDCanvasSurface.")
         application_document = getattr(self._context.application, "presentation", None)
+        draft_projection = getattr(self._composition, "draft_sld_projection", None)
+        if draft_projection is None:
+            raise RuntimeError("CanvasComposition must own the canonical DraftSLDProjection.")
+        draft_snapshot = draft_projection.project()
+
         if application_document is None:
             clear = getattr(surface, "clear_document", None)
             if not callable(clear):
                 raise RuntimeError("Canonical SLDCanvasSurface cannot clear its document.")
             clear()
-            snapshot = SLDCanvasSnapshot(nodes=(), connections=())
+            snapshot = CompositeSLDCanvasSnapshot(
+                committed=SLDCanvasSnapshot(nodes=(), connections=()),
+                draft=draft_snapshot,
+            )
+            render_system.synchronize(snapshot)
         else:
             document = self._active_sld_document()
-            present = getattr(surface, "present_document", None)
+            present = getattr(surface, "present_composite_document", None)
             if not callable(present):
-                raise RuntimeError("Canonical SLDCanvasSurface cannot present an SLD document.")
-            snapshot = present(document)
+                raise RuntimeError("Canonical SLDCanvasSurface cannot present a composite SLD document.")
+            snapshot = present(document, draft_snapshot)
         self._sld_canvas_snapshot = snapshot
         return snapshot
 
     @property
-    def sld_canvas_snapshot(self) -> Optional[SLDCanvasSnapshot]:
+    def sld_canvas_snapshot(self) -> Optional[SLDCanvasSnapshot | CompositeSLDCanvasSnapshot]:
         return self._sld_canvas_snapshot
 
     @property

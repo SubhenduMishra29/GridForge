@@ -23,10 +23,12 @@ from core.application.events import (
     ProtectionChanged,
     SLDPresentationChanged,
     TopologyChanged,
+    DraftChanged,
 )
 
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.sld.sld_document import SLDDocument
+from ui.canvas.draft_sld_projection import DraftSLDProjection
 
 CanvasRefresh = Callable[[], None]
 
@@ -43,6 +45,7 @@ class SLDUpdateCoordinator:
         NetworkCommitted,
         ProtectionChanged,
         SLDPresentationChanged,
+        DraftChanged,
         ProjectLoaded,
         ProjectClosed,
     )
@@ -53,6 +56,7 @@ class SLDUpdateCoordinator:
         application: Application,
         synchronizer: SLDReadSynchronizer,
         canvas_refresh: CanvasRefresh,
+        draft_projection: DraftSLDProjection | None = None,
     ) -> None:
         if not isinstance(application, Application):
             raise TypeError("application must be an Application")
@@ -70,6 +74,9 @@ class SLDUpdateCoordinator:
         # must never construct or retain a second projection authority.
         self._projection_manager = synchronizer.projection_manager
         self._canvas_refresh = canvas_refresh
+        if draft_projection is not None and not isinstance(draft_projection, DraftSLDProjection):
+            raise TypeError("draft_projection must be a DraftSLDProjection or None")
+        self._draft_projection = draft_projection
         self._document: SLDDocument | None = None
         self._disposed = False
         self._last_reconciliation_error: Exception | None = None
@@ -126,6 +133,12 @@ class SLDUpdateCoordinator:
             return
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent")
+
+        if isinstance(event, DraftChanged):
+            if self._draft_projection is not None:
+                self._draft_projection.refresh(event)
+            self._canvas_refresh()
+            return
 
         if isinstance(event, ProjectClosed):
             # ProjectClosed is the authoritative successful transition boundary.
