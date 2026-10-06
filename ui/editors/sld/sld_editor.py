@@ -70,13 +70,11 @@ class SLDEditor(QWidget):
 
         sidebar = QSplitter(Qt.Orientation.Vertical, self)
         sidebar.addWidget(inspector_region)
-        overlay_region = None
-        if overlay is not None:
-            overlay_region = EditorRegionFrame("Overlay", parent=self)
-            overlay_region.set_widget(overlay)
-            sidebar.addWidget(overlay_region)
-            sidebar.setStretchFactor(0, 3)
-            sidebar.setStretchFactor(1, 1)
+        overlay_region = EditorRegionFrame("Overlay", parent=self)
+        overlay_region.set_widget(overlay or QLabel("Overlay", self))
+        sidebar.addWidget(overlay_region)
+        sidebar.setStretchFactor(0, 3)
+        sidebar.setStretchFactor(1, 1)
 
         body = QSplitter(Qt.Orientation.Horizontal, self)
         body.addWidget(left)
@@ -87,20 +85,14 @@ class SLDEditor(QWidget):
         body.setStretchFactor(2, 0)
 
         bottom = QSplitter(Qt.Orientation.Vertical, self)
-        diagnostics_region = None
-        status_region = None
-        if diagnostics is not None:
-            diagnostics_region = EditorRegionFrame("Diagnostics", parent=self)
-            diagnostics_region.set_widget(diagnostics)
-            bottom.addWidget(diagnostics_region)
-        if status is not None:
-            status_region = EditorRegionFrame("Status", parent=self)
-            status_region.set_widget(status)
-            bottom.addWidget(status_region)
-        if bottom.count():
-            bottom.setStretchFactor(0, 1)
-            if bottom.count() > 1:
-                bottom.setStretchFactor(1, 0)
+        diagnostics_region = EditorRegionFrame("Diagnostics", parent=self)
+        diagnostics_region.set_widget(diagnostics or QLabel("Diagnostics", self))
+        bottom.addWidget(diagnostics_region)
+        status_region = EditorRegionFrame("Status", parent=self)
+        status_region.set_widget(status or QLabel("Status", self))
+        bottom.addWidget(status_region)
+        bottom.setStretchFactor(0, 1)
+        bottom.setStretchFactor(1, 0)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
