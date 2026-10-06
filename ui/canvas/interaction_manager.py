@@ -15,23 +15,14 @@ class InteractionManager:
     """Route semantic Canvas events to the active UI ToolManager."""
 
     def __init__(
-        self,
-        *,
-        view: Any = None,
-        controller: Any = None,
-        tool_manager: Any,
-        coordinate_system: Any = None,
-        snap_system: Any = None,
-        preview_layer: Any = None,
-        selection_manager: Any = None,
-        command_manager: Any = None,
-        workspace_id: str,
-        discipline: str | None = None,
-        input_adapter: Optional[MouseEventAdapter] = None,
+        self, *, view: Any = None, controller: Any = None, tool_manager: Any,
+        coordinate_system: Any = None, snap_system: Any = None,
+        preview_layer: Any = None, selection_manager: Any = None,
+        command_manager: Any = None, workspace_id: str,
+        discipline: str | None = None, input_adapter: Optional[MouseEventAdapter] = None,
     ) -> None:
         if tool_manager is None:
             raise ValueError("InteractionManager requires an existing ToolManager.")
-
         self.view = view
         self.controller = controller
         self.tool_manager = tool_manager
@@ -151,16 +142,8 @@ class InteractionManager:
             target = CanvasInteractionState.PLACING_PREVIEW
         self._force_transition(target)
 
-    def _reconcile_outcome(
-        self,
-        method_name: str,
-        tool_id: str,
-        accepted: bool,
-        wire_had_source: bool,
-    ) -> None:
-        if method_name == "key_press":
-            return
-        if not accepted:
+    def _reconcile_outcome(self, method_name: str, tool_id: str, accepted: bool, wire_had_source: bool) -> None:
+        if method_name == "key_press" or not accepted:
             return
 
         if tool_id == "wire":
@@ -178,10 +161,12 @@ class InteractionManager:
             return
 
         if method_name == "mouse_release":
-            # The tool return value is the authoritative creation outcome:
-            # commit state is a milestone, then the shared interaction state
-            # returns immediately to the stable idle state.
-            self._force_transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
+            # EQUIPMENT_COMMITTED is a milestone only when the state machine
+            # is actually in the placement-preview phase. A tool may complete
+            # creation while the presentation state has already returned to
+            # IDLE; that is not a valid reason to invent IDLE -> COMMITTED.
+            if self._state_machine.state is CanvasInteractionState.PLACING_PREVIEW:
+                self._state_machine.transition(CanvasInteractionState.EQUIPMENT_COMMITTED)
             self._state_machine.cancel()
 
     def _force_transition(self, target: CanvasInteractionState) -> None:
