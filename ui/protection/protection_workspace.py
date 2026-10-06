@@ -464,6 +464,16 @@ class ProtectionWorkspace(QWidget):
     def active_tool_id(self) -> str:
         return self._interaction.active_tool
 
+    def activate_tool_id(self, tool_id: str) -> None:
+        """Activate a Protection tool by its canonical ToolDefinition ID."""
+        normalized = str(tool_id).strip().lower().replace(" ", "_")
+        self._interaction.activate(normalized)
+        if normalized == "fit":
+            self._canvas.fit_to_content()
+        elif normalized == "diagnostics":
+            self._canvas.show_diagnostics()
+        self._toolbar.set_active(self._interaction.active_tool)
+
     @property
     def editor_canvas(self) -> QWidget:
         return self._canvas
