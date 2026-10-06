@@ -17,8 +17,10 @@ from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
 
 from .semantic_presentation_realization import SemanticPresentationRealization
-from .sld_canvas_projection import SLDCanvasSnapshot
+from .sld_canvas_projection import SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
+from .draft_sld_projection import DraftSLDCanvasSnapshot, DraftSLDCanvasNode, DraftSLDCanvasConnection
+from .draft_presentation_factory import DraftPresentationFactory
 from ui.styling.presentation_style import VisualState
 
 
@@ -53,6 +55,10 @@ class SLDCanvasRenderSystem:
             raise TypeError("semantic_realization must be a SemanticPresentationRealization")
         self._scene = scene
         self._item_factory = item_factory
+        self._draft_presentation_factory = DraftPresentationFactory(
+            item_factory.equipment_registry,
+            item_factory.symbol_registry,
+        )
         self._semantic_realization = semantic_realization
         self._snap_system = snap_system
         self._selection_manager = None
@@ -188,17 +194,27 @@ class SLDCanvasRenderSystem:
                 if signal is not None and callable(getattr(signal, "connect", None)):
                     signal.connect(controller.handle_route_edit_request)
 
-    def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
-        """Incrementally reconcile the existing scene with one immutable snapshot."""
-        if not isinstance(snapshot, SLDCanvasSnapshot):
-            raise TypeError("snapshot must be an SLDCanvasSnapshot")
+    def synchronize(self, snapshot: SLDCanvasSnapshot | CompositeSLDCanvasSnapshot) -> None:
+        """Incrementally reconcile the scene with one complete immutable snapshot."""
+        if isinstance(snapshot, CompositeSLDCanvasSnapshot):
+            committed = snapshot.committed
+            draft = snapshot.draft
+        elif isinstance(snapshot, SLDCanvasSnapshot):
+            committed = snapshot
+            draft = DraftSLDCanvasSnapshot(nodes=(), connections=())
+        else:
+            raise TypeError("snapshot must be an SLDCanvasSnapshot or CompositeSLDCanvasSnapshot")
+        if not isinstance(draft, DraftSLDCanvasSnapshot):
+            raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
 
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
 
-        desired_ids = {node.node_id for node in snapshot.nodes}
-        desired_ids.update(connection.connection_id for connection in snapshot.connections)
+        desired_ids = {node.node_id for node in committed.nodes}
+        desired_ids.update(connection.connection_id for connection in committed.connections)
+        desired_ids.update(self._draft_render_id(node.draft_id) for node in draft.nodes)
+        desired_ids.update(self._draft_render_id(connection.connection_id) for connection in draft.connections)
         for item_id in tuple(self._items):
             if item_id not in desired_ids:
                 self._remove_realized(item_id)
@@ -211,7 +227,7 @@ class SLDCanvasRenderSystem:
 
         # Realize nodes first so endpoint resolution can use canonical symbol
         # anchors and existing Bus attachment geometry.
-        for node in snapshot.nodes:
+        for node in committed.nodes:
             signature = self._node_signature(node)
             if (
                 self._render_signatures.get(node.node_id) == signature
@@ -275,8 +291,49 @@ class SLDCanvasRenderSystem:
             realized[node.node_id] = item
             self._restore_node_selection(node, item)
 
-        node_by_id = {node.node_id: node for node in snapshot.nodes}
-        for connection in snapshot.connections:
+        # Draft nodes are realized after committed nodes but before either
+        # connection set, so one shared scene/registry can resolve mixed endpoints.
+        for node in draft.nodes:
+            render_id = self._draft_render_id(node.draft_id)
+            signature = self._draft_node_signature(node)
+            if (
+                self._render_signatures.get(render_id) == signature
+                and render_id in self._items
+            ):
+                realized[render_id] = self._items[render_id][0]
+                continue
+            if render_id in self._items:
+                self._remove_realized(render_id)
+            try:
+                item = self._draft_presentation_factory.create_node(node)
+                item.setZValue(1.0)
+                self._scene.addItem(item)
+                if self._snap_system is not None:
+                    self._snap_system.register_item(item)
+                self._items[render_id] = (item,)
+                self._render_signatures[render_id] = signature
+                self._degraded_node_ids.discard(render_id)
+                realized[render_id] = item
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                self._unsupported_presentations[render_id] = message
+                diagnostic = RenderDiagnostic(
+                    node_id=render_id,
+                    equipment_id=node.draft_id,
+                    equipment_type=node.equipment_type,
+                    symbol_id=None,
+                    requested_presentation="symbol",
+                    category="draft_presentation_realization",
+                    message=message,
+                    code="DRAFT_PRESENTATION_REALIZATION_FAILED",
+                    realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
+                )
+                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+                if self._diagnostic_sink is not None:
+                    self._diagnostic_sink(diagnostic)
+
+        node_by_id = {node.node_id: node for node in committed.nodes}
+        for connection in committed.connections:
             signature = self._connection_signature(connection, node_by_id)
             if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
                 self._restore_connection_selection(connection, self._items[connection.connection_id][0])
@@ -323,6 +380,115 @@ class SLDCanvasRenderSystem:
                     connection, "CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}"
                 )
+
+        for connection in draft.connections:
+            render_id = self._draft_render_id(connection.connection_id)
+            signature = self._draft_connection_signature(connection)
+            if self._render_signatures.get(render_id) == signature and render_id in self._items:
+                continue
+            if render_id in self._items:
+                self._remove_realized(render_id)
+            try:
+                source, source_id = self._resolve_draft_endpoint(connection.source, realized)
+                target, target_id = self._resolve_draft_endpoint(connection.target, realized)
+                item = self._item_factory.create_draft_connection(
+                    connection,
+                    source,
+                    target,
+                    source_object_id=source_id,
+                    target_object_id=target_id,
+                )
+                if callable(getattr(item, "set_visual_state", None)):
+                    item.set_visual_state(VisualState.NORMAL)
+                self._scene.addItem(item)
+                self._items[render_id] = (item,)
+                self._render_signatures[render_id] = signature
+            except Exception as exc:
+                self._record_draft_connection_failure(
+                    connection,
+                    "DRAFT_CONNECTION_REALIZATION_FAILED",
+                    f"{type(exc).__name__}: {exc}",
+                )
+
+    @staticmethod
+    def _draft_render_id(identity: str) -> str:
+        return f"draft:{identity}"
+
+    @staticmethod
+    def _draft_node_signature(node: DraftSLDCanvasNode) -> str:
+        return repr((node.draft_id, node.equipment_type, node.display_name, node.x, node.y,
+                     node.rotation, node.terminal_roles, node.presentation, node.validation_state))
+
+    @staticmethod
+    def _draft_connection_signature(connection: DraftSLDCanvasConnection) -> str:
+        return repr((connection.connection_id, connection.source, connection.target,
+                     connection.connection_kind, connection.route, connection.validation_state))
+
+    def _resolve_draft_endpoint(self, endpoint: Any, realized: dict[str, Any]) -> tuple[QPointF, str]:
+        """Resolve Draft/Core endpoint identity through already-realized presentation items."""
+        if getattr(endpoint, "is_terminal", False):
+            if getattr(endpoint, "scope", "draft") == "draft":
+                render_id = self._draft_render_id(str(endpoint.object_id))
+                item = realized.get(render_id)
+                if item is None:
+                    raise KeyError(f"No realized draft item for {endpoint.object_id!r}")
+                candidates = tuple(getattr(item, "snap_points", lambda: ())())
+                matches = tuple(
+                    candidate for candidate in candidates
+                    if str(candidate.get("draft_id")) == str(endpoint.object_id)
+                    and str(candidate.get("draft_terminal_role")) == str(endpoint.terminal_role)
+                )
+                object_id = str(endpoint.object_id)
+            else:
+                object_id = str(endpoint.object_id)
+                item = next((value for value in realized.values()
+                             if str(getattr(value, "object_id", "")) == object_id), None)
+                if item is None:
+                    raise KeyError(f"No realized Core item for {object_id!r}")
+                candidates = tuple(getattr(item, "snap_points", lambda: ())())
+                matches = tuple(
+                    candidate for candidate in candidates
+                    if str(candidate.get("object_id")) == object_id
+                    and str(candidate.get("terminal_name")) == str(endpoint.terminal_role)
+                )
+        elif getattr(endpoint, "is_bus", False):
+            object_id = str(endpoint.object_id)
+            item = next((value for value in realized.values()
+                         if str(getattr(value, "object_id", "")) == object_id), None)
+            if item is None:
+                raise KeyError(f"No realized Bus item for {object_id!r}")
+            candidates = tuple(getattr(item, "snap_points", lambda: ())())
+            matches = tuple(
+                candidate for candidate in candidates
+                if str(candidate.get("bus_id")) == object_id
+                and str(candidate.get("attachment_id")) == str(endpoint.attachment_id)
+            )
+        else:
+            raise TypeError(f"Unsupported draft endpoint: {endpoint!r}")
+        if len(matches) != 1:
+            raise ValueError(f"Endpoint {endpoint.to_dict()!r} resolved to {len(matches)} presentation candidates")
+        position = matches[0].get("position")
+        if position is None:
+            raise ValueError("Resolved endpoint has no scene position")
+        return QPointF(float(position.x()), float(position.y())), object_id
+
+    def _record_draft_connection_failure(self, connection: Any, code: str, message: str) -> None:
+        render_id = self._draft_render_id(connection.connection_id)
+        self._unsupported_connections[render_id] = message
+        diagnostic = RenderDiagnostic(
+            node_id=render_id,
+            equipment_id=None,
+            equipment_type=None,
+            symbol_id=None,
+            requested_presentation=None,
+            category="draft_connection_realization",
+            message=message,
+            connection_id=render_id,
+            code=code,
+        )
+        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+        if self._diagnostic_sink is not None:
+            self._diagnostic_sink(diagnostic)
 
     def _record_connection_failure(self, connection: Any, code: str, message: str) -> None:
         """Keep failed connection realization observable through RenderDiagnostic."""
