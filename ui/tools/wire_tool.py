@@ -214,9 +214,26 @@ class WireTool(ToolBase):
     @staticmethod
     def _authoring_endpoint(snap_result: Any) -> Any:
         draft_id = getattr(snap_result, "draft_id", None)
+        bus_id = getattr(snap_result, "bus_id", None)
+        attachment_id = getattr(snap_result, "attachment_id", None)
+
+        # Draft Bus candidates carry explicit Bus identity. Never infer Bus
+        # semantics from the terminal role "bus".
+        if (
+            draft_id is not None
+            and bus_id is not None
+            and attachment_id is not None
+            and str(bus_id) == str(draft_id)
+        ):
+            return DraftEndpointReference.bus(
+                bus_id=str(draft_id),
+                attachment_id=str(attachment_id),
+                scope="draft",
+            )
+
         draft_role = getattr(snap_result, "draft_terminal_role", None)
         draft_type = getattr(snap_result, "draft_equipment_type", None)
-        if draft_id is not None:
+        if draft_id is not None and draft_role is not None and draft_type is not None:
             return DraftEndpointReference.terminal(
                 draft_id=str(draft_id),
                 equipment_type=str(draft_type),
@@ -236,6 +253,7 @@ class WireTool(ToolBase):
             return DraftEndpointReference.bus(
                 bus_id=str(endpoint.object_id),
                 attachment_id=str(endpoint.attachment_id),
+                scope="core",
             )
         return DraftEndpointReference.terminal(
             draft_id=str(endpoint.object_id),

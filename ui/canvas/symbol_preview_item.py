@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
+from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 
 
 class SymbolPreviewItem(QGraphicsItem):
@@ -54,10 +55,31 @@ class SymbolPreviewItem(QGraphicsItem):
     def snap_points(self):
         if self._draft_id is None:
             return ()
+        from ui.core.qt import QPointF
+
+        if self._element_type.strip().lower() == "bus":
+            # Bus placement is represented by electrical attachment
+            # boundaries, not by the Core Bus terminal role "bus".
+            definition = DEFAULT_SLD_BUS_PRESENTATION
+            points = []
+            for index in range(definition.attachment_count):
+                attachment_id = f"attachment-{index}"
+                anchor = definition.attachment_position(attachment_id)
+                point = self.mapToScene(
+                    QPointF(float(anchor[0]), float(anchor[1]))
+                )
+                points.append({
+                    "position": point,
+                    "object_id": self._draft_id,
+                    "draft_id": self._draft_id,
+                    "bus_id": self._draft_id,
+                    "attachment_id": attachment_id,
+                })
+            return tuple(points)
+
         points = []
         for role in self._terminal_names:
             anchor = self._definition.get_terminal_anchor(role)
-            from ui.core.qt import QPointF
             point = self.mapToScene(QPointF(float(anchor[0]), float(anchor[1])))
             points.append({
                 "position": point,
