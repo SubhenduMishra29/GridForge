@@ -21,7 +21,7 @@ from .creation import CreationCommitIntent, CreationCommandPreparer
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
-from .commands.draft_commands import CommitNetworkCommand
+from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentCommand
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -967,6 +967,24 @@ class Application:
     def prepare_engineering_update(self, intent: Any) -> Command:
         """Translate typed engineering intent into the authoritative update command."""
         return EngineeringUpdatePreparer.prepare(intent)
+
+    def prepare_draft_engineering_update(self, intent: Any) -> Command:
+        """Prepare an immutable DraftNetwork engineering-data update command."""
+        if str(getattr(intent, "identity_kind", "")).strip().lower() != "draft":
+            raise ValueError("Draft engineering update requires a draft projection identity.")
+        draft_id = str(getattr(intent, "element_id", "")).strip()
+        if not draft_id:
+            raise ValueError("Draft engineering update requires draft_id.")
+        draft = self._draft_network
+        if draft is None:
+            raise RuntimeError("Application DraftNetwork is not configured.")
+        current = draft.require_equipment(draft_id)
+        engineering_data = dict(current.engineering_data)
+        engineering_data.update(dict(getattr(intent, "values", {}) or {}))
+        return UpdateDraftEquipmentCommand(
+            draft_id=draft_id,
+            changes={"engineering_data": engineering_data},
+        )
 
     def commit_draft_network(self) -> ApplicationResult:
         """Commit the complete Application-owned DraftNetwork through one canonical command.
