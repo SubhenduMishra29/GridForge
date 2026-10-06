@@ -77,8 +77,8 @@ class ProjectionState:
             raise ValueError("ProjectionState object_id must be a non-empty string")
         if not isinstance(self.display_type, str) or not self.display_type:
             raise ValueError("ProjectionState display_type must be a non-empty string")
-        if self.identity_kind not in {"element", "protection", "simple_wire"}:
-            raise ValueError("ProjectionState.identity_kind must be element, protection, or simple_wire")
+        if self.identity_kind not in {"element", "protection", "simple_wire", "draft"}:
+            raise ValueError("ProjectionState.identity_kind must be element, protection, simple_wire, or draft")
         if self.presentation_id is not None and (not isinstance(self.presentation_id, str) or not self.presentation_id):
             raise ValueError("ProjectionState.presentation_id must be non-empty when provided")
         object.__setattr__(self, "endpoint_a", _freeze(self.endpoint_a) if self.endpoint_a is not None else None)
