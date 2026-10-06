@@ -128,16 +128,16 @@ class Controller(QObject):
         self.state_changed.emit()
         return result
 
-    def commit_creation(self) -> bool:
-        """Commit the active equipment creation through ToolManager/Application."""
+    def place_creation_draft(self) -> bool:
+        """Persist the active placement into the Application DraftNetwork."""
         self._ensure_active()
         manager = self._tool_manager
         if manager is None:
-            raise RuntimeError("Controller requires the canonical ToolManager for creation commit.")
-        commit = getattr(manager, "commit_creation", None)
-        if not callable(commit):
-            raise RuntimeError("ToolManager does not expose commit_creation().")
-        result = bool(commit())
+            raise RuntimeError("Controller requires the canonical ToolManager for draft placement.")
+        place = getattr(manager, "place_creation_draft", None)
+        if not callable(place):
+            raise RuntimeError("ToolManager does not expose place_creation_draft().")
+        result = bool(place())
         self.state_changed.emit()
         return result
 

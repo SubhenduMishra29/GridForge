@@ -125,20 +125,25 @@ class ModelPlacementTool(ToolBase):
         self._show_preview(self._position or draft.placement_position)
         return True
 
-    def commit_creation(self) -> bool:
-        """Commit the active CreationDraft through the canonical Application boundary."""
+    def place_creation_draft(self) -> bool:
+        """Persist the current placement as Application-owned DraftNetwork state."""
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
         equipment_type = draft.equipment_type
         equipment_id = self._active_draft_id or f"{draft.definition.tool_id}-draft-{uuid4().hex}"
-        if not draft.validate_for_commit():
+        draft.validate_configuration()
+        if not draft.configuration_complete:
             self._report_feedback(
-                f"CREATION_INTENT_FAILED: {equipment_type} validation failed: "
-                + "; ".join(draft.validation_state.get("final", ()))
+                f"CREATION_INTENT_FAILED: {equipment_type} configuration failed: "
+                + "; ".join(draft.validation_state.get("configuration", ()))
+            )
+            return False
+        if draft.placement_position is None:
+            self._report_feedback(
+                f"CREATION_INTENT_FAILED: {equipment_type} placement position is required."
             )
             return False
         try:
-            draft.mark_committing()
             equipment = {
                 "draft_id": equipment_id,
                 "equipment_type": equipment_type,
@@ -173,11 +178,12 @@ class ModelPlacementTool(ToolBase):
         if not getattr(result, "success", False):
             self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
             return False
-        # AddDraftEquipmentCommand ends the transient placement session only.
+        # AddDraftEquipmentCommand ends only the transient placement interaction.
         # It does NOT cross the DraftNetwork -> Core boundary. The authoritative
         # draft identity remains in Application.draft_network until the explicit
         # CommitNetworkCommand operation is invoked.
-        self._require_creation_context().complete()
+        self.get_selection_manager().select_single(equipment_id)
+        self._require_creation_context().end_interaction()
         self._clear_state()
         self._report_feedback(
             f"{equipment_type} draft placed. Use Commit Network to commit the drawing."
@@ -274,11 +280,7 @@ class ModelPlacementTool(ToolBase):
             self._show_preview(self._position or draft.placement_position)
             self._endpoint_acquired_this_interaction = False
             self._accepted_endpoint_snap = None
-            pending_role = self._pending_creation_role(draft)
-            if pending_role is not None:
-                self._report_feedback(f"Another endpoint is still required: {pending_role}.")
-                return False
-            return self.commit_creation()
+            return True
 
         position = self._snap_position(event)
         if position is None:
@@ -288,15 +290,10 @@ class ModelPlacementTool(ToolBase):
             draft.set_placement(position)
             self._preview_active = True
             self._show_preview(position)
-            return False
-        pending_role = self._pending_creation_role(draft)
-        if pending_role is None:
-            self._position = draft.placement_position
-            self._show_preview(self._position)
-            return self.commit_creation()
-        self._report_feedback(f"Another endpoint is still required: {pending_role}.")
-        self._show_preview(self._position or draft.placement_position)
-        return False
+            return self.place_creation_draft()
+        self._position = draft.placement_position
+        self._show_preview(self._position)
+        return True
 
     def on_mouse_double_click(self, event: Any) -> bool:
         return self.on_mouse_press(event)

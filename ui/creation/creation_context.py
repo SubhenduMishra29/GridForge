@@ -287,6 +287,10 @@ class CreationContext:
             self._draft.phase = CreationLifecycleState.COMMITTED
         self._draft = None
 
+    def end_interaction(self) -> None:
+        """End transient placement UI state without implying Core commitment."""
+        self._draft = None
+
     def cancel(self) -> None:
         if self._draft is not None:
             self._draft.phase = CreationLifecycleState.CANCELLED

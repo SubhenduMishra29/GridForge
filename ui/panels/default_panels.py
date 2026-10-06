@@ -310,6 +310,7 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel = PropertiesPanel()
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
+        self._application: Any | None = None
         self._parameter_controls: dict[str, QWidget] = {}
         self._parameter_states: dict[str, EngineeringParameterState] = {}
         self._apply_button: QPushButton | None = None
@@ -319,7 +320,8 @@ class PropertiesPanelWidget(QWidget):
         self._creation_mode = False
         self._creation_controller: Any | None = None
         self._apply_changes_connected = True
-        self._commit_creation_connected = False
+        self._place_draft_connected = False
+        self._commit_network_button: QPushButton | None = None
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -335,8 +337,14 @@ class PropertiesPanelWidget(QWidget):
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_changes)
         root.addWidget(self._apply_button)
+        self._commit_network_button = QPushButton("Commit Network", self)
+        self._commit_network_button.setProperty("role", "commitNetworkAction")
+        self._commit_network_button.setEnabled(False)
+        self._commit_network_button.clicked.connect(self._commit_network)
+        root.addWidget(self._commit_network_button)
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
+        self._application = application
         self._engineering_editor = EngineeringParameterEditor(application)
         self._creation_context = creation_context
         self._creation_controller = controller
@@ -345,6 +353,11 @@ class PropertiesPanelWidget(QWidget):
             connect = getattr(signal, "connect", None)
             if callable(connect):
                 connect(self._on_tool_changed)
+            state_signal = getattr(controller, "state_changed", None)
+            state_connect = getattr(state_signal, "connect", None)
+            if callable(state_connect):
+                state_connect(self._refresh_commit_network_action)
+        self._refresh_commit_network_action()
 
     def configure_parameter(self, parameter_id: str, value: Any) -> Any:
         if self._engineering_editor is None:
@@ -395,7 +408,18 @@ class PropertiesPanelWidget(QWidget):
         assert self._form_layout is not None
         self._form_layout.addRow(QLabel("Identity", self), QLabel(str(target.object_id), self))
         self._form_layout.addRow(QLabel("Type", self), QLabel(str(target.display_type), self))
-        self._form_layout.addRow(QLabel("Status", self), QLabel(str(target.status or "Unknown"), self))
+        self._form_layout.addRow(
+            QLabel("Status", self),
+            QLabel("Draft" if target.identity_kind == "draft" else str(target.status or "Unknown"), self),
+        )
+        if target.identity_kind == "draft":
+            self._form_layout.addRow(QLabel("Placement", self), QLabel(str(target.placement), self))
+            self._form_layout.addRow(QLabel("Terminals", self), QLabel(", ".join(target.terminal_contract), self))
+            if target.endpoint_references:
+                self._form_layout.addRow(
+                    QLabel("Acquired Endpoints", self),
+                    QLabel(", ".join(f"{key}: {value}" for key, value in target.endpoint_references.items()), self),
+                )
         if target.connectivity_refs:
             self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
         self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
@@ -408,24 +432,58 @@ class PropertiesPanelWidget(QWidget):
             assert self._form_layout is not None
             self._form_layout.addRow(self._parameter_label(parameter), control)
         if self._validation_label is not None:
+            prefix = "Draft" if target.identity_kind == "draft" else target.display_type
             self._validation_label.setText(
-                f"{target.display_type} · {target.object_id} · Core validation is authoritative on commit."
+                f"{prefix} {target.object_id} · "
+                + ("DraftNetwork validation is authoritative until Commit Network." if target.identity_kind == "draft"
+                   else "Core validation is authoritative on commit.")
             )
         if self._apply_button is not None:
-            if self._commit_creation_connected:
+            if self._place_draft_connected:
                 try:
-                    self._apply_button.clicked.disconnect(self._commit_creation)
+                    self._apply_button.clicked.disconnect(self._place_draft)
                 except (RuntimeError, TypeError):
                     pass
-                self._commit_creation_connected = False
+                self._place_draft_connected = False
             if not self._apply_changes_connected:
                 self._apply_button.clicked.connect(self._apply_changes)
                 self._apply_changes_connected = True
-            self._apply_button.setText("Apply / Commit")
+            self._apply_button.setText("Apply Draft Changes" if target.identity_kind == "draft" else "Apply / Commit")
             self._apply_button.setProperty("role", "primaryAction")
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
+
+    def _refresh_commit_network_action(self, *args: Any) -> None:
+        del args
+        button = self._commit_network_button
+        if button is None or self._engineering_editor is None:
+            return
+        application = self._application
+        try:
+            has_draft = bool(application is not None and application.read_draft_network())
+        except (RuntimeError, TypeError, ValueError):
+            has_draft = False
+        button.setEnabled(has_draft)
+
+    def _commit_network(self) -> None:
+        controller = self._creation_controller
+        commit = getattr(controller, "commit_network", None) if controller is not None else None
+        if not callable(commit):
+            if self._validation_label is not None:
+                self._validation_label.setText("Commit Network action is not bound.")
+            return
+        try:
+            result = commit()
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(str(exc))
+            return
+        if self._validation_label is not None:
+            self._validation_label.setText(
+                getattr(result, "message", "Commit Network submitted.")
+            )
+        self._refresh_commit_network_action()
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
         self._clear_parameter_controls()
@@ -456,12 +514,11 @@ class PropertiesPanelWidget(QWidget):
             except Exception:
                 pass
         if self._apply_button is not None:
-            self._apply_button.setText("Create / Commit Equipment")
-            self._apply_button.setProperty("role", "commitAction")
+            self._apply_button.setText("Place Draft Equipment")
+            self._apply_button.setProperty("role", "draftPlacementAction")
             self._apply_button.setEnabled(
                 draft.configuration_complete
                 and draft.placement_position is not None
-                and draft.validate_for_commit()
             )
             if self._apply_changes_connected:
                 try:
@@ -469,18 +526,18 @@ class PropertiesPanelWidget(QWidget):
                 except (RuntimeError, TypeError):
                     pass
                 self._apply_changes_connected = False
-            if not self._commit_creation_connected:
-                self._apply_button.clicked.connect(self._commit_creation)
-                self._commit_creation_connected = True
+            if not self._place_draft_connected:
+                self._apply_button.clicked.connect(self._place_draft)
+                self._place_draft_connected = True
 
-    def _commit_creation(self) -> None:
+    def _place_draft(self) -> None:
         if not self._creation_mode or self._creation_context is None:
             return
         controller = self._creation_controller
-        commit = getattr(controller, "commit_creation", None) if controller is not None else None
+        commit = getattr(controller, "place_creation_draft", None) if controller is not None else None
         if not callable(commit):
             if self._validation_label is not None:
-                self._validation_label.setText("Creation commit runtime is not bound.")
+                self._validation_label.setText("Draft placement runtime is not bound.")
             return
         try:
             committed = bool(commit())
@@ -491,18 +548,20 @@ class PropertiesPanelWidget(QWidget):
         if committed:
             self._creation_mode = False
             if self._apply_button is not None:
-                if self._commit_creation_connected:
+                if self._place_draft_connected:
                     try:
-                        self._apply_button.clicked.disconnect(self._commit_creation)
+                        self._apply_button.clicked.disconnect(self._place_draft)
                     except (RuntimeError, TypeError):
                         pass
-                    self._commit_creation_connected = False
+                    self._place_draft_connected = False
                 if not self._apply_changes_connected:
                     self._apply_button.clicked.connect(self._apply_changes)
                     self._apply_changes_connected = True
                 self._apply_button.setEnabled(False)
-                self._apply_button.setText("Apply / Commit")
-            self._render_projection(None)
+                self._apply_button.setText("Apply Draft Changes")
+            target = self.logical_panel.target
+            if target is not None:
+                self._render_projection(target)
 
     def _create_creation_control(self, definition: Any, value: Any) -> QWidget:
         datatype = str(definition.datatype).strip().lower()

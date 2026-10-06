@@ -71,19 +71,30 @@ class ProjectionState:
     endpoint_b: Mapping[str, Any] | None = None
     route_ownership: str | None = None
     route_points: tuple[tuple[float, float], ...] = ()
+    placement: tuple[float, float] | None = None
+    terminal_contract: tuple[str, ...] = ()
+    endpoint_references: Mapping[str, Any] = field(default_factory=dict)
+    validation_state: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.object_id, str) or not self.object_id:
             raise ValueError("ProjectionState object_id must be a non-empty string")
         if not isinstance(self.display_type, str) or not self.display_type:
             raise ValueError("ProjectionState display_type must be a non-empty string")
-        if self.identity_kind not in {"element", "protection", "simple_wire"}:
-            raise ValueError("ProjectionState.identity_kind must be element, protection, or simple_wire")
+        if self.identity_kind not in {"element", "protection", "simple_wire", "draft"}:
+            raise ValueError("ProjectionState.identity_kind must be element, protection, simple_wire, or draft")
         if self.presentation_id is not None and (not isinstance(self.presentation_id, str) or not self.presentation_id):
             raise ValueError("ProjectionState.presentation_id must be non-empty when provided")
         object.__setattr__(self, "endpoint_a", _freeze(self.endpoint_a) if self.endpoint_a is not None else None)
         object.__setattr__(self, "endpoint_b", _freeze(self.endpoint_b) if self.endpoint_b is not None else None)
         object.__setattr__(self, "route_points", tuple((float(x), float(y)) for x, y in self.route_points))
+        object.__setattr__(
+            self, "placement",
+            None if self.placement is None else (float(self.placement[0]), float(self.placement[1])),
+        )
+        object.__setattr__(self, "terminal_contract", tuple(str(value) for value in self.terminal_contract))
+        object.__setattr__(self, "endpoint_references", _freeze(self.endpoint_references))
+        object.__setattr__(self, "validation_state", _freeze(self.validation_state))
 
     @classmethod
     def empty(cls, object_id: str, display_type: str) -> "ProjectionState":

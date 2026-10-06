@@ -22,6 +22,7 @@ class EngineeringConfigurationIntent:
     element_type: str
     element_id: str
     values: Mapping[str, Any]
+    identity_kind: str = "element"
 
     def __post_init__(self) -> None:
         if not isinstance(self.element_type, str) or not self.element_type.strip():
@@ -30,6 +31,8 @@ class EngineeringConfigurationIntent:
             raise ValueError("element_id must be non-empty.")
         object.__setattr__(self, "element_type", self.element_type.strip().lower())
         object.__setattr__(self, "element_id", self.element_id.strip())
+        if self.identity_kind not in {"element", "draft"}:
+            raise ValueError("identity_kind must be element or draft.")
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
 
@@ -81,12 +84,16 @@ class EngineeringParameterEditor:
             element_type=projection.display_type,
             element_id=projection.object_id,
             values=typed_values,
+            identity_kind=projection.identity_kind,
         )
 
     def submit(self, intent: EngineeringConfigurationIntent) -> Any:
         if not isinstance(intent, EngineeringConfigurationIntent):
             raise TypeError("intent must be an EngineeringConfigurationIntent.")
-        command = self._application.prepare_engineering_update(intent)
+        if intent.identity_kind == "draft":
+            command = self._application.prepare_draft_engineering_update(intent)
+        else:
+            command = self._application.prepare_engineering_update(intent)
         return self._application.execute(command)
 
     @staticmethod
