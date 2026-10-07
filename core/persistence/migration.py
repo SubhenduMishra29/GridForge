@@ -289,6 +289,10 @@ class ProjectPersistenceMigration:
             current = deepcopy(dict(migration.migrate(current)))
             schema = migration.target_schema
 
+        # Normalize required canonical containers even when an older file
+        # already advertises the current project schema.
+        current.setdefault("dynamic_models", [])
+        current.setdefault("measurement", {"channels": []})
         current = self._migrate_presentation_collection(current)
         self._reject_legacy_project_aliases(current)
         return current
