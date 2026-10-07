@@ -591,7 +591,7 @@ class Application:
                                 equipment_id=core_id,
                                 x=float(x),
                                 y=float(y),
-                                presentation_owner="engineer" if item.get("presentation") else "projection",
+                                presentation_owner="projection",
                                 projection_source="network.commit_draft",
                                 element_type=str(item["element_type"]),
                                 presentation=item.get("presentation") or None,
