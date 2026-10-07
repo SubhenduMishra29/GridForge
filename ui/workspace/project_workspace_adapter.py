@@ -196,7 +196,7 @@ class ProjectWorkspaceApplicationAdapter:
                         if document_item.document_id != presentation.document_id:
                             self._lifecycle.documents.register(document_item)
                     for index, document_item in enumerate(ordered):
-                        self._lifecycle.documents.move(document_item.document_id, index)
+                        self._lifecycle.documents.move(document_item.document_id, index, mark_dirty=False)
                     self._lifecycle.documents.activate(
                         collection.active_document_id or presentation.document_id
                     )
