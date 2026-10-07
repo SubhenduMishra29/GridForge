@@ -49,7 +49,16 @@ class ProjectWorkspaceApplicationAdapter:
     @property
     def project_lifecycle(self): return self._application.project_lifecycle
     @property
-    def is_dirty(self) -> bool: return self._application.is_dirty
+    def is_dirty(self) -> bool:
+        return bool(self._application.is_dirty or self._lifecycle.documents.dirty_document_ids)
+
+    @property
+    def active_document_id(self) -> str | None:
+        return self._lifecycle.documents.active_document_id
+
+    @property
+    def documents(self):
+        return self._lifecycle.documents
     @property
     def state(self) -> ProjectWorkspaceState: return self._lifecycle.state
 
@@ -248,6 +257,114 @@ class ProjectWorkspaceApplicationAdapter:
         if context is None:
             raise RuntimeError("Open project transition did not return a project context.")
         return context
+
+    def activate_document(self, document_id: str) -> ProjectWorkspaceState:
+        """Atomically activate one canonical workspace document and presentation."""
+        document = self._lifecycle.documents.require(document_id)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Only SLDDocument activation is supported by the SLD document lifecycle.")
+        snapshot = self._lifecycle.capture_transition_state()
+        previous = self._lifecycle.document
+        try:
+            self._lifecycle.activate_document_id(document_id)
+            self._application.activate_presentation(document)
+            if self._presentation_activation_bridge is not None:
+                self._presentation_activation_bridge(document)
+            self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            return self._lifecycle.state
+        except BaseException:
+            self._lifecycle.restore_last_state(snapshot)
+            if previous is not None:
+                try:
+                    self._application.activate_presentation(previous)
+                    if self._presentation_activation_bridge is not None:
+                        self._presentation_activation_bridge(previous)
+                except BaseException:
+                    pass
+            raise
+
+    def new_sld_document(self, name: str | None = None) -> SLDDocument:
+        """Create/register/activate a real SLD document through the canonical manager."""
+        project = self._lifecycle.project
+        if project is None:
+            raise RuntimeError("Cannot create an SLD document without an active project.")
+        previous = self._lifecycle.document
+        document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
+        document = self._lifecycle.create_document(
+            "sld",
+            name=document_name,
+            factory=lambda document_id, project_id, item_name: SLDDocument(
+                document_id=document_id,
+                project_id=project_id,
+                name=item_name,
+            ),
+        )
+        try:
+            self.activate_document(document.document_id)
+        except BaseException:
+            self._lifecycle.remove_document(document.document_id)
+            if previous is not None:
+                try:
+                    self._lifecycle.documents.activate(previous.document_id)
+                    self._application.activate_presentation(previous)
+                    if self._presentation_activation_bridge is not None:
+                        self._presentation_activation_bridge(previous)
+                except BaseException:
+                    pass
+            raise
+        return document
+
+    def close_document(
+        self,
+        document_id: str,
+        *,
+        decision: str = "cancel",
+    ) -> ProjectWorkspaceState:
+        """Close exactly one SLD document with save/discard/cancel semantics."""
+        document = self._lifecycle.documents.require(document_id)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Only SLDDocument documents can be closed here.")
+        decision = str(decision).strip().lower()
+        if decision not in {"save", "discard", "cancel"}:
+            raise ValueError("decision must be save, discard, or cancel.")
+        if decision == "cancel":
+            return self._lifecycle.state
+        if self._lifecycle.documents.is_dirty(document_id):
+            if decision == "save":
+                previous_active = self._lifecycle.document
+                if previous_active is not document:
+                    self.activate_document(document_id)
+                try:
+                    self._application.save_project()
+                except BaseException:
+                    return self._lifecycle.state
+            elif decision == "discard":
+                document.mark_clean()
+                self._lifecycle.documents.mark_clean(document_id)
+
+        if len(self._lifecycle.documents) <= 1:
+            raise RuntimeError("The active project must retain at least one SLD document.")
+        snapshot = self._lifecycle.capture_transition_state()
+        previous = self._lifecycle.document
+        try:
+            self._lifecycle.remove_document(document_id)
+            active = self._lifecycle.document
+            if active is not None:
+                self._application.activate_presentation(active)
+                if self._presentation_activation_bridge is not None:
+                    self._presentation_activation_bridge(active)
+            self._publish("close_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            return self._lifecycle.state
+        except BaseException:
+            self._lifecycle.restore_last_state(snapshot)
+            if previous is not None:
+                self._application.activate_presentation(previous)
+                if self._presentation_activation_bridge is not None:
+                    self._presentation_activation_bridge(previous)
+            raise
+
+    def is_document_dirty(self, document_id: str) -> bool:
+        return self._lifecycle.documents.is_dirty(document_id)
 
     def save_project_as(self, path: str) -> ProjectContext:
         """Persist through the Application facade using a UI-resolved Save As path."""
