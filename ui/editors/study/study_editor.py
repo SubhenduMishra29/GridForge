@@ -16,7 +16,7 @@ class StudyEditor(QWidget):
     editor_type = "study"
     DEFAULT_REGION_ID = "canvas"
 
-    def __init__(self, *, surface: QWidget | None = None, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, status: QWidget | None = None, parent: QWidget | None = None) -> None:
+    def __init__(self, *, surface: QWidget | None = None, explorer: QWidget | None = None, tool_shelf: QWidget | None = None, inspector: QWidget | None = None, tool_settings: QWidget | None = None, diagnostics: QWidget | None = None, status: QWidget | None = None, overlay: QWidget | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         header = EditorRegionFrame("Study Header", parent=self); header.set_widget(QLabel("Study Editor", header))
         canvas = EditorRegionFrame("Study Canvas", parent=self); canvas.set_widget(surface or QLabel("Study / Simulation results", self))

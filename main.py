@@ -48,6 +48,7 @@ from ui.projection.validation_projection import ValidationProjection
 from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
+from ui.sld.sld_state import SLDState
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
@@ -297,8 +298,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         context_factory=_editor_context_factory,
     )
     workspace_controller = WorkspaceController(
-        manager=workspace_manager,
-        realizer=workspace_realizer,
+        manager=workspace_manager,        realizer=workspace_realizer,
     )
     resources["workspace_controller"] = workspace_controller
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(
@@ -597,8 +597,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             properties = dict(presentation.get("properties", {}))
             if mirror == "horizontal":
                 properties["mirror_x"] = not bool(properties.get("mirror_x", False))
-            elif mirror == "vertical":
-                properties["mirror_y"] = not bool(properties.get("mirror_y", False))
+            elif mirror == "vertical":                properties["mirror_y"] = not bool(properties.get("mirror_y", False))
             presentation["properties"] = properties
             result = gridforge_application.execute(
                 SetSLDNodePresentationCommand(node_id=str(node.node_id), presentation=presentation)
@@ -691,14 +690,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 tool_id,
                 cancel_active_creation=True,
             )
-        elif definition.editor_types and "control" in definition.editor_types:
-            handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
-        elif definition.editor_types and "protection" in definition.editor_types:
-            handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
-        elif definition.editor_types and "study" in definition.editor_types:
-            handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
         else:
-            continue
+            editor_types = tuple(definition.metadata.get("editor_types", ()))
+            if "control" in editor_types:
+                handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
+            elif "protection" in editor_types:
+                handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
+            elif "study" in editor_types:
+                handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
+            else:
+                continue
         action_router.register_definition(definition, handler)
 
     # Existing surface IDs are compatibility aliases only.
@@ -822,7 +823,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
+    sld_state = SLDState(
+        selection_manager=canvas_composition.selection_manager,
+        tool_manager=tool_manager,
+    )
+    sld_controller = SLDController(
+        state=sld_state,
+        projection_manager=sld_projection_manager,
+        application=gridforge_application,
+    )
+    sld_controller.register_document(sld_document)
+    sld_controller.reconcile_presentation()
     from ui.sld.sld_route_edit_controller import SLDRouteEditController
     sld_canvas_render_system.bind_route_edit_controller(SLDRouteEditController(sld_controller))
 
@@ -895,8 +906,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         )
 
     sld_canvas_render_system.bind_diagnostic_sink(_on_render_diagnostic)
-    for diagnostic in sld_canvas_render_system.render_diagnostics:
-        _on_render_diagnostic(diagnostic)
+    for diagnostic in sld_canvas_render_system.render_diagnostics:        _on_render_diagnostic(diagnostic)
     def study_case_error_handler(error: BaseException) -> None:
         QMessageBox.critical(window, "Run Study", str(error))
 

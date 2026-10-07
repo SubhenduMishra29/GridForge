@@ -206,7 +206,8 @@ class ProtectionGraphicsSurface(QGraphicsView):
     def show_diagnostics(self) -> None:
         self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics are read-side only.")
 
-    def mousePressEvent(self, event: Any) -> None:        item = self.itemAt(event.position().toPoint())
+    def mousePressEvent(self, event: Any) -> None:
+        item = self.itemAt(event.position().toPoint())
         if isinstance(item, QGraphicsTextItem):
             item = item.parentItem()
         if isinstance(item, ProtectionGraphicsNode):
@@ -425,7 +426,8 @@ class ProtectionWorkspace(QWidget):
             existing if isinstance(existing, ProtectionPresentationDocument)
             else ProtectionPresentationDocument.from_dict(existing)
             if isinstance(existing, dict) else ProtectionPresentationDocument()
-        )        application.protection_presentation = self._presentation
+        )
+        application.protection_presentation = self._presentation
         self._explorer = ProtectionExplorer(application, selection_manager, self)
         self._canvas = ProtectionGraphicsSurface(
             application=application,
@@ -461,6 +463,16 @@ class ProtectionWorkspace(QWidget):
     @property
     def active_tool_id(self) -> str:
         return self._interaction.active_tool
+
+    def activate_tool_id(self, tool_id: str) -> None:
+        """Activate a Protection tool by its canonical ToolDefinition ID."""
+        normalized = str(tool_id).strip().lower().replace(" ", "_")
+        self._interaction.activate(normalized)
+        if normalized == "fit":
+            self._canvas.fit_to_content()
+        elif normalized == "diagnostics":
+            self._canvas.show_diagnostics()
+        self._toolbar.set_active(self._interaction.active_tool)
 
     @property
     def editor_canvas(self) -> QWidget:
@@ -500,7 +512,8 @@ class ProtectionWorkspace(QWidget):
                 self._presentation.clear()
                 self._presentation.nodes.update(restored.nodes)
                 self._presentation.connections.update(restored.connections)
-                self._application.protection_presentation = self._presentation        self.refresh()
+                self._application.protection_presentation = self._presentation
+        self.refresh()
     def dispose(self) -> None:
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)

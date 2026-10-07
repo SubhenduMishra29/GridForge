@@ -1,10 +1,16 @@
+# ============================================================
+# File: ui/editors/common/tool_shelf.py
+# GridForge V2 — Editor Tool Shelf
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Any
 import logging
 
-from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget
+from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
 
