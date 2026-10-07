@@ -191,6 +191,15 @@ class CanvasPlugin:
         self._sld_canvas_snapshot = snapshot
         return snapshot
 
+    def refresh_canvas(self) -> SLDCanvasSnapshot | CompositeSLDCanvasSnapshot:
+        """Rebuild the visible SLD realization from authoritative Application state.
+
+        This is intentionally a reconciliation operation, not a scene cache
+        refresh. Repeated calls are idempotent because the complete composite
+        snapshot is projected anew from SLDDocument + DraftNetwork.
+        """
+        return self.synchronize_sld()
+
     @property
     def sld_canvas_snapshot(self) -> Optional[SLDCanvasSnapshot | CompositeSLDCanvasSnapshot]:
         return self._sld_canvas_snapshot

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Any
+import logging
 
 from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
+
+_LOG = logging.getLogger(__name__)
 
 
 class ToolShelf(QWidget):
@@ -24,7 +27,7 @@ class ToolShelf(QWidget):
         activate: Callable[[str], object] | None = None,
         action_router: UIActionRouter | None = None,
         editor_type: str | None = None,
-        icon_provider: Callable[[str], QIcon | None] | None = None,
+        icon_provider: Callable[[ToolDefinition], QIcon | None] | None = None,
         active_tool_provider: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -94,11 +97,27 @@ class ToolShelf(QWidget):
             button.setToolTip(definition.description or definition.display_name)
             button.setText(definition.display_name)
             button.setCheckable(True)
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            if definition.icon_id and self._icon_provider is not None:
-                icon = self._icon_provider(definition.icon_id)
-                if icon is not None:
+            button.setToolButtonStyle(QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon)
+            if self._icon_provider is not None:
+                try:
+                    icon = self._icon_provider(definition)
+                except (KeyError, TypeError, ValueError) as exc:
+                    _LOG.warning(
+                        "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s error=%s",
+                        definition.tool_id,
+                        definition.icon_id,
+                        self._editor_type or "unknown",
+                        exc,
+                    )
+                    icon = None
+                if icon is not None and not icon.isNull():
                     button.setIcon(icon)
+                elif self._editor_type == "sld":
+                    _LOG.warning(
+                        "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=sld",
+                        definition.tool_id,
+                        definition.icon_id,
+                    )
             button.clicked.connect(lambda _checked=False, tool_id=definition.tool_id: self._activate_tool(tool_id))
             self._layout.addWidget(button)
             self._buttons[definition.tool_id] = button
