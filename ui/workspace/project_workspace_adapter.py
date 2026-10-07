@@ -111,7 +111,7 @@ class ProjectWorkspaceApplicationAdapter:
 
         def collection_serializer(collection: ProjectPresentationCollection):
             documents = []
-            for item in self._lifecycle.documents.documents():
+            for item in collection.documents:
                 to_dict = getattr(item, "to_dict", None)
                 if not callable(to_dict):
                     raise TypeError("project document must provide to_dict().")
@@ -119,7 +119,7 @@ class ProjectWorkspaceApplicationAdapter:
             return {
                 "schema": 1,
                 "documents": documents,
-                "active_document_id": self._lifecycle.documents.active_document_id,
+                "active_document_id": collection.active_document_id,
             }
 
         def collection_deserializer(data):
@@ -156,7 +156,18 @@ class ProjectWorkspaceApplicationAdapter:
             deserializer=collection_deserializer,
             activator=collection_activator,
         )
+        self._application.project_lifecycle.configure_presentation_collection_snapshot_provider(
+            self.snapshot_presentation_collection
+        )
         self._application.configure_presentation_activator(activate)
+
+    def snapshot_presentation_collection(self) -> ProjectPresentationCollection:
+        """Return an immutable snapshot of the complete live DocumentManager collection."""
+        documents = tuple(self._lifecycle.documents.documents())
+        return ProjectPresentationCollection.ordered(
+            documents,
+            self._lifecycle.documents.active_document_id,
+        )
 
     def _activate_workspace_presentation(
         self,
