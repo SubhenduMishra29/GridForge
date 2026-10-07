@@ -391,6 +391,10 @@ class ToolManager:
 
     def cancel(self) -> bool:
         self._ensure_active()
+        if self._interaction_tool is not None:
+            result = bool(self._interaction_tool.cancel())
+            self._clear_interaction_tool()
+            return result
         if self._active_tool is None:
             return False
         result = bool(self._active_tool.cancel())
