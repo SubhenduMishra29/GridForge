@@ -263,6 +263,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
         selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
         engineering = engineering_context.current.with_updates(
+            project_id=getattr(getattr(gridforge_application.project_lifecycle, "context", None), "project_id", None),
+            document_id=project_workspace_lifecycle.documents.active_document_id,
             discipline=editor_type,
             active_tool=active_tool,
             selected_ids=selected_ids,
@@ -280,9 +282,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
         return EditorContext(
             workspace=workspace_id,
+            workspace_id=workspace_id,
             area=area,
             editor=editor,
+            editor_id=str(getattr(editor, "editor_id", editor_type)),
             region=region,
+            project_id=engineering.project_id,
+            document_id=engineering.document_id,
             engineering=engineering,
             selection_context={"selected_ids": selected_ids},
             active_tool=active_tool,
