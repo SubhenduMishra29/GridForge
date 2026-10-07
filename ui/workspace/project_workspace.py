@@ -21,6 +21,7 @@ from .workspace_layout import WorkspaceLayout
 class ProjectWorkspaceState:
     project: Project | None
     document: Document | None
+    active_document_id: str | None
     workspace_id: str | None
     view_id: str | None
 
@@ -67,6 +68,7 @@ class ProjectWorkspaceLifecycle:
         return ProjectWorkspaceState(
             project=self._project,
             document=document,
+            active_document_id=self._documents.active_document_id,
             workspace_id=self._workspace_controller.active_workspace_id,
             view_id=view.view_id if view is not None else None,
         )
@@ -151,13 +153,69 @@ class ProjectWorkspaceLifecycle:
         else: self._documents.activate(document.document_id)
         return self.state
 
+    def activate_document_id(self, document_id: str) -> ProjectWorkspaceState:
+        if self._project is None:
+            raise RuntimeError("Cannot activate a document without an active project.")
+        document = self._documents.require(document_id)
+        if document.project_id not in (None, self._project.project_id):
+            raise ValueError("document belongs to a different project.")
+        snapshot = self._capture_transition_snapshot()
+        try:
+            self._documents.activate(document_id)
+            return self.state
+        except BaseException:
+            self._restore_transition_snapshot(snapshot)
+            raise
+
+    def create_document(
+        self,
+        document_type: str,
+        *,
+        name: str = "Untitled",
+        document_id: str | None = None,
+        factory=None,
+    ) -> Document:
+        if self._project is None:
+            raise RuntimeError("Cannot create a document without an active project.")
+        if not document_type or not str(document_type).strip():
+            raise ValueError("document_type must not be empty.")
+        document_id = document_id or str(uuid4())
+        document = (
+            factory(document_id, self._project.project_id, name)
+            if callable(factory)
+            else Document(
+                document_id=document_id,
+                project_id=self._project.project_id,
+                document_type=document_type,
+                name=name,
+            )
+        )
+        if not isinstance(document, Document):
+            raise TypeError("document factory must return a Document.")
+        self._documents.register(document)
+        return document
+
+    def remove_document(self, document_id: str) -> Document:
+        if self._documents.get(document_id) is None:
+            raise KeyError(document_id)
+        snapshot = self._capture_transition_snapshot()
+        try:
+            self._remove_document_views(document_id)
+            return self._documents.unregister(document_id)
+        except BaseException:
+            self._restore_transition_snapshot(snapshot)
+            raise
+
     def replace_document(self, document: Document) -> ProjectWorkspaceState:
         if not isinstance(document, Document): raise TypeError("document must be a Document.")
         if self._project is None: raise RuntimeError("Cannot replace a document without an active project.")
         if document.project_id not in (None, self._project.project_id): raise ValueError("document belongs to a different project.")
-        active = self._documents.active_document
-        if active is not None: self.remove_document(active.document_id)
-        self._documents.register(document)
+        existing = self._documents.get(document.document_id)
+        if existing is None:
+            self._documents.register(document)
+        else:
+            self._documents.replace(document)
+        self._documents.activate(document.document_id)
         return self.state
 
     def add_view(self, view: ViewRecord) -> ProjectWorkspaceState:
@@ -166,10 +224,9 @@ class ProjectWorkspaceLifecycle:
         self._views.register(view)
         return self.state
 
-    def remove_document(self, document_id: str) -> Document:
+    def _remove_document_views(self, document_id: str) -> None:
         for view in self._views.views_for_document(document_id):
             self._views.unregister(view.view_id)
-        return self._documents.unregister(document_id)
 
     def _activate_workspace(self, workspace_id: str | None) -> None:
         if workspace_id is None:
