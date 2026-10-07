@@ -718,13 +718,31 @@ class PropertiesPanelWidget(QWidget):
             if self._validation_label is not None:
                 self._validation_label.setText("No engineering changes to commit.")
             return
-        intent = self._engineering_editor.intent_from_projection(target, changes)
-        self._engineering_editor.submit(intent)
+        try:
+            intent = self._engineering_editor.intent_from_projection(target, changes)
+            result = self._engineering_editor.submit(intent)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Engineering update rejected: {exc}")
+            # Rebuild controls from the authoritative projection; local edits
+            # must never become a second source of truth.
+            self._render_projection(target)
+            return
+
+        if not getattr(result, "success", False):
+            message = getattr(result, "message", None) or "Engineering update was rejected."
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Engineering update rejected: {message}")
+            # The command failed, so DraftChanged is not authoritative evidence
+            # of a mutation. Restore the inspector from the existing projection.
+            self._render_projection(target)
+            return
+
         if self._apply_button is not None:
             self._apply_button.setEnabled(False)
         if self._validation_label is not None:
             self._validation_label.setText(
-                "Commit submitted. Waiting for authoritative read-model refresh."
+                "Update submitted. Waiting for authoritative read-model refresh."
             )
 
 
