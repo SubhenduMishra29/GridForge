@@ -254,13 +254,29 @@ class ElectricalInsertionService:
             str(getattr(terminal, "role", "")): terminal
             for terminal in getattr(inserted_equipment, "terminals", ())
         }
-        for role in contract.terminal_mapping:
+        for role, target_ref in ((input_role, endpoint_a), (output_role, endpoint_b)):
             terminal = terminals_by_role.get(role)
             if terminal is None or getattr(terminal, "endpoint", None) is None:
                 raise ValidationError(
                     code="INSERTION_TERMINAL_STATE_INVALID",
                     message=f"Required insertion terminal {role!r} is not connected.",
                     details={"equipment_id": equipment_id, "terminal_role": role},
+                )
+            # CONNECT_TERMINAL resolves the target through the canonical
+            # Application endpoint resolver. Re-resolve it here and compare
+            # object identity so Terminal.endpoint and the topology endpoint
+            # cannot silently diverge before the Simple Wires are committed.
+            from ..endpoint_resolver import EndpointResolver
+            expected_endpoint = EndpointResolver.resolve(context, target_ref)
+            if terminal.endpoint is not expected_endpoint:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_TOPOLOGY_MISMATCH",
+                    message=f"Insertion terminal {role!r} does not reference the canonical topology endpoint.",
+                    details={
+                        "equipment_id": equipment_id,
+                        "terminal_role": role,
+                        "target": dict(target_ref.to_mapping()),
+                    },
                 )
 
         # CT secondary terminals are intentionally outside the insertion
