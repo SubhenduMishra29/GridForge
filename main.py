@@ -903,7 +903,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             save_button = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
             discard_button = box.addButton("Don't Save", QMessageBox.ButtonRole.DestructiveRole)
             cancel_button = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(save_button)
             box.exec()
             clicked = box.clickedButton()
             if clicked is cancel_button:
