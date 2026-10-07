@@ -12,7 +12,7 @@ from typing import Any
 from core.model import EndpointReference
 from core.network import EndpointCompatibility, EndpointCompatibilityError, SimpleWireConnection
 from ..command import Command
-from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE
+from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE, CreateSimpleWireConnectionCommand
 from ..endpoint_resolver import resolve_terminal_reference
 from ..errors import ResourceError, ValidationError
 from ..results import ApplicationResult
@@ -26,6 +26,26 @@ class SimpleWireConnectionService:
 
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
+
+    def create_command(
+        self,
+        *,
+        connection_id: str,
+        source: EndpointReference,
+        target: EndpointReference,
+    ) -> Command:
+        """Prepare an immutable Simple Wire command without mutating Core."""
+        if not isinstance(connection_id, str) or not connection_id.strip():
+            raise ValueError("connection_id must be a non-empty string.")
+        if not isinstance(source, EndpointReference) or not isinstance(target, EndpointReference):
+            raise TypeError("Simple Wire endpoints must be EndpointReference values.")
+        if source == target:
+            raise ValueError("Simple Wire endpoints must be distinct.")
+        return CreateSimpleWireConnectionCommand(
+            connection_id=connection_id.strip(),
+            endpoint_a=source,
+            endpoint_b=target,
+        )
 
     def execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         if not isinstance(command, Command):
