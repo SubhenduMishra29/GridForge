@@ -666,6 +666,7 @@ class SLDService:
         if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
             raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
         snapshot = old_connection.to_dict()
+        previous_document_modified = bool(getattr(self.document, "modified", False))
         source_node = self.document.model.get_node(old_connection.source_node_id)
         target_node = self.document.model.get_node(old_connection.target_node_id)
         position = (float(insertion_position[0]), float(insertion_position[1]))
@@ -750,6 +751,10 @@ class SLDService:
                 self.document.model.remove_node(node_id)
             if self.document.model.get_connection_optional(old_id) is None:
                 self._restore_connection_snapshot(snapshot)
+            if previous_document_modified:
+                self.document.mark_modified()
+            else:
+                self.document.mark_clean()
 
         # Register the inverse before mutating the presentation so any failure
         # during the multi-object replacement is rollback-safe as well.
