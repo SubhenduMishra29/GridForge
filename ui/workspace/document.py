@@ -43,6 +43,7 @@ class Document:
         self._project_id = str(project_id) if project_id is not None else None
         self._metadata = dict(metadata or {})
         self._modified = False
+        self._dirty_callback = None
 
     @property
     def document_id(self) -> str:
@@ -76,11 +77,23 @@ class Document:
     def modified(self) -> bool:
         return self._modified
 
+    def _set_dirty_callback(self, callback: Any | None) -> None:
+        """Attach the canonical DocumentManager dirty-state projection hook."""
+        if callback is not None and not callable(callback):
+            raise TypeError("callback must be callable or None.")
+        self._dirty_callback = callback
+
     def mark_modified(self) -> None:
         self._modified = True
+        callback = self._dirty_callback
+        if callback is not None:
+            callback(self.document_id, True)
 
     def mark_clean(self) -> None:
         self._modified = False
+        callback = self._dirty_callback
+        if callback is not None:
+            callback(self.document_id, False)
 
     def get_metadata(self, key: str, default: Any = None) -> Any:
         return self._metadata.get(key, default)
@@ -98,7 +111,6 @@ class Document:
             "document_type": self.document_type,
             "name": self.name,
             "metadata": dict(self.metadata),
-            "modified": self.modified,
         }
 
     @classmethod
@@ -110,8 +122,6 @@ class Document:
             name=str(data.get("name", "Untitled")),
             metadata=dict(data.get("metadata", {})),
         )
-        if data.get("modified", False):
-            document.mark_modified()
         return document
 
 
