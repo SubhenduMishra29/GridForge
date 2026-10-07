@@ -72,7 +72,12 @@ class ElectricalInsertionService:
                 details={"connection_id": connection_id},
             )
 
-        equipment_id = str(payload["equipment_id"])
+        requested_equipment_id = payload.get("equipment_id")
+        equipment_id = (
+            str(requested_equipment_id).strip()
+            if requested_equipment_id is not None
+            else f"insert-{command.command_id.hex}"
+        )
         try:
             network.get_by_identity(equipment_id)
         except KeyError:
