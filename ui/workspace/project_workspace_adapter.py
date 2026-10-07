@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from core.application import Application
 from core.application.project import ProjectContext
 from core.application.project_transition import ProjectTransitionDecision
+from core.application.project_presentation import ProjectPresentationCollection
 from ui.sld.sld_document import SLDDocument
 from .document import Document
 from .project import Project
@@ -43,6 +44,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._handlers: list[WorkspaceUpdateHandler] = []
         self._presentation_activation_bridge: PresentationActivationBridge | None = None
         self._document_transition_guard: Callable[[], None] | None = None
+        self._pending_presentation_collection: ProjectPresentationCollection | None = None
 
     @property
     def application(self) -> Application: return self._application
@@ -107,6 +109,35 @@ class ProjectWorkspaceApplicationAdapter:
                 raise TypeError("presentation document must provide to_dict().")
             return to_dict()
 
+        def collection_serializer(collection: ProjectPresentationCollection):
+            documents = []
+            for item in self._lifecycle.documents.documents():
+                to_dict = getattr(item, "to_dict", None)
+                if not callable(to_dict):
+                    raise TypeError("project document must provide to_dict().")
+                documents.append(to_dict())
+            return {
+                "schema": 1,
+                "documents": documents,
+                "active_document_id": self._lifecycle.documents.active_document_id,
+            }
+
+        def collection_deserializer(data):
+            if not isinstance(data, dict):
+                raise TypeError("presentation collection payload must be a mapping.")
+            documents = []
+            for item in data.get("documents", ()):
+                documents.append(SLDDocument.from_dict(item))
+            return ProjectPresentationCollection.ordered(
+                documents,
+                data.get("active_document_id"),
+            )
+
+        def collection_activator(context, collection):
+            previous = self._pending_presentation_collection
+            self._pending_presentation_collection = collection
+            return lambda: setattr(self, "_pending_presentation_collection", previous)
+
         def activate(context: ProjectContext | None, presentation: object | None):
             return self._activate_workspace_presentation(
                 context,
@@ -119,6 +150,11 @@ class ProjectWorkspaceApplicationAdapter:
             factory=factory,
             serializer=serializer,
             deserializer=SLDDocument.from_dict,
+        )
+        self._application.project_lifecycle.configure_presentation_collection_contract(
+            serializer=collection_serializer,
+            deserializer=collection_deserializer,
+            activator=collection_activator,
         )
         self._application.configure_presentation_activator(activate)
 
@@ -146,13 +182,25 @@ class ProjectWorkspaceApplicationAdapter:
             else:
                 if not isinstance(presentation, Document):
                     raise RuntimeError("Application transition did not provide a workspace Document.")
+                collection = self._pending_presentation_collection
+                self._pending_presentation_collection = None
                 self._lifecycle.activate_project_transition(
                     self._to_ui_project(context),
                     document=presentation,
                     activate_workspace=activate_workspace,
                     open_existing=open_existing,
                 )
-                active_document = presentation
+                if collection is not None:
+                    ordered = tuple(collection.documents)
+                    for document_item in ordered:
+                        if document_item.document_id != presentation.document_id:
+                            self._lifecycle.documents.register(document_item)
+                    for index, document_item in enumerate(ordered):
+                        self._lifecycle.documents.move(document_item.document_id, index)
+                    self._lifecycle.documents.activate(
+                        collection.active_document_id or presentation.document_id
+                    )
+                active_document = self._lifecycle.documents.active_document
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(active_document)
 
