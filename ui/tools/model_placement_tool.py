@@ -131,13 +131,9 @@ class ModelPlacementTool(ToolBase):
         draft = self._require_creation_context().require_draft()
         equipment_type = draft.equipment_type
         equipment_id = self._active_draft_id or f"{draft.definition.tool_id}-draft-{uuid4().hex}"
-        draft.validate_configuration()
-        if not draft.configuration_complete:
-            self._report_feedback(
-                f"CREATION_INTENT_FAILED: {equipment_type} configuration failed: "
-                + "; ".join(draft.validation_state.get("configuration", ()))
-            )
-            return False
+        # Position-first placement: incomplete engineering configuration is
+        # valid DraftNetwork authoring state and must not block visual placement.
+        # Engineering validation remains authoritative for later commit readiness.
         if draft.placement_position is None:
             self._report_feedback(
                 f"CREATION_INTENT_FAILED: {equipment_type} placement position is required."
