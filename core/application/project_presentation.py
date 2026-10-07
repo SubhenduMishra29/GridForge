@@ -30,9 +30,15 @@ class ProjectPresentationCollection:
             if document_id in ids:
                 raise ValueError(f"Duplicate presentation document_id: {document_id}")
             ids.append(document_id)
+
         active = self.active_document_id
+        if documents and active is None:
+            raise ValueError(
+                "A non-empty presentation collection must have an active_document_id."
+            )
         if active is not None and active not in ids:
-            active = ids[0] if ids else None
+            raise ValueError(f"Unknown active_document_id: {active!r}")
+
         object.__setattr__(self, "documents", documents)
         object.__setattr__(self, "active_document_id", active)
 

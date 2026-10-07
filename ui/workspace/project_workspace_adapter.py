@@ -169,6 +169,30 @@ class ProjectWorkspaceApplicationAdapter:
             self._lifecycle.documents.active_document_id,
         )
 
+    def _ensure_restored_sld_views(self, documents: tuple[Document, ...]) -> None:
+        """Ensure every restored SLD document has its canonical logical SLD view."""
+        for document in documents:
+            if not isinstance(document, SLDDocument):
+                raise TypeError(
+                    f"Restored presentation document must be an SLDDocument: {document!r}"
+                )
+            view_id = f"{document.document_id}:sld"
+            existing = self._lifecycle.views.get(view_id)
+            if existing is None:
+                self._lifecycle.add_view(
+                    ViewRecord(
+                        view_id=view_id,
+                        document_id=document.document_id,
+                        view_type="sld",
+                    )
+                )
+                continue
+            if existing.document_id != document.document_id or existing.view_type != "sld":
+                raise ValueError(
+                    f"Canonical SLD view {view_id!r} is bound to "
+                    f"{existing.document_id!r}/{existing.view_type!r}."
+                )
+
     def _activate_workspace_presentation(
         self,
         context: ProjectContext | None,
@@ -208,10 +232,23 @@ class ProjectWorkspaceApplicationAdapter:
                             self._lifecycle.documents.register(document_item)
                     for index, document_item in enumerate(ordered):
                         self._lifecycle.documents.move(document_item.document_id, index, mark_dirty=False)
-                    self._lifecycle.documents.activate(
-                        collection.active_document_id or presentation.document_id
-                    )
+                    self._ensure_restored_sld_views(ordered)
+                    active_id = collection.active_document_id
+                    if active_id is None:
+                        raise ValueError("Restored presentation collection has no active_document_id.")
+                    self._lifecycle.documents.activate(active_id)
+                else:
+                    ordered = (presentation,)
+                    self._ensure_restored_sld_views(ordered)
+                    self._lifecycle.documents.activate(presentation.document_id)
+
                 active_document = self._lifecycle.documents.active_document
+                if active_document is None:
+                    raise RuntimeError("Restored active document is not registered.")
+                if self._application.presentation is not active_document:
+                    self._application.activate_presentation(active_document)
+                self._lifecycle.views.activate(f"{active_document.document_id}:sld")
+
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(active_document)
 
