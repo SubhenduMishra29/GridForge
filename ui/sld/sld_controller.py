@@ -33,6 +33,7 @@ from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode
 from .sld_projection_manager import SLDProjectionManager
 from .sld_state import SLDState
+from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 
 
 class SLDController:
@@ -43,6 +44,7 @@ class SLDController:
         state: Optional[SLDState] = None,
         projection_manager: Optional[SLDProjectionManager] = None,
         application: Optional[Application] = None,
+        workspace_lifecycle: Optional[ProjectWorkspaceLifecycle] = None,
     ) -> None:
         if not isinstance(projection_manager, SLDProjectionManager):
             raise TypeError(
@@ -52,7 +54,7 @@ class SLDController:
         self._state = state if state is not None else SLDState()
         self._projection_manager = projection_manager
         self._application = application
-        self._documents: Dict[str, SLDDocument] = {}
+        self._workspace_lifecycle = workspace_lifecycle
         if self._application is not None:
             self._application.event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.subscribe(ProjectClosed, self._on_project_closed)
@@ -67,98 +69,117 @@ class SLDController:
 
     @property
     def active_document(self) -> Optional[SLDDocument]:
-        document_id = self._state.active_document_id
-        if document_id is None:
+        lifecycle = self._workspace_lifecycle
+        if lifecycle is None:
+            presentation = self.application.presentation
+            return presentation if isinstance(presentation, SLDDocument) else None
+        document = lifecycle.documents.active_document
+        if document is None:
             return None
-        return self._documents.get(document_id)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("The active workspace document is not an SLDDocument.")
+        return document
+
+    @property
+    def document_manager(self):
+        lifecycle = self._workspace_lifecycle
+        return lifecycle.documents if lifecycle is not None else None
 
     def register_document(self, document: SLDDocument) -> None:
-        if document.document_id in self._documents:
-            raise ValueError(f"Document already registered: {document.document_id}")
-        self._documents[document.document_id] = document
-        if self._application is not None:
-            presentation = self._application.presentation
-            if presentation is document:
-                self._state.active_document_id = document.document_id
-                self._state.clear_selection()
-        elif self._state.active_document_id is None:
-            self._state.active_document_id = document.document_id
-
-    def unregister_document(self, document_id: str) -> SLDDocument:
-        if document_id not in self._documents:
-            raise KeyError(document_id)
-        if self._state.active_document_id == document_id:
-            self._state.active_document_id = None
-            self._state.clear_selection()
-        return self._documents.pop(document_id)
-
-    def replace_document(self, document: SLDDocument) -> SLDDocument:
-        """Replace the active persistent SLD document after project load."""
+        """Compatibility adapter: registration belongs to ProjectWorkspaceLifecycle."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
-        old = self.active_document
-        if old is not None:
-            self._documents.pop(old.document_id, None)
-        self._documents.clear()
-        self._state.reset()
-        self.register_document(document)
-        self.activate_document(document.document_id)
-        self._state.mark_clean()
+        lifecycle = self._workspace_lifecycle
+        if lifecycle is None:
+            raise RuntimeError("SLDController requires the canonical ProjectWorkspaceLifecycle.")
+        existing = lifecycle.documents.get(document.document_id)
+        if existing is None:
+            lifecycle.documents.register(document)
+        elif existing is not document:
+            lifecycle.documents.replace(document)
+        if lifecycle.documents.active_document_id == document.document_id:
+            self.reconcile_presentation()
+
+    def unregister_document(self, document_id: str) -> SLDDocument:
+        lifecycle = self._require_workspace_lifecycle()
+        document = lifecycle.documents.require(document_id)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Document is not an SLDDocument.")
+        lifecycle.remove_document(document_id)
+        return document
+
+    def replace_document(self, document: SLDDocument) -> SLDDocument:
+        """Compatibility adapter; project lifecycle owns replacement/activation."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument")
+        lifecycle = self._require_workspace_lifecycle()
+        lifecycle.replace_document(document)
+        self.reconcile_presentation()
         return document
 
     def get_document(self, document_id: str) -> Optional[SLDDocument]:
-        return self._documents.get(document_id)
+        lifecycle = self._workspace_lifecycle
+        if lifecycle is None:
+            return None
+        document = lifecycle.documents.get(document_id)
+        return document if isinstance(document, SLDDocument) else None
 
     def activate_document(self, document_id: str) -> SLDDocument:
-        document = self._documents.get(document_id)
-        if document is None:
-            raise KeyError(document_id)
-        presentation = self.application.presentation
-        if presentation is not document:
-            raise RuntimeError(
-                "SLDController cannot activate a document that is not the "
-                "Application-authoritative active presentation."
-            )
+        """Request activation from the canonical workspace lifecycle."""
+        lifecycle = self._require_workspace_lifecycle()
+        document = lifecycle.documents.require(document_id)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Document is not an SLDDocument.")
+        previous = lifecycle.documents.active_document_id
+        if previous != document_id:
+            lifecycle.activate_document_id(document_id)
+            try:
+                self.application.activate_presentation(document)
+            except BaseException:
+                if previous is not None:
+                    lifecycle.documents.activate(previous)
+                    previous_document = lifecycle.documents.active_document
+                    if previous_document is not None:
+                        try:
+                            self.application.activate_presentation(previous_document)
+                        except BaseException:
+                            pass
+                raise
         self._state.active_document_id = document_id
         self._state.clear_selection()
-        # The project lifecycle/SLDService binding is authoritative; this call
-        # only reconciles controller state downstream to that document.
+        self._state.mark_clean() if not lifecycle.documents.is_dirty(document_id) else None
         if self.application.sld_service.document is not document:
             self.application.sld_service.bind_document(document)
         return document
 
     def reconcile_presentation(self) -> Optional[SLDDocument]:
-        """Reconcile controller state to the Application presentation authority."""
-        presentation = self.application.presentation
-        if presentation is None:
-            self._state.active_document_id = None
-            self._state.clear_selection()
+        """Reconcile controller state to the canonical active workspace document."""
+        document = self.active_document
+        if document is None:
+            self._state.reset()
             return None
-        if not isinstance(presentation, SLDDocument):
-            raise TypeError("Application presentation must be an SLDDocument for the SLDController.")
-        if presentation.document_id not in self._documents:
-            self._documents[presentation.document_id] = presentation
-        self._state.active_document_id = presentation.document_id
+        if self.application.presentation is not document:
+            self.application.activate_presentation(document)
+        self._state.active_document_id = document.document_id
         self._state.clear_selection()
-        return presentation
+        return document
 
     def _on_project_loaded(self, _event: ProjectLoaded) -> None:
         self.reconcile_presentation()
 
     def _on_project_closed(self, _event: ProjectClosed) -> None:
         self._state.reset()
-        self._documents.clear()
 
     def dispose(self) -> None:
         if self._application is not None:
             self._application.event_bus.unsubscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.unsubscribe(ProjectClosed, self._on_project_closed)
-        self._documents.clear()
         self._state.reset()
 
     @property
     def document_count(self) -> int:
-        return len(self._documents)
+        manager = self.document_manager
+        return len(manager) if manager is not None else 0
 
     def add_node(self, node: SLDNode) -> None:
         self._require_active_document()
@@ -287,6 +308,11 @@ class SLDController:
             "interaction_mode": self._state.interaction_mode,
             "local_view_dirty": self._state.local_view_dirty,
         }
+
+    def _require_workspace_lifecycle(self) -> ProjectWorkspaceLifecycle:
+        if self._workspace_lifecycle is None:
+            raise RuntimeError("SLDController requires the canonical ProjectWorkspaceLifecycle.")
+        return self._workspace_lifecycle
 
     def _require_application(self) -> Application:
         if self._application is None:
