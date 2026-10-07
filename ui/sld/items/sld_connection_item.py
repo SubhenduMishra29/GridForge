@@ -149,6 +149,8 @@ class SLDConnectionItem(QGraphicsPathItem):
 
     def insertion_target(self, position: tuple[float, float]) -> dict[str, object]:
         """Return immutable insertion-hit data without mutating the graphics item."""
+        if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
+            raise ValueError("Only persistent Simple Wire connections are insertion targets.")
         if not isinstance(position, (tuple, list)) or len(position) != 2:
             raise TypeError("position must contain exactly two coordinates.")
         px, py = float(position[0]), float(position[1])
