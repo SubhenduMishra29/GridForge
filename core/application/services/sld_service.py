@@ -776,7 +776,12 @@ class SLDService:
             properties.pop("projection_source", None)
         else:
             properties["projection_source"] = original_projection_source
-        if original_route_owner is None:
+        if original_route_ownership == "engineer":
+            # Engineer-authored routing explicitly carries engineer ownership
+            # on both replacement companions, even if an older persisted
+            # document omitted the redundant route_owner property.
+            properties["route_owner"] = original_route_owner or "engineer"
+        elif original_route_owner is None:
             properties.pop("route_owner", None)
         else:
             properties["route_owner"] = original_route_owner
