@@ -348,7 +348,7 @@ def create_application(network: Any) -> Application:
         # installed only by the successful activation transaction.
         return persistence.load(path)
 
-    def save_project(context, active_network, presentation, path):
+    def save_project(context, active_network, presentation, path, presentation_collection=None):
         persistence.save(
             context,
             active_network,
@@ -359,8 +359,8 @@ def create_application(network: Any) -> Application:
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             draft_network=application.draft_network,
-            protection_presentation=(
-                application.protection_presentation.to_dict()
+            presentation_collection=presentation_collection,
+            protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
             ),        )

@@ -17,9 +17,10 @@ from core.persistence.project_package import normalize_package_path
 from core.persistence.project_persistence import LoadedProject
 
 from .project import ProjectContext
+from .project_presentation import ProjectPresentationCollection
 
 ProjectLoader = Callable[[Path], LoadedProject]
-ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path], None]
+ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path, Mapping[str, Any] | None], None]
 NetworkFactory = Callable[[], Any]
 NetworkActivator = Callable[[Any], Callable[[], None] | None]
 PresentationFactory = Callable[[ProjectContext], Any]
@@ -31,6 +32,9 @@ ProjectStateActivator = Callable[
 ]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
 PresentationActivator = Callable[[ProjectContext | None, Any | None], Callable[[], None] | None]
+PresentationCollectionSerializer = Callable[[ProjectPresentationCollection], Mapping[str, Any]]
+PresentationCollectionDeserializer = Callable[[Mapping[str, Any]], ProjectPresentationCollection]
+PresentationCollectionActivator = Callable[[ProjectContext | None, ProjectPresentationCollection | None], Callable[[], None] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +43,9 @@ class PresentationConfigurationSnapshot:
     serializer: PresentationSerializer | None
     deserializer: PresentationDeserializer | None
     activator: PresentationActivator | None
+    collection_serializer: PresentationCollectionSerializer | None
+    collection_deserializer: PresentationCollectionDeserializer | None
+    collection_activator: PresentationCollectionActivator | None
 
 
 class ProjectLifecycleService:
@@ -60,6 +67,9 @@ class ProjectLifecycleService:
         project_state_activator: ProjectStateActivator | None = None,
         project_state_validator: ProjectStateValidator | None = None,
         presentation_activator: PresentationActivator | None = None,
+        presentation_collection_serializer: PresentationCollectionSerializer | None = None,
+        presentation_collection_deserializer: PresentationCollectionDeserializer | None = None,
+        presentation_collection_activator: PresentationCollectionActivator | None = None,
     ) -> None:
         if network is None:
             raise ValueError("network is required.")
@@ -90,6 +100,9 @@ class ProjectLifecycleService:
         self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
         self._presentation_activator = presentation_activator
+        self._presentation_collection_serializer = presentation_collection_serializer
+        self._presentation_collection_deserializer = presentation_collection_deserializer
+        self._presentation_collection_activator = presentation_collection_activator
         self._post_network_activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None] | None = None
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
@@ -138,6 +151,9 @@ class ProjectLifecycleService:
             serializer=self._serialize_presentation,
             deserializer=self._deserialize_presentation,
             activator=self._presentation_activator,
+            collection_serializer=self._presentation_collection_serializer,
+            collection_deserializer=self._presentation_collection_deserializer,
+            collection_activator=self._presentation_collection_activator,
         )
 
     def restore_presentation_configuration(self, snapshot: PresentationConfigurationSnapshot) -> None:
@@ -148,6 +164,9 @@ class ProjectLifecycleService:
         self._serialize_presentation = snapshot.serializer
         self._deserialize_presentation = snapshot.deserializer
         self._presentation_activator = snapshot.activator
+        self._presentation_collection_serializer = snapshot.collection_serializer
+        self._presentation_collection_deserializer = snapshot.collection_deserializer
+        self._presentation_collection_activator = snapshot.collection_activator
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
@@ -189,6 +208,13 @@ class ProjectLifecycleService:
             raise TypeError("activator must be callable.")
         self._post_network_activator = activator
 
+    def configure_presentation_collection_contract(self, *, serializer: PresentationCollectionSerializer, deserializer: PresentationCollectionDeserializer, activator: PresentationCollectionActivator) -> None:
+        if not callable(serializer) or not callable(deserializer) or not callable(activator):
+            raise TypeError("presentation collection serializer, deserializer, and activator must be callable.")
+        self._presentation_collection_serializer = serializer
+        self._presentation_collection_deserializer = deserializer
+        self._presentation_collection_activator = activator
+
     def configure_presentation_activator(self, activator: PresentationActivator) -> None:
         if not callable(activator):
             raise TypeError("activator must be callable.")
@@ -213,13 +239,14 @@ class ProjectLifecycleService:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
         presentation = self._create_presentation(context)
-        return self._activate_candidate(context, None, network, presentation)
+        collection = ProjectPresentationCollection.single(presentation) if presentation is not None else None
+        return self._activate_candidate(context, None, network, presentation, presentation_collection=collection)
 
     def open_project(self, path: str | Path) -> ProjectContext:
         target = self._normalize_path(path)
         loaded = self._load_project(target)
-        presentation = self._presentation_for_loaded(loaded)
-        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation)
+        presentation, collection = self._presentation_for_loaded(loaded)
+        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation, presentation_collection=collection)
 
     def discard_project_changes(self) -> ProjectContext:
         """Restore the persisted project state without manipulating command history."""
@@ -230,8 +257,8 @@ class ProjectLifecycleService:
         loaded = self._load_project(context.path)
         if loaded.context.project_id != context.project_id:
             raise RuntimeError("Persisted project identity does not match the active project.")
-        presentation = self._presentation_for_loaded(loaded)
-        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation)
+        presentation, collection = self._presentation_for_loaded(loaded)
+        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation, presentation_collection=collection)
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
         context = self._require_context()
@@ -242,17 +269,29 @@ class ProjectLifecycleService:
             raise ValueError("A path is required to save an unnamed project.")
 
         presentation_data: Mapping[str, Any] | None = None
-        if self._presentation is not None:
+        collection_data: Mapping[str, Any] | None = None
+        collection = getattr(self, "_runtime_presentation_collection", None)
+        if self._presentation_collection_serializer is not None and collection is not None:
+            collection_data = self._presentation_collection_serializer(collection)
+            if not isinstance(collection_data, Mapping):
+                raise TypeError("Presentation collection serializer must return a mapping.")
+        elif self._presentation is not None:
             if self._serialize_presentation is None:
                 raise RuntimeError("A persistent presentation is active but no presentation serializer is configured.")
             presentation_data = self._serialize_presentation(self._presentation)
             if not isinstance(presentation_data, Mapping):
                 raise TypeError("Presentation serializer must return a mapping.")
 
-        self._saver(context, self._network, presentation_data, target)
-        mark_clean = getattr(self._presentation, "mark_clean", None)
-        if callable(mark_clean):
-            mark_clean()
+        self._saver(context, self._network, presentation_data, target, collection_data)
+        if collection is not None:
+            for document in collection.documents:
+                mark_clean = getattr(document, "mark_clean", None)
+                if callable(mark_clean):
+                    mark_clean()
+        else:
+            mark_clean = getattr(self._presentation, "mark_clean", None)
+            if callable(mark_clean):
+                mark_clean()
         if context.path != target:
             context = ProjectContext(project_id=context.project_id, name=context.name, path=target)
             self._context = context
@@ -278,10 +317,18 @@ class ProjectLifecycleService:
             raise ValueError("Project loader returned no Network.")
         return loaded
 
-    def _presentation_for_loaded(self, loaded: LoadedProject) -> Any | None:
+    def _presentation_for_loaded(self, loaded: LoadedProject) -> tuple[Any | None, ProjectPresentationCollection | None]:
+        collection_data = getattr(loaded, "presentation_collection", None)
+        if collection_data is not None and self._presentation_collection_deserializer is not None:
+            collection = self._presentation_collection_deserializer(collection_data)
+            if not isinstance(collection, ProjectPresentationCollection):
+                raise TypeError("Presentation collection deserializer must return ProjectPresentationCollection.")
+            return collection.active_document, collection
         if loaded.presentation is not None and self._deserialize_presentation is not None:
-            return self._deserialize_presentation(loaded.presentation)
-        return self._create_presentation(loaded.context)
+            document = self._deserialize_presentation(loaded.presentation)
+            return document, ProjectPresentationCollection.single(document)
+        document = self._create_presentation(loaded.context)
+        return document, ProjectPresentationCollection.single(document) if document is not None else None
 
     def _activate_candidate(
         self,
@@ -290,6 +337,7 @@ class ProjectLifecycleService:
         network: Any,
         presentation: Any | None,
         *,
+        presentation_collection: ProjectPresentationCollection | None = None,
         previous_context: ProjectContext | None = None,
     ) -> ProjectContext | None:
         if self._state == "ROLLBACK_FAILED":
@@ -307,6 +355,7 @@ class ProjectLifecycleService:
         old_generation = self._activation_generation
         old_state = self._state
         old_rollback_error = self._rollback_error
+        old_collection = getattr(self, "_runtime_presentation_collection", None)
         next_generation = old_generation + 1
 
         rollback_stack: list[Callable[[], None]] = []
@@ -317,6 +366,11 @@ class ProjectLifecycleService:
             # rejects documents that are not Application.presentation, so this
             # is the transactional authority-binding phase of activation.
             self._presentation = presentation
+            self._runtime_presentation_collection = presentation_collection
+
+            rollback = self._activate_presentation_collection(context, presentation_collection)
+            if rollback is not None:
+                rollback_stack.append(rollback)
 
             rollback = self._activate_presentation(
                 context,
@@ -341,6 +395,7 @@ class ProjectLifecycleService:
 
             self._network = network
             self._context = context
+            self._runtime_presentation_collection = presentation_collection
             self._activation_generation = next_generation
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
@@ -361,6 +416,7 @@ class ProjectLifecycleService:
 
             self._network = old_network
             self._context = old_context
+            self._runtime_presentation_collection = old_collection
             self._activation_generation = old_generation
 
             if rollback_errors:
@@ -374,6 +430,15 @@ class ProjectLifecycleService:
             self._state = old_state
             self._rollback_error = old_rollback_error
             raise
+
+    def _activate_presentation_collection(
+        self,
+        context: ProjectContext | None,
+        collection: ProjectPresentationCollection | None,
+    ) -> Callable[[], None] | None:
+        if self._presentation_collection_activator is None:
+            return None
+        return self._presentation_collection_activator(context, collection)
 
     def _activate_presentation(
         self,
@@ -465,5 +530,8 @@ __all__ = [
     "ProjectStateActivator",
     "ProjectStateValidator",
     "PresentationActivator",
+    "PresentationCollectionSerializer",
+    "PresentationCollectionDeserializer",
+    "PresentationCollectionActivator",
     "PresentationConfigurationSnapshot",
 ]

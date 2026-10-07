@@ -22,6 +22,7 @@ from .control_signal_mapping import (
 )
 from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
+from .project_presentation import ProjectPresentationCollection
 from .read_models import (
     ElementReadModel,
     NetworkReadModel,
@@ -55,6 +56,7 @@ __all__ = [
     "ProtectionExecutionService",
     "ProjectTransitionDecision",
     "ProjectTransitionRequired",
+    "ProjectPresentationCollection",
     "ElementReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",

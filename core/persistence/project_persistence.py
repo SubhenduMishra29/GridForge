@@ -35,6 +35,7 @@ class LoadedProject:
     context: ProjectContext
     network: Network
     presentation: Mapping[str, Any] | None = None
+    presentation_collection: Mapping[str, Any] | None = None
     dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
     protection_configuration: ProtectionProjectConfiguration | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
@@ -74,8 +75,26 @@ class ProjectPersistenceService:
         if not isinstance(project_id, str) or not project_id.strip(): raise ProjectPersistenceError("project_id must be a non-empty string.")
         if not isinstance(name, str) or not name.strip(): raise ProjectPersistenceError("project name must be a non-empty string.")
         network = deserialize_network(project.get("network", {}))
+        presentation_collection = project.get("presentations")
         presentation = project.get("sld")
-        if presentation is not None and not isinstance(presentation, dict): raise ProjectPersistenceError("project.json sld payload must be a JSON object.")
+        if presentation_collection is not None:
+            if not isinstance(presentation_collection, dict):
+                raise ProjectPersistenceError("project.json presentations payload must be a JSON object.")
+            presentation_collection = self._normalize_presentation_collection(presentation_collection, project_id)
+            active_id = presentation_collection.get("active_document_id")
+            docs = presentation_collection.get("documents", [])
+            presentation = next((item for item in docs if item.get("document_id") == active_id), docs[0] if docs else None)
+        elif presentation is not None:
+            if not isinstance(presentation, dict):
+                raise ProjectPersistenceError("project.json sld payload must be a JSON object.")
+            legacy_id = presentation.get("document_id") or f"{project_id}:sld"
+            presentation = dict(presentation)
+            presentation["document_id"] = str(legacy_id)
+            presentation_collection = {
+                "schema": 1,
+                "documents": [presentation],
+                "active_document_id": str(legacy_id),
+            }
         dynamic_models_data = project.get("dynamic_models", ())
         if not isinstance(dynamic_models_data, list): raise ProjectPersistenceError("project.json dynamic_models payload must be an array.")
         try:
@@ -106,8 +125,8 @@ class ProjectPersistenceService:
             try: protection_configuration = ProtectionProjectConfiguration.from_dict(protection_data)
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
-        self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration, control_configuration)
-        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration, draft_network=draft_network, protection_presentation=protection_presentation)
+        self._validate_project_state(context, network, presentation, presentation_collection, dynamic_models, protection_configuration, control_configuration)
+        return LoadedProject(context=context, network=network, presentation=presentation, presentation_collection=presentation_collection, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration, draft_network=draft_network, protection_presentation=protection_presentation)
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
@@ -117,7 +136,8 @@ class ProjectPersistenceService:
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
              draft_network: DraftNetwork | None = None,
-             protection_presentation: Mapping[str, Any] | None = None) -> None:
+             protection_presentation: Mapping[str, Any] | None = None,
+             presentation_collection: Mapping[str, Any] | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -127,6 +147,7 @@ class ProjectPersistenceService:
         if draft_network is not None and draft_network.project_id != context.project_id: raise ProjectPersistenceError("DraftNetwork project_id does not match the project.")
         if not isinstance(network, Network): raise TypeError("network must be a Network.")
         if presentation is not None and not isinstance(presentation, Mapping): raise TypeError("presentation must be a mapping or None.")
+        if presentation_collection is not None and not isinstance(presentation_collection, Mapping): raise TypeError("presentation_collection must be a mapping or None.")
         if protection_presentation is not None and not isinstance(protection_presentation, Mapping): raise TypeError("protection_presentation must be a mapping or None.")
         if not isinstance(dynamic_models, Sequence): raise TypeError("dynamic_models must be a sequence.")
         if any(not isinstance(item, DynamicMachineModelAssociation) for item in dynamic_models): raise TypeError("dynamic_models contains an invalid association.")
@@ -149,14 +170,22 @@ class ProjectPersistenceService:
             network.validate()
         except Exception as exc:
             raise ProjectPersistenceError(f"Project Network failed the persistence validation gate: {exc}") from exc
-        self._validate_project_state(context, network, presentation, tuple(dynamic_models), protection_configuration, control_configuration)
+        if presentation_collection is not None:
+            presentation_collection = self._normalize_presentation_collection(presentation_collection, context.project_id)
+            active_id = presentation_collection.get("active_document_id")
+            documents = presentation_collection.get("documents", [])
+            presentation = next((item for item in documents if item.get("document_id") == active_id), documents[0] if documents else None)
+        self._validate_project_state(context, network, presentation, presentation_collection, tuple(dynamic_models), protection_configuration, control_configuration)
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
         manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
         measurement_data = {"channels": [dict(item) for item in measurement_definitions]}
         project: dict[str, Any] = {"schema": 3, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
-        if presentation_data is not None: project["sld"] = presentation_data
+        if presentation_collection is not None:
+            project["presentations"] = dict(presentation_collection)
+        elif presentation_data is not None:
+            project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
         if protection_presentation is not None: project["protection_presentation"] = dict(protection_presentation)
         if control_configuration is not None: project["control"] = control_configuration.to_dict()
@@ -194,6 +223,41 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Unable to save GridForge project to {target}: {exc}") from exc
 
     @staticmethod
+    def _normalize_presentation_collection(data: Mapping[str, Any], project_id: str) -> dict[str, Any]:
+        if not isinstance(data, Mapping):
+            raise ProjectPersistenceError("Persistent presentation collection must be a mapping.")
+        schema = data.get("schema", 1)
+        if schema != 1:
+            raise ProjectPersistenceError(f"Unsupported presentation collection schema: {schema!r}")
+        documents = data.get("documents")
+        if not isinstance(documents, list):
+            raise ProjectPersistenceError("Presentation collection documents must be an array.")
+        normalized: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in documents:
+            if not isinstance(item, Mapping):
+                raise ProjectPersistenceError("Every persisted presentation document must be an object.")
+            document_id = item.get("document_id")
+            document_type = item.get("document_type", "sld")
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise ProjectPersistenceError("Persisted presentation document_id must be a non-empty string.")
+            if document_id in seen:
+                raise ProjectPersistenceError(f"Duplicate persisted document_id: {document_id}")
+            if document_type != "sld":
+                raise ProjectPersistenceError(f"Unsupported persisted presentation document_type: {document_type!r}")
+            item_project_id = item.get("project_id")
+            if item_project_id not in (None, project_id):
+                raise ProjectPersistenceError(f"Presentation document {document_id!r} belongs to another project.")
+            seen.add(document_id)
+            normalized.append(dict(item))
+        active_id = data.get("active_document_id")
+        if active_id is not None and not isinstance(active_id, str):
+            raise ProjectPersistenceError("active_document_id must be a string or null.")
+        if active_id not in seen:
+            active_id = normalized[0]["document_id"] if normalized else None
+        return {"schema": 1, "documents": normalized, "active_document_id": active_id}
+
+    @staticmethod
     def _deserialize_control_configuration(data: Mapping[str, Any], project_id: str) -> ControlConfiguration:
         configuration = ControlConfiguration.from_dict(data)
         if configuration.project_id != project_id:
@@ -202,10 +266,29 @@ class ProjectPersistenceService:
         return configuration
 
     @staticmethod
-    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
+    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, presentation_collection: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
         """Validate cross-domain project invariants at load/save boundaries."""
         if not isinstance(context, ProjectContext) or not isinstance(network, Network):
             raise ProjectPersistenceError("Project context or Network is invalid.")
+        if presentation_collection is not None:
+            normalized_collection = ProjectPersistenceService._normalize_presentation_collection(
+                presentation_collection,
+                context.project_id,
+            )
+            for document in normalized_collection["documents"]:
+                document_schema = document.get("schema", 1)
+                if document_schema not in (1, 2):
+                    raise ProjectPersistenceError(
+                        f"Unsupported SLD representation schema: {document_schema!r}"
+                    )
+                document_validation = ValidationService.validate_sld_associations(
+                    context,
+                    network,
+                    document,
+                )
+                for issue in document_validation.issues:
+                    if issue.code != "SLD_EQUIPMENT_REFERENCE_UNRESOLVED":
+                        raise ProjectPersistenceError(issue.message)
         if presentation is not None:
             if not isinstance(presentation, Mapping):
                 raise ProjectPersistenceError("Persistent SLD representation must be a mapping.")
