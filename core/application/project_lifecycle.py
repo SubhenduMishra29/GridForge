@@ -289,7 +289,6 @@ class ProjectLifecycleService:
             collection = self._presentation_collection_snapshot_provider()
             if not isinstance(collection, ProjectPresentationCollection):
                 raise TypeError("Presentation collection snapshot provider must return ProjectPresentationCollection.")
-        elif self._presentation is not None:
             collection_data = self._presentation_collection_serializer(collection)
             if not isinstance(collection_data, Mapping):
                 raise TypeError("Presentation collection serializer must return a mapping.")
