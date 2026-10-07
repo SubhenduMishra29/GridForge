@@ -28,6 +28,7 @@ class SLDState:
     local_view_dirty: bool = False
     selection_manager: Any = None
     tool_manager: Any = None
+    document_manager: Any = None
 
     @property
     def selected_node_ids(self) -> frozenset[str]:
@@ -87,16 +88,25 @@ class SLDState:
 
     @property
     def dirty(self) -> bool:
-        return self.local_view_dirty
+        manager = self.document_manager
+        if manager is not None:
+            return bool(manager.is_dirty(self.active_document_id))
+        return False
 
     @property
     def has_selection(self) -> bool:
         return bool(self.selected_node_ids or self.selected_connection_ids)
 
     def mark_dirty(self) -> None:
-        self.local_view_dirty = True
+        manager = self.document_manager
+        if manager is not None and self.active_document_id is not None:
+            manager.mark_dirty(self.active_document_id)
+        self.local_view_dirty = False
 
     def mark_clean(self) -> None:
+        manager = self.document_manager
+        if manager is not None and self.active_document_id is not None:
+            manager.mark_clean(self.active_document_id)
         self.local_view_dirty = False
 
     def reset(self) -> None:
