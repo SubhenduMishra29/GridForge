@@ -786,3 +786,23 @@ Canonical Core Endpoint
 and the Core remains the sole authority for electrical truth.
 
 **GridForge V2 Application Layer: FROZEN.**
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+This directory is the repository's headless Application boundary. It is the semantic bridge between UI intent and Core engineering truth.
+
+Current responsibilities include immutable commands, command execution, handlers/services, transactions, history, semantic events, read models, lifecycle, persistence orchestration, draft-to-Core commit, and electrical-equipment insertion.
+
+Canonical workflows include:
+
+- DraftNetwork authoring without Core mutation;
+- explicit CommitNetworkCommand for DraftNetwork → Core;
+- canonical EndpointResolver/ConnectivityResolver use;
+- Simple Wire creation/removal through Application commands/services;
+- InsertEquipmentIntoConnectionCommand → ElectricalInsertionService for topology-preserving insertion;
+- transactional SLD reconciliation and presentation ownership preservation;
+- undo/redo through Application history rather than UI-local history.
+
+No subpackage here may introduce a second CommandManager, Transaction manager, topology authority, persistence authority, or event bus.
