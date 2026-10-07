@@ -10,6 +10,9 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 
 from core.application.commands.sld_commands import SetSLDNodePositionCommand
+from core.application.services.insertion_contract import INSERTION_CONTRACTS
+from .electrical_insertion_tool import ElectricalInsertionTool
+from ui.core.qt import QPointF
 from .tool_base import ToolBase
 
 
@@ -28,6 +31,10 @@ class SelectTool(ToolBase):
         self._pressed_object_id: Any = None
         self._pressed_scene_position: Optional[Tuple[float, float]] = None
         self._dragging = False
+        self._insertion_active = False
+        self._insertion_tool: ElectricalInsertionTool | None = None
+        self._insertion_target: dict[str, Any] | None = None
+        self._original_drag_position: Tuple[float, float] | None = None
 
     @property
     def tool_id(self) -> str:
@@ -45,6 +52,7 @@ class SelectTool(ToolBase):
         self._clear_pointer_state()
 
     def on_deactivate(self) -> None:
+        self._cancel_transient_insertion()
         self._clear_pointer_state()
 
     def on_mouse_press(self, event: Any) -> bool:
@@ -68,7 +76,22 @@ class SelectTool(ToolBase):
         self._dragging = self._dragging or (
             self._distance(self._pressed_scene_position, current) >= self.DRAG_TOLERANCE
         )
-        return self._dragging
+        if not self._dragging or self._pressed_object_id is None:
+            return self._dragging
+        equipment_type = self._equipment_type_for(self._pressed_object_id)
+        if equipment_type not in INSERTION_CONTRACTS:
+            return True
+        target = self._resolve_insertion_target(current)
+        if target is not None:
+            if not self._insertion_active:
+                self._begin_transient_insertion(equipment_type)
+            if self._insertion_tool is not None:
+                self._insertion_target = dict(target)
+                self._insertion_tool.on_mouse_move(self._insertion_event(current, target))
+            return True
+        if self._insertion_active:
+            self._cancel_transient_insertion()
+        return True
 
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
@@ -80,7 +103,16 @@ class SelectTool(ToolBase):
             if self._pressed_object_id is None:
                 self._box_select(self._pressed_scene_position, end, self._event_modifiers(event))
             elif self._is_selected(self._pressed_object_id):
+                if self._insertion_active and self._insertion_tool is not None:
+                    target = self._resolve_insertion_target(end)
+                    if target is not None:
+                        self._insertion_target = dict(target)
+                        accepted = self._insertion_tool.on_mouse_release(self._insertion_event(end, target))
+                        self._finish_transient_insertion()
+                        self._clear_pointer_state()
+                        return bool(accepted)
                 self._commit_drag_move(self._pressed_object_id, end)
+        self._cancel_transient_insertion()
         self._clear_pointer_state()
         return True
 
@@ -97,7 +129,8 @@ class SelectTool(ToolBase):
         return False
 
     def on_cancel(self) -> bool:
-        had_state = self._pressed_scene_position is not None or self._dragging
+        had_state = self._pressed_scene_position is not None or self._dragging or self._insertion_active
+        self._cancel_transient_insertion()
         self._clear_pointer_state()
         return had_state
 
@@ -183,6 +216,139 @@ class SelectTool(ToolBase):
                     getattr(result, "message", "Failed to move SLD node.")
                 )
 
+    def _equipment_type_for(self, object_id: Any) -> str | None:
+        presentation = getattr(self.application, "presentation", None)
+        model = getattr(presentation, "model", None)
+        if model is None:
+            return None
+        node = None
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        if callable(getter):
+            node = getter(str(object_id))
+        if node is None:
+            getter = getattr(model, "get_node_optional", None)
+            if callable(getter):
+                node = getter(str(object_id))
+        if node is None:
+            return None
+        raw = getattr(node, "element_type", None)
+        if raw is None:
+            raw = (getattr(node, "properties", {}) or {}).get("element_type")
+        return None if raw is None else str(getattr(raw, "value", raw)).strip().lower()
+
+    def _begin_transient_insertion(self, equipment_type: str) -> None:
+        tool = self._insertion_tool or self._resolve_insertion_tool()
+        if tool is None:
+            return
+        presentation = getattr(self.application, "presentation", None)
+        model = getattr(presentation, "model", None)
+        node = None
+        if model is not None:
+            getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(getter):
+                node = getter(str(self._pressed_object_id))
+        orientation = float((getattr(node, "properties", {}) or {}).get("rotation", 0.0)) if node is not None else 0.0
+        tool.begin(equipment_type, equipment_id=str(self._pressed_object_id), creation_parameters={}, orientation=orientation)
+        if not tool.is_active:
+            tool.activate()
+        self._insertion_tool = tool
+        self._insertion_active = True
+        self._original_drag_position = self._pressed_scene_position
+
+    def _resolve_insertion_tool(self) -> ElectricalInsertionTool | None:
+        manager_getter = getattr(self.controller, "get_tool_manager", None)
+        manager = manager_getter() if callable(manager_getter) else getattr(self.controller, "_tool_manager", None)
+        if manager is not None:
+            for name in ("get_tool", "get", "tool", "find_tool"):
+                getter = getattr(manager, name, None)
+                if callable(getter):
+                    try:
+                        candidate = getter(ElectricalInsertionTool.TOOL_ID)
+                    except (KeyError, TypeError, ValueError):
+                        candidate = None
+                    if isinstance(candidate, ElectricalInsertionTool):
+                        return candidate
+        preview_layer = None
+        symbol_registry = None
+        for owner in (self.controller, getattr(self.application, "presentation", None)):
+            if owner is None:
+                continue
+            preview_layer = preview_layer or getattr(owner, "preview_layer", None) or getattr(owner, "_preview_layer", None)
+            symbol_registry = symbol_registry or getattr(owner, "symbol_registry", None)
+        try:
+            return ElectricalInsertionTool(controller=self.controller, application=self.application, selection_manager=self.get_selection_manager(), snap_system=self.get_snap_system(), preview_layer=preview_layer, symbol_registry=symbol_registry)
+        except (TypeError, ValueError):
+            return None
+
+    def _resolve_insertion_target(self, position: Tuple[float, float]) -> dict[str, Any] | None:
+        item = self._connection_item_at(position)
+        if item is None:
+            return None
+        resolver = getattr(item, "insertion_target", None)
+        if not callable(resolver):
+            return None
+        try:
+            target = resolver(position)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(target, dict) or not target.get("connection_id"):
+            return None
+        if str(getattr(item, "connection_kind", "")).upper() != "SIMPLE_WIRE":
+            return None
+        return dict(target, connection_item=item)
+
+    def _connection_item_at(self, position: Tuple[float, float]) -> Any | None:
+        for name in ("connection_item_at", "sld_connection_item_at", "canvas_item_at"):
+            resolver = getattr(self.controller, name, None)
+            if callable(resolver):
+                try:
+                    item = resolver(position)
+                except (TypeError, ValueError):
+                    item = None
+                if item is not None and callable(getattr(item, "insertion_target", None)):
+                    return item
+        scene = self._scene()
+        items_method = getattr(scene, "items", None) if scene is not None else None
+        if not callable(items_method):
+            return None
+        try:
+            items = tuple(items_method(QPointF(float(position[0]), float(position[1]))))
+        except (TypeError, ValueError):
+            try:
+                items = tuple(items_method())
+            except TypeError:
+                return None
+        for item in items:
+            if callable(getattr(item, "insertion_target", None)) and str(getattr(item, "connection_kind", "")).upper() == "SIMPLE_WIRE":
+                return item
+        return None
+
+    @staticmethod
+    def _insertion_event(position: Tuple[float, float], target: dict[str, Any]) -> dict[str, Any]:
+        return {"scene_position": position, "connection_item": target.get("connection_item")}
+
+    def _finish_transient_insertion(self) -> None:
+        tool = self._insertion_tool
+        self._insertion_active = False
+        self._insertion_target = None
+        self._original_drag_position = None
+        if tool is not None and tool.is_active:
+            tool.deactivate()
+        self._insertion_tool = None
+
+    def _cancel_transient_insertion(self) -> None:
+        tool = self._insertion_tool
+        if tool is not None:
+            try:
+                if tool.is_active:
+                    tool.on_cancel()
+            finally:
+                if tool.is_active:
+                    tool.deactivate()
+        self._insertion_active = False
+        self._insertion_target = None
+        self._original_drag_position = None
+
     def _scene(self) -> Any:
         return getattr(self.get_selection_manager(), "scene", None)
 
@@ -258,6 +424,9 @@ class SelectTool(ToolBase):
             "pressed_object_id": self._pressed_object_id,
             "pressed_scene_position": self._pressed_scene_position,
             "dragging": self._dragging,
+            "insertion_active": self._insertion_active,
+            "insertion_target": dict(self._insertion_target or {}),
+            "original_drag_position": self._original_drag_position,
         })
         return state
 

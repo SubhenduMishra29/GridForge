@@ -655,8 +655,18 @@ class SLDService:
         first_core_id, second_core_id = replacement_connection_ids
         first_id = self.presentation_connection_id(first_core_id)
         second_id = self.presentation_connection_id(second_core_id)
-        node_id = f"sld-core-{equipment_id}"
-        if self.document.model.get_node_optional(node_id) is not None:
+        existing_node = self.document.model.get_node_by_equipment_id_optional(equipment_id)
+        node_id = str(existing_node.node_id) if existing_node is not None else f"sld-core-{equipment_id}"
+        if existing_node is not None:
+            attached = tuple(
+                item for item in self.document.model.connections
+                if item.source_node_id == existing_node.node_id or item.target_node_id == existing_node.node_id
+            )
+            if attached:
+                raise ValueError(
+                    f"Existing equipment SLD node {node_id!r} already has persistent connection companions."
+                )
+        elif self.document.model.get_node_optional(node_id) is not None:
             raise ValueError(f"SLD node {node_id!r} already exists.")
         if self.document.model.get_connection_optional(first_id) is not None:
             raise ValueError(f"SLD connection {first_id!r} already exists.")
@@ -666,6 +676,7 @@ class SLDService:
         if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
             raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
         snapshot = old_connection.to_dict()
+        node_snapshot = existing_node.to_dict() if existing_node is not None else None
         previous_document_modified = bool(getattr(self.document, "modified", False))
         source_node = self.document.model.get_node(old_connection.source_node_id)
         target_node = self.document.model.get_node(old_connection.target_node_id)
@@ -701,11 +712,33 @@ class SLDService:
         first_polyline = [*polyline[: segment_index + 1], position, input_anchor]
         second_polyline = [output_anchor, position, *polyline[segment_index + 1 :]]
 
+        def normalize_route(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+            normalized: list[tuple[float, float]] = []
+            for point in points:
+                value = (float(point[0]), float(point[1]))
+                if normalized and value == normalized[-1]:
+                    continue
+                normalized.append(value)
+            if str(route.get("ownership", "auto")).lower() != "engineer":
+                compact: list[tuple[float, float]] = []
+                for point in normalized:
+                    if len(compact) >= 2:
+                        ax, ay = compact[-2]
+                        bx, by = compact[-1]
+                        cx, cy = point
+                        if abs((bx - ax) * (cy - by) - (by - ay) * (cx - bx)) <= 1e-9:
+                            compact[-1] = point
+                            continue
+                    compact.append(point)
+                normalized = compact
+            return normalized
+
         def route_for(points: list[tuple[float, float]]) -> dict[str, Any]:
+            normalized = normalize_route(points)
             return {
                 "routing_mode": route["routing_mode"],
                 "ownership": route["ownership"],
-                "points": [list(point) for point in points[1:-1]],
+                "points": [list(point) for point in normalized[1:-1]],
             }
 
         def presentation_endpoint(reference: Mapping[str, Any]) -> dict[str, str]:
@@ -730,7 +763,7 @@ class SLDService:
         properties["lifecycle_state"] = "BOUND"
         properties["insertion_parent_connection_id"] = connection_id
 
-        node_properties = {
+        node_properties = dict(existing_node.properties) if existing_node is not None else {
             "presentation_owner": "engineer",
             "lifecycle_state": "BOUND",
             "element_type": equipment_type,
@@ -739,16 +772,38 @@ class SLDService:
             "rotation": float(orientation),
             "insertion_parent_connection_id": connection_id,
         }
+        node_properties.update({
+            "lifecycle_state": "BOUND",
+            "element_type": equipment_type,
+            "position_owner": "engineer",
+            "symbol_owner": "engineer",
+            "rotation": float(orientation),
+            "insertion_parent_connection_id": connection_id,
+        })
         presentation = None
-        if self._symbol_presentation_factory is not None:
+        if existing_node is None and self._symbol_presentation_factory is not None:
             presentation = self._symbol_presentation_factory(equipment_type)
 
         def restore() -> None:
             for connection_id_to_remove in (first_id, second_id):
                 if self.document.model.get_connection_optional(connection_id_to_remove) is not None:
                     self.document.model.remove_connection(connection_id_to_remove)
-            if self.document.model.get_node_optional(node_id) is not None:
-                self.document.model.remove_node(node_id)
+            if existing_node is None:
+                if self.document.model.get_node_optional(node_id) is not None:
+                    self.document.model.remove_node(node_id)
+            else:
+                node = self.document.model.get_node_optional(node_id)
+                if node is None:
+                    self._restore_node_snapshot(node_snapshot or {})
+                else:
+                    node.set_position(float(node_snapshot["x"]), float(node_snapshot["y"]))
+                    if node_snapshot.get("presentation") is None:
+                        node.clear_presentation()
+                    else:
+                        node.set_presentation(node_snapshot["presentation"])
+                    node.properties.clear()
+                    node.properties.update(dict(node_snapshot.get("properties", {})))
+                    node.equipment_id = node_snapshot.get("equipment_id")
             if self.document.model.get_connection_optional(old_id) is None:
                 self._restore_connection_snapshot(snapshot)
             if previous_document_modified:
@@ -761,14 +816,18 @@ class SLDService:
         transaction.record_undo(restore)
 
         self.document.model.remove_connection(old_id)
-        self.document.model.create_node(
-            node_id=node_id,
-            equipment_id=equipment_id,
-            x=position[0],
-            y=position[1],
-            presentation=presentation,
-            properties=node_properties,
-        )
+        if existing_node is None:
+            self.document.model.create_node(
+                node_id=node_id,
+                equipment_id=equipment_id,
+                x=position[0],
+                y=position[1],
+                presentation=presentation,
+                properties=node_properties,
+            )
+        else:
+            existing_node.set_position(position[0], position[1])
+            existing_node.properties.update(node_properties)
         self.document.model.create_connection(
             connection_id=first_id,
             source_node_id=old_connection.source_node_id,

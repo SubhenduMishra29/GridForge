@@ -73,21 +73,69 @@ class ElectricalInsertionService:
             )
 
         requested_equipment_id = payload.get("equipment_id")
+        existing_equipment = False
         equipment_id = (
             str(requested_equipment_id).strip()
             if requested_equipment_id is not None
             else f"insert-{command.command_id.hex}"
         )
         try:
-            network.get_by_identity(equipment_id)
+            existing = network.get_by_identity(equipment_id)
         except KeyError:
-            pass
-        else:
-            raise ValidationError(
-                code="EQUIPMENT_ID_ALREADY_EXISTS",
-                message=f"Equipment identity {equipment_id!r} already exists.",
-                details={"equipment_id": equipment_id},
+            existing = None
+        if existing is not None:
+            # Existing-equipment insertion is the canonical SelectTool drag
+            # path. Reuse the Core identity; never recreate the object merely
+            # to make it fit the insertion workflow.
+            expected_class = {
+                "breaker": "Breaker",
+                "disconnector": "Disconnector",
+                "transformer": "Transformer",
+                "current_transformer": "CurrentTransformer",
+            }[equipment_type]
+            actual_type = str(
+                getattr(getattr(existing, "equipment_type", None), "value", getattr(existing, "equipment_type", ""))
+            ).strip().lower()
+            class_name = type(existing).__name__.strip().lower()
+            if class_name != expected_class.lower() and actual_type not in {equipment_type, expected_class.lower()}:
+                raise ValidationError(
+                    code="EQUIPMENT_TYPE_MISMATCH",
+                    message=f"Equipment {equipment_id!r} is not a {equipment_type}.",
+                    details={"equipment_id": equipment_id, "equipment_type": equipment_type},
+                )
+            current_connections = tuple(network.connectivity.connections_for_equipment(equipment_id))
+            if current_connections:
+                raise ValidationError(
+                    code="EQUIPMENT_ALREADY_CONNECTED",
+                    message=(
+                        f"Equipment {equipment_id!r} already participates in electrical topology "
+                        "and cannot be inserted without creating conflicting connectivity."
+                    ),
+                    details={
+                        "equipment_id": equipment_id,
+                        "connection_ids": tuple(c.connection_id for c in current_connections),
+                    },
+                )
+            terminal_roles = {str(getattr(t, "role", "")) for t in getattr(existing, "terminals", ())}
+            missing_roles = tuple(role for role in contract.terminal_mapping if role not in terminal_roles)
+            if missing_roles:
+                raise ValidationError(
+                    code="EQUIPMENT_TERMINALS_INCOMPATIBLE",
+                    message=f"Existing {equipment_type} is missing required insertion terminals.",
+                    details={"equipment_id": equipment_id, "missing_roles": missing_roles},
+                )
+            occupied = tuple(
+                str(getattr(terminal, "role", ""))
+                for terminal in getattr(existing, "terminals", ())
+                if getattr(terminal, "endpoint", None) is not None
             )
+            if occupied:
+                raise ValidationError(
+                    code="EQUIPMENT_TERMINAL_ALREADY_BOUND",
+                    message=f"Equipment {equipment_id!r} has occupied electrical terminals.",
+                    details={"equipment_id": equipment_id, "terminal_roles": occupied},
+                )
+            existing_equipment = True
 
         mapping = payload.get("terminal_mapping")
         terminal_mapping = (
@@ -151,21 +199,23 @@ class ElectricalInsertionService:
             terminal_role=output_role,
         )
 
-        # Create the equipment disconnected first. Its own canonical model
-        # command remains the authoritative equipment-creation pathway.
-        create_command = self._creation_command(
-            equipment_type=equipment_type,
-            equipment_id=equipment_id,
-            parameters=parameters,
-            command=command,
-        )
-        create_result = self._command_executor(create_command, transaction)
-        if not create_result.success:
-            raise ValidationError(
-                code="EQUIPMENT_CREATION_FAILED",
-                message=create_result.message or "Equipment creation failed.",
-                details=dict(create_result.metadata),
+        # New-equipment insertion still uses the canonical creation command.
+        # Existing-equipment insertion deliberately skips creation and reuses
+        # the already registered Core object.
+        if not existing_equipment:
+            create_command = self._creation_command(
+                equipment_type=equipment_type,
+                equipment_id=equipment_id,
+                parameters=parameters,
+                command=command,
             )
+            create_result = self._command_executor(create_command, transaction)
+            if not create_result.success:
+                raise ValidationError(
+                    code="EQUIPMENT_CREATION_FAILED",
+                    message=create_result.message or "Equipment creation failed.",
+                    details=dict(create_result.metadata),
+                )
 
         # Remove the original relationship before creating either replacement.
         remove_result = self._command_executor(
@@ -253,13 +303,14 @@ class ElectricalInsertionService:
             ) from exc
 
         return ApplicationResult.success_result(
-            value=create_result.value,
+            value=(None if existing_equipment else create_result.value),
             message=f"{equipment_type.title()} {equipment_id} inserted into {connection_id}.",
             metadata={
                 "insertion": True,
                 "connection_id": connection_id,
                 "equipment_type": equipment_type,
                 "equipment_id": equipment_id,
+                "existing_equipment": existing_equipment,
                 "insertion_position": insertion_position,
                 "orientation": float(payload["orientation"]),
                 "segment_index": int(payload["segment_index"]),
