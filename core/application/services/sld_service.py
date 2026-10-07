@@ -661,6 +661,8 @@ class SLDService:
         if self.document.model.get_connection_optional(second_id) is not None:
             raise ValueError(f"SLD connection {second_id!r} already exists.")
 
+        if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+            raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
         snapshot = old_connection.to_dict()
         source_node = self.document.model.get_node(old_connection.source_node_id)
         target_node = self.document.model.get_node(old_connection.target_node_id)
