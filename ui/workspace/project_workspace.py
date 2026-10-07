@@ -149,8 +149,10 @@ class ProjectWorkspaceLifecycle:
         if self._project is None: raise RuntimeError("Cannot activate a document without an active project.")
         if document.project_id not in (None, self._project.project_id): raise ValueError("document belongs to a different project.")
         existing = self._documents.get(document.document_id)
-        if existing is None: self._documents.register(document)
-        else: self._documents.activate(document.document_id)
+        if existing is None:
+            self._documents.register(document)
+        else:
+            return self.activate_document_id(document.document_id)
         return self.state
 
     def activate_document_id(self, document_id: str) -> ProjectWorkspaceState:
@@ -219,6 +221,9 @@ class ProjectWorkspaceLifecycle:
         else:
             self._documents.replace(document)
         self._documents.activate(document.document_id)
+        views = self._views.views_for_document(document.document_id)
+        if views:
+            self._views.activate(views[0].view_id)
         return self.state
 
     def add_view(self, view: ViewRecord) -> ProjectWorkspaceState:
