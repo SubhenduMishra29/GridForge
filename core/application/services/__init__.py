@@ -16,7 +16,6 @@ from .measurement_channel_service import MeasurementChannelService
 from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
 from .electrical_insertion_service import ElectricalInsertionCommandHandlers, ElectricalInsertionService
 from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
-from .sld_service import SLDService, SLDState
 
 __all__ = [
     "ElectricalConnectionCommandHandlers",
@@ -28,6 +27,4 @@ __all__ = [
     "ElectricalInsertionService",
     "INSERTION_CONTRACTS",
     "InsertionContract",
-    "SLDService",
-    "SLDState",
 ]
