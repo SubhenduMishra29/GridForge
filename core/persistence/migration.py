@@ -1,15 +1,19 @@
-"""Explicit migration boundary for legacy electrical representations.
 
-Migration normalizes representation metadata; it never guesses engineering
-units, system bases, or transformer impedance bases. Ambiguous legacy data is
-reported for explicit user/source-system migration rather than silently
-interpreted.
+"""Persistence-owned migration boundaries for historical GridForge data.
+
+Migration is detached from Application, Core mutation, and Qt/UI state. It
+transforms raw persisted mappings into the current canonical representation;
+validation and deserialization happen only afterwards.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping
+
+from .project_package import PROJECT_SCHEMA_VERSION, PRESENTATION_SCHEMA_VERSION, SLD_SCHEMA_VERSION
 
 
 class AmbiguousElectricalDataError(ValueError):
@@ -33,34 +37,25 @@ class LegacyElectricalDataMigration:
             raise ValueError("equipment_type must be a non-empty string.")
         if not isinstance(payload, Mapping):
             raise TypeError("payload must be a mapping.")
-
         normalized_type = equipment_type.strip().lower()
-        values = dict(payload)
-
+        values = deepcopy(dict(payload))
         if normalized_type == "cable":
             self._validate_cable(values)
         elif normalized_type == "transformer":
             self._validate_transformer(values)
-
-        return MigrationResult(
-            equipment_type=normalized_type,
-            values=values,
-            migrated=True,
-        )
+        return MigrationResult(normalized_type, values, True)
 
     @staticmethod
     def _validate_cable(values: Mapping[str, Any]) -> None:
         legacy = {key: values.get(key) for key in ("r", "x", "b") if key in values}
         if not legacy:
             return
-
         explicit_units = values.get("impedance_units")
         if explicit_units is None:
             raise AmbiguousElectricalDataError(
                 "Legacy cable r/x/b values require explicit impedance_units; "
                 "migration will not guess ohms versus per-unit."
             )
-
         units = str(explicit_units).strip().lower()
         if units not in {"ohm", "ohms", "pu", "per_unit"}:
             raise AmbiguousElectricalDataError(
@@ -76,21 +71,366 @@ class LegacyElectricalDataMigration:
             )
         basis = str(values["impedance_basis"]).strip().lower()
         if basis not in {
-            "ohm_hv",
-            "ohm_lv",
-            "percent_on_rated",
-            "pu_on_rated",
-            "pu_on_system",
-            "pu",
-            "engineering",
+            "ohm_hv", "ohm_lv", "percent_on_rated", "pu_on_rated",
+            "pu_on_system", "pu", "engineering",
         }:
             raise AmbiguousElectricalDataError(
                 f"Unsupported transformer impedance_basis={values['impedance_basis']!r}."
             )
 
 
+class ProjectMigrationError(ValueError):
+    """Raised when persisted project data cannot be migrated safely."""
+
+
+class UnsupportedProjectSchemaError(ProjectMigrationError):
+    """Raised for project schemas outside the supported migration range."""
+
+
+class ProjectMigration(ABC):
+    """One deterministic, side-effect-free project schema migration step."""
+
+    source_schema: int
+    target_schema: int
+
+    @abstractmethod
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Return a detached representation in target_schema."""
+
+
+class _ProjectSchema1To2(ProjectMigration):
+    source_schema = 1
+    target_schema = 2
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema", 1) != self.source_schema:
+            raise ProjectMigrationError("Project schema 1-to-2 received a non-schema-1 payload.")
+        project = result.get("project")
+        if not isinstance(project, Mapping):
+            raise ProjectMigrationError("Project metadata is required before migrating schema 1.")
+        project_id = project.get("project_id")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ProjectMigrationError(
+                "Project schema 1 migration requires a stable project_id for the legacy SLD."
+            )
+
+        presentations = result.get("presentations")
+        legacy_sld = result.get("sld")
+        if presentations is None:
+            if legacy_sld is None:
+                documents: list[dict[str, Any]] = []
+                active_id = None
+            elif isinstance(legacy_sld, Mapping):
+                document = deepcopy(dict(legacy_sld))
+                document_id = document.get("document_id")
+                if not isinstance(document_id, str) or not document_id.strip():
+                    document_id = f"{project_id}:sld"
+                document["document_id"] = document_id
+                document.setdefault("document_type", "sld")
+                documents = [document]
+                active_id = document_id
+            else:
+                raise ProjectMigrationError("Legacy project sld payload must be an object.")
+            result["presentations"] = {
+                "schema": PRESENTATION_SCHEMA_VERSION,
+                "documents": documents,
+                "active_document_id": active_id,
+            }
+        elif not isinstance(presentations, Mapping):
+            raise ProjectMigrationError("Legacy presentations payload must be an object.")
+
+        result.pop("sld", None)
+        result["schema"] = self.target_schema
+        return result
+
+
+class _ProjectSchema2To3(ProjectMigration):
+    source_schema = 2
+    target_schema = 3
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 2-to-3 received a non-schema-2 payload.")
+        result.setdefault("measurement", {"channels": []})
+        result.setdefault("dynamic_models", [])
+        result["schema"] = self.target_schema
+        return result
+
+
+class SLDMigrationError(ProjectMigrationError):
+    """Raised when an historical SLD representation cannot be migrated."""
+
+
+class SLDMigration(ABC):
+    """One deterministic, side-effect-free SLD schema migration step."""
+
+    source_schema: int
+    target_schema: int
+
+    @abstractmethod
+    def migrate(
+        self,
+        data: Mapping[str, Any],
+        *,
+        project_id: str,
+        document_index: int,
+        existing_document_ids: set[str],
+    ) -> Mapping[str, Any]:
+        """Return a detached SLD representation in target_schema."""
+
+
+class _SLDSchema1To2(SLDMigration):
+    source_schema = 1
+    target_schema = SLD_SCHEMA_VERSION
+
+    def migrate(
+        self,
+        data: Mapping[str, Any],
+        *,
+        project_id: str,
+        document_index: int,
+        existing_document_ids: set[str],
+    ) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema", 1) != self.source_schema:
+            raise SLDMigrationError("SLD schema 1-to-2 received a non-schema-1 payload.")
+
+        document_id = result.get("document_id")
+        if not isinstance(document_id, str) or not document_id.strip():
+            base = f"{project_id}:sld"
+            document_id = base if base not in existing_document_ids else f"{base}:{document_index + 1}"
+            while document_id in existing_document_ids:
+                document_id = f"{base}:{len(existing_document_ids) + 1}"
+        result["document_id"] = document_id
+        result.setdefault("document_type", "sld")
+        result.setdefault("project_id", project_id)
+        result.setdefault("name", "Untitled SLD")
+        result.setdefault("metadata", {})
+
+        model = result.get("model", {})
+        if not isinstance(model, Mapping):
+            raise SLDMigrationError("SLD model must be an object.")
+        model = deepcopy(dict(model))
+        nodes = model.get("nodes", [])
+        connections = model.get("connections", [])
+        if not isinstance(nodes, list) or not isinstance(connections, list):
+            raise SLDMigrationError("SLD nodes and connections must be arrays.")
+
+        normalized_nodes: list[dict[str, Any]] = []
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                raise SLDMigrationError("Every historical SLD node must be an object.")
+            item = deepcopy(dict(node))
+            item.setdefault("presentation", None)
+            item.setdefault("properties", {})
+            normalized_nodes.append(item)
+
+        normalized_connections: list[dict[str, Any]] = []
+        for connection in connections:
+            if not isinstance(connection, Mapping):
+                raise SLDMigrationError("Every historical SLD connection must be an object.")
+            item = deepcopy(dict(connection))
+            item.setdefault("source_endpoint", None)
+            item.setdefault("target_endpoint", None)
+            item.setdefault("route", {
+                "routing_mode": "orthogonal",
+                "ownership": "auto",
+                "points": [],
+            })
+            item.setdefault("properties", {})
+            normalized_connections.append(item)
+
+        model["nodes"] = normalized_nodes
+        model["connections"] = normalized_connections
+        result["model"] = model
+        result["schema"] = self.target_schema
+        return result
+
+
+class PresentationCollectionMigrationError(ProjectMigrationError):
+    """Raised when the persisted presentation collection cannot be migrated."""
+
+
+class ProjectPersistenceMigration:
+    """Canonical migration pipeline for project/package persistence.
+
+    Ordering is fixed: project schema, presentation collection, individual SLD.
+    """
+
+    _project_steps: dict[int, ProjectMigration] = {
+        1: _ProjectSchema1To2(),
+        2: _ProjectSchema2To3(),
+    }
+    _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2()}
+
+    def migrate_project(self, data: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(data, Mapping):
+            raise TypeError("Raw project payload must be a mapping.")
+
+        current = deepcopy(dict(data))
+        schema = current.get("schema", 1)
+        if isinstance(schema, bool) or not isinstance(schema, int):
+            raise UnsupportedProjectSchemaError(f"Project schema must be an integer, got {schema!r}.")
+        if schema > PROJECT_SCHEMA_VERSION:
+            raise UnsupportedProjectSchemaError(
+                f"Unsupported future project schema {schema}; supported schema is {PROJECT_SCHEMA_VERSION}."
+            )
+        if schema < 1:
+            raise UnsupportedProjectSchemaError(f"Unsupported project schema {schema}.")
+
+        while schema < PROJECT_SCHEMA_VERSION:
+            migration = self._project_steps.get(schema)
+            if migration is None or migration.target_schema != schema + 1:
+                raise UnsupportedProjectSchemaError(
+                    f"No migration path from project schema {schema} to {PROJECT_SCHEMA_VERSION}."
+                )
+            current = deepcopy(dict(migration.migrate(current)))
+            schema = migration.target_schema
+
+        # Normalize required canonical containers even when an older file
+        # already advertises the current project schema.
+        current.setdefault("dynamic_models", [])
+        current.setdefault("measurement", {"channels": []})
+        current = self._migrate_presentation_collection(current)
+        self._reject_legacy_project_aliases(current)
+        return current
+
+    def _migrate_presentation_collection(self, project: dict[str, Any]) -> dict[str, Any]:
+        project_data = project.get("project")
+        if not isinstance(project_data, Mapping):
+            raise ProjectMigrationError("Project metadata must be an object.")
+        project_id = project_data.get("project_id")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ProjectMigrationError("Project migration requires a stable project_id.")
+
+        raw = project.get("presentations")
+        legacy_sld = project.get("sld")
+        legacy_presentation = project.get("presentation")
+        if legacy_sld is not None or legacy_presentation is not None:
+            if legacy_sld is not None and legacy_presentation is not None:
+                raise PresentationCollectionMigrationError(
+                    "Legacy project contains both sld and presentation aliases; migration is ambiguous."
+                )
+            if raw is not None:
+                raise PresentationCollectionMigrationError(
+                    "Project contains both canonical presentations and a legacy single-SLD alias."
+                )
+            raw_legacy = legacy_sld if legacy_sld is not None else legacy_presentation
+            if not isinstance(raw_legacy, Mapping):
+                raise PresentationCollectionMigrationError("Legacy single-SLD payload must be an object.")
+            raw = {
+                "schema": PRESENTATION_SCHEMA_VERSION,
+                "documents": [deepcopy(dict(raw_legacy))],
+                "active_document_id": raw_legacy.get("document_id"),
+            }
+            project.pop("sld", None)
+            project.pop("presentation", None)
+
+        if raw is None:
+            project["presentations"] = {
+                "schema": PRESENTATION_SCHEMA_VERSION,
+                "documents": [],
+                "active_document_id": None,
+            }
+            return project
+        if not isinstance(raw, Mapping):
+            raise PresentationCollectionMigrationError("Presentations payload must be an object.")
+
+        collection_schema = raw.get("schema")
+        if collection_schema != PRESENTATION_SCHEMA_VERSION:
+            raise PresentationCollectionMigrationError(
+                f"Unsupported presentation collection schema {collection_schema!r}; "
+                f"supported schema is {PRESENTATION_SCHEMA_VERSION}."
+            )
+        raw_documents = raw.get("documents", [])
+        if not isinstance(raw_documents, list):
+            raise PresentationCollectionMigrationError("Presentation documents must be an array.")
+
+        documents: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, raw_document in enumerate(raw_documents):
+            if not isinstance(raw_document, Mapping):
+                raise PresentationCollectionMigrationError("Every presentation document must be an object.")
+            migrated = self._migrate_sld(
+                raw_document,
+                project_id=project_id,
+                document_index=index,
+                existing_document_ids=seen,
+            )
+            document_id = migrated.get("document_id")
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise PresentationCollectionMigrationError("Migrated SLD document has no stable document_id.")
+            if document_id in seen:
+                raise PresentationCollectionMigrationError(f"Duplicate persisted document_id: {document_id}.")
+            seen.add(document_id)
+            documents.append(migrated)
+
+        active_id = raw.get("active_document_id")
+        if active_id is not None and not isinstance(active_id, str):
+            raise PresentationCollectionMigrationError("active_document_id must be a string or null.")
+        if active_id not in seen:
+            active_id = documents[0]["document_id"] if documents else None
+
+        project["presentations"] = {
+            "schema": PRESENTATION_SCHEMA_VERSION,
+            "documents": documents,
+            "active_document_id": active_id,
+        }
+        return project
+
+    def _migrate_sld(
+        self,
+        data: Mapping[str, Any],
+        *,
+        project_id: str,
+        document_index: int,
+        existing_document_ids: set[str],
+    ) -> dict[str, Any]:
+        current = deepcopy(dict(data))
+        schema = current.get("schema", 1)
+        if isinstance(schema, bool) or not isinstance(schema, int):
+            raise SLDMigrationError(f"SLD schema must be an integer, got {schema!r}.")
+        if schema > SLD_SCHEMA_VERSION:
+            raise SLDMigrationError(
+                f"Unsupported future SLD schema {schema}; supported schema is {SLD_SCHEMA_VERSION}."
+            )
+        if schema < 1:
+            raise SLDMigrationError(f"Unsupported SLD schema {schema}.")
+
+        while schema < SLD_SCHEMA_VERSION:
+            migration = self._sld_steps.get(schema)
+            if migration is None or migration.target_schema != schema + 1:
+                raise SLDMigrationError(
+                    f"No SLD migration path from schema {schema} to {SLD_SCHEMA_VERSION}."
+                )
+            current = deepcopy(dict(migration.migrate(
+                current,
+                project_id=project_id,
+                document_index=document_index,
+                existing_document_ids=existing_document_ids,
+            )))
+            schema = migration.target_schema
+        return current
+
+    @staticmethod
+    def _reject_legacy_project_aliases(project: Mapping[str, Any]) -> None:
+        if "sld" in project:
+            raise ProjectMigrationError("Legacy sld field survived project migration.")
+        if "presentation" in project:
+            raise ProjectMigrationError("Legacy presentation field survived project migration.")
+
+
 __all__ = [
     "AmbiguousElectricalDataError",
     "LegacyElectricalDataMigration",
     "MigrationResult",
+    "ProjectMigration",
+    "ProjectMigrationError",
+    "ProjectPersistenceMigration",
+    "PresentationCollectionMigrationError",
+    "SLDMigration",
+    "SLDMigrationError",
+    "UnsupportedProjectSchemaError",
 ]

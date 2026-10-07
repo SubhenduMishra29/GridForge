@@ -17,6 +17,7 @@ from collections.abc import Callable
 from typing import Any, Dict, Mapping, Optional
 
 from ui.workspace.document import Document
+from core.persistence.project_package import SLD_SCHEMA_VERSION
 
 from .sld_model import SLDModel
 from ui.equipment.symbol.symbol_base import SymbolBase
@@ -30,7 +31,7 @@ class SLDDocument(Document):
     """
 
     DOCUMENT_TYPE = "sld"
-    SLD_SCHEMA = 2
+    SLD_SCHEMA = SLD_SCHEMA_VERSION
 
     def __init__(
         self,
@@ -107,9 +108,9 @@ class SLDDocument(Document):
         """Restore an SLD document and materialize missing symbol presentation defaults."""
         if not isinstance(data, Mapping):
             raise TypeError("SLD document payload must be a mapping.")
-        schema = data.get("schema", 1)
-        if schema not in (1, cls.SLD_SCHEMA):
-            raise ValueError(f"Unsupported SLD representation schema: {schema!r}")
+        schema = data.get("schema")
+        if schema != cls.SLD_SCHEMA:
+            raise ValueError(f"Non-canonical SLD representation schema: {schema!r}; expected {cls.SLD_SCHEMA}.")
         document = cls(
             document_id=str(data["document_id"]),
             name=str(data.get("name", "Untitled SLD")),
