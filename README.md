@@ -432,6 +432,25 @@ GridForge/
 
 ---
 
+## 📚 Folder Documentation Contract
+
+Every architectural directory has its own `README.md`. These files are intentionally short and authoritative: each states the directory's responsibility, the layer it belongs to, what it may own, and which architectural boundary it must not cross. Folder READMEs are navigational documentation, not alternative architecture specifications.
+
+The hierarchy follows the frozen rule:
+
+```text
+Core folders       → engineering truth only
+Application folders → commands, orchestration, transactions, lifecycle, persistence and read models
+UI folders          → interaction, presentation and projections only
+Plugins             → contract-bound extensions
+Tests               → verification of the existing architecture
+Docs                → architecture/engineering reference material
+```
+
+A folder README must never authorize a second topology store, command manager, transaction manager, persistence authority, selection manager, event bus, or SLD engineering model.
+
+---
+
 ## 📜 Architectural Rules
 
 | # | Rule | # | Rule |
@@ -486,7 +505,7 @@ GridForge/
 
 ## 🧭 Current Implementation Status
 
-The current mainline architecture includes the completed persistence/SLD corrections through **#27E** and the current draft/commit lifecycle work.
+The current mainline architecture includes the completed persistence/SLD corrections through **#27E**, the draft/commit lifecycle, canonical connectivity, and the current electrical-equipment insertion workflow.
 
 ### Implemented architectural areas
 
@@ -529,6 +548,15 @@ The current mainline architecture includes the completed persistence/SLD correct
   - `SimpleWireConnectionService`;
   - Application-controlled wire creation/removal;
   - topology events and revision semantics.
+
+- **Electrical equipment insertion into existing Simple Wires**
+  - existing-equipment drag/insertion workflow through `SelectTool` / `ElectricalInsertionTool`;
+  - immutable `InsertEquipmentIntoConnectionCommand`;
+  - `ElectricalInsertionService` as the transactional Application service;
+  - canonical terminal endpoint synchronization through `ConnectTerminalCommand` / `EndpointResolver`;
+  - topology-preserving Simple Wire splitting;
+  - exact preservation of authored SLD route/presentation ownership and node metadata;
+  - rollback-safe cancellation and failed insertion behavior.
 
 - **#27E — Transactional SLD Graphics**
   - graphics consume immutable canvas snapshots;
