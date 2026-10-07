@@ -975,12 +975,21 @@ class Application:
         draft_id = str(getattr(intent, "element_id", "")).strip()
         if not draft_id:
             raise ValueError("Draft engineering update requires draft_id.")
+        values = dict(getattr(intent, "values", {}) or {})
+        if not values:
+            raise ValueError("Draft engineering update requires at least one engineering value.")
         draft = self._draft_network
         if draft is None:
             raise RuntimeError("Application DraftNetwork is not configured.")
         current = draft.require_equipment(draft_id)
+        requested_type = str(getattr(intent, "element_type", "")).strip().lower()
+        if requested_type and requested_type != str(current.equipment_type).strip().lower():
+            raise ValueError(
+                f"Draft engineering update type mismatch for {draft_id!r}: "
+                f"expected {current.equipment_type!r}, got {requested_type!r}."
+            )
         engineering_data = dict(current.engineering_data)
-        engineering_data.update(dict(getattr(intent, "values", {}) or {}))
+        engineering_data.update(values)
         return UpdateDraftEquipmentCommand(
             draft_id=draft_id,
             changes={"engineering_data": engineering_data},
