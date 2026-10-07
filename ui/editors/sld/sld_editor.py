@@ -70,10 +70,9 @@ class SLDEditor(QWidget):
         self._restore_button.clicked.connect(lambda: self.set_presentation_maximized(False))
         self._restore_button.setVisible(False)
         header_layout.addWidget(self._restore_button)
-        header.set_widget(QWidget(header))
-        header_content = header._content.itemAt(0).widget()
-        if header_content is not None:
-            header_content.setLayout(header_layout)
+        header_content = QWidget(header)
+        header_content.setLayout(header_layout)
+        header.set_widget(header_content)
 
         shelf = tool_shelf or ToolShelf(
             definitions=contextual_tool_definitions(
@@ -141,8 +140,8 @@ class SLDEditor(QWidget):
         diagnostics_region.setVisible(False)
 
         status_region = EditorRegionFrame("Status", parent=self)
-        status_label = status or QLabel("SLD | Select | Snap ON | Grid ON", status_region)
-        status_region.set_widget(status_label)
+        self._status_label = status or QLabel("SLD | Select | Snap ON | Grid ON", status_region)
+        status_region.set_widget(self._status_label)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -305,17 +304,13 @@ class SLDEditor(QWidget):
         active = getattr(context, "active_tool", None) if context is not None else None
         self._tool_shelf.set_active_tool(active)
         self.update_contextual_regions()
-        status = self._region_widgets.get("status")
-        if status is not None:
-            label = status.findChild(QLabel)
-            if label is not None:
-                selected = getattr(getattr(context, "engineering", None), "selected_ids", ()) or ()
-                snap = getattr(getattr(context, "engineering", None), "snap_enabled", True)
-                grid = getattr(getattr(context, "engineering", None), "grid_visible", True)
-                label.setText(
-                    f"SLD | {active or 'Select'} | Snap {'ON' if snap else 'OFF'} | "
-                    f"Grid {'ON' if grid else 'OFF'} | Selected: {len(selected)}"
-                )
+        selected = getattr(getattr(context, "engineering", None), "selected_ids", ()) or ()
+        snap = getattr(getattr(context, "engineering", None), "snap_enabled", True)
+        grid = getattr(getattr(context, "engineering", None), "grid_visible", True)
+        self._status_label.setText(
+            f"SLD | {active or 'Select'} | Snap {'ON' if snap else 'OFF'} | "
+            f"Grid {'ON' if grid else 'OFF'} | Selected: {len(selected)}"
+        )
 
 
 __all__ = ["SLDEditor", "ToolDefinition"]
