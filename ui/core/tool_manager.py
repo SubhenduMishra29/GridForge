@@ -321,6 +321,8 @@ class ToolManager:
             if method_name == "mouse_release" and not handled:
                 return handled
             self._clear_interaction_tool()
+            if method_name == "mouse_release" or method_name == "key_press":
+                self.creation_context.cancel()
         return handled
 
     def begin_equipment_insertion(
