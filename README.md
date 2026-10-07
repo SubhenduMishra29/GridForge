@@ -385,69 +385,56 @@ Reopen/activation audits are read-only with respect to persisted SLD presentatio
 
 ## 📁 Repository Structure
 
-```
+The current repository uses a headless Core plus an Application boundary under Core, with UI as the interaction/presentation layer.
+
+~~~text
 GridForge/
 │
-├── core/                     🧠 Authoritative engineering truth (headless)
-│   ├── base/
-│   ├── model/
-│   ├── network/
-│   ├── topology/
-│   ├── analysis/
-│   ├── solver/
+├── core/                         Authoritative, headless engineering truth
+│   ├── base/                     Domain primitives and shared contracts
+│   ├── model/                    Equipment, terminals, identities, properties
+│   ├── network/                  Canonical network membership/connectivity
+│   ├── topology/                 Canonical derived electrical topology
+│   ├── numerical/                Derived numerical representations
+│   ├── analysis/                 Engineering-study domain
+│   ├── solver/                   Numerical solvers
+│   │   ├── common/
+│   │   ├── power_flow/
+│   │   ├── short_circuit/
+│   │   ├── contingency/
 │   │   └── dynamics/
-│   ├── measurement/
-│   ├── protection/
-│   ├── control/
-│   ├── validation/
-│   └── results/
+│   ├── measurement/              Measurement domain
+│   ├── protection/               Protection domain
+│   ├── control/                  Control domain
+│   ├── validation/               Engineering/domain validation
+│   ├── results/                  Study/solver results
+│   ├── simulation/               Headless simulation execution
+│   └── application/              Semantic UI↔Core boundary
+│       ├── commands/
+│       ├── handlers/
+│       ├── services/
+│       ├── transactions/
+│       ├── history/
+│       ├── events/
+│       ├── read_models/
+│       ├── persistence/
+│       └── lifecycle/
 │
-├── application/              🎛️ Orchestration boundary between UI and Core
-│   ├── commands/
-│   ├── handlers/
-│   ├── services/
-│   ├── transactions/
-│   ├── history/
-│   ├── lifecycle/
-│   ├── studies/
-│   ├── events/
-│   ├── read_models/
-│   └── persistence/
+├── ui/                           Interaction, presentation and projection
+│   ├── core/                     Shared UI infrastructure
+│   ├── canvas/                   Canvas contracts and scene presentation
+│   ├── controllers/              UI/Application coordination
+│   ├── items/                    Graphics realization objects
+│   ├── panels/                   Inspectors, explorers and engineering panels
+│   ├── plugins/                  UI extension integration
+│   ├── renderers/                Presentation rendering
+│   ├── tools/                    User interaction tools
+│   └── sld/                      Single-Line Diagram authoring/projection
 │
-├── ui/                       🖥️ Interaction & presentation
-│   ├── core/
-│   ├── main_window/
-│   ├── sld/
-│   ├── control/
-│   ├── protection/
-│   ├── dynamics/
-│   ├── studies/
-│   ├── panels/
-│   └── projections/
-│
-├── plugins/                  🔌 Contract-bound extensions
-├── tests/                    🧪 Domain · Application · UI · Integration
-└── docs/                     📄 Engineering documentation
-```
+└── README.md                     Architecture entry point
+~~~
 
----
-
-## 📚 Folder Documentation Contract
-
-Every architectural directory has its own `README.md`. These files are intentionally short and authoritative: each states the directory's responsibility, the layer it belongs to, what it may own, and which architectural boundary it must not cross. Folder READMEs are navigational documentation, not alternative architecture specifications.
-
-The hierarchy follows the frozen rule:
-
-```text
-Core folders       → engineering truth only
-Application folders → commands, orchestration, transactions, lifecycle, persistence and read models
-UI folders          → interaction, presentation and projections only
-Plugins             → contract-bound extensions
-Tests               → verification of the existing architecture
-Docs                → architecture/engineering reference material
-```
-
-A folder README must never authorize a second topology store, command manager, transaction manager, persistence authority, selection manager, event bus, or SLD engineering model.
+Only directories that exist in the current implementation are documented here. Folder-level README.md files describe responsibility and boundary; they do not introduce alternate authorities.
 
 ---
 
