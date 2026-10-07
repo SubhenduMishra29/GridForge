@@ -129,7 +129,7 @@ class DocumentManager:
             self._active_document_id = document.document_id
         return document
 
-    def move(self, document_id: str, index: int) -> None:
+    def move(self, document_id: str, index: int, *, mark_dirty: bool = True) -> None:
         """Reorder document presentation without changing document identity."""
         if document_id not in self._documents:
             raise KeyError(document_id)
@@ -142,7 +142,8 @@ class DocumentManager:
             raise TypeError("index must be an integer.")
         ordered.insert(max(0, min(index, len(ordered))), item)
         self._documents = dict(ordered)
-        self._dirty_document_ids.add(document_id)
+        if mark_dirty:
+            self._dirty_document_ids.add(document_id)
 
     def mark_dirty(self, document_id: str | None = None) -> None:
         target = document_id or self._active_document_id
