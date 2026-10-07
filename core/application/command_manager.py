@@ -242,6 +242,40 @@ class CommandManager:
     # EXECUTION
     # ========================================================
 
+    def execute_in_transaction(
+        self,
+        command: Command,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """Execute one immutable child command inside an existing transaction.
+
+        Aggregate handlers use this boundary to compose several canonical
+        Application commands without creating nested transactions or history
+        records. The outer command remains the single transaction/history
+        boundary and its pre-commit hook runs only once.
+        """
+        self._require_healthy()
+        self._validate_command(command)
+        if not isinstance(transaction, Transaction):
+            raise TypeError("transaction must be a Transaction.")
+        if not transaction.active:
+            raise RuntimeError("Child command execution requires an active transaction.")
+
+        handler = self._resolve_handler(command)
+        result = handler(command, self._context, transaction)
+        self._validate_handler_result(command, result)
+        if not result.success:
+            raise ExecutionError(
+                code="CHILD_COMMAND_FAILED",
+                message=result.message or f"Child command failed: {command.command_type}",
+                details={
+                    "command_type": command.command_type,
+                    "command_id": str(command.command_id),
+                    "metadata": dict(result.metadata),
+                },
+            )
+        return result
+
     def execute(
         self,
         command: Command,
