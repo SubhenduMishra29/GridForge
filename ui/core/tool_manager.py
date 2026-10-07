@@ -56,6 +56,7 @@ class ToolManager:
         self._tool_instances: dict[str, Any] = {}
         self._active_tool_id: str | None = None
         self._active_tool: Any | None = None
+        self._interaction_tool: Any | None = None
         self._disposed = False
 
         bind_controller = getattr(controller, "bind_tool_manager", None)
@@ -144,6 +145,12 @@ class ToolManager:
         if tool_id not in self._tool_instances:
             self._tool_instances[tool_id] = self._create_tool(tool_id)
         return self._tool_instances[tool_id]
+
+    def get_tool(self, tool_id: str) -> Any:
+        """Return a lazily-created registered tool without changing the active tool."""
+        self._ensure_active()
+        self._validate_tool_id(tool_id)
+        return self._get_or_create_tool(tool_id)
 
     def get_current_tool(self) -> Any | None:
         self._ensure_active()
@@ -252,6 +259,7 @@ class ToolManager:
 
     def deactivate(self) -> None:
         self._ensure_active()
+        self._clear_interaction_tool()
         if self._active_tool is None:
             return
         self._active_tool.deactivate()
@@ -290,7 +298,7 @@ class ToolManager:
 
     def _dispatch_input(self, method_name: str, event: Any) -> bool:
         self._ensure_active()
-        tool = self._active_tool
+        tool = self._interaction_tool or self._active_tool
         if tool is None:
             return False
 
@@ -306,7 +314,61 @@ class ToolManager:
         if not callable(handler):
             return False
         result = handler(event)
-        return bool(result) if result is not None else True
+        handled = bool(result) if result is not None else True
+        if self._interaction_tool is not None and method_name in {"mouse_release", "key_press"}:
+            if method_name == "key_press" and not getattr(event, "key", None) and isinstance(event, dict) and event.get("key") not in ("Escape", "Key_Escape", 16777216):
+                return handled
+            if method_name == "mouse_release" and not handled:
+                return handled
+            self._clear_interaction_tool()
+            if method_name == "mouse_release" or method_name == "key_press":
+                self.creation_context.cancel()
+        return handled
+
+    def begin_equipment_insertion(
+        self,
+        equipment_type: str,
+        *,
+        creation_parameters: dict[str, Any],
+        orientation: float = 0.0,
+        equipment_id: str | None = None,
+        initial_event: Any | None = None,
+    ) -> bool:
+        """Temporarily route an equipment drag through ElectricalInsertionTool."""
+        self._ensure_active()
+        if self._interaction_tool is not None:
+            return False
+        tool = self.get_tool("electrical-insertion")
+        begin = getattr(tool, "begin", None)
+        if not callable(begin):
+            return False
+        begin(
+            equipment_type,
+            equipment_id=equipment_id,
+            creation_parameters=creation_parameters,
+            orientation=orientation,
+        )
+        tool.activate()
+        self._interaction_tool = tool
+        if initial_event is None:
+            return True
+        handler = getattr(tool, "mouse_press", None)
+        if not callable(handler):
+            self._clear_interaction_tool()
+            return False
+        handled = bool(handler(initial_event))
+        if not handled:
+            self._clear_interaction_tool()
+        return handled
+
+    def _clear_interaction_tool(self) -> None:
+        tool = self._interaction_tool
+        self._interaction_tool = None
+        if tool is not None:
+            try:
+                tool.deactivate()
+            except Exception:
+                pass
 
     def _ensure_creation_session(self) -> None:
         """Ensure an active equipment tool has a canonical CreationDraft."""
@@ -331,6 +393,10 @@ class ToolManager:
 
     def cancel(self) -> bool:
         self._ensure_active()
+        if self._interaction_tool is not None:
+            result = bool(self._interaction_tool.cancel())
+            self._clear_interaction_tool()
+            return result
         if self._active_tool is None:
             return False
         result = bool(self._active_tool.cancel())
@@ -353,11 +419,13 @@ class ToolManager:
             "active_tool_id": self._active_tool_id,
             "active": self._active_tool is not None,
             "instance_count": len(self._tool_instances),
+            "interaction_tool_id": getattr(self._interaction_tool, "tool_id", None),
         }
 
     def dispose(self) -> None:
         if self._disposed:
             return
+        self._clear_interaction_tool()
         if self._active_tool is not None:
             previous_id = self._active_tool_id
             self._active_tool.deactivate()

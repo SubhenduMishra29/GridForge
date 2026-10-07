@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Callable, Mapping
 from typing import Any
+import math
 
 from ..command import Command
 from ..results import ApplicationResult
@@ -623,6 +624,7 @@ class SLDService:
         output_endpoint: Mapping[str, Any],
         replacement_connection_ids: tuple[str, str],
         transaction: Transaction,
+        terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
     ) -> None:
         """Atomically replace one persistent SLD wire with an inserted node and two wires.
 
@@ -664,6 +666,7 @@ class SLDService:
         if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
             raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
         snapshot = old_connection.to_dict()
+        previous_document_modified = bool(getattr(self.document, "modified", False))
         source_node = self.document.model.get_node(old_connection.source_node_id)
         target_node = self.document.model.get_node(old_connection.target_node_id)
         position = (float(insertion_position[0]), float(insertion_position[1]))
@@ -678,8 +681,25 @@ class SLDService:
             raise ValueError(
                 f"Invalid insertion route segment index {segment_index} for connection {connection_id!r}."
             )
-        first_polyline = [*polyline[: segment_index + 1], position]
-        second_polyline = [position, *polyline[segment_index + 1 :]]
+        anchors = dict(terminal_anchors or {})
+        input_role = str(input_endpoint.get("terminal_role") or "")
+        output_role = str(output_endpoint.get("terminal_role") or "")
+
+        def rotated_anchor(role: str) -> tuple[float, float]:
+            local = anchors.get(role)
+            if local is None:
+                return position
+            lx, ly = float(local[0]), float(local[1])
+            radians = math.radians(float(orientation))
+            return (
+                position[0] + lx * math.cos(radians) - ly * math.sin(radians),
+                position[1] + lx * math.sin(radians) + ly * math.cos(radians),
+            )
+
+        input_anchor = rotated_anchor(input_role)
+        output_anchor = rotated_anchor(output_role)
+        first_polyline = [*polyline[: segment_index + 1], position, input_anchor]
+        second_polyline = [output_anchor, position, *polyline[segment_index + 1 :]]
 
         def route_for(points: list[tuple[float, float]]) -> dict[str, Any]:
             return {
@@ -711,11 +731,11 @@ class SLDService:
         properties["insertion_parent_connection_id"] = connection_id
 
         node_properties = {
-            "presentation_owner": "projection",
-            "projection_source": "connectivity.insert_equipment_into_connection",
+            "presentation_owner": "engineer",
             "lifecycle_state": "BOUND",
             "element_type": equipment_type,
             "position_owner": "engineer",
+            "symbol_owner": "engineer",
             "rotation": float(orientation),
             "insertion_parent_connection_id": connection_id,
         }
@@ -731,6 +751,10 @@ class SLDService:
                 self.document.model.remove_node(node_id)
             if self.document.model.get_connection_optional(old_id) is None:
                 self._restore_connection_snapshot(snapshot)
+            if previous_document_modified:
+                self.document.mark_modified()
+            else:
+                self.document.mark_clean()
 
         # Register the inverse before mutating the presentation so any failure
         # during the multi-object replacement is rollback-safe as well.

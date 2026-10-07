@@ -184,6 +184,9 @@ class SLDConnectionItem(QGraphicsPathItem):
             "route": tuple(self._route_points),
             "closest_point": best_point,
             "segment_index": best_segment,
+            "source": (float(self._visual_source.x()), float(self._visual_source.y())),
+            "target": (float(self._visual_target.x()), float(self._visual_target.y())),
+            "route_ownership": self._route_ownership,
         }
     def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Propose one bend without changing the realized/persisted route.

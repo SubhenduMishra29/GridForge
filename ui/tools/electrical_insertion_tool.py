@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from core.application.commands.insertion_commands import InsertEquipmentIntoConnectionCommand
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
+from ui.canvas.symbol_preview_item import SymbolPreviewItem
+from ui.core.qt import QGraphicsLineItem, QLineF, QPointF
 from .tool_base import ToolBase
 
 
@@ -24,6 +27,8 @@ class ElectricalInsertionTool(ToolBase):
         application: Any,
         selection_manager: Any,
         snap_system: Any,
+        preview_layer: Any = None,
+        symbol_registry: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
@@ -31,6 +36,8 @@ class ElectricalInsertionTool(ToolBase):
             selection_manager=selection_manager,
             snap_system=snap_system,
         )
+        self._preview_layer = preview_layer
+        self._symbol_registry = symbol_registry
         self._equipment_type: str | None = None
         self._equipment_id: str | None = None
         self._creation_parameters: dict[str, Any] = {}
@@ -46,14 +53,9 @@ class ElectricalInsertionTool(ToolBase):
     def name(self) -> str:
         return "Insert Equipment"
 
-    def begin(
-        self,
-        equipment_type: str,
-        *,
-        equipment_id: str | None = None,
-        creation_parameters: Mapping[str, Any] | None = None,
-        orientation: float = 0.0,
-    ) -> None:
+    def begin(self, equipment_type: str, *, equipment_id: str | None = None,
+              creation_parameters: Mapping[str, Any] | None = None,
+              orientation: float = 0.0) -> None:
         equipment_type = str(equipment_type).strip().lower()
         if equipment_type not in INSERTION_CONTRACTS:
             raise ValueError(f"Equipment type {equipment_type!r} is not insertion-capable.")
@@ -62,6 +64,9 @@ class ElectricalInsertionTool(ToolBase):
         self._creation_parameters = dict(creation_parameters or {})
         self._orientation = float(orientation)
         self._clear_target()
+
+    def insertion_target(self, event: Any) -> dict[str, Any] | None:
+        return self._resolve_target(event)
 
     def on_activate(self) -> None:
         self._clear_target()
@@ -85,14 +90,13 @@ class ElectricalInsertionTool(ToolBase):
         target = self._resolve_target(event) or self._target
         if target is None:
             return False
-        contract = INSERTION_CONTRACTS[self._equipment_type]
-        missing = tuple(
-            field for field in contract.required_parameters
-            if self._creation_parameters.get(field) is None
-        )
-        if missing:
+        anchors = self._terminal_anchors()
+        required_roles = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
+        missing_anchors = tuple(role for role in required_roles if role not in anchors)
+        if missing_anchors:
             self._report_feedback(
-                "Missing engineering parameters: " + ", ".join(missing)
+                "Insertion symbol definition is missing terminal anchors: "
+                + ", ".join(missing_anchors)
             )
             return False
         command = InsertEquipmentIntoConnectionCommand(
@@ -101,9 +105,10 @@ class ElectricalInsertionTool(ToolBase):
             equipment_id=self._equipment_id,
             insertion_position=tuple(target["closest_point"]),
             orientation=self._orientation,
-            terminal_mapping=None,
+            terminal_mapping=INSERTION_CONTRACTS[self._equipment_type].terminal_mapping,
             creation_parameters=self._creation_parameters,
             segment_index=int(target["segment_index"]),
+            terminal_anchors=anchors,
         )
         result = self.execute_command(command)
         if not getattr(result, "success", False):
@@ -145,23 +150,99 @@ class ElectricalInsertionTool(ToolBase):
         if not isinstance(target, dict) or not target.get("connection_id"):
             return None
         self._target_item = item
-        return target
+        return dict(target)
 
     def _set_target(self, target: dict[str, Any]) -> None:
         if self._target == target:
+            self._show_preview(target)
             return
         self._clear_target_visual()
         self._target = target
+        self._show_preview(target)
         if self._target_item is not None:
             setter = getattr(self._target_item, "set_visual_state", None)
             if callable(setter):
                 setter("preview")
+
+    def _show_preview(self, target: dict[str, Any]) -> None:
+        if self._preview_layer is None or self._equipment_type is None:
+            return
+        clear = getattr(self._preview_layer, "clear", None)
+        if callable(clear):
+            clear()
+        position = tuple(target["closest_point"])
+        anchors = self._terminal_anchors()
+        mapping = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
+        input_anchor = self._rotated_anchor(anchors.get(mapping[0]), position)
+        output_anchor = self._rotated_anchor(anchors.get(mapping[1]), position)
+        source = tuple(target.get("source", position))
+        destination = tuple(target.get("target", position))
+        route = [tuple(point) for point in target.get("route", ())]
+        segment = int(target.get("segment_index", 0))
+        polyline = [source, *route, destination]
+        if segment >= len(polyline) - 1:
+            return
+        first = [*polyline[:segment + 1], position, input_anchor]
+        second = [output_anchor, position, *polyline[segment + 1:]]
+        items = []
+        for points in (first, second):
+            for a, b in zip(points, points[1:]):
+                items.append(QGraphicsLineItem(QLineF(QPointF(*a), QPointF(*b))))
+        definition = self._symbol_definition()
+        if definition is not None:
+            items.append(SymbolPreviewItem(
+                definition,
+                position=position,
+                rotation=self._orientation,
+                terminal_names=mapping,
+                element_type=self._equipment_type,
+            ))
+        add_items = getattr(self._preview_layer, "add_items", None)
+        if callable(add_items):
+            add_items(items)
+
+    def _terminal_anchors(self) -> dict[str, tuple[float, float]]:
+        definition = self._symbol_definition()
+        if definition is None or self._equipment_type is None:
+            return {}
+        return {
+            str(role): tuple(definition.get_terminal_anchor(role))
+            for role in INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
+            if definition.has_terminal_anchor(role)
+        }
+
+    def _symbol_definition(self) -> Any | None:
+        registry = self._symbol_registry
+        if registry is None or self._equipment_type is None:
+            return None
+        require = getattr(registry, "require", None)
+        if not callable(require):
+            return None
+        try:
+            return require(self._equipment_type)
+        except KeyError:
+            return None
+
+    def _rotated_anchor(self, anchor: tuple[float, float] | None,
+                        position: tuple[float, float]) -> tuple[float, float]:
+        if anchor is None:
+            return position
+        lx, ly = float(anchor[0]), float(anchor[1])
+        radians = math.radians(self._orientation)
+        return (
+            position[0] + lx * math.cos(radians) - ly * math.sin(radians),
+            position[1] + lx * math.sin(radians) + ly * math.cos(radians),
+        )
 
     def _clear_target_visual(self) -> None:
         if self._target_item is not None:
             setter = getattr(self._target_item, "set_visual_state", None)
             if callable(setter):
                 setter("normal")
+        if self._preview_layer is not None:
+            clear = getattr(self._preview_layer, "clear", None)
+            if callable(clear):
+                clear()
 
     def _clear_target(self) -> None:
         self._clear_target_visual()

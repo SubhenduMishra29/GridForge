@@ -52,6 +52,7 @@ class ModelPlacementTool(ToolBase):
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap: Any | None = None
         self._active_draft_id: str | None = None
+        self._placement_dragging = False
 
     def bind_creation_context(self, creation_context: CreationContext) -> None:
         if not isinstance(creation_context, CreationContext):
@@ -90,6 +91,16 @@ class ModelPlacementTool(ToolBase):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
+
+        # An equipment tool keeps its normal position-first placement semantics.
+        # When the initial press lands on an existing Simple Wire, however, the
+        # same equipment gesture is temporarily delegated to the canonical
+        # ElectricalInsertionTool. No draft/Core/SLD state is created by this
+        # decision; the insertion tool only submits an immutable command on
+        # release.
+        if draft.placement_position is None and self._try_begin_wire_insertion(event, draft):
+            return True
+
         if draft.placement_position is None:
             snap = self._snap_result(event)
         else:
@@ -117,6 +128,7 @@ class ModelPlacementTool(ToolBase):
             draft.mark_previewing()
             self._preview_active = True
             self._endpoint_acquired_this_interaction = False
+            self._placement_dragging = True
             self._show_preview(position)
             return True
 
@@ -243,6 +255,32 @@ class ModelPlacementTool(ToolBase):
         self._endpoint_acquired_this_interaction = True
         return True
 
+    def _try_begin_wire_insertion(self, event: Any, draft: CreationDraft) -> bool:
+        manager_getter = getattr(self.controller, "get_tool_manager", None)
+        if callable(manager_getter):
+            tool_manager = manager_getter()
+        else:
+            tool_manager = getattr(self.controller, "_tool_manager", None)
+        if tool_manager is None:
+            return False
+        begin = getattr(tool_manager, "begin_equipment_insertion", None)
+        if not callable(begin):
+            return False
+        try:
+            parameters = dict(draft.snapshot_values())
+            orientation = float(draft.preview_state.get("rotation", 0.0))
+            return bool(
+                begin(
+                    draft.equipment_type,
+                    creation_parameters=parameters,
+                    orientation=orientation,
+                    equipment_id=None,
+                    initial_event=event,
+                )
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return False
+
     def _report_feedback(self, message: str) -> None:
         """Use an existing presentation feedback hook when the composition provides one."""
         for name in ("show_status_message", "set_status_message", "notify_user"):
@@ -255,6 +293,8 @@ class ModelPlacementTool(ToolBase):
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
         if draft.placement_position is not None:
+            if self._placement_dragging and self._try_begin_wire_insertion(event, draft):
+                return True
             self._preview_active = True
             self._show_preview(self._position or draft.placement_position)
             return True
@@ -288,6 +328,7 @@ class ModelPlacementTool(ToolBase):
             self._show_preview(position)
             return self.place_creation_draft()
         self._position = draft.placement_position
+        self._placement_dragging = False
         self._show_preview(self._position)
         return True
 
@@ -305,6 +346,7 @@ class ModelPlacementTool(ToolBase):
         had_state = self._preview_active or self._position is not None
         self._clear_state()
         self._active_draft_id = None
+        self._placement_dragging = False
         return had_state
 
     def on_reset(self) -> None:
@@ -387,6 +429,7 @@ class ModelPlacementTool(ToolBase):
         self._endpoint_acquired_this_interaction = False
         self._accepted_endpoint_snap = None
         self._active_draft_id = None
+        self._placement_dragging = False
         if self._preview_layer is not None:
             clear_preview = getattr(self._preview_layer, "clear_preview", None)
             if callable(clear_preview):

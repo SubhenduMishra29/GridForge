@@ -121,20 +121,11 @@ class ElectricalInsertionService:
                 message="Insertion creation parameters cannot override terminal endpoints.",
                 details={"fields": sorted(forbidden.intersection(parameters))},
             )
-        missing = tuple(
-            field for field in contract.required_parameters
-            if parameters.get(field) is None
-        )
-        if missing:
-            raise ValidationError(
-                code="MISSING_ENGINEERING_PARAMETERS",
-                message=(
-                    f"{equipment_type!r} insertion is missing required "
-                    f"engineering parameters: {', '.join(missing)}."
-                ),
-                details={"equipment_type": equipment_type, "missing": missing},
-            )
-
+        # Engineering parameter authority belongs to the canonical creation
+        # command/definition.  The insertion contract describes topology only.
+        # Executing the canonical creation child command before touching the
+        # existing wire therefore performs the authoritative validation while
+        # the outer transaction still guarantees complete rollback.
         insertion_position = tuple(payload["insertion_position"])
         if len(insertion_position) != 2:
             raise ValidationError(
@@ -272,6 +263,7 @@ class ElectricalInsertionService:
                 "insertion_position": insertion_position,
                 "orientation": float(payload["orientation"]),
                 "segment_index": int(payload["segment_index"]),
+                "terminal_anchors": payload.get("terminal_anchors"),
                 "terminal_mapping": tuple(terminal_mapping),
                 "endpoint_a": dict(endpoint_a.to_mapping()),
                 "endpoint_b": dict(endpoint_b.to_mapping()),
