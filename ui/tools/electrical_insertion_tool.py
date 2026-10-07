@@ -90,6 +90,15 @@ class ElectricalInsertionTool(ToolBase):
         target = self._resolve_target(event) or self._target
         if target is None:
             return False
+        anchors = self._terminal_anchors()
+        required_roles = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
+        missing_anchors = tuple(role for role in required_roles if role not in anchors)
+        if missing_anchors:
+            self._report_feedback(
+                "Insertion symbol definition is missing terminal anchors: "
+                + ", ".join(missing_anchors)
+            )
+            return False
         command = InsertEquipmentIntoConnectionCommand(
             connection_id=str(target["connection_id"]),
             equipment_type=self._equipment_type,
@@ -99,7 +108,7 @@ class ElectricalInsertionTool(ToolBase):
             terminal_mapping=INSERTION_CONTRACTS[self._equipment_type].terminal_mapping,
             creation_parameters=self._creation_parameters,
             segment_index=int(target["segment_index"]),
-            terminal_anchors=self._terminal_anchors(),
+            terminal_anchors=anchors,
         )
         result = self.execute_command(command)
         if not getattr(result, "success", False):
