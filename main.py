@@ -322,10 +322,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def _refresh_status() -> None:
         project_context = getattr(gridforge_application.project_lifecycle, "context", None)
         project_name = getattr(project_context, "name", None)
-        window.setWindowTitle(
-            f"{branding.PRODUCT_NAME} — {project_name}" if project_name else branding.DEFAULT_TITLE
-        )
-        canvas_composition.surface.set_document_title(project_name)
+        active_document = project_workspace_lifecycle.documents.active_document
+        document_name = getattr(active_document, "name", None)
+        title = f"{branding.PRODUCT_NAME} — {project_name}" if project_name else branding.DEFAULT_TITLE
+        if document_name:
+            title += f" — {document_name}"
+        window.setWindowTitle(title)
+        canvas_composition.surface.set_document_title(document_name or project_name)
+        workspace_surface_host.refresh_sld_document_tabs()
         if status_plugin is not None:
             status_plugin.refresh_authoritative_state()
 
