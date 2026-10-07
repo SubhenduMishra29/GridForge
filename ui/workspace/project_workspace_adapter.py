@@ -16,6 +16,7 @@ from ui.sld.sld_document import SLDDocument
 from .document import Document
 from .project import Project
 from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
+from .view_manager import ViewRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +300,11 @@ class ProjectWorkspaceApplicationAdapter:
                 name=item_name,
             ),
         )
+        self._lifecycle.add_view(ViewRecord(
+            view_id=f"{document.document_id}:sld",
+            document_id=document.document_id,
+            view_type="sld",
+        ))
         try:
             self.activate_document(document.document_id)
         except BaseException:
