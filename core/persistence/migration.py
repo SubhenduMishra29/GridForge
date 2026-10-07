@@ -525,8 +525,10 @@ class ProjectPersistenceMigration:
         active_id = raw.get("active_document_id")
         if active_id is not None and not isinstance(active_id, str):
             raise PresentationCollectionMigrationError("active_document_id must be a string or null.")
-        if active_id not in seen:
-            active_id = documents[0]["document_id"] if documents else None
+        if active_id is not None and active_id not in seen:
+            raise PresentationCollectionMigrationError(
+                f"active_document_id {active_id!r} does not reference a persisted SLD document."
+            )
 
         project["presentations"] = {
             "schema": PRESENTATION_SCHEMA_VERSION,
