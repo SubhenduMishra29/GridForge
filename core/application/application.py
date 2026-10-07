@@ -22,6 +22,7 @@ from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
 from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentCommand
+from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -601,6 +602,22 @@ class Application:
         )
 
         command_type = command.command_type
+        if command_type == INSERT_EQUIPMENT_INTO_CONNECTION:
+            if self._sld_service is not None:
+                metadata = result.metadata
+                self._sld_service.reconcile_insertion(
+                    connection_id=str(metadata["connection_id"]),
+                    equipment_id=str(metadata["equipment_id"]),
+                    equipment_type=str(metadata["equipment_type"]),
+                    insertion_position=tuple(metadata["insertion_position"]),
+                    orientation=float(metadata["orientation"]),
+                    segment_index=int(metadata["segment_index"]),
+                    input_endpoint=dict(metadata["input_endpoint"]),
+                    output_endpoint=dict(metadata["output_endpoint"]),
+                    replacement_connection_ids=tuple(metadata["replacement_connection_ids"]),
+                    transaction=transaction,
+                )
+            return
         if command_type == "network.commit_draft":
             if self._sld_service is not None:
                 # Draft presentation is authoring state. A successful commit
@@ -1195,6 +1212,49 @@ class Application:
                 correlation_id=command.correlation_id,
                 causation_id=command.causation_id,
             ))
+            return
+        if command.command_type == INSERT_EQUIPMENT_INTO_CONNECTION:
+            payload = dict(metadata)
+            command_payload = command.payload
+            payload.setdefault("connection_id", str(command_payload["connection_id"]))
+            payload.setdefault("equipment_type", str(command_payload["equipment_type"]))
+            payload.setdefault(
+                "equipment_id",
+                str(
+                    command_payload.get("equipment_id")
+                    or f"insert-{command.command_id.hex}"
+                ),
+            )
+            payload.setdefault("insertion_position", tuple(command_payload["insertion_position"]))
+            payload.setdefault("orientation", float(command_payload["orientation"]))
+            payload.setdefault("segment_index", int(command_payload["segment_index"]))
+            payload.setdefault(
+                "replacement_connection_ids",
+                (
+                    f"{command_payload['connection_id']}-A",
+                    f"{command_payload['connection_id']}-B",
+                ),
+            )
+            effective_action = "remove" if operation == "undo" else "create"
+            if effective_action == "remove":
+                self._event_bus.publish(ElementRemoved(
+                    element_id=str(payload["equipment_id"]),
+                    element_type=str(payload["equipment_type"]),
+                    correlation_id=command.correlation_id,
+                    causation_id=command.causation_id,
+                    metadata=payload,
+                ))
+            else:
+                self._event_bus.publish(ElementCreated(
+                    element_id=str(payload["equipment_id"]),
+                    element_type=str(payload["equipment_type"]),
+                    correlation_id=command.correlation_id,
+                    causation_id=command.causation_id,
+                    metadata=payload,
+                ))
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(NetworkChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata={**payload, "presentation_operation": "electrical_insertion"}, correlation_id=command.correlation_id, causation_id=command.causation_id))
             return
         if command.command_type == "network.commit_draft":
             if operation == "execute":

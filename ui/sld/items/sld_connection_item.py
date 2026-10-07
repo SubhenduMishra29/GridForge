@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Iterable
+import math
 
 from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
 from ui.sld.sld_model import SLDEndpoint
@@ -146,6 +147,44 @@ class SLDConnectionItem(QGraphicsPathItem):
         return ((path.elementAt(0).x, path.elementAt(0).y),
                 (path.elementAt(path.elementCount() - 1).x, path.elementAt(path.elementCount() - 1).y))
 
+    def insertion_target(self, position: tuple[float, float]) -> dict[str, object]:
+        """Return immutable insertion-hit data without mutating the graphics item."""
+        if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
+            raise ValueError("Only persistent Simple Wire connections are insertion targets.")
+        if not isinstance(position, (tuple, list)) or len(position) != 2:
+            raise TypeError("position must contain exactly two coordinates.")
+        px, py = float(position[0]), float(position[1])
+        polyline = [
+            (float(self._visual_source.x()), float(self._visual_source.y())),
+            *self._route_points,
+            (float(self._visual_target.x()), float(self._visual_target.y())),
+        ]
+        best_distance = float("inf")
+        best_point = None
+        best_segment = None
+        for index in range(len(polyline) - 1):
+            ax, ay = polyline[index]
+            bx, by = polyline[index + 1]
+            dx, dy = bx - ax, by - ay
+            length_sq = dx * dx + dy * dy
+            if length_sq <= 0.0:
+                continue
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_sq))
+            qx, qy = ax + t * dx, ay + t * dy
+            distance = math.hypot(px - qx, py - qy)
+            if distance < best_distance:
+                best_distance = distance
+                best_point = (qx, qy)
+                best_segment = index
+        if best_point is None or best_segment is None:
+            raise ValueError("SLD connection has no non-zero route segment.")
+        return {
+            "connection_id": self._core_connection_id,
+            "presentation_id": self._presentation_id,
+            "route": tuple(self._route_points),
+            "closest_point": best_point,
+            "segment_index": best_segment,
+        }
     def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Propose one bend without changing the realized/persisted route.
 

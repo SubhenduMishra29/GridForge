@@ -24,6 +24,7 @@ from ui.tools.capacitor_tool import CapacitorTool
 from ui.tools.cvt_tool import CVTTool
 from ui.tools.current_transformer_tool import CurrentTransformerTool
 from ui.tools.disconnector_tool import DisconnectorTool
+from ui.tools.electrical_insertion_tool import ElectricalInsertionTool
 from ui.tools.fuse_tool import FuseTool
 from ui.tools.generator_tool import GeneratorTool
 from ui.tools.grid_tool import GridTool
@@ -54,6 +55,7 @@ __all__ = [
     "SwitchTool",
     "BreakerTool",
     "DisconnectorTool",
+    "ElectricalInsertionTool",
     "FuseTool",
     "LoadTool",
     "GeneratorTool",

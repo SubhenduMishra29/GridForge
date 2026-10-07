@@ -236,24 +236,61 @@ Digital I/O, analog signals, timers, interlocks, ladder logic, and control seque
 
 ## 🖼️ SLD Architecture
 
-The Single-Line Diagram is a **presentation and interaction projection** — never the authoritative electrical model. It may hold symbols, positions, labels, routing, annotations, and interaction state, all separate from Core engineering truth.
+The Single-Line Diagram is a **presentation and authoring projection** — never the authoritative electrical model.
 
-### Placement workflow
+Current SLD state is separated into three conceptual levels:
+
+```
+SLDDocument
+    ↓
+SLDCanvasProjection
+    ↓
+Immutable canvas snapshot
+    ↓
+SemanticPresentationRealization
+    ↓
+SLDGraphicsItemFactory
+    ↓
+QGraphicsItem
+```
+
+The graphics layer consumes persistent/presentation state. Runtime QGraphics objects are disposable and are never the project persistence authority.
+
+### Draft-first placement workflow
 
 ```mermaid
 flowchart LR
-    A[Equipment Palette] --> B[Engineer selects equipment]
-    B --> C[Live cursor preview<br/><i>not a Core object</i>]
-    C --> D[Engineer clicks canvas]
-    D --> E[Placement Command]
-    E --> F["Application.execute()"]
-    F --> G[Core Equipment<br/>+ SLD Representation]
-    G --> H[Application Event]
-    H --> I[Projection Update]
+    A[Equipment Palette] --> B[ToolManager / ModelPlacementTool]
+    B --> C[CreationDraft]
+    C --> D[DraftNetwork]
+    D --> E[Draft SLD Projection]
+    E --> F[Canvas / Selection / Properties]
+    D --> G[CommitNetworkCommand]
+    G --> H[Application transaction]
+    H --> I[Core equipment + Simple Wires]
+    I --> J[Canonical SLD projection]
 ```
 
+**Placement does not create Core equipment by itself.** Draft equipment and draft connections remain authoring state until the explicit commit boundary.
+
 > [!WARNING]
-> **Graphical snapping is not electrical connectivity.** It must be committed through the Application command path.
+> **Graphical snapping is not electrical connectivity.** A wire becomes engineering state only through the canonical Application command/service path.
+
+### Transactional SLD graphics
+
+Persistent presentation state follows:
+
+```
+SLDDocument
+    ↓
+SLDCanvasProjection
+    ↓
+immutable canvas snapshot
+    ↓
+QGraphics presentation
+```
+
+A graphics edit must not silently mutate persistent SLD state. Presentation edits are transaction/history-visible and are re-projected after undo/redo.
 
 ---
 
@@ -267,18 +304,82 @@ Plugins may contribute **equipment types · studies · canvases · tools · pane
 
 ## 💾 Persistence Architecture
 
-Canonical project package: **`project.gridforge`**
+GridForge now uses a **canonical, migration-aware persistence boundary**.
+
+The authoritative load path is:
+
+```
+Raw .gridforge package
+        ↓
+Package / version detection
+        ↓
+Schema migration
+        ↓
+Canonical current representation
+        ↓
+Structural validation
+        ↓
+LoadedProject
+        ↓
+Application activation
+        ↓
+SLD document rehydration
+        ↓
+Canvas projection
+```
+
+Canonical project package:
 
 ```
 project.gridforge/
-├── manifest.json     # package / schema / version metadata
-└── project.json      # canonical engineering + presentation data
+├── manifest.json
+└── project.json
 ```
 
-**Lifecycle:** `New → Open → Save → Save As → Close`
-**Events:** `ProjectLoaded` · `ProjectSaved` · `ProjectClosed`
+Historical formats are migrated before the rest of the application consumes them. The SLD representation has a canonical schema and deterministic serialization/rehydration contract.
 
-> Runtime Qt and QGraphics objects are **never** persisted as project truth. Persistence stores **semantics**.
+### Multi-SLD persistence
+
+The persisted project represents the **complete SLD document collection**, not only the currently active SLD:
+
+```
+Project
+  ↓
+DocumentManager
+  ↓
+SLD Document Collection
+  ├── Document A
+  ├── Document B
+  └── ...
+```
+
+Runtime document creation, activation, ordering and removal must remain synchronized with the persisted presentation collection.
+
+### Reopen integrity
+
+Reopen reconstructs runtime presentation from persisted state:
+
+```
+Persisted SLD
+    ↓
+Migration
+    ↓
+SLDDocument.from_dict()
+    ↓
+runtime SLDDocument / SLDModel
+    ↓
+DocumentManager
+    ↓
+SLDCanvasProjection
+    ↓
+immutable canvas snapshot
+    ↓
+QGraphics presentation
+```
+
+Reopen/activation audits are read-only with respect to persisted SLD presentation state. Loading must not mutate the persisted document merely because it was opened.
+
+> Runtime Qt and QGraphics objects are **never** persisted as project truth. Persistence stores semantic engineering state and canonical presentation state.
 
 ---
 
@@ -336,13 +437,17 @@ GridForge/
 | # | Rule | # | Rule |
 |:-:|---|:-:|---|
 | 1 | **Core is authoritative** — one engineering model | 9 | **Qt stays out of Core** — Core remains headless |
-| 2 | **Application is the UI↔Core boundary** | 10 | **Persistence stores semantics**, not UI objects |
+| 2 | **Application is the UI↔Core boundary** | 10 | **Persistence stores canonical semantics**, not UI objects |
 | 3 | **Commands are immutable** | 11 | **Topology is derived** from engineering relationships |
 | 4 | **Transactions are explicit** — commit/rollback | 12 | **Protection decisions ≠ switching state** |
 | 5 | **Undo/redo belong to Application** | 13 | **Studies are Application-orchestrated** |
-| 6 | **SLD is a projection**, not truth | 14 | **Read models are not Core** |
-| 7 | **Renderer is read-only** with respect to Core | 15 | **Workflows are auditable end-to-end** |
-| 8 | **Plugins use contracts** — no bypassing Application | | |
+| 6 | **SLD is a projection/authoring surface**, not truth | 14 | **Read models are not Core** |
+| 7 | **Graphics are realization objects**, not persistence authority | 15 | **Draft placement does not mutate Core** |
+| 8 | **Plugins use contracts** — no bypassing Application | 16 | **Draft → Core occurs only through explicit commit** |
+| | | 17 | **Multi-SLD persistence represents the complete document collection** |
+| | | 18 | **Reopen rehydrates without mutating persisted SLD state** |
+| | | 19 | **Presentation revisions do not masquerade as topology revisions** |
+| | | 20 | **No historical/parallel architecture is reintroduced** |
 
 ---
 
@@ -376,6 +481,78 @@ GridForge/
 | UI interaction · Rendering · Selection | 🖥️ UI |
 | Canvas geometry · User workspace state | 🖥️ UI / Projection |
 | Plugin contributions | 🔌 Plugin *(via contracts)* |
+
+---
+
+## 🧭 Current Implementation Status
+
+The current mainline architecture includes the completed persistence/SLD corrections through **#27E** and the current draft/commit lifecycle work.
+
+### Implemented architectural areas
+
+- **#27A — Canonical Persistence Schema & Migration**
+  - migration at the persistence boundary;
+  - canonical current representation;
+  - structural validation before Application activation.
+
+- **#27B — Canonical SLD Schema & Serializer Fidelity**
+  - canonical SLD representation;
+  - deterministic serialization;
+  - lossless supported round-trip semantics.
+
+- **#27C / #27C-final — SLD Rehydration & Reopen Integrity**
+  - canonical SLD document rehydration;
+  - projection ownership;
+  - restoration of all persisted SLD documents;
+  - active presentation restoration;
+  - read-only reopen/activation auditing.
+
+- **Multi-SLD lifecycle**
+  - `DocumentManager` is the runtime document registry;
+  - persistence represents the complete document collection;
+  - activation is not a substitute for the complete project presentation state.
+
+- **Draft-first authoring / commit lifecycle**
+  - `DraftNetwork`;
+  - `DraftEndpointReference`;
+  - draft equipment and draft connections;
+  - `AddDraftEquipmentCommand`;
+  - `UpdateDraftEquipmentCommand`;
+  - explicit `CommitNetworkCommand`;
+  - `CreationCommitIntent`;
+  - endpoint resolution and deterministic draft→Core identity mapping;
+  - transactional Core creation followed by Simple Wire creation and canonical SLD projection.
+
+- **Canonical connectivity**
+  - `ConnectivityResolver`;
+  - canonical terminal/BUS endpoint identity;
+  - `SimpleWireConnectionService`;
+  - Application-controlled wire creation/removal;
+  - topology events and revision semantics.
+
+- **#27E — Transactional SLD Graphics**
+  - graphics consume immutable canvas snapshots;
+  - persistent SLD presentation state is not owned by QGraphics objects;
+  - presentation edits participate in transaction/history semantics;
+  - undo/redo re-projects persistent state rather than relying on stale graphics state.
+
+### Verification status
+
+These corrections have primarily been validated through repository/static architectural reconciliation. This README intentionally does **not** claim complete GUI/runtime verification, pytest closure, or CI closure unless those have been explicitly executed and recorded.
+
+The frozen architecture remains:
+
+```
+Core
+  ↓
+Application
+  ↓
+Commands / Transactions / Events / Read Models
+  ↓
+SLD / UI Projections
+```
+
+No parallel Core, topology, CommandManager, Transaction, SelectionManager, EventBus, persistence authority, or SLD engineering authority should be introduced.
 
 ---
 

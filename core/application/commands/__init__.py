@@ -43,6 +43,10 @@ from .simple_wire_commands import (
     CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE,
     CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand,
 )
+from .insertion_commands import (
+    INSERT_EQUIPMENT_INTO_CONNECTION,
+    InsertEquipmentIntoConnectionCommand,
+)
 from .connection_commands import (
     CONNECT_TERMINAL, DISCONNECT_TERMINAL, RECONNECT_TERMINAL,
     ConnectTerminalCommand, DisconnectTerminalCommand, ReconnectTerminalCommand,

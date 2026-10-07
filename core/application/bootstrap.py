@@ -44,6 +44,7 @@ from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
 from .services.simple_wire_service import SimpleWireConnectionCommandHandlers
+from .services.electrical_insertion_service import ElectricalInsertionService, ElectricalInsertionCommandHandlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 from .project import ProjectContext
@@ -124,6 +125,13 @@ def create_application(network: Any) -> Application:
         # Application command registry as model and protection commands.
         register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
+        insertion_service = ElectricalInsertionService(
+            command_executor=command_manager.execute_in_transaction,
+        )
+        command_manager.register_handler(
+            "connectivity.insert_equipment_into_connection",
+            ElectricalInsertionCommandHandlers(insertion_service).execute,
+        )
         draft_provider = lambda: application.draft_network if application is not None else None
         for command_type, handler in DraftCommandHandlers(draft_provider).handlers().items():
             command_manager.register_handler(command_type, handler)
