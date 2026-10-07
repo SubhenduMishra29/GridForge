@@ -633,9 +633,22 @@ class SLDService:
         old_id = self.presentation_connection_id(connection_id)
         old_connection = self.document.model.get_connection_optional(old_id)
         if old_connection is None:
-            raise ValueError(
-                f"No persistent SLD connection companion exists for Core connection {connection_id!r}."
+            candidates = tuple(
+                item
+                for item in self.document.model.connections
+                if str(item.properties.get("core_connection_id", "")) == str(connection_id)
             )
+            if len(candidates) == 1:
+                old_connection = candidates[0]
+                old_id = old_connection.connection_id
+            elif len(candidates) > 1:
+                raise ValueError(
+                    f"Multiple persistent SLD companions exist for Core connection {connection_id!r}."
+                )
+            else:
+                raise ValueError(
+                    f"No persistent SLD connection companion exists for Core connection {connection_id!r}."
+                )
 
         first_core_id, second_core_id = replacement_connection_ids
         first_id = self.presentation_connection_id(first_core_id)
