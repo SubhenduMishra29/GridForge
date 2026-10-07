@@ -249,6 +249,161 @@ class _SLDSchema1To2(SLDMigration):
         return result
 
 
+
+SLD_DOCUMENT_FIELDS = frozenset({"schema", "document_id", "project_id", "document_type", "name", "metadata", "model"})
+SLD_MODEL_FIELDS = frozenset({"nodes", "connections"})
+SLD_NODE_FIELDS = frozenset({"node_id", "equipment_id", "x", "y", "presentation", "properties"})
+SLD_CONNECTION_FIELDS = frozenset({"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"})
+SLD_ENDPOINT_FIELDS = frozenset({"kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"})
+SLD_ROUTE_FIELDS = frozenset({"routing_mode", "ownership", "points"})
+SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "representation_id", "scale", "rotation", "visible", "properties"})
+SLD_ENDPOINT_KINDS = frozenset({"equipment", "bus"})
+SLD_ROUTING_MODES = frozenset({"direct", "orthogonal", "manual"})
+SLD_ROUTE_OWNERSHIP = frozenset({"auto", "engineer"})
+
+
+def _sld_unknown(value: Mapping[str, Any], allowed: frozenset[str], context: str) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise SLDMigrationError(
+            "Unknown canonical SLD fields in " + context + ": " + ", ".join(unknown)
+        )
+
+
+def _sld_string(value: Any, field: str, context: str, *, nullable: bool = False) -> None:
+    if nullable and value is None:
+        return
+    if not isinstance(value, str) or not value.strip():
+        raise SLDMigrationError("Invalid SLD " + field + " in " + context + ": expected non-empty string.")
+
+
+def _sld_number(value: Any, field: str, context: str) -> None:
+    import math
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise SLDMigrationError("Invalid SLD " + field + " in " + context + ": expected finite number.")
+
+
+def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = None) -> None:
+    """Validate schema-2 SLD structure without constructing or mutating runtime state."""
+    if not isinstance(data, Mapping):
+        raise SLDMigrationError("SLD document must be an object.")
+    _sld_unknown(data, SLD_DOCUMENT_FIELDS, "document")
+    if data.get("schema") != SLD_SCHEMA_VERSION:
+        raise SLDMigrationError("SLD document must use schema " + str(SLD_SCHEMA_VERSION) + ".")
+    _sld_string(data.get("document_id"), "document_id", "document")
+    _sld_string(data.get("project_id"), "project_id", "document")
+    if project_id is not None and data.get("project_id") != project_id:
+        raise SLDMigrationError("SLD document project_id does not match project metadata.")
+    if data.get("document_type") != "sld":
+        raise SLDMigrationError("SLD document_type must be 'sld'.")
+    _sld_string(data.get("name"), "name", "document")
+    if not isinstance(data.get("metadata"), Mapping):
+        raise SLDMigrationError("SLD document metadata must be an object.")
+    model = data.get("model")
+    if not isinstance(model, Mapping):
+        raise SLDMigrationError("SLD model must be an object.")
+    _sld_unknown(model, SLD_MODEL_FIELDS, "model")
+    nodes, connections = model.get("nodes"), model.get("connections")
+    if not isinstance(nodes, list) or not isinstance(connections, list):
+        raise SLDMigrationError("SLD model nodes and connections must be arrays.")
+    node_ids = set()
+    for index, node in enumerate(nodes):
+        context = "node[" + str(index) + "]"
+        if not isinstance(node, Mapping):
+            raise SLDMigrationError("SLD " + context + " must be an object.")
+        _sld_unknown(node, SLD_NODE_FIELDS, context)
+        for field in ("node_id", "x", "y", "presentation", "properties", "equipment_id"):
+            if field not in node:
+                raise SLDMigrationError("Missing canonical SLD node field " + field + " in " + context + ".")
+        _sld_string(node["node_id"], "node_id", context)
+        if node["node_id"] in node_ids:
+            raise SLDMigrationError("Duplicate SLD node_id " + repr(node["node_id"]) + ".")
+        node_ids.add(node["node_id"])
+        _sld_string(node["equipment_id"], "equipment_id", context, nullable=True)
+        _sld_number(node["x"], "x", context); _sld_number(node["y"], "y", context)
+        if node["presentation"] is not None:
+            presentation = node["presentation"]
+            if not isinstance(presentation, Mapping):
+                raise SLDMigrationError("SLD " + context + " presentation must be an object or null.")
+            _sld_unknown(presentation, SLD_SYMBOL_FIELDS, "symbol presentation " + context)
+            for field in ("symbol_id", "definition_id", "representation_id", "scale", "rotation", "visible", "properties"):
+                if field not in presentation:
+                    raise SLDMigrationError("Missing symbol presentation field " + field + " in " + context + ".")
+            _sld_string(presentation["symbol_id"], "symbol_id", context)
+            _sld_string(presentation["definition_id"], "definition_id", context)
+            _sld_string(presentation["representation_id"], "representation_id", context)
+            _sld_number(presentation["scale"], "scale", context)
+            if float(presentation["scale"]) <= 0:
+                raise SLDMigrationError("Symbol scale must be greater than zero in " + context + ".")
+            _sld_number(presentation["rotation"], "rotation", context)
+            if not isinstance(presentation["visible"], bool):
+                raise SLDMigrationError("Symbol visible must be boolean in " + context + ".")
+            if not isinstance(presentation["properties"], Mapping):
+                raise SLDMigrationError("Symbol properties must be an object in " + context + ".")
+        if not isinstance(node["properties"], Mapping):
+            raise SLDMigrationError("SLD node properties must be an object in " + context + ".")
+    connection_ids = set()
+    for index, connection in enumerate(connections):
+        context = "connection[" + str(index) + "]"
+        if not isinstance(connection, Mapping):
+            raise SLDMigrationError("SLD " + context + " must be an object.")
+        _sld_unknown(connection, SLD_CONNECTION_FIELDS, context)
+        for field in ("connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"):
+            if field not in connection:
+                raise SLDMigrationError("Missing canonical SLD connection field " + field + " in " + context + ".")
+        _sld_string(connection["connection_id"], "connection_id", context)
+        if connection["connection_id"] in connection_ids:
+            raise SLDMigrationError("Duplicate SLD connection_id " + repr(connection["connection_id"]) + ".")
+        connection_ids.add(connection["connection_id"])
+        source, target = connection["source_node_id"], connection["target_node_id"]
+        _sld_string(source, "source_node_id", context); _sld_string(target, "target_node_id", context)
+        if source not in node_ids or target not in node_ids:
+            raise SLDMigrationError("SLD " + context + " references a missing node.")
+        if not isinstance(connection["properties"], Mapping):
+            raise SLDMigrationError("SLD connection properties must be an object in " + context + ".")
+        for side, expected_node in (("source_endpoint", source), ("target_endpoint", target)):
+            endpoint = connection[side]
+            if endpoint is None:
+                continue
+            if not isinstance(endpoint, Mapping):
+                raise SLDMigrationError("SLD " + context + " " + side + " must be an object or null.")
+            _sld_unknown(endpoint, SLD_ENDPOINT_FIELDS, context + " " + side)
+            for field in ("kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"):
+                if field not in endpoint:
+                    raise SLDMigrationError("Missing endpoint field " + field + " in " + context + ".")
+            if endpoint["kind"] not in SLD_ENDPOINT_KINDS:
+                raise SLDMigrationError("Invalid endpoint kind in " + context + ".")
+            _sld_string(endpoint["node_id"], "endpoint.node_id", context)
+            if endpoint["node_id"] != expected_node:
+                raise SLDMigrationError("Endpoint node_id does not match connection node in " + context + ".")
+            if endpoint["kind"] == "equipment":
+                _sld_string(endpoint["equipment_id"], "endpoint.equipment_id", context)
+                _sld_string(endpoint["terminal_role"], "endpoint.terminal_role", context)
+                if endpoint["bus_id"] is not None or endpoint["attachment_id"] is not None:
+                    raise SLDMigrationError("Equipment endpoint contains bus identity in " + context + ".")
+            else:
+                _sld_string(endpoint["bus_id"], "endpoint.bus_id", context)
+                _sld_string(endpoint["attachment_id"], "endpoint.attachment_id", context)
+                if endpoint["equipment_id"] is not None or endpoint["terminal_role"] is not None:
+                    raise SLDMigrationError("Bus endpoint contains equipment identity in " + context + ".")
+        route = connection["route"]
+        if not isinstance(route, Mapping):
+            raise SLDMigrationError("SLD route must be an object in " + context + ".")
+        _sld_unknown(route, SLD_ROUTE_FIELDS, context + " route")
+        if route.get("routing_mode") not in SLD_ROUTING_MODES:
+            raise SLDMigrationError("Invalid routing_mode in " + context + ".")
+        if route.get("ownership") not in SLD_ROUTE_OWNERSHIP:
+            raise SLDMigrationError("Invalid route ownership in " + context + ".")
+        points = route.get("points")
+        if not isinstance(points, list):
+            raise SLDMigrationError("SLD route points must be an array in " + context + ".")
+        for point_index, point in enumerate(points):
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise SLDMigrationError("Malformed route point " + str(point_index) + " in " + context + ".")
+            _sld_number(point[0], "route point x", context)
+            _sld_number(point[1], "route point y", context)
+
+
 class PresentationCollectionMigrationError(ProjectMigrationError):
     """Raised when the persisted presentation collection cannot be migrated."""
 
@@ -370,8 +525,10 @@ class ProjectPersistenceMigration:
         active_id = raw.get("active_document_id")
         if active_id is not None and not isinstance(active_id, str):
             raise PresentationCollectionMigrationError("active_document_id must be a string or null.")
-        if active_id not in seen:
-            active_id = documents[0]["document_id"] if documents else None
+        if active_id is not None and active_id not in seen:
+            raise PresentationCollectionMigrationError(
+                f"active_document_id {active_id!r} does not reference a persisted SLD document."
+            )
 
         project["presentations"] = {
             "schema": PRESENTATION_SCHEMA_VERSION,
@@ -412,6 +569,7 @@ class ProjectPersistenceMigration:
                 existing_document_ids=existing_document_ids,
             )))
             schema = migration.target_schema
+        validate_canonical_sld(current, project_id=project_id)
         return current
 
     @staticmethod
@@ -432,5 +590,6 @@ __all__ = [
     "PresentationCollectionMigrationError",
     "SLDMigration",
     "SLDMigrationError",
+    "validate_canonical_sld",
     "UnsupportedProjectSchemaError",
 ]

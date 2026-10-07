@@ -26,7 +26,7 @@ from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
-from .migration import ProjectPersistenceMigration, ProjectMigrationError, SLDMigrationError
+from .migration import ProjectPersistenceMigration, ProjectMigrationError, SLDMigrationError, validate_canonical_sld
 from .project_package import (
     MANIFEST_NAME,
     PACKAGE_VERSION,
@@ -337,10 +337,16 @@ class ProjectPersistenceService:
                     f"{item.get('schema')!r}; expected {SLD_SCHEMA_VERSION}."
                 )
             item_project_id = item.get("project_id")
-            if item_project_id not in (None, project_id):
+            if item_project_id != project_id:
                 raise ProjectPersistenceError(
-                    f"Presentation document {document_id!r} belongs to another project."
+                    f"Presentation document {document_id!r} belongs to another project or has no canonical project_id."
                 )
+            try:
+                validate_canonical_sld(item, project_id=project_id)
+            except (SLDMigrationError, TypeError, ValueError) as exc:
+                raise ProjectPersistenceError(
+                    f"Malformed SLD document {document_id!r}: {exc}"
+                ) from exc
             if document_id in seen:
                 raise ProjectPersistenceError(f"Duplicate persisted document_id: {document_id}")
             seen.add(document_id)
@@ -349,8 +355,10 @@ class ProjectPersistenceService:
         active_id = data.get("active_document_id")
         if active_id is not None and not isinstance(active_id, str):
             raise ProjectPersistenceError("active_document_id must be a string or null.")
-        if active_id not in seen:
-            active_id = normalized[0]["document_id"] if normalized else None
+        if active_id is not None and active_id not in seen:
+            raise ProjectPersistenceError(
+                f"active_document_id {active_id!r} does not reference a persisted SLD document."
+            )
         return {
             "schema": PRESENTATION_SCHEMA_VERSION,
             "documents": normalized,
