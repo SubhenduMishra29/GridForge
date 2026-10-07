@@ -21,7 +21,7 @@ class ToolShelf(QWidget):
         activate: Callable[[str], object] | None = None,
         action_router: UIActionRouter | None = None,
         editor_type: str | None = None,
-        icon_provider: Callable[[str], QIcon | None] | None = None,
+        icon_provider: Callable[[ToolDefinition], QIcon | None] | None = None,
         active_tool_provider: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -92,7 +92,7 @@ class ToolShelf(QWidget):
             button.setText(definition.display_name)
             button.setCheckable(True)
             button.setToolButtonStyle(QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon)
-            if definition.icon_id and self._icon_provider is not None:
+            if self._icon_provider is not None:
                 try:
                     icon = self._icon_provider(definition)
                 except (KeyError, TypeError, ValueError) as exc:
