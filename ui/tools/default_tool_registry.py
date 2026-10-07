@@ -39,6 +39,7 @@ from ui.tools.switch_tool import SwitchTool
 from ui.tools.synchronous_machine_tool import SynchronousMachineTool
 from ui.tools.transformer_tool import TransformerTool
 from ui.tools.model_placement_tool import ModelPlacementTool
+from ui.tools.electrical_insertion_tool import ElectricalInsertionTool
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 
 
@@ -96,6 +97,7 @@ def create_default_tool_factories(
         )
 
     return {
+        "electrical-insertion": factory(ElectricalInsertionTool),
         "select": factory(SelectTool),
         "bus": factory(BusTool),
         "wire": factory(WireTool),
