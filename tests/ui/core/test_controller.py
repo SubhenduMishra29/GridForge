@@ -42,8 +42,10 @@ def test_initial_state_has_application_but_no_core():
 def test_tool_selection_is_delegated_to_authoritative_tool_manager():
     class ToolManagerDouble:
         active_tool_id = None
+        activation_kwargs = None
         def activate(self, tool_id, **kwargs):
             self.active_tool_id = tool_id
+            self.activation_kwargs = kwargs
         def deactivate(self):
             self.active_tool_id = None
 
@@ -53,6 +55,7 @@ def test_tool_selection_is_delegated_to_authoritative_tool_manager():
     try:
         controller.set_tool("bus")
         assert controller.get_tool_id() == "bus"
+        assert manager.activation_kwargs == {"cancel_active_creation": True}
         controller.set_tool("line")
         assert controller.get_tool_id() == "line"
         controller.clear_tool()
