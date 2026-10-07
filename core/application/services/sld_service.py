@@ -623,8 +623,8 @@ class SLDService:
         input_endpoint: Mapping[str, Any],
         output_endpoint: Mapping[str, Any],
         replacement_connection_ids: tuple[str, str],
-        terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
         transaction: Transaction,
+        terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
     ) -> None:
         """Atomically replace one persistent SLD wire with an inserted node and two wires.
 
