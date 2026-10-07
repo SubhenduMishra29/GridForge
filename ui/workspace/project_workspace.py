@@ -162,6 +162,9 @@ class ProjectWorkspaceLifecycle:
         snapshot = self._capture_transition_snapshot()
         try:
             self._documents.activate(document_id)
+            views = self._views.views_for_document(document_id)
+            if views:
+                self._views.activate(views[0].view_id)
             return self.state
         except BaseException:
             self._restore_transition_snapshot(snapshot)
