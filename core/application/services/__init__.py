@@ -72,11 +72,9 @@ from __future__ import annotations
 from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
 from .measurement_channel_service import MeasurementChannelService
 
-__all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService", "MeasurementChannelService"]
-
 from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
 
-__all__ = ["SimpleWireConnectionCommandHandlers", "SimpleWireConnectionService"]
+__all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService", "MeasurementChannelService", "SimpleWireConnectionCommandHandlers", "SimpleWireConnectionService", "ElectricalInsertionCommandHandlers", "ElectricalInsertionService", "INSERTION_CONTRACTS", "InsertionContract"]
 
 from .electrical_insertion_service import ElectricalInsertionCommandHandlers, ElectricalInsertionService
 from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
