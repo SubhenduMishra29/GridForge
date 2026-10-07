@@ -303,6 +303,34 @@ class ControlSurfaceHost(QWidget):
             # The settings widget is also used by EditorContext propagation.
             setattr(editor, "_tool_settings", tool_settings)
 
+    def configure_sld_document_lifecycle(
+        self,
+        document_manager: Any,
+        *,
+        activate,
+        new_document,
+        close_document,
+    ) -> None:
+        editor = self._host.widget("sld-editor")
+        if editor is None:
+            raise RuntimeError("SLD editor is not configured.")
+        setter = getattr(editor, "set_document_lifecycle", None)
+        if not callable(setter):
+            raise RuntimeError("SLD editor does not expose document lifecycle binding.")
+        setter(
+            document_manager,
+            activate=activate,
+            new_document=new_document,
+            close_document=close_document,
+        )
+
+    def refresh_sld_document_tabs(self) -> None:
+        editor = self._host.widget("sld-editor")
+        if editor is not None:
+            refresh = getattr(editor, "refresh_document_tabs", None)
+            if callable(refresh):
+                refresh()
+
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
         map_widget = self._host.widget("map")
