@@ -302,6 +302,28 @@ class ProjectPersistenceMigration:
             raise ProjectMigrationError("Project migration requires a stable project_id.")
 
         raw = project.get("presentations")
+        legacy_sld = project.get("sld")
+        legacy_presentation = project.get("presentation")
+        if legacy_sld is not None or legacy_presentation is not None:
+            if legacy_sld is not None and legacy_presentation is not None:
+                raise PresentationCollectionMigrationError(
+                    "Legacy project contains both sld and presentation aliases; migration is ambiguous."
+                )
+            if raw is not None:
+                raise PresentationCollectionMigrationError(
+                    "Project contains both canonical presentations and a legacy single-SLD alias."
+                )
+            raw_legacy = legacy_sld if legacy_sld is not None else legacy_presentation
+            if not isinstance(raw_legacy, Mapping):
+                raise PresentationCollectionMigrationError("Legacy single-SLD payload must be an object.")
+            raw = {
+                "schema": PRESENTATION_SCHEMA_VERSION,
+                "documents": [deepcopy(dict(raw_legacy))],
+                "active_document_id": raw_legacy.get("document_id"),
+            }
+            project.pop("sld", None)
+            project.pop("presentation", None)
+
         if raw is None:
             project["presentations"] = {
                 "schema": PRESENTATION_SCHEMA_VERSION,
@@ -312,7 +334,7 @@ class ProjectPersistenceMigration:
         if not isinstance(raw, Mapping):
             raise PresentationCollectionMigrationError("Presentations payload must be an object.")
 
-        collection_schema = raw.get("schema", 1)
+        collection_schema = raw.get("schema")
         if collection_schema != PRESENTATION_SCHEMA_VERSION:
             raise PresentationCollectionMigrationError(
                 f"Unsupported presentation collection schema {collection_schema!r}; "
