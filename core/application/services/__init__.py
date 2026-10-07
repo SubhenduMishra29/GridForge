@@ -77,3 +77,6 @@ __all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService",
 from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
 
 __all__ = ["SimpleWireConnectionCommandHandlers", "SimpleWireConnectionService"]
+
+from .electrical_insertion_service import ElectricalInsertionCommandHandlers, ElectricalInsertionService
+from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
