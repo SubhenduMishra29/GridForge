@@ -61,8 +61,7 @@ class ElectricalInsertionTool(ToolBase):
         self._equipment_id = equipment_id
         self._creation_parameters = dict(creation_parameters or {})
         self._orientation = float(orientation)
-        self._target = None
-        self._target_item = None
+        self._clear_target()
 
     def on_activate(self) -> None:
         self._clear_target()
