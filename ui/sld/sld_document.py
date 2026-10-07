@@ -39,6 +39,7 @@ class SLDDocument(Document):
         model: Optional[SLDModel] = None,
         *,
         project_id: str | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
         default_symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(
@@ -46,6 +47,7 @@ class SLDDocument(Document):
             document_type=self.DOCUMENT_TYPE,
             name=name,
             project_id=project_id,
+            metadata=metadata,
         )
         self._model = model if model is not None else SLDModel()
         self._default_symbol_presentation_factory = default_symbol_presentation_factory
@@ -91,6 +93,7 @@ class SLDDocument(Document):
             "project_id": self.project_id,
             "document_type": self.document_type,
             "name": self.name,
+            "metadata": dict(self.metadata),
             "model": self.model.to_dict(),
         }
 
@@ -111,6 +114,7 @@ class SLDDocument(Document):
             document_id=str(data["document_id"]),
             name=str(data.get("name", "Untitled SLD")),
             project_id=data.get("project_id"),
+            metadata=dict(data.get("metadata", {})),
             model=SLDModel.from_dict(data.get("model", {})),
             default_symbol_presentation_factory=default_symbol_presentation_factory,
         )
