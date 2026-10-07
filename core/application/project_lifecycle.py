@@ -35,6 +35,7 @@ PresentationActivator = Callable[[ProjectContext | None, Any | None], Callable[[
 PresentationCollectionSerializer = Callable[[ProjectPresentationCollection], Mapping[str, Any]]
 PresentationCollectionDeserializer = Callable[[Mapping[str, Any]], ProjectPresentationCollection]
 PresentationCollectionActivator = Callable[[ProjectContext | None, ProjectPresentationCollection | None], Callable[[], None] | None]
+PresentationCollectionSnapshotProvider = Callable[[], ProjectPresentationCollection]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +71,7 @@ class ProjectLifecycleService:
         presentation_collection_serializer: PresentationCollectionSerializer | None = None,
         presentation_collection_deserializer: PresentationCollectionDeserializer | None = None,
         presentation_collection_activator: PresentationCollectionActivator | None = None,
+        presentation_collection_snapshot_provider: PresentationCollectionSnapshotProvider | None = None,
     ) -> None:
         if network is None:
             raise ValueError("network is required.")
@@ -103,6 +105,7 @@ class ProjectLifecycleService:
         self._presentation_collection_serializer = presentation_collection_serializer
         self._presentation_collection_deserializer = presentation_collection_deserializer
         self._presentation_collection_activator = presentation_collection_activator
+        self._presentation_collection_snapshot_provider = presentation_collection_snapshot_provider
         self._post_network_activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None] | None = None
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
@@ -208,6 +211,12 @@ class ProjectLifecycleService:
             raise TypeError("activator must be callable.")
         self._post_network_activator = activator
 
+    def configure_presentation_collection_snapshot_provider(self, provider: PresentationCollectionSnapshotProvider) -> None:
+        """Configure the canonical live-document snapshot boundary used by save."""
+        if not callable(provider):
+            raise TypeError("presentation collection snapshot provider must be callable.")
+        self._presentation_collection_snapshot_provider = provider
+
     def configure_presentation_collection_contract(self, *, serializer: PresentationCollectionSerializer, deserializer: PresentationCollectionDeserializer, activator: PresentationCollectionActivator) -> None:
         if not callable(serializer) or not callable(deserializer) or not callable(activator):
             raise TypeError("presentation collection serializer, deserializer, and activator must be callable.")
@@ -270,7 +279,13 @@ class ProjectLifecycleService:
 
         presentation_data: Mapping[str, Any] | None = None
         collection_data: Mapping[str, Any] | None = None
-        collection = getattr(self, "_runtime_presentation_collection", None)
+        collection = None
+        if self._presentation_collection_snapshot_provider is not None:
+            collection = self._presentation_collection_snapshot_provider()
+            if not isinstance(collection, ProjectPresentationCollection):
+                raise TypeError("Presentation collection snapshot provider must return ProjectPresentationCollection.")
+        else:
+            collection = getattr(self, "_runtime_presentation_collection", None)
         if self._presentation_collection_serializer is not None and collection is not None:
             collection_data = self._presentation_collection_serializer(collection)
             if not isinstance(collection_data, Mapping):
