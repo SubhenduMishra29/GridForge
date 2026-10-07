@@ -333,6 +333,17 @@ class ControlSurfaceHost(QWidget):
 
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
+        context = self._host.editor_context
+        if context is not None and callable(getattr(context, "with_updates", None)):
+            engineering = getattr(context, "engineering", None)
+            if engineering is not None and callable(getattr(engineering, "with_updates", None)):
+                engineering = engineering.with_updates(document_id=getattr(document, "document_id", None))
+                context = context.with_updates(document_id=getattr(document, "document_id", None), engineering=engineering)
+                self._host.set_editor_context(context)
+                editor = self._host.widget("sld-editor")
+                setter = getattr(editor, "set_editor_context", None)
+                if callable(setter):
+                    setter(context)
         map_widget = self._host.widget("map")
         if isinstance(map_widget, MapWorkspaceView):
             map_widget.set_document(document)
