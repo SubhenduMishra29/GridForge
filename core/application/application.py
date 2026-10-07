@@ -1162,16 +1162,26 @@ class Application:
                 self._event_bus.publish(NetworkCommitted(metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             else:
                 # Undo/redo of a Draft→Core commit changes the authoritative
-                # network and its SLD projection after the transaction has
-                # completed. Publish the existing network reconciliation event
-                # so selection/read-side projections can clear stale Core IDs
-                # on undo and re-read deterministic Core IDs on redo.
+                # network and its persistent SLD companion state together.
                 self._event_bus.publish(NetworkChanged(
                     operation=operation,
                     metadata=metadata,
                     correlation_id=command.correlation_id,
                     causation_id=command.causation_id,
                 ))
+            # The persistent SLD mutation is part of the same originating
+            # Application transaction. This event is emitted only after the
+            # transaction has committed (or an undo/redo journal has completed),
+            # and therefore never advertises an uncommitted presentation state.
+            self._event_bus.publish(SLDPresentationChanged(
+                operation=operation,
+                metadata={
+                    **metadata,
+                    "presentation_operation": "network_commit_draft",
+                },
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
             return
         if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
             action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
