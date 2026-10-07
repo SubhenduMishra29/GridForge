@@ -15,10 +15,12 @@ from core.network import EndpointCompatibility, EndpointCompatibilityError
 
 from ..command import Command
 from ..commands.breaker_commands import CreateBreakerCommand
+from ..commands.connection_commands import ConnectTerminalCommand
 from ..commands.measurement_commands import CreateCurrentTransformerCommand
 from ..commands.model_commands import CreateDisconnectorCommand, CreateTransformerCommand
 from ..commands.simple_wire_commands import CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand
 from ..errors import ValidationError
+from ..endpoint_resolver import EndpointResolver
 from ..results import ApplicationResult
 from ..transaction import Transaction
 from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
@@ -217,7 +219,88 @@ class ElectricalInsertionService:
                     details=dict(create_result.metadata),
                 )
 
-        # Remove the original relationship before creating either replacement.
+        # Synchronize the inserted Core terminals through the canonical
+        # Application connection path. Simple Wire relationships intentionally
+        # remain separate topology records; the terminal endpoint is owned by
+        # Terminal and is therefore established by CONNECT_TERMINAL rather than
+        # by mutating Terminal directly here.
+        for role, target_ref in ((input_role, endpoint_a), (output_role, endpoint_b)):
+            connect_result = self._command_executor(
+                ConnectTerminalCommand(
+                    terminal=(input_ref if role == input_role else output_ref),
+                    target=target_ref,
+                    correlation_id=command.correlation_id,
+                    causation_id=command.command_id,
+                ),
+                transaction,
+            )
+            if not connect_result.success:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_CONNECTION_FAILED",
+                    message=connect_result.message or f"Terminal {role!r} connection failed.",
+                    details={
+                        "equipment_id": equipment_id,
+                        "terminal_role": role,
+                        "target": dict(target_ref.to_mapping()),
+                        "metadata": dict(connect_result.metadata),
+                    },
+                )
+
+        # The canonical connection service above is deliberately the only
+        # terminal mutation path. Verify the resulting local Terminal state
+        # before replacing the relationship so a stale/contradictory Core
+        # state can never be hidden by the new Simple Wires.
+        inserted_equipment = network.get_by_identity(equipment_id)
+        terminals_by_role = {
+            str(getattr(terminal, "role", "")): terminal
+            for terminal in getattr(inserted_equipment, "terminals", ())
+        }
+        for role, target_ref in ((input_role, endpoint_a), (output_role, endpoint_b)):
+            terminal = terminals_by_role.get(role)
+            if terminal is None or getattr(terminal, "endpoint", None) is None:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_STATE_INVALID",
+                    message=f"Required insertion terminal {role!r} is not connected.",
+                    details={"equipment_id": equipment_id, "terminal_role": role},
+                )
+            # CONNECT_TERMINAL resolves the target through the canonical
+            # Application endpoint resolver. Re-resolve it here and compare
+            # object identity so Terminal.endpoint and the topology endpoint
+            # cannot silently diverge before the Simple Wires are committed.
+            expected_endpoint = EndpointResolver.resolve(context, target_ref)
+            if terminal.endpoint is not expected_endpoint:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_TOPOLOGY_MISMATCH",
+                    message=f"Insertion terminal {role!r} does not reference the canonical topology endpoint.",
+                    details={
+                        "equipment_id": equipment_id,
+                        "terminal_role": role,
+                        "target": dict(target_ref.to_mapping()),
+                    },
+                )
+
+        # CT secondary terminals are intentionally outside the insertion
+        # contract. They must retain exactly the state produced before the
+        # insertion transaction (normally disconnected) and are never touched
+        # by the primary-path connection commands above.
+        if equipment_type == "current_transformer":
+            for role in ("S1", "S2"):
+                terminal = terminals_by_role.get(role)
+                if terminal is None:
+                    raise ValidationError(
+                        code="INSERTION_CT_TERMINAL_STATE_INVALID",
+                        message=f"Current Transformer is missing required secondary terminal {role!r}.",
+                        details={"equipment_id": equipment_id, "terminal_role": role},
+                    )
+                if getattr(terminal, "endpoint", None) is not None:
+                    raise ValidationError(
+                        code="INSERTION_CT_SECONDARY_CONNECTED",
+                        message=f"Current Transformer secondary terminal {role!r} must remain unconnected during insertion.",
+                        details={"equipment_id": equipment_id, "terminal_role": role},
+                    )
+
+        # Remove the original relationship only after both inserted terminals
+        # have been established through the canonical Application path.
         remove_result = self._command_executor(
             RemoveSimpleWireConnectionCommand(
                 connection_id=connection_id,
