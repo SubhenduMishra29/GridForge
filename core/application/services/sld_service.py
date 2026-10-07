@@ -682,7 +682,16 @@ class SLDService:
         target_node = self.document.model.get_node(old_connection.target_node_id)
         position = (float(insertion_position[0]), float(insertion_position[1]))
 
+        # Capture ownership/provenance before replacing the persistent
+        # connection. These values belong to the authored SLD presentation and
+        # must not be inferred from the insertion command itself.
         route = old_connection.route.to_dict()
+        original_route_ownership = str(route.get("ownership", "auto")).lower()
+        original_route_owner = old_connection.properties.get("route_owner")
+        original_presentation_owner = old_connection.properties.get("presentation_owner")
+        original_projection_source = old_connection.properties.get("projection_source")
+        if original_presentation_owner not in (None, "engineer", "projection"):
+            raise ValueError("SLD connection presentation ownership is unknown; insertion is rejected.")
         polyline = [
             (float(source_node.x), float(source_node.y)),
             *tuple(tuple(point) for point in old_connection.route.points),
@@ -758,28 +767,45 @@ class SLDService:
         output_presentation_endpoint = presentation_endpoint(output_endpoint)
         properties = dict(old_connection.properties)
         properties["connection_kind"] = "SIMPLE_WIRE"
-        properties["presentation_owner"] = properties.get("presentation_owner", "projection")
-        properties["projection_source"] = "connectivity.insert_equipment_into_connection"
+        if original_presentation_owner is None:
+            properties["presentation_owner"] = "projection"
+        # Preserve the original presentation/provenance contract. In
+        # particular, an engineer-owned route must never become projection
+        # owned merely because insertion changed the Core connectivity.
+        if original_projection_source is None:
+            properties.pop("projection_source", None)
+        else:
+            properties["projection_source"] = original_projection_source
+        if original_route_owner is None:
+            properties.pop("route_owner", None)
+        else:
+            properties["route_owner"] = original_route_owner
         properties["lifecycle_state"] = "BOUND"
         properties["insertion_parent_connection_id"] = connection_id
 
-        node_properties = dict(existing_node.properties) if existing_node is not None else {
-            "presentation_owner": "engineer",
-            "lifecycle_state": "BOUND",
-            "element_type": equipment_type,
-            "position_owner": "engineer",
-            "symbol_owner": "engineer",
-            "rotation": float(orientation),
-            "insertion_parent_connection_id": connection_id,
-        }
-        node_properties.update({
-            "lifecycle_state": "BOUND",
-            "element_type": equipment_type,
-            "position_owner": "engineer",
-            "symbol_owner": "engineer",
-            "rotation": float(orientation),
-            "insertion_parent_connection_id": connection_id,
-        })
+        if existing_node is not None:
+            # Start from the exact authored node metadata and change only the
+            # fields explicitly owned by this insertion: current Core binding,
+            # insertion provenance, position, and the explicitly supplied
+            # rotation. Ownership fields such as symbol/labels/manual geometry
+            # remain untouched.
+            node_properties = dict(existing_node.properties)
+            node_properties.update({
+                "lifecycle_state": "BOUND",
+                "element_type": equipment_type,
+                "rotation": float(orientation),
+                "insertion_parent_connection_id": connection_id,
+            })
+        else:
+            node_properties = {
+                "presentation_owner": "engineer",
+                "lifecycle_state": "BOUND",
+                "element_type": equipment_type,
+                "position_owner": "engineer",
+                "symbol_owner": "engineer",
+                "rotation": float(orientation),
+                "insertion_parent_connection_id": connection_id,
+            }
         presentation = None
         if existing_node is None and self._symbol_presentation_factory is not None:
             presentation = self._symbol_presentation_factory(equipment_type)
