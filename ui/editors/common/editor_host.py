@@ -162,6 +162,13 @@ class EngineeringEditorHost(QWidget):
             self._maximized_area_id = None
             self.setProperty("gridforge_area_maximized", False)
 
+        # Maximization is a presentation operation on the already-realized
+        # editor. The editor remains mounted; no scene/document is recreated.
+        editor = self._editors.get(self._active_editor_id or "")
+        apply_presentation_state = getattr(editor, "set_presentation_maximized", None)
+        if callable(apply_presentation_state):
+            apply_presentation_state(bool(maximized))
+
     def widget(self, editor_id: str) -> QWidget | None:
         return self._editors.get(editor_id)
 
@@ -174,12 +181,18 @@ class EditorRegionFrame(QFrame):
         self.setObjectName(f"GridForgeRegion_{title.lower().replace(' ', '_') or 'region'}")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+        self._title_label = None
         if title:
             label = QLabel(title, self)
             label.setObjectName("GridForgeRegionTitle")
             layout.addWidget(label)
+            self._title_label = label
         self._content = QVBoxLayout()
         layout.addLayout(self._content)
+
+    def set_title_visible(self, visible: bool) -> None:
+        if self._title_label is not None:
+            self._title_label.setVisible(bool(visible))
 
     def set_widget(self, widget: QWidget) -> None:
         if not isinstance(widget, QWidget):

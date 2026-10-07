@@ -614,6 +614,15 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
         )
 
+    def _toggle_sld_maximize() -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
+        workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
+
+    def _toggle_sld_region(region_id: str) -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        workspace_surface_host.toggle_region("sld", region_id)
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -637,6 +646,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
+        "view.maximize_editor": _toggle_sld_maximize,
+        "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
+        "view.toggle_inspector": lambda: _toggle_sld_region("sidebar"),
+        "view.toggle_messages": lambda: _toggle_sld_region("diagnostics"),
+        "view.toggle_tool_settings": lambda: _toggle_sld_region("tool_settings"),
         "view.equipment_browser": _show_equipment_browser,
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
@@ -736,6 +750,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.topology": ("Topology", "Show the topology projection.", None, "workspace"),
         "view.map": ("Map", "Show persisted SLD geometry.", None, "workspace"),
         "view.reports": ("Reports", "Show published study results.", None, "workspace"),
+        "view.maximize_editor": ("Maximize Editor", "Maximize or restore the active SLD editor.", "Ctrl+Space", "view"),
+        "view.toggle_explorer": ("Explorer", "Show or hide the SLD project explorer.", None, "view"),
+        "view.toggle_inspector": ("Inspector", "Show or hide the SLD inspector.", None, "view"),
+        "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
+        "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
         "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
         "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
         "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
@@ -760,7 +779,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         discipline = context.discipline
         if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
-                         "view.protection_workspace", "view.topology", "view.map", "view.reports"}:
+                         "view.protection_workspace", "view.topology", "view.map", "view.reports",
+                         "view.maximize_editor", "view.toggle_explorer", "view.toggle_inspector",
+                         "view.toggle_messages", "view.toggle_tool_settings"}:
             return project_active
         if action_id.startswith("tool."):
             try:

@@ -544,14 +544,10 @@ class ShellPlugin:
         if self._header_widget is not None:
             self._add_widget_once(self._header_widget)
 
-        # ----------------------------------------------------
-        # Toolbar
-        # ----------------------------------------------------
-
-        self._add_widget_once(
-            self._toolbar_widget
-        )
-
+        # The legacy global toolbar is initialized for compatibility but is
+        # deliberately not mounted in the root shell. Every engineering editor
+        # owns its contextual ToolShelf, avoiding a second permanent tool strip.
+        #
         # ----------------------------------------------------
         # Canvas
         #
@@ -610,7 +606,7 @@ class ShellPlugin:
     # ========================================================
 
     def create_header_widget(self) -> QWidget:
-        """Create the presentation-only application header from shared context."""
+        """Create a compact engineering context header."""
         if self._context is None:
             raise RuntimeError("ShellPlugin context is unavailable.")
         if self._header_widget is not None:
@@ -619,23 +615,24 @@ class ShellPlugin:
         header = QWidget(self._root_widget)
         header.setObjectName("GridForgeApplicationHeader")
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(10)
 
-        brand = QLabel("GridForge V2", header)
+        brand = QLabel("GridForge", header)
         brand.setObjectName("GridForgeBrand")
         layout.addWidget(brand)
-
-        context_store = self._context.metadata.get("engineering_context_store") if self._context is not None else None
-        self._engineering_context_store = context_store
-        if context_store is not None and callable(getattr(context_store, "subscribe", None)):
-            context_store.subscribe(self._refresh_engineering_context_label)
 
         project_context = getattr(self._context.application, "project_lifecycle", None)
         project_context = getattr(project_context, "context", None)
         project_name = getattr(project_context, "name", None) or "No Project"
-        project_label = QLabel(f"Project: {project_name}", header)
+        project_label = QLabel(project_name, header)
         project_label.setObjectName("GridForgeProjectContext")
         layout.addWidget(project_label)
+
+        context_store = self._context.metadata.get("engineering_context_store")
+        self._engineering_context_store = context_store
+        if context_store is not None and callable(getattr(context_store, "subscribe", None)):
+            context_store.subscribe(self._refresh_engineering_context_label)
 
         context_label = QLabel(self._format_engineering_context(), header)
         context_label.setObjectName("GridForgeEngineeringContext")
@@ -643,42 +640,6 @@ class ShellPlugin:
         layout.addWidget(context_label)
         layout.addStretch(1)
 
-        search = QLineEdit(header)
-        search.setPlaceholderText("Search project elements…")
-        search.setObjectName("GridForgeProjectSearch")
-        search.setClearButtonEnabled(True)
-        layout.addWidget(search)
-
-        notifications = QPushButton("Notifications", header)
-        notifications.setObjectName("GridForgeNotifications")
-        notifications.clicked.connect(
-            lambda: QMessageBox.information(
-                header,
-                "Notifications",
-                self._notification_text(),
-            )
-        )
-        layout.addWidget(notifications)
-
-        help_button = QPushButton("Help", header)
-        help_button.setObjectName("GridForgeHelp")
-        help_button.clicked.connect(
-            lambda: QMessageBox.information(
-                header,
-                "GridForge Help",
-                "Use the Equipment Library to select an engineering tool, "
-                "place equipment on the SLD, then inspect and commit engineering data.",
-            )
-        )
-        layout.addWidget(help_button)
-
-        user_context = getattr(self._context.application, "user_context", None)
-        role = getattr(user_context, "role", None) or "Engineer"
-        user_label = QLabel(f"User / Role: {role}", header)
-        user_label.setObjectName("GridForgeUserContext")
-        layout.addWidget(user_label)
-
-        search.returnPressed.connect(lambda: self._search_project(search.text(), header))
         self._header_widget = header
         return header
 
