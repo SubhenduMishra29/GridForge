@@ -316,6 +316,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
+    project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
 
     status_plugin = None
 
