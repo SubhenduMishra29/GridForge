@@ -172,6 +172,13 @@ class SLDEditor(QWidget):
             "center": center,
             "sidebar": sidebar,
         }
+        for frame in (
+            header, shelf_region, settings_region, canvas_region,
+            explorer_region, inspector_region, overlay_region,
+            diagnostics_region, status_region,
+        ):
+            frame.set_title_visible(False)
+
         self._region_user_visibility: dict[str, bool] = {}
         self._definition_visibility: dict[str, bool] = {}
         self._presentation_maximized = False
