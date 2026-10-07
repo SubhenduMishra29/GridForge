@@ -385,50 +385,49 @@ Reopen/activation audits are read-only with respect to persisted SLD presentatio
 
 ## 📁 Repository Structure
 
-```
+The current repository uses a headless Core plus an Application boundary under Core, with UI as the interaction/presentation layer.
+
+~~~text
 GridForge/
 │
-├── core/                     🧠 Authoritative engineering truth (headless)
-│   ├── base/
-│   ├── model/
-│   ├── network/
-│   ├── topology/
-│   ├── analysis/
-│   ├── solver/
+├── core/                         Authoritative, headless engineering truth
+│   ├── base/                     Domain primitives and shared contracts
+│   ├── model/                    Equipment, terminals, identities, properties
+│   ├── network/                  Canonical network membership/connectivity
+│   ├── topology/                 Canonical derived electrical topology
+│   ├── numerical/                Derived numerical representations
+│   ├── analysis/                 Engineering-study domain
+│   ├── solver/                   Numerical solvers
+│   │   ├── common/
+│   │   ├── power_flow/
+│   │   ├── short_circuit/
+│   │   ├── contingency/
 │   │   └── dynamics/
-│   ├── measurement/
-│   ├── protection/
-│   ├── control/
-│   ├── validation/
-│   └── results/
+│   ├── measurement/              Measurement domain
+│   ├── protection/               Protection domain
+│   ├── control/                  Control domain
+│   ├── validation/               Engineering/domain validation
+│   ├── results/                  Study/solver results
+│   ├── simulation/               Headless simulation execution
+│   └── application/              Semantic UI↔Core boundary
+│       ├── commands/              Immutable command definitions
+│       └── services/              Application workflow services
 │
-├── application/              🎛️ Orchestration boundary between UI and Core
-│   ├── commands/
-│   ├── handlers/
-│   ├── services/
-│   ├── transactions/
-│   ├── history/
-│   ├── lifecycle/
-│   ├── studies/
-│   ├── events/
-│   ├── read_models/
-│   └── persistence/
+├── ui/                           Interaction, presentation and projection
+│   ├── core/                     Shared UI infrastructure
+│   ├── canvas/                   Canvas contracts and scene presentation
+│   ├── controllers/              UI/Application coordination
+│   ├── items/                    Graphics realization objects
+│   ├── panels/                   Inspectors, explorers and engineering panels
+│   ├── plugins/                  UI extension integration
+│   ├── renderers/                Presentation rendering
+│   ├── tools/                    User interaction tools
+│   └── sld/                      Single-Line Diagram authoring/projection
 │
-├── ui/                       🖥️ Interaction & presentation
-│   ├── core/
-│   ├── main_window/
-│   ├── sld/
-│   ├── control/
-│   ├── protection/
-│   ├── dynamics/
-│   ├── studies/
-│   ├── panels/
-│   └── projections/
-│
-├── plugins/                  🔌 Contract-bound extensions
-├── tests/                    🧪 Domain · Application · UI · Integration
-└── docs/                     📄 Engineering documentation
-```
+└── README.md                     Architecture entry point
+~~~
+
+Only directories that exist in the current implementation are documented here. Folder-level README.md files describe responsibility and boundary; they do not introduce alternate authorities.
 
 ---
 
@@ -486,7 +485,7 @@ GridForge/
 
 ## 🧭 Current Implementation Status
 
-The current mainline architecture includes the completed persistence/SLD corrections through **#27E** and the current draft/commit lifecycle work.
+The current mainline architecture includes the completed persistence/SLD corrections through **#27E**, the draft/commit lifecycle, canonical connectivity, and the current electrical-equipment insertion workflow.
 
 ### Implemented architectural areas
 
@@ -529,6 +528,15 @@ The current mainline architecture includes the completed persistence/SLD correct
   - `SimpleWireConnectionService`;
   - Application-controlled wire creation/removal;
   - topology events and revision semantics.
+
+- **Electrical equipment insertion into existing Simple Wires**
+  - existing-equipment drag/insertion workflow through `SelectTool` / `ElectricalInsertionTool`;
+  - immutable `InsertEquipmentIntoConnectionCommand`;
+  - `ElectricalInsertionService` as the transactional Application service;
+  - canonical terminal endpoint synchronization through `ConnectTerminalCommand` / `EndpointResolver`;
+  - topology-preserving Simple Wire splitting;
+  - exact preservation of authored SLD route/presentation ownership and node metadata;
+  - rollback-safe cancellation and failed insertion behavior.
 
 - **#27E — Transactional SLD Graphics**
   - graphics consume immutable canvas snapshots;
