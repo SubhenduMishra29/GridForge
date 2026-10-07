@@ -37,6 +37,9 @@ PresentationCollectionDeserializer = Callable[[Mapping[str, Any]], ProjectPresen
 PresentationCollectionActivator = Callable[[ProjectContext | None, ProjectPresentationCollection | None], Callable[[], None] | None]
 PresentationCollectionSnapshotProvider = Callable[[], ProjectPresentationCollection]
 
+POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT = "READ_ONLY_ACTIVATION_AUDIT"
+PERSISTENT_RECONCILIATION_TRANSACTION = "PERSISTENT_RECONCILIATION_TRANSACTION"
+
 
 @dataclass(frozen=True, slots=True)
 class PresentationConfigurationSnapshot:
@@ -108,6 +111,7 @@ class ProjectLifecycleService:
         self._presentation_collection_activator = presentation_collection_activator
         self._presentation_collection_snapshot_provider = presentation_collection_snapshot_provider
         self._post_network_activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None] | None = None
+        self._post_network_activation_mode = POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
         self._rollback_error: Exception | None = None
@@ -208,11 +212,24 @@ class ProjectLifecycleService:
     def configure_post_network_activator(
         self,
         activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None],
+        *,
+        mode: str = POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT,
     ) -> None:
-        """Register one activation-boundary callback that runs after Network activation."""
+        """Register the explicit post-network activation contract.
+
+        Normal project opening is strictly READ_ONLY_ACTIVATION_AUDIT. A
+        persistent reconciliation transaction must be explicitly selected by
+        an Application-controlled operation and is never implied by activation.
+        """
         if not callable(activator):
             raise TypeError("activator must be callable.")
+        if mode not in {
+            POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT,
+            PERSISTENT_RECONCILIATION_TRANSACTION,
+        }:
+            raise ValueError(f"Unsupported post-network activation mode: {mode!r}")
         self._post_network_activator = activator
+        self._post_network_activation_mode = mode
 
     def configure_presentation_collection_snapshot_provider(self, provider: PresentationCollectionSnapshotProvider) -> None:
         """Configure the canonical live-document snapshot boundary used by save."""
@@ -400,6 +417,11 @@ class ProjectLifecycleService:
                 rollback_stack.append(rollback)
 
             if self._post_network_activator is not None:
+                if self._post_network_activation_mode != POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT:
+                    raise RuntimeError(
+                        "Project activation requires the read-only post-network audit contract; "
+                        "persistent reconciliation must be invoked explicitly by Application."
+                    )
                 rollback = self._post_network_activator(context, loaded, network, next_generation)
                 if rollback is not None:
                     rollback_stack.append(rollback)
