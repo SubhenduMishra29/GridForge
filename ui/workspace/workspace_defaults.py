@@ -34,14 +34,14 @@ CANONICAL_PANEL_IDS = (
 )
 
 EDITOR_REGIONS = (
-    RegionDefinition(HEADER_REGION, HEADER_REGION, minimum_size=34, preferred_size=38),
-    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION, minimum_size=44, preferred_size=52),
-    RegionDefinition(TOOL_SETTINGS_REGION, TOOL_SETTINGS_REGION, visible=False, minimum_size=0, preferred_size=42),
+    RegionDefinition(HEADER_REGION, HEADER_REGION, minimum_size=34, preferred_size=44),
+    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION, minimum_size=180, preferred_size=250),
+    RegionDefinition(TOOL_SETTINGS_REGION, TOOL_SETTINGS_REGION, minimum_size=34, preferred_size=42),
     RegionDefinition(CANVAS_REGION, CANVAS_REGION, minimum_size=120),
-    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, minimum_size=0, preferred_size=280),
-    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION, visible=False, minimum_size=0, preferred_size=0),
-    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, visible=False, minimum_size=0, preferred_size=180),
-    RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=24, preferred_size=26),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, minimum_size=260, preferred_size=320),
+    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION, minimum_size=80, preferred_size=120),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, minimum_size=110, preferred_size=180),
+    RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=28, preferred_size=32),
 )
 
 SLD_EDITOR_REGIONS = (
