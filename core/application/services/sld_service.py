@@ -84,6 +84,93 @@ class SLDService:
             raise ValueError("core_connection_id must be a non-empty string")
         return f"sld-wire-{core_connection_id}"
 
+    def audit_simple_wire_projection(self, network: Any) -> tuple[dict[str, Any], ...]:
+        """Audit Core/SLD Simple-Wire consistency without mutating the document.
+
+        This method is the activation/read-side counterpart to the mutating
+        reconcile_simple_wire_projection method. It never creates, removes, or
+        rewrites persistent SLD state and never marks the document modified.
+        """
+        if network is None or not hasattr(network, "connectivity"):
+            raise TypeError("network must expose the authoritative connectivity aggregate")
+
+        core_connections = tuple(network.connectivity.connections)
+        core_by_id = {str(connection.connection_id): connection for connection in core_connections}
+        diagnostics: list[dict[str, Any]] = []
+        companions: dict[str, Any] = {}
+
+        for connection in self.document.model.connections:
+            properties = connection.properties
+            kind = str(properties.get("connection_kind", "")).upper()
+            lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
+            core_id = properties.get("core_connection_id")
+            owner = str(properties.get("presentation_owner", "")).lower()
+
+            if kind != "SIMPLE_WIRE" and not core_id:
+                continue
+            if kind != "SIMPLE_WIRE":
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "reason": "core_connection_mapping_on_non_simple_wire",
+                })
+                continue
+            if lifecycle == "ORPHANED":
+                continue
+            if lifecycle != "BOUND":
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "reason": f"unsupported_lifecycle_state:{lifecycle}",
+                })
+                continue
+            if not core_id:
+                diagnostics.append({
+                    "code": "SLD_WIRE_WITHOUT_CORE",
+                    "connection_id": str(connection.connection_id),
+                })
+                continue
+
+            core_id = str(core_id)
+            if core_id in companions:
+                diagnostics.append({
+                    "code": "DUPLICATE_PRESENTATION_COMPANION",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                })
+                continue
+
+            companions[core_id] = connection
+            if core_id not in core_by_id:
+                diagnostics.append({
+                    "code": "SLD_WIRE_WITHOUT_CORE",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                    "presentation_owner": owner,
+                })
+                continue
+
+            core = core_by_id[core_id]
+            expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
+            expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+            actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
+            actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
+            if actual_a != expected_a or actual_b != expected_b:
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                    "presentation_owner": owner,
+                })
+
+        for core_id in core_by_id:
+            if core_id not in companions:
+                diagnostics.append({
+                    "code": "CORE_WIRE_WITHOUT_SLD_COMPANION",
+                    "connection_id": core_id,
+                })
+        return tuple(diagnostics)
+
     def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
         """Reconcile persistent projection companions against authoritative Core Simple Wires.
         

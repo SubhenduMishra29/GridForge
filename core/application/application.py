@@ -71,6 +71,7 @@ class Application:
         "generator", "synchronous_machine", "motor", "shunt", "capacitor", "reactor", "solar", "battery", "grid",
     })
     _STATE_CHANGE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
+    POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT = "READ_ONLY_ACTIVATION_AUDIT"
 
     # Immutable Application exposure derived from the Core Terminal contract.
     # UI/bootstrap consumers receive values only; no live Core objects cross this boundary.
@@ -97,6 +98,7 @@ class Application:
         self._sld_service = sld_service
         self._control_service = control_service
         self._measurement_channel_service = measurement_channel_service
+        self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._draft_network: Any | None = None
@@ -257,7 +259,8 @@ class Application:
                 lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)
             )
             service.configure_post_network_activator(
-                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network),
+                mode=self.POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT,
             )
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
@@ -296,11 +299,24 @@ class Application:
 
         self.project_lifecycle.configure_presentation_activator(composite)
 
+    @property
+    def sld_activation_diagnostics(self) -> tuple[dict[str, Any], ...]:
+        """Return the latest read-only SLD/Core activation audit diagnostics."""
+        return self._sld_activation_diagnostics
+
     def _reconcile_sld_after_network_activation(self, network: Any) -> Any:
-        """Reconcile persistent SLD Simple Wire companions after Core Network activation."""
+        """Audit SLD/Core projection consistency after activation without mutation.
+
+        The historical method name is retained for compatibility with the
+        lifecycle callback, but activation is strictly read-only. Persistent
+        reconciliation remains an explicit Application-controlled operation.
+        """
         if self._sld_service is None or not self._sld_service.is_bound:
+            self._sld_activation_diagnostics = ()
             return None
-        return self._sld_service.reconcile_simple_wire_projection(network)
+        diagnostics = self._sld_service.audit_simple_wire_projection(network)
+        self._sld_activation_diagnostics = tuple(dict(item) for item in diagnostics)
+        return None
 
     def _bind_sld_transactionally(
         self,
@@ -333,7 +349,8 @@ class Application:
                 lambda context, value: self._bind_sld_transactionally(service, value, context)
             )
             self._project_lifecycle.configure_post_network_activator(
-                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network)
+                lambda context, loaded, network, generation: self._reconcile_sld_after_network_activation(network),
+                mode=self.POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT,
             )
         self._register_sld_handlers(service)
         presentation = self.presentation if self._project_lifecycle is not None else None
@@ -409,6 +426,7 @@ class Application:
             "project_id": context.project_id, "name": context.name, "operation": "new",
             "activation_generation": self.project_lifecycle.activation_generation,
             "semantic_scope": "APPLICATION_PROJECT_ACTIVATED", "ui_workspace_ready": False,
+            "sld_projection_diagnostics": self.sld_activation_diagnostics,
         }))
         return context
 
@@ -424,6 +442,7 @@ class Application:
             "path": str(context.path) if context.path else None, "operation": "open",
             "activation_generation": self.project_lifecycle.activation_generation,
             "semantic_scope": "APPLICATION_PROJECT_ACTIVATED", "ui_workspace_ready": False,
+            "sld_projection_diagnostics": self.sld_activation_diagnostics,
         }))
         return context
 
