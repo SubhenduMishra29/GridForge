@@ -47,8 +47,19 @@ class SLDRouteEditController:
     def commit(self) -> None:
         if self._connection_id is None:
             raise RuntimeError("No SLD route edit is active")
-        self._controller.set_connection_route(self._connection_id, tuple(self._points), routing_mode="manual")
-        self.cancel()
+        try:
+            # The controller/Application command is the only persistence
+            # boundary.  Do not update graphics here; a successful command
+            # causes the canonical SLD projection to be refreshed.
+            self._controller.set_connection_route(
+                self._connection_id,
+                tuple(self._points),
+                routing_mode="manual",
+            )
+        finally:
+            # Proposed route state is interaction-local.  It must not survive
+            # either acceptance or rejection of the command.
+            self.cancel()
 
     def cancel(self) -> None:
         self._connection_id = None

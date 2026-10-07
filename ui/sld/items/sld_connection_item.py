@@ -147,24 +147,32 @@ class SLDConnectionItem(QGraphicsPathItem):
                 (path.elementAt(path.elementCount() - 1).x, path.elementAt(path.elementCount() - 1).y))
 
     def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
-        """Update one presentation bend and emit an Application-bound edit request."""
+        """Propose one bend without changing the realized/persisted route.
+
+        The graphics item is a projection of the last accepted canvas snapshot.
+        A bend gesture therefore produces an interaction request only; the
+        Application command decides whether the persistent SLD route changes.
+        """
         if self._core_connection_id is None:
             raise RuntimeError("Cannot edit route for an SLD connection without an explicit Core connection identity.")
         if index < 0 or index >= len(self._route_points):
             raise IndexError(index)
+
         points = list(self._route_points)
         points[index] = (float(x), float(y))
-        self._route_points = tuple(points)
-        self._rebuild_visual_path()
+        proposed_route = tuple(points)
+
+        # Never assign proposed_route to _route_points here.  That tuple is the
+        # last realized route from SLDCanvasProjection/SLDCanvasRenderSystem.
         self.route_edit_requested.emit({
             "connection_id": self._presentation_id,
             "core_connection_id": self._core_connection_id,
-            "points": self._route_points,
+            "points": proposed_route,
         })
-        return self._route_points
+        return proposed_route
 
     def _rebuild_visual_path(self) -> None:
-        """Rebuild the transient visible path from the current route points."""
+        """Rebuild the visible path from the last accepted realized route."""
         path = QPainterPath(QPointF(self._visual_source))
         for x, y in self._route_points:
             path.lineTo(QPointF(float(x), float(y)))
