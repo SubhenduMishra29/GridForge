@@ -544,14 +544,10 @@ class ShellPlugin:
         if self._header_widget is not None:
             self._add_widget_once(self._header_widget)
 
-        # ----------------------------------------------------
-        # Toolbar
-        # ----------------------------------------------------
-
-        self._add_widget_once(
-            self._toolbar_widget
-        )
-
+        # The legacy global toolbar is initialized for compatibility but is
+        # deliberately not mounted in the root shell. Every engineering editor
+        # owns its contextual ToolShelf, avoiding a second permanent tool strip.
+        #
         # ----------------------------------------------------
         # Canvas
         #
