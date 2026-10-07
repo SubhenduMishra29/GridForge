@@ -73,7 +73,11 @@ class ElectricalInsertionService:
             )
 
         equipment_id = str(payload["equipment_id"])
-        if network.get_by_identity(equipment_id) is not None:
+        try:
+            network.get_by_identity(equipment_id)
+        except KeyError:
+            pass
+        else:
             raise ValidationError(
                 code="EQUIPMENT_ID_ALREADY_EXISTS",
                 message=f"Equipment identity {equipment_id!r} already exists.",
