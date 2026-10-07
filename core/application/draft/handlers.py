@@ -115,8 +115,11 @@ class DraftConnectivityResolver:
 
 
 class CommitNetworkHandler:
-    def __init__(self, draft_provider):
+    def __init__(self, draft_provider, command_executor):
+        if not callable(command_executor):
+            raise TypeError("command_executor must be callable.")
         self._draft_provider = draft_provider
+        self._command_executor = command_executor
         self._resolver = DraftConnectivityResolver()
 
     @staticmethod
@@ -267,10 +270,10 @@ class CommitNetworkHandler:
         )
 
         for prepared_command in prepared_commands:
-            transaction.execute(prepared_command)
+            self._command_executor(prepared_command, transaction)
 
         for prepared_command in prepared_connections:
-            transaction.execute(prepared_command)
+            self._command_executor(prepared_command, transaction)
 
         active_draft.clear_after_commit()
         return ApplicationResult.success_result({
