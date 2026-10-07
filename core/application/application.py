@@ -615,6 +615,7 @@ class Application:
                     input_endpoint=dict(metadata["input_endpoint"]),
                     output_endpoint=dict(metadata["output_endpoint"]),
                     replacement_connection_ids=tuple(metadata["replacement_connection_ids"]),
+                    terminal_anchors=metadata.get("terminal_anchors"),
                     transaction=transaction,
                 )
             return
