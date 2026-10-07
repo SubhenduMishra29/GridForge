@@ -180,6 +180,7 @@ class SLDEditor(QWidget):
             frame.set_title_visible(False)
 
         self._region_user_visibility: dict[str, bool] = {}
+        self._region_user_overrides: set[str] = set()
         self._definition_visibility: dict[str, bool] = {}
         self._presentation_maximized = False
         self._maximize_callback = None
@@ -204,7 +205,8 @@ class SLDEditor(QWidget):
             frame = self._region_widgets.get(region_id)
             visible = bool(getattr(region, "visible", True))
             self._definition_visibility[region_id] = visible
-            self._region_user_visibility.setdefault(region_id, visible)
+            if region_id not in self._region_user_overrides:
+                self._region_user_visibility[region_id] = visible
             if region_id in {"header", "canvas", "status"}:
                 self._region_user_visibility[region_id] = True
             if frame is not None:
@@ -250,6 +252,7 @@ class SLDEditor(QWidget):
             return
         visible = bool(visible)
         if user:
+            self._region_user_overrides.add(region_id)
             self._region_user_visibility[region_id] = visible
         frame = self._region_widgets[region_id]
         frame.setVisible(visible)
@@ -258,10 +261,10 @@ class SLDEditor(QWidget):
 
     def update_contextual_regions(self) -> None:
         selected = getattr(getattr(self._editor_context, "engineering", None), "selected_ids", ()) or ()
-        # Selection is a useful reason to surface the inspector, but a user
-        # who explicitly hid it keeps control.
-        if selected and "sidebar" not in self._region_user_visibility:
-            self.set_region_visible("sidebar", True, user=False)
+        # Selection is a useful reason to surface the inspector. An explicit
+        # user visibility choice always wins over contextual automation.
+        if "sidebar" not in self._region_user_overrides:
+            self.set_region_visible("sidebar", bool(selected), user=False)
         self._sync_panel_buttons()
 
     def _sync_panel_buttons(self) -> None:
