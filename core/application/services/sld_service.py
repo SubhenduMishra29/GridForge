@@ -686,6 +686,21 @@ class SLDService:
                 "points": [list(point) for point in points[1:-1]],
             }
 
+        def presentation_endpoint(reference: Mapping[str, Any]) -> dict[str, str]:
+            kind = str(reference.get("kind", "")).lower()
+            if kind == "terminal":
+                if str(reference.get("object_id")) != str(equipment_id):
+                    raise ValueError("Insertion terminal endpoint belongs to a different equipment identity.")
+                return {
+                    "kind": "equipment",
+                    "node_id": node_id,
+                    "equipment_id": str(equipment_id),
+                    "terminal_role": str(reference["terminal_role"]),
+                }
+            raise ValueError("Inserted equipment Simple Wire endpoints must be terminal references.")
+
+        input_presentation_endpoint = presentation_endpoint(input_endpoint)
+        output_presentation_endpoint = presentation_endpoint(output_endpoint)
         properties = dict(old_connection.properties)
         properties["connection_kind"] = "SIMPLE_WIRE"
         properties["presentation_owner"] = properties.get("presentation_owner", "projection")
@@ -733,7 +748,7 @@ class SLDService:
             source_node_id=old_connection.source_node_id,
             target_node_id=node_id,
             source_endpoint=old_connection.source_endpoint.to_dict() if old_connection.source_endpoint is not None else None,
-            target_endpoint=dict(input_endpoint),
+            target_endpoint=input_presentation_endpoint,
             route=route_for(first_polyline),
             properties=dict(properties, core_connection_id=first_core_id),
         )
@@ -741,7 +756,7 @@ class SLDService:
             connection_id=second_id,
             source_node_id=node_id,
             target_node_id=old_connection.target_node_id,
-            source_endpoint=dict(output_endpoint),
+            source_endpoint=output_presentation_endpoint,
             target_endpoint=old_connection.target_endpoint.to_dict() if old_connection.target_endpoint is not None else None,
             route=route_for(second_polyline),
             properties=dict(properties, core_connection_id=second_core_id),
