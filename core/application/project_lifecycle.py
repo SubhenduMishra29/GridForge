@@ -47,6 +47,7 @@ class PresentationConfigurationSnapshot:
     collection_serializer: PresentationCollectionSerializer | None
     collection_deserializer: PresentationCollectionDeserializer | None
     collection_activator: PresentationCollectionActivator | None
+    collection_snapshot_provider: PresentationCollectionSnapshotProvider | None
 
 
 class ProjectLifecycleService:
@@ -157,6 +158,7 @@ class ProjectLifecycleService:
             collection_serializer=self._presentation_collection_serializer,
             collection_deserializer=self._presentation_collection_deserializer,
             collection_activator=self._presentation_collection_activator,
+            collection_snapshot_provider=self._presentation_collection_snapshot_provider,
         )
 
     def restore_presentation_configuration(self, snapshot: PresentationConfigurationSnapshot) -> None:
@@ -170,6 +172,7 @@ class ProjectLifecycleService:
         self._presentation_collection_serializer = snapshot.collection_serializer
         self._presentation_collection_deserializer = snapshot.collection_deserializer
         self._presentation_collection_activator = snapshot.collection_activator
+        self._presentation_collection_snapshot_provider = snapshot.collection_snapshot_provider
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
@@ -370,7 +373,6 @@ class ProjectLifecycleService:
         old_generation = self._activation_generation
         old_state = self._state
         old_rollback_error = self._rollback_error
-        old_collection = getattr(self, "_runtime_presentation_collection", None)
         next_generation = old_generation + 1
 
         rollback_stack: list[Callable[[], None]] = []
@@ -381,7 +383,6 @@ class ProjectLifecycleService:
             # rejects documents that are not Application.presentation, so this
             # is the transactional authority-binding phase of activation.
             self._presentation = presentation
-            self._runtime_presentation_collection = presentation_collection
 
             rollback = self._activate_presentation_collection(context, presentation_collection)
             if rollback is not None:
@@ -410,7 +411,6 @@ class ProjectLifecycleService:
 
             self._network = network
             self._context = context
-            self._runtime_presentation_collection = presentation_collection
             self._activation_generation = next_generation
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
@@ -431,7 +431,6 @@ class ProjectLifecycleService:
 
             self._network = old_network
             self._context = old_context
-            self._runtime_presentation_collection = old_collection
             self._activation_generation = old_generation
 
             if rollback_errors:
