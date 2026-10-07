@@ -78,13 +78,14 @@ class ControlSurfaceHost(QWidget):
             return shelf
 
         if "sld" in normalized:
-            self._host.register_editor(
-                "sld-editor",
-                SLDEditor(
-                    canvas=normalized["sld"],
-                    tool_shelf=make_tool_shelf("sld", self._host),
-                    parent=self._host,
-                ),
+            sld_editor = SLDEditor(
+                canvas=normalized["sld"],
+                tool_shelf=make_tool_shelf("sld", self._host),
+                parent=self._host,
+            )
+            self._host.register_editor("sld-editor", sld_editor)
+            sld_editor.set_maximize_callback(
+                lambda maximized: self._host.set_area_maximized("main-sld", maximized)
             )
         if "control" in normalized:
             self._host.register_editor(
@@ -197,6 +198,10 @@ class ControlSurfaceHost(QWidget):
                 engineering=engineering,
             )
         )
+        editor = self._host.widget(context.editor.editor_id) if getattr(context, "editor", None) is not None else None
+        refresh_contextual = getattr(editor, "update_contextual_regions", None)
+        if callable(refresh_contextual):
+            refresh_contextual()
 
     def refresh_tool_shelves(self) -> None:
         for shelf in self._shelves.values():
