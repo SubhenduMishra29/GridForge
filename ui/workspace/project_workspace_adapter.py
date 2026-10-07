@@ -42,6 +42,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._lifecycle = lifecycle
         self._handlers: list[WorkspaceUpdateHandler] = []
         self._presentation_activation_bridge: PresentationActivationBridge | None = None
+        self._document_transition_guard: Callable[[], None] | None = None
 
     @property
     def application(self) -> Application: return self._application
@@ -68,6 +69,11 @@ class ProjectWorkspaceApplicationAdapter:
         if not callable(bridge):
             raise TypeError("bridge must be callable.")
         self._presentation_activation_bridge = bridge
+
+    def configure_document_transition_guard(self, guard: Callable[[], None]) -> None:
+        if not callable(guard):
+            raise TypeError("guard must be callable.")
+        self._document_transition_guard = guard
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
         if not callable(handler): raise TypeError("handler must be callable.")
@@ -267,6 +273,8 @@ class ProjectWorkspaceApplicationAdapter:
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         try:
+            if self._document_transition_guard is not None:
+                self._document_transition_guard()
             self._lifecycle.activate_document_id(document_id)
             self._application.activate_presentation(document)
             if self._presentation_activation_bridge is not None:
@@ -290,6 +298,8 @@ class ProjectWorkspaceApplicationAdapter:
         if project is None:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
+        if self._document_transition_guard is not None:
+            self._document_transition_guard()
         document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
         document = self._lifecycle.create_document(
             "sld",
@@ -335,6 +345,8 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        if self._document_transition_guard is not None:
+            self._document_transition_guard()
         if self._lifecycle.documents.is_dirty(document_id):
             if decision == "save":
                 previous_active = self._lifecycle.document
