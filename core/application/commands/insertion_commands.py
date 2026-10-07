@@ -32,6 +32,7 @@ class InsertEquipmentIntoConnectionCommand(Command):
         terminal_mapping: tuple[str, str] | None = None,
         creation_parameters: Mapping[str, Any] | None = None,
         segment_index: int = 0,
+        terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -65,6 +66,16 @@ class InsertEquipmentIntoConnectionCommand(Command):
                 raise ValueError("terminal_mapping roles must be non-empty strings.")
         if creation_parameters is not None and not isinstance(creation_parameters, Mapping):
             raise TypeError("creation_parameters must be a mapping or None.")
+        if terminal_anchors is not None:
+            if not isinstance(terminal_anchors, Mapping):
+                raise TypeError("terminal_anchors must be a mapping or None.")
+            for role, anchor in terminal_anchors.items():
+                if not isinstance(role, str) or not role.strip():
+                    raise ValueError("terminal_anchors keys must be non-empty strings.")
+                if not isinstance(anchor, (tuple, list)) or len(anchor) != 2:
+                    raise TypeError("terminal anchor positions must contain exactly two coordinates.")
+                if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in anchor):
+                    raise TypeError("terminal anchor coordinates must be numeric.")
 
         super().__init__(
             command_type=INSERT_EQUIPMENT_INTO_CONNECTION,
@@ -79,6 +90,10 @@ class InsertEquipmentIntoConnectionCommand(Command):
                 "terminal_mapping": None if terminal_mapping is None else tuple(str(role).strip() for role in terminal_mapping),
                 "creation_parameters": {} if creation_parameters is None else dict(creation_parameters),
                 "segment_index": segment_index,
+                "terminal_anchors": None if terminal_anchors is None else {
+                    str(role).strip(): (float(anchor[0]), float(anchor[1]))
+                    for role, anchor in terminal_anchors.items()
+                },
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
