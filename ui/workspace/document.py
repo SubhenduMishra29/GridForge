@@ -111,6 +111,7 @@ class Document:
             "document_type": self.document_type,
             "name": self.name,
             "metadata": dict(self.metadata),
+            "modified": self.modified,
         }
 
     @classmethod
@@ -122,6 +123,8 @@ class Document:
             name=str(data.get("name", "Untitled")),
             metadata=dict(data.get("metadata", {})),
         )
+        if data.get("modified", False):
+            document.mark_modified()
         return document
 
 
