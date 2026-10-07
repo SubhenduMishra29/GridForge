@@ -91,7 +91,6 @@ class SLDDocument(Document):
             "project_id": self.project_id,
             "document_type": self.document_type,
             "name": self.name,
-            "modified": self.modified,
             "model": self.model.to_dict(),
         }
 
@@ -128,8 +127,6 @@ class SLDDocument(Document):
                 document.model.remove_node(node.node_id)
 
         document.materialize_missing_symbol_presentations()
-        if bool(data.get("modified", False)):
-            document.mark_modified()
         return document
 
     def clear(self) -> None:

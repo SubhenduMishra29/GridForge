@@ -12,6 +12,7 @@ from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout,
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
 from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
+from ui.editors.sld.sld_document_tabs import SLDDocumentTabs
 
 
 class SLDEditor(QWidget):
@@ -31,6 +32,7 @@ class SLDEditor(QWidget):
         overlay: QWidget | None = None,
         explorer: QWidget | None = None,
         status: QWidget | None = None,
+        document_tabs: SLDDocumentTabs | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -70,6 +72,10 @@ class SLDEditor(QWidget):
         self._restore_button.clicked.connect(lambda: self.set_presentation_maximized(False))
         self._restore_button.setVisible(False)
         header_layout.addWidget(self._restore_button)
+        document_tabs_widget = document_tabs or SLDDocumentTabs(parent=self)
+        document_tabs_region = EditorRegionFrame("SLD Documents", parent=self)
+        document_tabs_region.set_widget(document_tabs_widget)
+
         header_content = QWidget(header)
         header_content.setLayout(header_layout)
         header.set_widget(header_content)
@@ -147,6 +153,7 @@ class SLDEditor(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(header, 0)
+        root.addWidget(document_tabs_region, 0)
         root.addWidget(body, 1)
         root.addWidget(diagnostics_region, 0)
         root.addWidget(status_region, 0)
@@ -154,6 +161,7 @@ class SLDEditor(QWidget):
         self.setObjectName("SLDEditor")
         self._region_widgets = {
             "header": header,
+            "document_tabs": document_tabs_region,
             "explorer": explorer_region,
             "tool_shelf": shelf_region,
             "tool_settings": settings_region,
@@ -164,6 +172,7 @@ class SLDEditor(QWidget):
             "status": status_region,
         }
         self._tool_shelf = shelf
+        self._document_tabs = document_tabs_widget
         self._tool_settings = settings
         self._editor_context = None
         self._region_splitters = {
@@ -173,7 +182,7 @@ class SLDEditor(QWidget):
             "sidebar": sidebar,
         }
         for frame in (
-            header, shelf_region, settings_region, canvas_region,
+            header, document_tabs_region, shelf_region, settings_region, canvas_region,
             explorer_region, inspector_region, overlay_region,
             diagnostics_region, status_region,
         ):
@@ -189,6 +198,13 @@ class SLDEditor(QWidget):
         # remain permanently visible. Secondary regions are contextual.
         for region_id in ("explorer", "sidebar", "diagnostics", "tool_settings"):
             self.set_region_visible(region_id, False, user=False)
+
+    def set_document_lifecycle(self, document_manager: object, *, activate, new_document, close_document) -> None:
+        """Bind the tab strip to the canonical document lifecycle."""
+        self._document_tabs.bind(document_manager, activate=activate, new_document=new_document, close_document=close_document)
+
+    def refresh_document_tabs(self) -> None:
+        self._document_tabs.refresh()
 
     def set_maximize_callback(self, callback) -> None:
         if callback is not None and not callable(callback):

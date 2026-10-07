@@ -303,8 +303,47 @@ class ControlSurfaceHost(QWidget):
             # The settings widget is also used by EditorContext propagation.
             setattr(editor, "_tool_settings", tool_settings)
 
+    def configure_sld_document_lifecycle(
+        self,
+        document_manager: Any,
+        *,
+        activate,
+        new_document,
+        close_document,
+    ) -> None:
+        editor = self._host.widget("sld-editor")
+        if editor is None:
+            raise RuntimeError("SLD editor is not configured.")
+        setter = getattr(editor, "set_document_lifecycle", None)
+        if not callable(setter):
+            raise RuntimeError("SLD editor does not expose document lifecycle binding.")
+        setter(
+            document_manager,
+            activate=activate,
+            new_document=new_document,
+            close_document=close_document,
+        )
+
+    def refresh_sld_document_tabs(self) -> None:
+        editor = self._host.widget("sld-editor")
+        if editor is not None:
+            refresh = getattr(editor, "refresh_document_tabs", None)
+            if callable(refresh):
+                refresh()
+
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
+        context = self._host.editor_context
+        if context is not None and callable(getattr(context, "with_updates", None)):
+            engineering = getattr(context, "engineering", None)
+            if engineering is not None and callable(getattr(engineering, "with_updates", None)):
+                engineering = engineering.with_updates(document_id=getattr(document, "document_id", None))
+                context = context.with_updates(document_id=getattr(document, "document_id", None), engineering=engineering)
+                self._host.set_editor_context(context)
+                editor = self._host.widget("sld-editor")
+                setter = getattr(editor, "set_editor_context", None)
+                if callable(setter):
+                    setter(context)
         map_widget = self._host.widget("map")
         if isinstance(map_widget, MapWorkspaceView):
             map_widget.set_document(document)

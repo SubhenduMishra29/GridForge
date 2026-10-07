@@ -218,6 +218,25 @@ class Application:
     def sld_service(self) -> SLDService:
         if self._sld_service is None: raise RuntimeError("Application SLD service is not configured.")
         return self._sld_service
+    def activate_presentation(self, presentation: Any) -> Any:
+        """Make an already-open project presentation the Application-active presentation."""
+        if presentation is None:
+            raise TypeError("presentation must not be None.")
+        lifecycle = self.project_lifecycle
+        previous = lifecycle.activate_presentation(presentation)
+        try:
+            if self._sld_service is not None:
+                self._sld_service.bind_document(presentation)
+        except BaseException:
+            lifecycle.activate_presentation(previous)
+            if previous is not None and self._sld_service is not None:
+                try:
+                    self._sld_service.bind_document(previous)
+                except BaseException:
+                    pass
+            raise
+        return presentation
+
     @property
     def presentation(self) -> Any: return self.project_lifecycle.presentation
     @property
