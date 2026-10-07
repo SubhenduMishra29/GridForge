@@ -257,8 +257,8 @@ class ProjectLifecycleService:
         loaded = self._load_project(context.path)
         if loaded.context.project_id != context.project_id:
             raise RuntimeError("Persisted project identity does not match the active project.")
-        presentation = self._presentation_for_loaded(loaded)
-        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation)
+        presentation, collection = self._presentation_for_loaded(loaded)
+        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation, presentation_collection=collection)
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
         context = self._require_context()
