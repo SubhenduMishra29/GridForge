@@ -1,60 +1,82 @@
-GridForge V2 — UI Architecture
+# GridForge V2 — UI Architecture
 
-Status: Frozen Architecture Contract
-Scope: ui/ and all UI-facing integration points
-Framework: PySide6
-Application: GridForge V2
+> **Status:** Frozen Architecture Contract
+> **Scope:** `ui/` and all UI-facing integration points
+> **Framework:** PySide6
+> **Application:** GridForge V2
 
-1. Purpose
+---
 
-The GridForge V2 UI is the presentation, interaction, visualization, workspace, and user-intent boundary of the GridForge engineering platform.
+## Table of Contents
 
-It provides:
+| Part | Topic | Sections |
+|------|-------|----------|
+| **I** | [Foundations](#part-i--foundations) | 1–3 |
+| **II** | [Contracts: Read, Write, Events](#part-ii--read-write-and-event-contracts) | 4–7 |
+| **III** | [State, Identity, Projection](#part-iii--state-identity-and-projection) | 8–12 |
+| **IV** | [Shell and Coordination](#part-iv--shell-and-coordination) | 13–14 |
+| **V** | [Interaction and Tools](#part-v--interaction-and-tools) | 15–20 |
+| **VI** | [Canvas and Rendering](#part-vi--canvas-and-rendering) | 21–25 |
+| **VII** | [Selection, Panels, Workspace](#part-vii--selection-panels-and-workspace) | 26–29 |
+| **VIII** | [Multi-Canvas and Synchronization](#part-viii--multi-canvas-and-synchronization) | 30–32 |
+| **IX** | [Workflows](#part-ix--core-workflows) | 33–34 |
+| **X** | [Validation, Errors, Notifications](#part-x--validation-errors-and-notifications) | 35–37 |
+| **XI** | [Platform: Qt, Plugins, Registries](#part-xi--platform-qt-plugins-and-registries) | 43–49 |
+| **XII** | [Undo, Async, Studies, Results, Projects](#part-xii--undo-async-studies-results-and-projects) | 38–42 |
+| **XIII** | [Robustness and Edge Cases](#part-xiii--robustness-and-edge-cases) | 50–57 |
+| **XIV** | [Quality: Performance and Testing](#part-xiv--quality-performance-and-testing) | 57–60 |
+| **XV** | [Structure, Flows, and Rules](#part-xv--structure-flows-and-rules) | 61–69 |
 
-electrical SLD editing and visualization;
-equipment placement and editing;
-topology interaction;
-engineering property inspection;
-study and result presentation;
-project navigation;
-tools and interaction modes;
-dockable engineering panels;
-workspace management;
-plugin-based UI extension;
-command dispatch;
-selection and snapping;
-rendering and visual feedback.
+---
 
-The UI does not own engineering truth.
+# Part I — Foundations
 
-The authoritative engineering state remains outside the UI in the Application/Core architecture.
+## 1. Purpose
 
-The fundamental principle is:
+The GridForge V2 UI is the **presentation, interaction, visualization, workspace, and user-intent boundary** of the GridForge engineering platform.
 
-UI asks. Application orchestrates. Core decides. Core reports. UI projects and displays.
+**It provides:**
 
-2. Prime Directive
-UI-001 — The UI is never an alternate Core
+- Electrical SLD editing and visualization
+- Equipment placement and editing
+- Topology interaction
+- Engineering property inspection
+- Study and result presentation
+- Project navigation
+- Tools and interaction modes
+- Dockable engineering panels
+- Workspace management
+- Plugin-based UI extension
+- Command dispatch
+- Selection and snapping
+- Rendering and visual feedback
 
-The UI must never become the authoritative owner of:
+> **The UI does not own engineering truth.**
+> The authoritative engineering state remains outside the UI, in the Application/Core architecture.
 
-buses;
-terminals;
-branches;
-equipment;
-electrical parameters;
-topology;
-connectivity;
-protection settings;
-study definitions;
-solver state;
-study results;
-engineering validation;
-project persistence;
-engineering calculations.
+### Fundamental principle
 
-The authoritative source is:
+> **UI asks. Application orchestrates. Core decides. Core reports. UI projects and displays.**
 
+---
+
+## 2. Prime Directive
+
+### UI-001 — The UI is never an alternate Core
+
+The UI must **never** become the authoritative owner of:
+
+| | | |
+|---|---|---|
+| Buses | Terminals | Branches |
+| Equipment | Electrical parameters | Topology |
+| Connectivity | Protection settings | Study definitions |
+| Solver state | Study results | Engineering validation |
+| Project persistence | Engineering calculations | |
+
+**Authoritative source:**
+
+```text
 Application
     ↓
 Core
@@ -64,18 +86,23 @@ Core
  ├── Studies
  ├── Results
  └── Engineering Rules
+```
 
-The UI owns only:
+**The UI owns only:**
 
-Presentation State
-Interaction State
-Viewport State
-Workspace State
-Transient UI State
-3. Canonical UI ↔ Core Architecture
+- Presentation State
+- Interaction State
+- Viewport State
+- Workspace State
+- Transient UI State
 
-The complete interaction architecture is:
+---
 
+## 3. Canonical UI ↔ Core Architecture
+
+The complete interaction architecture:
+
+```text
                          USER
                            │
                   mouse / keyboard
@@ -84,72 +111,60 @@ The complete interaction architecture is:
 ┌──────────────────────────────────────────────────────┐
 │                         UI                           │
 │                                                      │
-│ MainWindow                                           │
-│ Shell / Workspace                                    │
-│ Canvas                                               │
-│ Panels                                               │
-│ Toolbar                                              │
-│ Tools                                                │
-│ Selection                                            │
-│                                                      │
+│  MainWindow · Shell / Workspace · Canvas · Panels    │
+│  Toolbar · Tools · Selection                         │
 └──────────────────────┬───────────────────────────────┘
-                       │
                        │ User Intent
                        ▼
               ┌──────────────────┐
               │ Command Boundary │
               └────────┬─────────┘
-                       │
                        ▼
               ┌──────────────────┐
-              │   Application   │
-              │                  │
-              │ Commands         │
-              │ Handlers         │
-              │ Services         │
-              │ Lifecycle        │
+              │   Application    │
+              │  Commands        │
+              │  Handlers        │
+              │  Services        │
+              │  Lifecycle       │
               └────────┬─────────┘
-                       │
                        ▼
               ┌──────────────────┐
               │       CORE       │
-              │                  │
-              │ Model            │
-              │ Network          │
-              │ Topology         │
-              │ Studies          │
-              │ Results          │
+              │  Model · Network │
+              │  Topology        │
+              │  Studies·Results │
               └────────┬─────────┘
-                       │
-                    Events
-                       │
+                       │ Events
                        ▼
               ┌──────────────────┐
-              │    Projection    │
-              │     / Adapter    │
+              │ Projection /     │
+              │ Adapter          │
               └────────┬─────────┘
-                       │
                        ▼
               ┌──────────────────┐
               │    View State    │
               └────────┬─────────┘
-                       │
                        ▼
               ┌──────────────────┐
-              │   RenderSystem   │
-              │    Renderers     │
-              │   GraphicsItems  │
+              │  RenderSystem    │
+              │  Renderers       │
+              │  GraphicsItems   │
               └────────┬─────────┘
-                       │
                        ▼
                      CANVAS
+```
 
-This is the canonical GridForge V2 UI execution model.
+This is the **canonical GridForge V2 UI execution model**.
 
-4. Golden Write Contract
+---
 
-Every persistent user action follows:
+# Part II — Read, Write, and Event Contracts
 
+## 4. Golden Write Contract
+
+Every persistent user action follows this path:
+
+```text
 USER
  ↓
 Qt Event
@@ -169,23 +184,17 @@ Application Handler / Service
 Core
  ↓
 Authoritative State Change
+```
 
-The UI must never use:
+**Prohibited** — direct mutation from a widget:
 
-UI
- ↓
-Core object
- ↓
-attribute mutation
+```python
+bus.voltage = 132   # ❌ never from the UI
+```
 
-For example, this is prohibited:
+**Correct** — round trip through the command boundary:
 
-bus.voltage = 132
-
-from a widget.
-
-Correct:
-
+```text
 PropertyEditor
  ↓
 ChangeParameterCommand
@@ -199,10 +208,15 @@ EquipmentChanged
 Projection
  ↓
 PropertyEditor
-5. Golden Read Contract
+```
 
-UI state is derived from authoritative state:
+---
 
+## 5. Golden Read Contract
+
+UI state is **derived** from authoritative state:
+
+```text
 Core
  ↓
 Application / Projection
@@ -214,13 +228,17 @@ UI Component
 Renderer
  ↓
 Screen
+```
 
-UI components must not reconstruct engineering truth by inspecting arbitrary Core internals.
+UI components must **not** reconstruct engineering truth by inspecting arbitrary Core internals.
 
-6. Golden Event Contract
+---
+
+## 6. Golden Event Contract
 
 Events communicate authoritative state changes.
 
+```text
 Core / Application
         ↓
       Event
@@ -232,233 +250,114 @@ Core / Application
     View State
         ↓
  UI Components
+```
 
-Examples:
+**Examples:**
 
-EquipmentCreated
-EquipmentChanged
-EquipmentRemoved
-TopologyChanged
-ProjectLoaded
-ProjectSaved
-StudyStarted
-StudyProgressed
-StudyCompleted
-StudyFailed
-StudyCancelled
+`EquipmentCreated` · `EquipmentChanged` · `EquipmentRemoved` · `TopologyChanged` · `ProjectLoaded` · `ProjectSaved` · `StudyStarted` · `StudyProgressed` · `StudyCompleted` · `StudyFailed` · `StudyCancelled`
 
-A UI action succeeding is determined by authoritative application/Core state—not by the fact that the user clicked a button.
+> A UI action succeeding is determined by **authoritative application/Core state** — not by the fact that the user clicked a button.
 
-7. Commands vs Events
+---
 
-This distinction is mandatory.
+## 7. Commands vs Events
 
-Command
+This distinction is **mandatory**.
 
-A command means:
+| | Command | Event |
+|---|---|---|
+| **Meaning** | "I want this operation to happen." | "This authoritative state change happened." |
+| **Direction** | UI → Application | Application/Core → UI |
+| **Examples** | `CreateBusCommand`, `CreateLineCommand`, `DeleteEquipmentCommand`, `MoveEquipmentCommand`, `MoveSLDElementCommand`, `ConnectTerminalsCommand`, `DisconnectTerminalsCommand`, `ChangeParameterCommand`, `RenameEquipmentCommand`, `RotateEquipmentCommand`, `RunStudyCommand`, `SaveProjectCommand`, `OpenProjectCommand` | `BusCreated`, `EquipmentChanged`, `EquipmentRemoved`, `TopologyChanged`, `ProjectLoaded`, `StudyCompleted` |
 
-"I want this operation to happen."
+Commands and events must **never** be treated as interchangeable.
 
-Examples:
+---
 
-CreateBusCommand
-CreateLineCommand
-DeleteEquipmentCommand
-MoveEquipmentCommand
-MoveSLDElementCommand
-ConnectTerminalsCommand
-DisconnectTerminalsCommand
-ChangeParameterCommand
-RenameEquipmentCommand
-RotateEquipmentCommand
-RunStudyCommand
-SaveProjectCommand
-OpenProjectCommand
+# Part III — State, Identity, and Projection
 
-Direction:
-
-UI → Application
-Event
-
-An event means:
-
-"This authoritative state change happened."
-
-Examples:
-
-BusCreated
-EquipmentChanged
-EquipmentRemoved
-TopologyChanged
-ProjectLoaded
-StudyCompleted
-
-Direction:
-
-Application/Core → UI
-
-Commands and events must never be treated as interchangeable.
-
-8. Five UI State Domains
+## 8. Five UI State Domains
 
 GridForge V2 explicitly separates five kinds of state.
 
-8.1 Domain State
+| # | State | Owner | Contents |
+|---|-------|-------|----------|
+| 8.1 | **Domain** | Core / Application | Network, equipment, terminals, topology, electrical parameters, protection, studies, results, engineering rules |
+| 8.2 | **Application** | Application layer | Current project, project lifecycle, active study, command execution, command history, execution state, application services |
+| 8.3 | **Presentation** | UI / Application | SLD position, SLD rotation, symbol geometry, label placement, routing geometry, visibility, presentation metadata |
+| 8.4 | **Interaction** | UI | Active tool, selection, dragging, connecting, placing, editing, previewing, measuring |
+| 8.5 | **Viewport** | UI | Zoom, pan, camera, grid visibility, grid spacing, viewport size |
 
-Owned by Core/Application:
+> Presentation state is persisted when required, but **never becomes electrical truth**.
 
-Network
-Equipment
-Terminals
-Topology
-Electrical parameters
-Protection
-Studies
-Results
-Engineering rules
-8.2 Application State
+---
 
-Owned by the Application layer:
+## 9. SLD Contract
 
-Current project
-Project lifecycle
-Active study
-Command execution
-Command history
-Execution state
-Application services
-8.3 Presentation State
+> The SLD is **not** the electrical model. It is an **editable visual projection** of the authoritative electrical model plus presentation/layout state.
 
-UI/application presentation state:
+| Concern | Owner |
+|---------|-------|
+| Electrical truth | Core |
+| Presentation / layout | UI / Application presentation state |
+| Screen | Canvas |
 
-SLD position
-SLD rotation
-Symbol geometry
-Label placement
-Routing geometry
-Visibility
-Presentation metadata
+The SLD may be saved and restored. Saving SLD layout does **not** make the SLD authoritative over electrical topology.
 
-Presentation state is persisted when required but does not become electrical truth.
+---
 
-8.4 Interaction State
+## 10. UI Object Identity
 
-Owned by UI:
+Every UI representation of a Core object must use the Core object's **stable identity**.
 
-Active tool
-Selection
-Dragging
-Connecting
-Placing
-Editing
-Previewing
-Measuring
-8.5 Viewport State
+```text
+Core:  equipment_id = "BUS-8F3A..."
+UI:    BusItem.domain_id = "BUS-8F3A..."
+```
 
-Owned by UI:
+**Never** use as authoritative identity:
 
-Zoom
-Pan
-Camera
-Grid visibility
-Grid spacing
-Viewport size
-9. SLD Contract
+- `id(core_object)`
+- Python object identity
+- Qt object identity
+- List index
+- Scene index
+- Graphics-item index
+- Display name
 
-The SLD is not the electrical model.
+> Python/Qt identity may be used internally as an optimization, but never as the cross-layer architectural identity.
 
-It is:
+**Stable identity is required for:** event routing · projection · persistence · undo/redo · reload · multi-canvas synchronization · future collaboration · incremental rendering.
 
-An editable visual projection of the authoritative electrical model plus presentation/layout state.
+---
 
-Therefore:
+## 11. UI Object ≠ Domain Object
 
-Electrical Truth
-      ↓
-     Core
-
-Presentation/Layout
-      ↓
- UI/Application Presentation State
-
-Screen
-      ↓
-    Canvas
-
-The SLD may be saved and restored.
-
-Saving SLD layout does not make the SLD authoritative over electrical topology.
-
-10. UI Object Identity
-
-Every UI representation corresponding to a Core object must use the Core object's stable identity.
-
-Example:
-
-Core:
-
-equipment_id = "BUS-8F3A..."
-
-UI:
-
-BusItem.domain_id = "BUS-8F3A..."
-
-Never use as authoritative identity:
-
-id(core_object)
-Python object identity
-Qt object identity
-list index
-scene index
-graphics-item index
-display name
-
-Python/Qt object identity may be used internally as an optimization, but never as the cross-layer architectural identity.
-
-Stable identity is required for:
-
-event routing;
-projection;
-persistence;
-undo/redo;
-reload;
-multi-canvas synchronization;
-future collaboration;
-incremental rendering.
-11. UI Object ≠ Domain Object
-
-The following distinction is mandatory:
-
+```text
 Core Bus
-     │
-     ▼
+   │
+   ▼
 BusViewState
-     │
-     ▼
+   │
+   ▼
 BusItem
+```
 
-Therefore:
+| Never equal | |
+|---|---|
+| `BusItem` ≠ `Bus` | `LineItem` ≠ `Line` |
+| `TransformerItem` ≠ `Transformer` | `BreakerItem` ≠ `Breaker` |
 
-BusItem ≠ Bus
-LineItem ≠ Line
-TransformerItem ≠ Transformer
-BreakerItem ≠ Breaker
+A GraphicsItem **may** contain `domain_id`, geometry, visual state, and interaction state.
+It **must not** become a shadow engineering model.
 
-A GraphicsItem may contain:
+---
 
-domain_id
-geometry
-visual_state
-interaction_state
-
-It must not become a shadow engineering model.
-
-12. Projection Layer
+## 12. Projection Layer
 
 The projection layer explicitly translates authoritative application/Core state into UI-readable state.
 
-Conceptually:
-
+```text
 Core Object
      ↓
 Projection Adapter
@@ -468,9 +367,11 @@ View State
 Renderer
      ↓
 GraphicsItem
+```
 
-Example:
+**Example:**
 
+```python
 EquipmentViewState(
     id="TR-001",
     equipment_type="transformer",
@@ -479,76 +380,55 @@ EquipmentViewState(
     rotation=rotation,
     status=status,
 )
+```
 
-The renderer consumes ViewState.
+The renderer consumes **ViewState**. It does not interrogate arbitrary Core internals.
 
-It does not interrogate arbitrary Core internals.
+---
 
-13. MainWindow Contract
+# Part IV — Shell and Coordination
 
-MainWindow is the UI composition root.
+## 13. MainWindow Contract
 
-It is intentionally thin.
+`MainWindow` is the **UI composition root**. It is intentionally thin.
 
-Responsibilities:
+| ✅ Responsibilities | ❌ Must not |
+|---|---|
+| Create the top-level Qt window | Call `network.add_bus(...)` |
+| Establish the application UI lifetime | Set `bus.voltage = ...` |
+| Receive application/UI context | Call `solver.solve(...)` |
+| Receive `PluginContext` | Implement engineering calculations |
+| Initialize shell composition | Implement topology |
+| Connect top-level UI services | Create concrete tools directly |
+| Manage menus/toolbars/docks through composition | Create renderer implementations directly |
+| Provide UI context | Mutate Core |
+| Initiate orderly shutdown | Become the application brain or a second Controller |
 
-create the top-level Qt window;
-establish the application UI lifetime;
-receive application/UI context;
-receive PluginContext;
-initialize shell composition;
-connect top-level UI services;
-manage menus/toolbars/docks through composition;
-provide UI context;
-initiate orderly shutdown.
+---
 
-It must not:
+## 14. Controller Contract
 
-network.add_bus(...)
-bus.voltage = ...
-solver.solve(...)
+The Controller is the **UI/Application coordination boundary** — a facade, not another Core.
 
-It must not:
+| ✅ May coordinate | ❌ Must not implement |
+|---|---|
+| Commands | Electrical calculations |
+| Application actions | Topology algorithms |
+| Project operations | Rendering |
+| UI state | Snapping algorithms |
+| Tool requests | Coordinate transformations |
+| Selection state | Concrete tool behavior |
+| Application services | Core business rules |
 
-implement engineering calculations;
-implement topology;
-create concrete tools directly;
-create renderer implementations directly;
-mutate Core;
-become the application brain;
-become a second Controller.
-14. Controller Contract
+---
 
-The Controller is the UI/Application coordination boundary.
+# Part V — Interaction and Tools
 
-It may coordinate:
-
-commands;
-application actions;
-project operations;
-UI state;
-tool requests;
-selection state;
-application services.
-
-It must not implement:
-
-electrical calculations;
-topology algorithms;
-rendering;
-snapping algorithms;
-coordinate transformations;
-concrete tool behavior;
-Core business rules.
-
-The Controller is a facade/coordination boundary, not another Core.
-
-15. Interaction Architecture
+## 15. Interaction Architecture
 
 The interaction system owns human input processing.
 
-Canonical flow:
-
+```text
 Qt Input
    ↓
 InteractionManager
@@ -558,26 +438,17 @@ Active Tool
 Intent
    ↓
 Command
+```
 
-The Interaction layer may manage:
+**May manage:** mouse input · keyboard input · gestures · tool activation · tool sessions · interaction modes · transient previews · selection interaction · snapping · coordinate conversion.
 
-mouse input;
-keyboard input;
-gestures;
-tool activation;
-tool sessions;
-interaction modes;
-transient previews;
-selection interaction;
-snapping;
-coordinate conversion.
+**May not** directly mutate Core.
 
-It may not directly mutate Core.
+---
 
-16. Tool Architecture
+## 16. Tool Architecture
 
-The tool architecture is extensible.
-
+```text
 Controller
      ↓
 InteractionManager
@@ -587,105 +458,64 @@ ToolManager
 Tool Registry
      ↓
 Tool Instance
+```
 
-Responsibilities are separated.
+| Component | Responsibility |
+|-----------|----------------|
+| **InteractionManager** | Owns input routing |
+| **ToolManager** | Owns tool lifecycle |
+| **Tool Registry** | Owns registration/discovery |
+| **Tool** | Owns interaction behavior |
+| **Controller** | Requests/coordinates tool activation |
 
-InteractionManager
+> The ToolManager must **not** become the registry. The registry must **not** become the lifecycle manager.
 
-Owns input routing.
+---
 
-ToolManager
+## 17. Tool Contract
 
-Owns tool lifecycle.
+| ✅ Tools may | ❌ Tools may not |
+|---|---|
+| Consume mouse events | `network.add_bus()` |
+| Consume keyboard events | `equipment.parameter = value` |
+| Create previews | `topology.connect(...)` |
+| Query projection state | `solver.solve(...)` |
+| Query selection | |
+| Use snapping | |
+| Convert coordinates | |
+| Create commands | |
+| Manipulate viewport state | |
+| Manage transient interaction | |
 
-Tool Registry
+**Correct:**
 
-Owns registration/discovery.
+```text
+mouseRelease → BusTool → CreateBusCommand → Application
+```
 
-Tool
+---
 
-Owns interaction behavior.
+## 18. Preview Contract
 
-Controller
+Preview objects are **explicitly non-authoritative**.
 
-Requests/coordinates tool activation.
+**Examples:** `BusPreview` · `LinePreview` · `TransformerPreview` · `ConnectionPreview` · `SelectionRectangle` · `SnapIndicator` · `MeasurementPreview`
 
-The ToolManager must not become the registry.
+**Preview state may contain:** cursor position · temporary geometry · orientation · snap candidate · routing preview · visual feedback.
 
-The registry must not become the lifecycle manager.
+> A preview must **never** be inserted into the authoritative network. Only a committed command creates persistent state.
 
-17. Tool Contract
+---
 
-Tools may:
-
-consume mouse events;
-consume keyboard events;
-create previews;
-query projection state;
-query selection;
-use snapping;
-convert coordinates;
-create commands;
-manipulate viewport state;
-manage transient interaction.
-
-Tools may not:
-
-network.add_bus()
-equipment.parameter = value
-topology.connect(...)
-solver.solve(...)
-
-Correct:
-
-mouseRelease
-    ↓
-BusTool
-    ↓
-CreateBusCommand
-    ↓
-Application
-18. Preview Contract
-
-Preview objects are explicitly non-authoritative.
-
-Examples:
-
-BusPreview
-LinePreview
-TransformerPreview
-ConnectionPreview
-SelectionRectangle
-SnapIndicator
-MeasurementPreview
-
-Preview state may contain:
-
-cursor position
-temporary geometry
-orientation
-snap candidate
-routing preview
-visual feedback
-
-A preview must never be inserted into the authoritative network.
-
-Only a committed command creates persistent state.
-
-19. Coordinate System Contract
+## 19. Coordinate System Contract
 
 The UI owns coordinate transformations.
 
-Conceptual spaces:
+```text
+Screen  →  Scene / Viewport  →  World
+```
 
-Screen
-   ↓
-Scene / Viewport
-   ↓
-World
-
-Example:
-
+```text
 Mouse Position
       ↓
 Screen → Scene
@@ -695,38 +525,23 @@ Scene → World
 WorldPosition
       ↓
 Command
+```
 
-Core must never depend on:
+**Core must never depend on:** `QPointF` · `QTransform` · `QGraphicsScene` · `QGraphicsView` · `QMouseEvent`
 
-QPointF
-QTransform
-QGraphicsScene
-QGraphicsView
-QMouseEvent
+The domain receives **domain-neutral values**.
 
-The domain receives domain-neutral values.
+---
 
-20. Snap Contract
+## 20. Snap Contract
 
-Snapping is UI interaction logic.
+Snapping is **UI interaction logic**.
 
-Possible snap types:
+**Snap types:** Grid · Terminal · Bus · Endpoint · Alignment · Orthogonal · Angle · Equipment Anchor
 
-Grid
-Terminal
-Bus
-Endpoint
-Alignment
-Orthogonal
-Angle
-Equipment Anchor
+> Snap determines a **candidate**. Core determines whether the resulting operation is **legal**.
 
-Snap determines a candidate.
-
-Core determines whether the resulting operation is legal.
-
-Example:
-
+```text
 SnapSystem
      ↓
 candidate terminal T-001
@@ -736,42 +551,37 @@ ConnectTerminalsCommand
 Core validation
      ↓
 Topology change
+```
 
 The SnapSystem must never establish authoritative topology.
 
-21. Canvas Contract
+---
 
-The Canvas is:
+# Part VI — Canvas and Rendering
 
-An editing and visualization surface, not an electrical model.
+## 21. Canvas Contract
 
-The Canvas owns:
+> The Canvas is an **editing and visualization surface**, not an electrical model.
 
-viewport;
-camera;
-zoom;
-pan;
-grid presentation;
-visual items;
-rendering;
-interaction;
-previews;
-selection presentation.
+| ✅ Canvas owns | ❌ Canvas does not own |
+|---|---|
+| Viewport | Network topology |
+| Camera | Equipment ownership |
+| Zoom / pan | Terminal connectivity |
+| Grid presentation | Engineering validation |
+| Visual items | Study state |
+| Rendering | Solver state |
+| Interaction | |
+| Previews | |
+| Selection presentation | |
 
-It does not own:
+---
 
-network topology;
-equipment ownership;
-terminal connectivity;
-engineering validation;
-study state;
-solver state.
-22. CanvasPlugin Contract
+## 22. CanvasPlugin Contract
 
-CanvasPlugin is a composition plugin.
+`CanvasPlugin` is a **composition plugin**.
 
-It may establish:
-
+```text
 Canvas
  ├── Scene
  ├── View
@@ -779,22 +589,17 @@ Canvas
  ├── InteractionManager
  ├── ToolManager
  └── PreviewLayer
+```
 
-It must not:
+**Must not:** own Core · create a second network · own topology · implement engineering calculations · bypass commands · become ToolManager · become InteractionManager · become RenderSystem · own project state.
 
-own Core;
-create a second network;
-own topology;
-implement engineering calculations;
-bypass commands;
-become ToolManager;
-become InteractionManager;
-become RenderSystem;
-own project state.
-23. Rendering Contract
+---
+
+## 23. Rendering Contract
 
 Rendering is strictly presentation-oriented.
 
+```text
 Core/Application State
         ↓
 Projection
@@ -808,79 +613,56 @@ Renderer
 GraphicsItem
         ↓
 QGraphicsScene
+```
 
-Renderers may:
+| ✅ Renderers may | ❌ Renderers may not |
+|---|---|
+| Draw | Modify Core |
+| Update geometry | Calculate engineering values |
+| Choose visual representation | Validate topology |
+| Display status | Create equipment |
+| Display warnings | Run studies |
+| Display selection | |
+| Display result overlays | |
 
-draw;
-update geometry;
-choose visual representation;
-display status;
-display warnings;
-display selection;
-display result overlays.
+---
 
-Renderers may not:
+## 24. Renderer Identity
 
-modify Core;
-calculate engineering values;
-validate topology;
-create equipment;
-run studies.
-24. Renderer Identity
+The RenderSystem maps visual representations through **stable domain IDs**.
 
-The RenderSystem maps visual representations through stable domain IDs.
+```text
+domain_id → RenderSystem → GraphicsItem
+```
 
-domain_id
-    ↓
-RenderSystem
-    ↓
-GraphicsItem
+The mapping must remain stable across: reload · project reconstruction · Core event updates · multiple canvases · undo/redo · persistence.
 
-The mapping must remain stable across:
+> Python object identity is **not** the authoritative mapping.
 
-reload;
-project reconstruction;
-Core event updates;
-multiple canvases;
-undo/redo;
-persistence.
+---
 
-Python object identity is not the authoritative mapping.
+## 25. Graphics Item Contract
 
-25. Graphics Item Contract
+A GraphicsItem is a **UI projection**.
 
-A GraphicsItem is a UI projection.
+- **May contain:** `domain_id`, geometry, visual state, interaction state
+- **May emit** user-intent signals to the interaction/controller layer
+- **Must not** directly mutate Core
 
-It may contain:
+```text
+❌ Bad:      BusItem → core.bus.voltage = ...
+✅ Correct:  BusItem → interaction/controller → ChangeParameterCommand
+```
 
-domain_id
-geometry
-visual state
-interaction state
+---
 
-It may emit user-intent signals to the interaction/controller layer.
+# Part VII — Selection, Panels, and Workspace
 
-It must not directly mutate Core.
+## 26. Selection Contract
 
-Bad:
+Selection is **UI/application state**.
 
-BusItem
-   ↓
-core.bus.voltage = ...
-
-Correct:
-
-BusItem
-   ↓
-interaction/controller
-   ↓
-ChangeParameterCommand
-26. Selection Contract
-
-Selection is UI/application state.
-
-Canonical model:
-
+```text
 User
  ↓
 SelectionManager
@@ -890,57 +672,41 @@ selected_ids
 Projection
  ↓
 Graphics selection
+```
 
-Graphics selection is a visual projection.
+Graphics selection is a visual projection — not the engineering model.
 
-It is not the engineering model.
+**Selection must not:** mutate Core · create equipment · change topology · modify electrical parameters.
 
-Selection must not:
+---
 
-mutate Core;
-create equipment;
-change topology;
-modify electrical parameters.
-27. Panel Architecture
+## 27. Panel Architecture
 
 Panels are specialized UI surfaces.
 
-Examples:
+**Examples:** ToolPalette · ProjectExplorer · PropertyEditor · EquipmentConfigurator · ObjectInspector · CommandCenter · DiagnosticsPanel · AnalysisResults · ProtectionEditor · Settings · Navigator
 
-ToolPalette
-ProjectExplorer
-PropertyEditor
-EquipmentConfigurator
-ObjectInspector
-CommandCenter
-DiagnosticsPanel
-AnalysisResults
-ProtectionEditor
-Settings
-Navigator
+| ✅ Panels may | ❌ Panels may not |
+|---|---|
+| Display projected state | Directly mutate Core |
+| Accept user input | |
+| Dispatch commands | |
+| Display diagnostics | |
+| Subscribe to events | |
 
-Panels may:
+---
 
-display projected state;
-accept user input;
-dispatch commands;
-display diagnostics;
-subscribe to events.
+## 28. Property Editor Contract
 
-Panels may not directly mutate Core.
+**Reading:**
 
-28. Property Editor Contract
+```text
+Selection → Projection → PropertyEditor
+```
 
-Reading:
+**Writing:**
 
-Selection
- ↓
-Projection
- ↓
-PropertyEditor
-
-Writing:
-
+```text
 PropertyEditor
  ↓
 ChangeParameterCommand
@@ -954,95 +720,72 @@ EquipmentChanged
 Projection
  ↓
 PropertyEditor
+```
 
-Never:
+**Never:**
 
-QLineEdit.textChanged
-        ↓
-Core object mutation
-29. Workspace Contract
+```text
+QLineEdit.textChanged → Core object mutation   ❌
+```
+
+---
+
+## 29. Workspace Contract
 
 The workspace must support:
 
-docking;
-undocking;
-resizing;
-collapsing;
-hiding;
-restoring;
-layout persistence;
-multiple panel instances where appropriate;
-workspace profiles;
-future multi-canvas arrangements.
+- Docking / undocking
+- Resizing / collapsing
+- Hiding / restoring
+- Layout persistence
+- Multiple panel instances where appropriate
+- Workspace profiles
+- Future multi-canvas arrangements
 
-Workspace state is UI/application presentation state.
+> Workspace state is UI/application presentation state. It must **not** redefine engineering topology.
 
-It must not redefine engineering topology.
+---
 
-30. Multi-Canvas Contract
+# Part VIII — Multi-Canvas and Synchronization
 
-Multiple canvases may represent:
+## 30. Multi-Canvas Contract
 
-same network
-different network scope
-different hierarchy level
-different SLD
-different study view
+Multiple canvases may represent: the same network · a different network scope · a different hierarchy level · a different SLD · a different study view — *unless explicitly defined as separate project/domain contexts.*
 
-unless explicitly defined as separate project/domain contexts.
+```text
+✅ Correct                     ❌ Incorrect
 
-Correct:
+     Core Network              Canvas A → Network A
+    /     |     \              Canvas B → Network B
+Canvas A  B  Canvas C          (when meant to show the same project)
+```
 
-                 Core Network
-                /     |      \
-               /      |       \
-          Canvas A Canvas B Canvas C
+---
 
-Incorrect:
+## 31. Canvas Synchronization
 
-Canvas A → Network A
-Canvas B → Network B
+**Core → UI:**
 
-when they are intended to represent the same project/network.
+```text
+Core Change → Event → Projection → Affected Canvas → Renderer
+```
 
-31. Canvas Synchronization
+**UI → Core:**
 
-Core → UI:
-
-Core Change
-    ↓
-Event
-    ↓
-Projection
-    ↓
-Affected Canvas
-    ↓
-Renderer
-
-UI → Core:
-
-User Intent
-    ↓
-Command
-    ↓
-Application
-    ↓
-Core Change
-    ↓
-Event
-    ↓
-Projection
-    ↓
-Canvas
+```text
+User Intent → Command → Application → Core Change
+            → Event → Projection → Canvas
+```
 
 This closed loop prevents stale UI state.
 
-32. Persistent Layout Changes
+---
 
-Persistent layout changes must cross an explicit command boundary.
+## 32. Persistent Layout Changes
 
-Example:
+Persistent layout changes must cross an **explicit command boundary**.
 
+```text
 User drags Bus
        ↓
 temporary visual movement
@@ -1053,25 +796,18 @@ MoveSLDElementCommand
        ↓
 Presentation/Layout State
        ↓
-Event
-       ↓
-Projection
-       ↓
-Canvas
+Event → Projection → Canvas
+```
 
-Purely transient changes may remain local to the UI.
+**Purely transient changes may remain local to the UI:** hover · rubber-band · cursor preview · selection rectangle · temporary snap indicator.
 
-Examples:
+---
 
-hover
-rubber-band
-cursor preview
-selection rectangle
-temporary snap indicator
-33. Equipment Creation
+# Part IX — Core Workflows
 
-Canonical workflow:
+## 33. Equipment Creation
 
+```text
 Equipment Palette
        ↓
 Tool Selection
@@ -1099,13 +835,17 @@ EquipmentViewState
 Renderer
        ↓
 EquipmentItem
+```
 
-The EquipmentItem never creates authoritative equipment.
+> The `EquipmentItem` never creates authoritative equipment.
 
-34. Connection Workflow
+---
 
-Connection interaction is terminal-oriented.
+## 34. Connection Workflow
 
+Connection interaction is **terminal-oriented**.
+
+```text
 LineTool
    ↓
 SnapSystem
@@ -1121,46 +861,31 @@ Application
 Core
    ↓
 Topology Validation
+```
 
-Core determines whether the connection is legal.
+- **Core** determines whether the connection is legal.
+- **UI** determines only the user's intended candidates.
 
-The UI determines only the user's intended candidates.
+---
 
-35. Validation Contract
+# Part X — Validation, Errors, and Notifications
 
-Two validation categories exist.
+## 35. Validation Contract
 
-UI validation
+| Category | Examples | Owner |
+|----------|----------|-------|
+| **UI validation** | Empty field · malformed text · invalid dialog input · unsupported UI selection | UI |
+| **Domain validation** | Terminal already occupied · illegal topology · invalid equipment connection · invalid electrical parameter · invalid study configuration | Core / Application |
 
-Examples:
+The UI **displays** the result of domain validation.
 
-empty field
-malformed text
-invalid dialog input
-unsupported UI selection
+---
 
-UI may handle these.
+## 36. Error Contract
 
-Domain validation
+Raw Core exceptions must **not** be pushed directly into widgets.
 
-Examples:
-
-terminal already occupied
-illegal topology
-invalid equipment connection
-invalid electrical parameter
-invalid study configuration
-
-Domain validation belongs to Core/Application.
-
-The UI displays the result.
-
-36. Error Contract
-
-Raw Core exceptions must not be pushed directly into widgets.
-
-Canonical path:
-
+```text
 Core
  ↓
 Application Error
@@ -1170,195 +895,50 @@ Command Result
 UI Notification
  ↓
 User
+```
 
-The UI determines presentation:
+The UI decides presentation (Toast · Dialog · Status Bar · Diagnostic Panel · Badge · Log · Inline Error). The Core decides validity.
 
-Toast
-Dialog
-Status Bar
-Diagnostic Panel
-Badge
-Log
-Inline Error
+---
 
-The Core determines validity.
+## 37. Notification Contract
 
-37. Notification Contract
+Notification presentation is **UI-owned**.
 
-Notification presentation is UI-owned.
+**Types:** Information · Warning · Error · Progress · Success
 
-Notification types include:
+Structured application status is transformed into the appropriate UI presentation.
 
-Information
-Warning
-Error
-Progress
-Success
+---
 
-Structured application status is transformed into appropriate UI presentation.
+# Part XI — Platform: Qt, Plugins, and Registries
 
-38. Undo / Redo
+## 43. Qt Boundary
 
-Undo/redo belongs to the command/application architecture.
+All UI Qt dependencies must pass through **`ui.core.qt`**.
 
-Correct:
-
-CommandManager
- ├── execute
- ├── undo
- ├── redo
- └── history
-
-Not:
-
-GraphicsScene.undo()
-
-UI actions and non-UI application actions should be capable of sharing the same command transaction model.
-
-39. Long-Running Operations
-
-Expensive operations must not block the UI thread.
-
-Examples:
-
-project loading
-large network rendering
-study execution
-result calculation
-large imports
-large exports
-
-Canonical flow:
-
-UI
- ↓
-Command
- ↓
-Application Service
- ↓
-Worker / Execution Architecture
- ↓
-Core / Study / Solver
-
-UI receives:
-
-Started
-Progress
-Completed
-Failed
-Cancelled
-
-Qt widgets must only be updated from the UI thread.
-
-40. Study UI
-
-The UI does not own studies or solvers.
-
-Study request:
-
-StudyPanel
- ↓
-RunStudyCommand
- ↓
-Application
- ↓
-Study/Solver Service
- ↓
-Execution
-
-The UI displays:
-
-Study Definition
-Study Status
-Progress
-Warnings
-Diagnostics
-Results
-
-It never calls solver internals directly.
-
-41. Result Visualization
-
-Results are authoritative application/Core data.
-
-Example:
-
-Load Flow Result
- ├── bus voltage
- ├── voltage angle
- ├── branch loading
- └── losses
-
-The UI may display:
-
-Voltage labels
-Loading overlays
-Result tables
-Charts
-Warning badges
-
-Visual color or geometry is never itself the engineering result.
-
-42. Project/File Contract
-
-The UI requests project operations through application services.
-
-Examples:
-
-NewProjectCommand
-OpenProjectCommand
-SaveProjectCommand
-SaveAsProjectCommand
-CloseProjectCommand
-ImportCommand
-ExportCommand
-
-The UI must not implement project serialization.
-
-Project persistence remains outside widgets and graphics items.
-
-43. Qt Boundary
-
-All UI Qt dependencies must pass through:
-
-ui.core.qt
-
-Preferred:
-
+```python
+# ✅ Preferred
 from ui.core.qt import QWidget, QObject
 
-Not:
-
+# ❌ Not throughout arbitrary UI modules
 from PySide6.QtWidgets import QWidget
+```
 
-throughout arbitrary UI modules.
+The Qt compatibility/binding boundary is the **only** permitted direct binding boundary.
+**Core must never depend on PySide6.**
 
-The Qt compatibility/binding boundary is the only permitted direct binding boundary.
+---
 
-Core must never depend on PySide6.
+## 44. Plugin Architecture
 
-44. Plugin Architecture
+Plugins extend controlled UI extension points:
 
-Plugins extend controlled UI extension points.
+Canvas · Panels · Toolbar · Status · Equipment UI · Studies · Renderers · Tools · Commands · Importers · Exporters
 
-Examples:
+Every plugin receives a controlled `PluginContext`:
 
-Canvas
-Panels
-Toolbar
-Status
-Equipment UI
-Studies
-Renderers
-Tools
-Commands
-Importers
-Exporters
-
-Every plugin receives a controlled PluginContext.
-
-Conceptually:
-
+```python
 PluginContext(
     application=...,
     command_manager=...,
@@ -1370,58 +950,40 @@ PluginContext(
     project_context=...,
     canvas_context=...,
 )
+```
 
-The context is a dependency boundary.
+> The context is a **dependency boundary**. Plugins must not receive unrestricted access to Core internals.
 
-Plugins must not receive unrestricted access to Core internals.
+---
 
-45. Plugin Lifecycle
+## 45. Plugin Lifecycle
 
-Lifecycle ownership:
-
+```text
 PluginManager
     ↓
-discover
-    ↓
-resolve dependencies
-    ↓
-initialize
-    ↓
-activate
-    ↓
-deactivate
-    ↓
-shutdown
+discover → resolve dependencies → initialize → activate
+    → deactivate → shutdown
+```
 
-MainWindow and ShellPlugin must not duplicate plugin lifecycle management.
+`MainWindow` and `ShellPlugin` must **not** duplicate plugin lifecycle management.
 
-46. Registry Contract
+---
 
-Registries provide controlled extensibility.
+## 46. Registry Contract
 
-Examples:
+**Examples:** `PluginRegistry` · `ToolRegistry` · `PanelRegistry` · `RendererRegistry` · `CommandRegistry` · `ControllerRegistry`
 
-PluginRegistry
-ToolRegistry
-PanelRegistry
-RendererRegistry
-CommandRegistry
-ControllerRegistry
+**Registries provide:** registration · lookup · capability discovery · conflict detection · controlled lifecycle integration.
 
-Registries provide:
+They must **not** become arbitrary global application-state stores.
 
-registration;
-lookup;
-capability discovery;
-conflict detection;
-controlled lifecycle integration.
+---
 
-They must not become arbitrary global application-state stores.
+## 47. Dependency Direction
 
-47. Dependency Direction
+**Preferred:**
 
-The preferred direction is:
-
+```text
 Qt
  ↓
 UI Platform
@@ -1433,144 +995,207 @@ Controllers / Interaction
 Application Boundary
  ↓
 Core
+```
 
-Rendering:
+**Rendering:**
 
-Core/Application
-      ↓
-Projection
-      ↓
-UI View State
-      ↓
-RenderSystem
-      ↓
-Renderer
-      ↓
-GraphicsItem
+```text
+Core/Application → Projection → UI View State
+                 → RenderSystem → Renderer → GraphicsItem
+```
 
-Forbidden:
+**Forbidden dependencies:**
 
-Core → PySide6
-Core → QGraphicsItem
-Core → MainWindow
-Core → Renderer
-Core → UI Plugin
+| | |
+|---|---|
+| Core → PySide6 | Renderer → Core mutation |
+| Core → QGraphicsItem | GraphicsItem → Core mutation |
+| Core → MainWindow | Tool → uncontrolled Core mutation |
+| Core → Renderer | PropertyEditor → Core mutation |
+| Core → UI Plugin | MainWindow → Solver |
+| | ShellPlugin → Solver |
 
-Renderer → Core mutation
-GraphicsItem → Core mutation
-Tool → uncontrolled Core mutation
-PropertyEditor → Core mutation
-MainWindow → Solver
-ShellPlugin → Solver
-48. Threading Contract
+---
+
+## 48. Threading Contract
 
 Qt objects remain on the UI thread.
 
-Background execution:
+```text
+Worker → Application Event → UI Thread → Widget Update
+```
 
-Worker
-  ↓
-Application Event
-  ↓
-UI Thread
-  ↓
-Widget Update
+> Never update Qt widgets from solver or worker threads.
 
-Never update Qt widgets from solver or worker threads.
+---
 
-49. Lifecycle Contract
+## 49. Lifecycle Contract
 
 UI components must have explicit lifecycle semantics:
 
-create
- ↓
-initialize
- ↓
-attach
- ↓
-activate
- ↓
-update
- ↓
-deactivate
- ↓
-detach
- ↓
-dispose
+```text
+create → initialize → attach → activate → update
+       → deactivate → detach → dispose
+```
 
-This applies particularly to:
+Applies particularly to: plugins · tools · panels · renderers · canvas · project contexts · workspace components.
 
-plugins
-tools
-panels
-renderers
-canvas
-project contexts
-workspace components
+Critical application state must **not** be hidden inside uncontrolled global singletons.
 
-Critical application state must not be hidden inside uncontrolled global singletons.
+---
 
-50. Human Interaction Edge Cases
+# Part XII — Undo, Async, Studies, Results, and Projects
 
-Every interactive tool must explicitly define behavior for:
+## 38. Undo / Redo
 
-click without selection;
-click outside canvas;
-double click;
-right click;
-middle click;
-mouse press without release;
-release outside canvas;
-drag cancellation;
-Esc;
-Delete;
-Backspace;
-keyboard focus loss;
-tool switching during interaction;
-panel focus changes;
-selection changes during interaction;
-project close during interaction;
-project reload during interaction;
-command rejection;
-Core validation failure;
-Core event arriving during interaction;
-object deletion during drag;
-object deletion during connection;
-stale domain ID;
-missing projection;
-missing renderer;
-missing plugin;
-missing tool;
-invalid snap candidate;
-ambiguous snap candidate;
-disconnected terminal;
-occupied terminal;
-cancelled command;
-failed command;
-undo during transient interaction;
-redo during transient interaction;
-background study completion during editing;
-application shutdown during a tool session.
+Undo/redo belongs to the **command/application** architecture.
 
-The required rule is:
+```text
+CommandManager
+ ├── execute
+ ├── undo
+ ├── redo
+ └── history
+```
 
-Transient interaction may be cancelled safely at any time without creating authoritative Core state.
+❌ Not `GraphicsScene.undo()`.
+UI actions and non-UI application actions should be able to share the same command transaction model.
 
-51. Tool Cancellation Contract
+---
 
-Every stateful tool must support cancellation.
+## 39. Long-Running Operations
 
-Examples:
+Expensive operations must not block the UI thread:
+project loading · large network rendering · study execution · result calculation · large imports/exports.
 
-Placing
-Connecting
-Dragging
-Editing
-Measuring
-Routing
+```text
+UI → Command → Application Service
+   → Worker / Execution Architecture → Core / Study / Solver
+```
 
-Cancellation:
+**UI receives:** `Started` · `Progress` · `Completed` · `Failed` · `Cancelled`
 
+Qt widgets must only be updated from the UI thread.
+
+---
+
+## 40. Study UI
+
+The UI does not own studies or solvers.
+
+```text
+StudyPanel → RunStudyCommand → Application
+          → Study/Solver Service → Execution
+```
+
+**The UI displays:** Study Definition · Status · Progress · Warnings · Diagnostics · Results.
+It **never** calls solver internals directly.
+
+---
+
+## 41. Result Visualization
+
+Results are **authoritative application/Core data**.
+
+```text
+Load Flow Result
+ ├── bus voltage
+ ├── voltage angle
+ ├── branch loading
+ └── losses
+```
+
+The UI may display voltage labels, loading overlays, result tables, charts, and warning badges.
+
+> Visual color or geometry is never itself the engineering result.
+
+---
+
+## 42. Project / File Contract
+
+The UI requests project operations through application services:
+
+`NewProjectCommand` · `OpenProjectCommand` · `SaveProjectCommand` · `SaveAsProjectCommand` · `CloseProjectCommand` · `ImportCommand` · `ExportCommand`
+
+The UI must **not** implement project serialization. Persistence stays outside widgets and graphics items.
+
+---
+
+# Part XIII — Robustness and Edge Cases
+
+## 50. Human Interaction Edge Cases
+
+Every interactive tool must explicitly define behavior for each of the following.
+
+<details>
+<summary><strong>Show the full checklist (37 cases)</strong></summary>
+
+**Mouse and keyboard**
+
+- Click without selection
+- Click outside canvas
+- Double click
+- Right click
+- Middle click
+- Mouse press without release
+- Release outside canvas
+- Drag cancellation
+- Esc
+- Delete
+- Backspace
+
+**Focus and context changes**
+
+- Keyboard focus loss
+- Tool switching during interaction
+- Panel focus changes
+- Selection changes during interaction
+- Project close during interaction
+- Project reload during interaction
+
+**Command and Core outcomes**
+
+- Command rejection
+- Core validation failure
+- Core event arriving during interaction
+- Cancelled command
+- Failed command
+
+**Stale or missing resources**
+
+- Object deletion during drag
+- Object deletion during connection
+- Stale domain ID
+- Missing projection
+- Missing renderer
+- Missing plugin
+- Missing tool
+
+**Snapping and terminals**
+
+- Invalid snap candidate
+- Ambiguous snap candidate
+- Disconnected terminal
+- Occupied terminal
+
+**Concurrency and lifecycle**
+
+- Undo during transient interaction
+- Redo during transient interaction
+- Background study completion during editing
+- Application shutdown during a tool session
+
+</details>
+
+> **Required rule:** Transient interaction may be cancelled safely at any time **without creating authoritative Core state**.
+
+---
+
+## 51. Tool Cancellation Contract
+
+Every stateful tool must support cancellation (Placing · Connecting · Dragging · Editing · Measuring · Routing).
+
+```text
 Esc
  ↓
 Tool.cancel()
@@ -1580,56 +1205,41 @@ Preview discarded
 Transient interaction cleared
  ↓
 No Core mutation
+```
 
-If a command has already been committed, cancellation is no longer a preview operation; undo must use the command architecture.
+If a command has already been committed, cancellation is no longer a preview operation — **undo must use the command architecture**.
 
-52. Focus Contract
+---
 
-Keyboard focus must never implicitly mutate engineering state.
+## 52. Focus Contract
 
-Examples:
+Keyboard focus must never implicitly mutate engineering state (canvas, panel, property editor, search, and command-center focus).
 
-Canvas focus
-Panel focus
-Property editor focus
-Search focus
-Command center focus
-
-Changing focus must not:
-
-change topology;
-commit partial engineering edits;
-activate arbitrary tools;
-create equipment.
+Changing focus must **not**: change topology · commit partial engineering edits · activate arbitrary tools · create equipment.
 
 Explicit commit/cancel semantics must be defined for editable fields.
 
-53. Stale Projection Contract
+---
 
-A UI projection can become stale.
+## 53. Stale Projection Contract
 
-The UI must not silently assume it remains valid.
+A UI projection can become stale; the UI must not silently assume it remains valid.
 
-If:
+If a `domain_id` no longer exists:
 
-domain_id
+```text
+Projection → missing object
+          → remove/invalidate UI representation
+          → diagnostic if necessary
+```
 
-no longer exists:
+The UI must **not** recreate the Core object itself.
 
-Projection
- ↓
-missing object
- ↓
-remove/invalidated UI representation
- ↓
-diagnostic if necessary
+---
 
-The UI must not recreate the Core object itself.
+## 54. Missing Renderer Contract
 
-54. Missing Renderer Contract
-
-If a Core object exists but no renderer is registered:
-
+```text
 Core object exists
        ↓
 Projection exists
@@ -1637,121 +1247,84 @@ Projection exists
 Renderer unavailable
        ↓
 Fallback / diagnostic representation
+```
 
-The absence of a renderer must never imply absence of the engineering object.
+> The absence of a renderer must never imply the absence of the engineering object.
 
-55. Plugin Failure Contract
+---
+
+## 55. Plugin Failure Contract
 
 If a plugin fails:
 
-the failure must be isolated;
-plugin lifecycle state must be recorded;
-the UI must report diagnostics;
-unrelated plugins must remain operational where possible;
-Core state must remain unaffected;
-partial UI registration must be cleaned up.
+1. The failure must be **isolated**.
+2. Plugin lifecycle state must be **recorded**.
+3. The UI must **report diagnostics**.
+4. Unrelated plugins must **remain operational** where possible.
+5. Core state must **remain unaffected**.
+6. Partial UI registration must be **cleaned up**.
 
-A failed UI plugin must never corrupt engineering state.
+> A failed UI plugin must never corrupt engineering state.
 
-56. Multi-Canvas Synchronization
+---
 
-When the same domain object appears on multiple canvases:
+## 56. Multi-Canvas Synchronization
 
-                 Core Object
-                 domain_id
-                /    |     \
-               /     |      \
-          Canvas A Canvas B Canvas C
+```text
+          Core Object (domain_id)
+          /        |        \
+     Canvas A   Canvas B   Canvas C
+```
 
-Each canvas owns its own visual projection.
+- Each canvas owns its **own visual projection**.
+- No canvas owns the Core object.
+- A Core change must update **every** affected projection.
 
-No canvas owns the Core object.
+---
 
-A Core change must update every affected projection.
+# Part XIV — Quality: Performance and Testing
 
-57. Performance Contract
+## 57. Performance Contract
 
-The UI must remain responsive during:
+The UI must remain responsive during: large SLD rendering · zooming · panning · selection · project loading · large project reconstruction · topology changes · study execution · result visualization.
 
-large SLD rendering;
-zooming;
-panning;
-selection;
-project loading;
-large project reconstruction;
-topology changes;
-study execution;
-result visualization.
+| Thread | Work |
+|--------|------|
+| **UI thread** | Interaction · rendering · widget updates |
+| **Worker / execution** | Expensive computation · solver execution · large I/O · analysis |
 
-UI thread:
+---
 
-interaction
-rendering
-widget updates
+## 58. Testing Contract
 
-Worker/execution architecture:
+**Unit-test:** Controller · Command wiring · InteractionManager · ToolManager · Tools · SelectionManager · SnapSystem · CoordinateSystem · Projection · RenderSystem · Renderer · Navigation · Workspace · Plugin lifecycle
 
-expensive computation
-solver execution
-large I/O
-analysis
-58. Testing Contract
+**Integration-test:**
 
-UI infrastructure must be testable independently.
+```text
+UI Intent → Command → Application → Core
+         → Event → Projection → UI
+```
 
-Unit-test:
+---
 
-Controller
-Command wiring
-InteractionManager
-ToolManager
-Tools
-SelectionManager
-SnapSystem
-CoordinateSystem
-Projection
-RenderSystem
-Renderer
-Navigation
-Workspace
-Plugin lifecycle
+## 59. Headless Core Requirement
 
-Integration-test:
+Core tests must remain runnable **without** `QApplication`, `MainWindow`, `Canvas`, or PySide6 widgets.
 
-UI Intent
- ↓
-Command
- ↓
-Application
- ↓
-Core
- ↓
-Event
- ↓
-Projection
- ↓
-UI
-59. Headless Core Requirement
-
-Core tests must remain runnable without:
-
-QApplication
-MainWindow
-Canvas
-PySide6 widgets
-
-Example:
-
+```bash
 pytest tests/core
+```
 
 UI tests should be able to substitute mocked Application/Core boundaries.
 
-60. Equipment Extension Contract
+---
 
-Adding a new equipment type should not require repeatedly modifying central UI files.
+## 60. Equipment Extension Contract
 
-Conceptually:
+Adding a new equipment type should **not** require repeatedly modifying central UI files.
 
+```text
 Equipment Plugin
  ├── equipment registration
  ├── projection
@@ -1760,15 +1333,18 @@ Equipment Plugin
  ├── tool
  ├── commands
  └── UI configuration
+```
 
-The extension must use the established registries and command/projection boundaries.
+Extensions must use the established registries and command/projection boundaries.
 
-61. UI Architecture Tree
+---
 
-The canonical UI responsibility structure is:
+# Part XV — Structure, Flows, and Rules
 
+## 61. UI Architecture Tree
+
+```text
 ui/
-│
 ├── core/
 │   ├── controller.py
 │   ├── command_manager.py
@@ -1776,7 +1352,6 @@ ui/
 │   ├── snap_system.py
 │   ├── projection/
 │   └── qt.py
-│
 ├── controllers/
 │   ├── canvas_controller.py
 │   ├── command_controller.py
@@ -1784,7 +1359,6 @@ ui/
 │   ├── navigation_controller.py
 │   ├── selection_controller.py
 │   └── tool_controller.py
-│
 ├── canvas/
 │   ├── coordinate_system.py
 │   ├── graphics_view.py
@@ -1793,379 +1367,229 @@ ui/
 │   ├── interaction_manager.py
 │   ├── preview_layer.py
 │   └── render_system.py
-│
 ├── tools/
 │   ├── base/
 │   ├── manager/
 │   ├── registry/
 │   └── implementations/
-│
 ├── items/
-│
 ├── renderers/
-│
 ├── panels/
-│
 ├── plugins/
-│
 ├── workspace/
-│
 ├── styling/
-│
 ├── equipment/
-│
 ├── connections/
-│
 ├── topology/
-│
 ├── sld/
-│
 ├── model/
-│
 ├── main_window.py
-│
 └── README.md
+```
 
-Physical directory organization may evolve, but the architectural responsibilities must remain stable.
+> Physical directory organization may evolve, but the **architectural responsibilities must remain stable**.
 
-62. Canonical Equipment Creation Flow
-                    USER
-                      │
-                      ▼
-               Equipment Palette
-                      │
-                      ▼
-                   Tool
-                      │
-                      ▼
-                 Preview
-                      │
-                 placement
-                      │
-                      ▼
-                  Intent
-                      │
-                      ▼
-             CreateEquipmentCommand
-                      │
-                      ▼
-              Command Boundary
-                      │
-                      ▼
-                Application
-                      │
-                      ▼
-                    Core
-                      │
-                      ▼
-               EquipmentCreated
-                      │
-                      ▼
-                 Projection
-                      │
-                      ▼
-              EquipmentViewState
-                      │
-                      ▼
-                RenderSystem
-                      │
-                      ▼
-                EquipmentItem
-                      │
-                      ▼
-                    SCREEN
-63. Canonical Connection Flow
-USER
- ↓
-LineTool
- ↓
-CoordinateSystem
- ↓
-SnapSystem
- ↓
-Terminal Candidate
- ↓
-ConnectTerminalsCommand
- ↓
-Application
- ↓
-Core
- ↓
-Topology Validation
- ↓
-TopologyChanged
- ↓
-Projection
- ↓
-RenderSystem
- ↓
-LineItem
-64. Canonical Study Flow
-USER
- ↓
-Study Panel
- ↓
-RunStudyCommand
- ↓
-Application
- ↓
-Study/Solver Service
- ↓
-Execution
- ↓
-Study Events
- ↓
-Results
- ↓
-Projection
- ↓
-Result UI
+---
 
-The Canvas and panels never execute numerical solver internals.
+## 62. Canonical Equipment Creation Flow
 
-65. Canonical Error Flow
-USER
- ↓
-Intent
- ↓
-Command
- ↓
-Application
- ↓
-Core Validation
- ↓
-Rejected
- ↓
-Structured Error
- ↓
-UI Notification
- ↓
-User
+```mermaid
+flowchart TD
+    A[USER] --> B[Equipment Palette]
+    B --> C[Tool]
+    C --> D[Preview]
+    D -->|placement| E[Intent]
+    E --> F[CreateEquipmentCommand]
+    F --> G[Command Boundary]
+    G --> H[Application]
+    H --> I[Core]
+    I --> J[EquipmentCreated]
+    J --> K[Projection]
+    K --> L[EquipmentViewState]
+    L --> M[RenderSystem]
+    M --> N[EquipmentItem]
+    N --> O[SCREEN]
+```
+
+---
+
+## 63. Canonical Connection Flow
+
+```mermaid
+flowchart TD
+    A[USER] --> B[LineTool]
+    B --> C[CoordinateSystem]
+    C --> D[SnapSystem]
+    D --> E[Terminal Candidate]
+    E --> F[ConnectTerminalsCommand]
+    F --> G[Application]
+    G --> H[Core]
+    H --> I[Topology Validation]
+    I --> J[TopologyChanged]
+    J --> K[Projection]
+    K --> L[RenderSystem]
+    L --> M[LineItem]
+```
+
+---
+
+## 64. Canonical Study Flow
+
+```mermaid
+flowchart TD
+    A[USER] --> B[Study Panel]
+    B --> C[RunStudyCommand]
+    C --> D[Application]
+    D --> E[Study/Solver Service]
+    E --> F[Execution]
+    F --> G[Study Events]
+    G --> H[Results]
+    H --> I[Projection]
+    I --> J[Result UI]
+```
+
+> The Canvas and panels never execute numerical solver internals.
+
+---
+
+## 65. Canonical Error Flow
+
+```mermaid
+flowchart TD
+    A[USER] --> B[Intent]
+    B --> C[Command]
+    C --> D[Application]
+    D --> E[Core Validation]
+    E -->|rejected| F[Structured Error]
+    F --> G[UI Notification]
+    G --> H[User]
+```
 
 The UI may offer a correction, but the correction must again become an explicit user intent and command.
 
-66. What This Architecture Prevents
-GUI becoming the database
+---
 
-Prevented by authoritative Core state.
+## 66. What This Architecture Prevents
 
-BusItem becoming a second Bus
+| Risk | Prevented by |
+|------|--------------|
+| GUI becoming the database | Authoritative Core state |
+| `BusItem` becoming a second `Bus` | Projection identity |
+| Canvas owning topology | Command boundary |
+| Tool directly modifying Core | Interaction architecture |
+| MainWindow becoming a God Object | Composition boundaries |
+| Plugin bypassing architecture | `PluginContext` and registries |
+| Study logic entering the GUI | Application/Solver boundaries |
+| UI calculating engineering results | Result projection |
+| Multiple canvases creating conflicting networks | Shared Core authority |
+| Layout changes disappearing | Explicit Presentation State |
+| Renderer becoming engineering logic | Renderer contract |
+| Selection becoming domain state | SelectionManager contract |
+| Preview becoming engineering state | Preview Layer contract |
 
-Prevented by projection identity.
+---
 
-Canvas owning topology
+## 67. Final Architecture
 
-Prevented by the command boundary.
-
-Tool directly modifying Core
-
-Prevented by interaction architecture.
-
-MainWindow becoming a God Object
-
-Prevented by composition boundaries.
-
-Plugin bypassing architecture
-
-Prevented by PluginContext and registries.
-
-Study logic entering GUI
-
-Prevented by Application/Solver boundaries.
-
-UI calculating engineering results
-
-Prevented by result projection.
-
-Multiple canvases creating conflicting networks
-
-Prevented by shared Core authority.
-
-Layout changes disappearing
-
-Prevented by explicit Presentation State.
-
-Renderer becoming engineering logic
-
-Prevented by renderer contract.
-
-Selection becoming domain state
-
-Prevented by SelectionManager contract.
-
-Preview becoming engineering state
-
-Prevented by Preview Layer contract.
-
-67. Final Architecture
+```text
                          USER
                            │
                            ▼
                     ┌─────────────┐
-                    │ UI SHELL    │
+                    │  UI SHELL   │
                     └──────┬──────┘
                            │
           ┌────────────────┼────────────────┐
-          │                │                │
           ▼                ▼                ▼
        Panels           Canvas           Toolbar
-          │                │                │
           └────────────────┼────────────────┘
-                           │
                            ▼
                 ┌────────────────────┐
                 │ INTERACTION LAYER  │
-                │                    │
-                │ Tools              │
-                │ Selection          │
-                │ Snap               │
-                │ Coordinates        │
+                │ Tools · Selection  │
+                │ Snap · Coordinates │
                 │ Interaction        │
                 └─────────┬──────────┘
-                          │
                         Intent
-                          │
                           ▼
                 ┌────────────────────┐
                 │ COMMAND BOUNDARY   │
                 └─────────┬──────────┘
-                          │
                           ▼
                 ┌────────────────────┐
                 │ APPLICATION        │
-                │ Commands           │
-                │ Handlers           │
-                │ Services           │
-                │ Lifecycle          │
+                │ Commands·Handlers  │
+                │ Services·Lifecycle │
                 └─────────┬──────────┘
-                          │
                           ▼
                 ┌────────────────────┐
                 │ CORE               │
-                │                    │
-                │ Model              │
-                │ Network            │
-                │ Topology           │
-                │ Studies            │
+                │ Model · Network    │
+                │ Topology · Studies │
                 │ Results            │
                 └─────────┬──────────┘
-                          │
                         Events
-                          │
                           ▼
                 ┌────────────────────┐
                 │ PROJECTION         │
                 └─────────┬──────────┘
-                          │
                           ▼
                 ┌────────────────────┐
                 │ UI VIEW STATE      │
                 └─────────┬──────────┘
-                          │
                           ▼
                 ┌────────────────────┐
                 │ RENDER SYSTEM      │
-                │                    │
-                │ Registry           │
-                │ Renderers          │
+                │ Registry·Renderers │
                 │ Graphics Items     │
                 └─────────┬──────────┘
-                          │
                           ▼
                         SCREEN
-68. Non-Negotiable Rules
+```
 
-The following rules are frozen:
+---
 
-UI never owns engineering truth.
+## 68. Non-Negotiable Rules
 
-UI never directly mutates Core.
+The following rules are **frozen**:
 
-Persistent user actions cross the command boundary.
+1. UI never owns engineering truth.
+2. UI never directly mutates Core.
+3. Persistent user actions cross the command boundary.
+4. Core/Application state changes return through events.
+5. UI representations use stable domain IDs.
+6. Graphics items are projections, not domain models.
+7. SLD is not the electrical model.
+8. Presentation state is distinct from engineering state.
+9. Preview state is never authoritative.
+10. Selection is UI/application state.
+11. Snapping identifies candidates; Core validates topology.
+12. Renderers never perform engineering calculations.
+13. Tools never directly mutate Core.
+14. MainWindow is a composition root, not an application brain.
+15. PluginManager owns plugin lifecycle.
+16. ToolManager owns tool lifecycle.
+17. ToolRegistry owns tool registration/discovery.
+18. Projection is an explicit architectural layer.
+19. Qt types never cross into Core.
+20. Core must remain headless.
+21. Long-running operations never block the UI thread.
+22. Undo/redo operates at the command/application level.
+23. Multiple canvases never create duplicate Core networks.
 
-Core/Application state changes return through events.
+---
 
-UI representations use stable domain IDs.
+## 69. The One Rule Above All Others
 
-Graphics items are projections, not domain models.
+> **GridForge V2 UI must never become a second implementation of the Core.**
 
-SLD is not the electrical model.
+| Layer | Composed of |
+|-------|-------------|
+| **UI** | Presentation + Interaction + Projection + Workspace + Command Boundary + UI Platform |
+| **Application** | Commands + Handlers + Services + Lifecycle + Execution Orchestration |
+| **Core** | Engineering Truth + Topology + Engineering Rules + Studies + Results |
 
-Presentation state is distinct from engineering state.
-
-Preview state is never authoritative.
-
-Selection is UI/application state.
-
-Snapping identifies candidates; Core validates topology.
-
-Renderers never perform engineering calculations.
-
-Tools never directly mutate Core.
-
-MainWindow is a composition root, not an application brain.
-
-PluginManager owns plugin lifecycle.
-
-ToolManager owns tool lifecycle.
-
-ToolRegistry owns tool registration/discovery.
-
-Projection is an explicit architectural layer.
-
-Qt types never cross into Core.
-
-Core must remain headless.
-
-Long-running operations never block the UI thread.
-
-Undo/redo operates at the command/application level.
-
-Multiple canvases never create duplicate Core networks.
-69. The One Rule Above All Others
-
-GridForge V2 UI must never become a second implementation of the Core.
-
-The UI is:
-
-Presentation
-+
-Interaction
-+
-Projection
-+
-Workspace
-+
-Command Boundary
-+
-UI Platform
-
-The Application layer is:
-
-Commands
-+
-Handlers
-+
-Services
-+
-Lifecycle
-+
-Execution Orchestration
-
-The Core is:
-
-Engineering Truth
-+
-Topology
-+
-Engineering Rules
-+
-Studies
-+
-Results
-
-Therefore:
-
+```text
                  UI
                   │
               asks / displays
@@ -2185,21 +1609,6 @@ Therefore:
                   │
                   ▼
                  UI
+```
 
-This is the frozen GridForge V2 UI ↔ Core contract.
-
-My reconciliation verdict
-
-The current repository README is already strong, but I would replace its current wording with the above rather than simply append to it. The live repository currently describes the UI tree, plugins, controllers, rendering, tools, panels, command architecture, solver integration, snap/preview systems, and UI/Core separation, but several important pieces are still described as future, planned, or to be decided.
-
-The biggest changes I intentionally made are:
-
-Projection is now explicit, not merely implied inside rendering.
-Stable domain IDs are mandatory.
-ToolManager / ToolRegistry / InteractionManager responsibilities are explicitly separated.
-Command boundary is explicit.
-SLD presentation state is explicitly separated from engineering truth.
-Human-interaction cancellation and failure behavior is part of the contract.
-Stale projections, missing renderers, plugin failure, focus, cancellation, and multi-canvas behavior are covered.
-The Qt boundary is explicit.
-The UI is explicitly forbidden from becoming a second Core.
+**This is the frozen GridForge V2 UI ↔ Core contract.**
