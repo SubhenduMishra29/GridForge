@@ -209,7 +209,7 @@ class SLDEditor(QWidget):
                 self._region_user_visibility[region_id] = True
             if frame is not None:
                 minimum = int(getattr(region, "minimum_size", 0) or 0)
-                if region_id in {"tool_shelf", "sidebar"}:
+                if region_id in {"tool_shelf", "explorer", "sidebar"}:
                     frame.setMinimumWidth(minimum)
                 elif region_id in {"header", "tool_settings", "diagnostics", "status"}:
                     frame.setMinimumHeight(minimum)
