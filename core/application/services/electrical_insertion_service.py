@@ -20,6 +20,7 @@ from ..commands.measurement_commands import CreateCurrentTransformerCommand
 from ..commands.model_commands import CreateDisconnectorCommand, CreateTransformerCommand
 from ..commands.simple_wire_commands import CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand
 from ..errors import ValidationError
+from ..endpoint_resolver import EndpointResolver
 from ..results import ApplicationResult
 from ..transaction import Transaction
 from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
@@ -266,7 +267,6 @@ class ElectricalInsertionService:
             # Application endpoint resolver. Re-resolve it here and compare
             # object identity so Terminal.endpoint and the topology endpoint
             # cannot silently diverge before the Simple Wires are committed.
-            from ..endpoint_resolver import EndpointResolver
             expected_endpoint = EndpointResolver.resolve(context, target_ref)
             if terminal.endpoint is not expected_endpoint:
                 raise ValidationError(
