@@ -97,6 +97,10 @@ class Controller(QObject):
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()
 
+    def get_tool_manager(self) -> Any | None:
+        """Return the authoritative ToolManager for interaction delegation."""
+        return self._tool_manager
+
     @property
     def tool_id(self) -> str | None:
         manager = self._tool_manager
