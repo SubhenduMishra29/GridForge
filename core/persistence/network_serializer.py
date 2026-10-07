@@ -14,6 +14,7 @@ from core.model.terminal import Terminal
 from core.network import Network, SimpleWireConnection
 
 from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
+from .project_package import CORE_SERIALIZATION_VERSION
 from .type_registry import ModelTypeRegistry, network_adder_name
 
 
@@ -49,7 +50,7 @@ def serialize_network(network: Network) -> dict[str, Any]:
         key=lambda item: item["connection_id"],
     )
     return {
-        "schema": 1,
+        "schema": CORE_SERIALIZATION_VERSION,
         "elements": elements,
         "connectivity": {
             "schema": 1,
@@ -61,7 +62,7 @@ def serialize_network(network: Network) -> dict[str, Any]:
 def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | None = None) -> Network:
     """Reconstruct a Network from canonical persisted engineering data."""
     if not isinstance(data, dict): raise TypeError("Persisted project state must be an object.")
-    if data.get("schema") != 1: raise NetworkSerializationError(f"Unsupported project network schema: {data.get('schema')!r}")
+    if data.get("schema") != CORE_SERIALIZATION_VERSION: raise NetworkSerializationError(f"Unsupported project network schema: {data.get('schema')!r}")
     type_registry = registry or ModelTypeRegistry()
     network = Network()
     pending_terminals: list[tuple[Any, dict[str, Any]]] = []
