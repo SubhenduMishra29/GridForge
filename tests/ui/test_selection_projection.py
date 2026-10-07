@@ -1,3 +1,9 @@
+# ============================================================
+# GridForge V2
+# File: tests/ui/test_selection_projection.py
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -158,6 +164,8 @@ def test_selection_projection_reads_through_application():
         event_bus=bus_service,
         read_network=lambda: network,
         read_element=lambda element_type, object_id: bus if (element_type, object_id) == ("BUS", "bus-1") else None,
+        read_simple_wire=lambda connection_id: (_ for _ in ()).throw(KeyError(connection_id)),
+        read_draft_network=lambda: {"equipment": (), "connections": ()},
     )
     panel = _FakePanel()
     coordinator = SelectionProjectionCoordinator(
@@ -177,5 +185,45 @@ def test_selection_projection_reads_through_application():
             handler(ElementUpdated(element_id="bus-1", element_type="BUS"))
             break
     assert panel.target.object_id == "bus-1"
+
+    coordinator.dispose()
+
+
+def test_selection_projection_resolves_draft_from_authoritative_draft_network():
+    manager = SelectionManager()
+    network = NetworkReadModel(elements=())
+    bus_service = _FakeBus()
+    draft = {
+        "draft_id": "transformer-draft-1",
+        "equipment_type": "transformer",
+        "display_name": "Transformer",
+        "terminal_contract": ("HV", "LV"),
+        "engineering_data": {"r": 0.01, "x": 0.05},
+        "endpoints": {},
+        "placement": [120.0, 80.0],
+        "presentation": {},
+        "validation_state": {"valid": False, "errors": ("configuration incomplete",)},
+    }
+    app = SimpleNamespace(
+        event_bus=bus_service,
+        read_network=lambda: network,
+        read_element=lambda element_type, object_id: None,
+        read_simple_wire=lambda connection_id: (_ for _ in ()).throw(KeyError(connection_id)),
+        read_draft_network=lambda: {"equipment": (draft,), "connections": ()},
+    )
+    panel = _FakePanel()
+    coordinator = SelectionProjectionCoordinator(
+        selection_manager=manager,
+        application=app,
+        properties_panel=panel,
+    )
+
+    manager.select_single("transformer-draft-1")
+
+    assert panel.target is not None
+    assert panel.target.object_id == "transformer-draft-1"
+    assert panel.target.identity_kind == "draft"
+    assert panel.target.placement == (120.0, 80.0)
+    assert panel.target.engineering_parameters
 
     coordinator.dispose()
