@@ -270,6 +270,25 @@ class ProjectPersistenceService:
         """Validate cross-domain project invariants at load/save boundaries."""
         if not isinstance(context, ProjectContext) or not isinstance(network, Network):
             raise ProjectPersistenceError("Project context or Network is invalid.")
+        if presentation_collection is not None:
+            normalized_collection = ProjectPersistenceService._normalize_presentation_collection(
+                presentation_collection,
+                context.project_id,
+            )
+            for document in normalized_collection["documents"]:
+                document_schema = document.get("schema", 1)
+                if document_schema not in (1, 2):
+                    raise ProjectPersistenceError(
+                        f"Unsupported SLD representation schema: {document_schema!r}"
+                    )
+                document_validation = ValidationService.validate_sld_associations(
+                    context,
+                    network,
+                    document,
+                )
+                for issue in document_validation.issues:
+                    if issue.code != "SLD_EQUIPMENT_REFERENCE_UNRESOLVED":
+                        raise ProjectPersistenceError(issue.message)
         if presentation is not None:
             if not isinstance(presentation, Mapping):
                 raise ProjectPersistenceError("Persistent SLD representation must be a mapping.")
