@@ -297,7 +297,7 @@ def test_valid_draft_connection_commits_as_core_simple_wire():
     network = app.read_network()
     assert any(
         str(connection.connection_id) == "wire-1"
-        for connection in network.simple_wire_connections
+        for connection in network.simple_wires
     )
     assert not app.draft_network.connections
 
