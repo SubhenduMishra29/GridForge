@@ -276,14 +276,17 @@ class CommitNetworkHandler:
             self._command_executor(prepared_command, transaction)
 
         active_draft.clear_after_commit()
-        return ApplicationResult.success_result({
-            "project_id": project_id,
-            "equipment_count": len(snapshot.equipment),
-            "connection_count": len(snapshot.connections),
-        }, metadata={
+        return ApplicationResult.success_result(
+            value={
+                "project_id": project_id,
+                "equipment_count": len(snapshot.equipment),
+                "connection_count": len(snapshot.connections),
+            },
+            metadata={
             "created_elements": tuple(created_elements),
-            "committed_connections": tuple(committed_connections),
-        })
+                "committed_connections": tuple(committed_connections),
+            },
+        )
 
 
 __all__ = ["DraftCommandHandlers", "DraftConnectivityResolver", "CommitNetworkHandler"]
