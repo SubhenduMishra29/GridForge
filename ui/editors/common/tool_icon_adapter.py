@@ -25,12 +25,10 @@ class ToolIconAdapter:
     """
 
     _GENERIC_GLYPHS = {
-        "select": "↖",
-        "move": "✥",
-        "pan": "✋",
-        "wire": "⌁",
-        "line": "╱",
-        "cable": "≋",
+        "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
+        "bus": "▰", "snap": "⊙", "delete": "×",
+        "zoom_in": "+", "zoom_out": "−", "fit": "□",
+        "line": "╱", "cable": "≋",
     }
 
     def __init__(self, symbol_registry: SymbolRegistry) -> None:
@@ -47,24 +45,25 @@ class ToolIconAdapter:
         if not isinstance(definition, ToolDefinition):
             raise TypeError("definition must be a ToolDefinition.")
 
-        # 1. Explicit ToolDefinition icon identity.
+        # Generic interaction tools own their icon resolution and must not
+        # accidentally depend on an equipment symbol with the same ID.
+        generic = self._generic_icon(definition.tool_id)
+        if generic is not None:
+            return generic
+
+        # Equipment tools may reuse canonical engineering artwork through the
+        # palette adapter, but this remains a presentation-only fallback.
         explicit = definition.icon_id
         if explicit:
             icon = self._symbol_icon(explicit)
             if icon is not None:
                 return icon
 
-        # 2. Canonical equipment symbol using the stable tool ID.
         canonical = self._symbol_icon(definition.tool_id)
         if canonical is not None:
             return canonical
 
-        # 3. Canonical generic tool icon.
-        generic = self._generic_icon(definition.tool_id)
-        if generic is not None:
-            return generic
-
-        # 4. Deterministic engineering fallback. This path is intentionally
+        # Deterministic engineering fallback. This path is intentionally
         # non-empty so a missing symbol can never make the shaft blank.
         _LOG.warning(
             "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s",
