@@ -504,10 +504,11 @@ class ProjectPersistenceService:
                 context.project_id,
             )
             for document in normalized_collection["documents"]:
-                document_schema = document.get("schema", 1)
-                if document_schema not in (1, 2):
+                document_schema = document.get("schema")
+                if document_schema != SLD_SCHEMA_VERSION:
                     raise ProjectPersistenceError(
-                        f"Unsupported SLD representation schema: {document_schema!r}"
+                        f"Non-canonical SLD representation schema: {document_schema!r}; "
+                        f"expected {SLD_SCHEMA_VERSION}"
                     )
                 document_validation = ValidationService.validate_sld_associations(
                     context,
@@ -520,10 +521,11 @@ class ProjectPersistenceService:
         if presentation is not None:
             if not isinstance(presentation, Mapping):
                 raise ProjectPersistenceError("Persistent SLD representation must be a mapping.")
-            sld_schema = presentation.get("schema", 1)
-            if sld_schema not in (1, 2):
+            sld_schema = presentation.get("schema")
+            if sld_schema != SLD_SCHEMA_VERSION:
                 raise ProjectPersistenceError(
-                    f"Unsupported SLD representation schema: {sld_schema!r}"
+                    f"Non-canonical SLD representation schema: {sld_schema!r}; "
+                    f"expected {SLD_SCHEMA_VERSION}"
                 )
             sld_validation = ValidationService.validate_sld_associations(
                 context,
