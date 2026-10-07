@@ -168,7 +168,6 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("tool.bus", "Place Bus"),
             a("tool.wire", "Wire"),
             a("network.commit_draft", "Commit Draft", "Ctrl+Shift+Enter", True),
-            a("view.sld_workspace", "Activate SLD Workspace", None, True),
         )),
         MenuSpec("study", "Study", (
             a("study.cases", "Study Cases"),
