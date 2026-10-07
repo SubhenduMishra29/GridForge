@@ -61,7 +61,7 @@ from ui.tools.tool_definition import contextual_tool_definitions
 from ui.tools.tool_mode import ToolMode
 from ui.tools.tool_settings import ToolSettings
 from ui.editors.study.study_tool_runtime import StudyToolRuntime
-from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
+from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.draft_commands import CommitNetworkCommand
@@ -197,13 +197,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         *protection_tool_definitions,
         *study_tool_definitions,
     )
-    _tool_icon_adapter = PaletteSymbolAdapter(presentation_bootstrap.symbol_registry)
+    # Tool-shaft presentation is deliberately separate from the equipment
+    # palette. ToolIconAdapter may reuse SymbolRegistry definitions, but
+    # ToolDefinition remains the sole tool identity input.
+    _tool_icon_adapter = ToolIconAdapter(presentation_bootstrap.symbol_registry)
 
-    def _tool_icon(icon_id: str):
-        try:
-            return _tool_icon_adapter.icon_for(icon_id)
-        except (KeyError, ValueError, TypeError):
-            return None
+    def _tool_icon(definition):
+        return _tool_icon_adapter.icon_for(definition)
 
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
