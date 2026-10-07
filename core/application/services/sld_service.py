@@ -711,6 +711,12 @@ class SLDService:
         connection_kind = p.get("connection_kind")
         if connection_kind is not None:
             properties["connection_kind"] = str(connection_kind)
+        core_connection_id = p.get("core_connection_id")
+        if core_connection_id is not None:
+            core_connection_id = str(core_connection_id).strip()
+            if not core_connection_id:
+                raise ValueError("core_connection_id must be a non-empty string when provided.")
+            properties["core_connection_id"] = core_connection_id
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
         if connection_kind is not None:
