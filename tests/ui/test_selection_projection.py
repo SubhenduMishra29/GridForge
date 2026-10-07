@@ -1,3 +1,9 @@
+# ============================================================
+# GridForge V2
+# File: tests/ui/test_selection_projection.py
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from types import SimpleNamespace
