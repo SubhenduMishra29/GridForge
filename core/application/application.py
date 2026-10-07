@@ -621,6 +621,7 @@ class Application:
                             source_endpoint=item["endpoint_a"],
                             target_endpoint=item["endpoint_b"],
                             connection_kind="SIMPLE_WIRE",
+                            route=item.get("route"),
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
                             core_connection_id=str(item["connection_id"]),
