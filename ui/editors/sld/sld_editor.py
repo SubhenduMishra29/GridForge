@@ -300,6 +300,9 @@ class SLDEditor(QWidget):
             settings(context)
         active = getattr(context, "active_tool", None) if context is not None else None
         self._tool_shelf.set_active_tool(active)
+        tool_settings = getattr(context, "tool_settings", None) if context is not None else None
+        has_tool_settings = bool(tool_settings is not None and getattr(tool_settings, "values", {}))
+        self.set_region_visible("tool_settings", has_tool_settings, user=False)
         self.update_contextual_regions()
         selected = getattr(getattr(context, "engineering", None), "selected_ids", ()) or ()
         snap = getattr(getattr(context, "engineering", None), "snap_enabled", True)
