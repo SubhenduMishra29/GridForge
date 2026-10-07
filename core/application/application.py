@@ -1215,6 +1215,26 @@ class Application:
             return
         if command.command_type == INSERT_EQUIPMENT_INTO_CONNECTION:
             payload = dict(metadata)
+            command_payload = command.payload
+            payload.setdefault("connection_id", str(command_payload["connection_id"]))
+            payload.setdefault("equipment_type", str(command_payload["equipment_type"]))
+            payload.setdefault(
+                "equipment_id",
+                str(
+                    command_payload.get("equipment_id")
+                    or f"insert-{command.command_id.hex}"
+                ),
+            )
+            payload.setdefault("insertion_position", tuple(command_payload["insertion_position"]))
+            payload.setdefault("orientation", float(command_payload["orientation"]))
+            payload.setdefault("segment_index", int(command_payload["segment_index"]))
+            payload.setdefault(
+                "replacement_connection_ids",
+                (
+                    f"{command_payload['connection_id']}-A",
+                    f"{command_payload['connection_id']}-B",
+                ),
+            )
             effective_action = "remove" if operation == "undo" else "create"
             if effective_action == "remove":
                 self._event_bus.publish(ElementRemoved(
