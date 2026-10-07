@@ -356,36 +356,55 @@ class ProjectPersistenceService:
     def _normalize_presentation_collection(data: Mapping[str, Any], project_id: str) -> dict[str, Any]:
         if not isinstance(data, Mapping):
             raise ProjectPersistenceError("Persistent presentation collection must be a mapping.")
-        schema = data.get("schema", 1)
-        if schema != 1:
-            raise ProjectPersistenceError(f"Unsupported presentation collection schema: {schema!r}")
+        schema = data.get("schema")
+        if schema != PRESENTATION_SCHEMA_VERSION:
+            raise ProjectPersistenceError(
+                f"Non-canonical presentation collection schema: {schema!r}; "
+                f"expected {PRESENTATION_SCHEMA_VERSION}."
+            )
         documents = data.get("documents")
         if not isinstance(documents, list):
             raise ProjectPersistenceError("Presentation collection documents must be an array.")
+
         normalized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in documents:
             if not isinstance(item, Mapping):
                 raise ProjectPersistenceError("Every persisted presentation document must be an object.")
             document_id = item.get("document_id")
-            document_type = item.get("document_type", "sld")
+            document_type = item.get("document_type")
             if not isinstance(document_id, str) or not document_id.strip():
                 raise ProjectPersistenceError("Persisted presentation document_id must be a non-empty string.")
-            if document_id in seen:
-                raise ProjectPersistenceError(f"Duplicate persisted document_id: {document_id}")
             if document_type != "sld":
-                raise ProjectPersistenceError(f"Unsupported persisted presentation document_type: {document_type!r}")
+                raise ProjectPersistenceError(
+                    f"Unsupported persisted presentation document_type: {document_type!r}"
+                )
+            if item.get("schema") != SLD_SCHEMA_VERSION:
+                raise ProjectPersistenceError(
+                    f"Non-canonical SLD schema in document {document_id!r}: "
+                    f"{item.get('schema')!r}; expected {SLD_SCHEMA_VERSION}."
+                )
             item_project_id = item.get("project_id")
             if item_project_id not in (None, project_id):
-                raise ProjectPersistenceError(f"Presentation document {document_id!r} belongs to another project.")
+                raise ProjectPersistenceError(
+                    f"Presentation document {document_id!r} belongs to another project."
+                )
+            if document_id in seen:
+                raise ProjectPersistenceError(f"Duplicate persisted document_id: {document_id}")
             seen.add(document_id)
             normalized.append(dict(item))
+
         active_id = data.get("active_document_id")
         if active_id is not None and not isinstance(active_id, str):
             raise ProjectPersistenceError("active_document_id must be a string or null.")
         if active_id not in seen:
             active_id = normalized[0]["document_id"] if normalized else None
-        return {"schema": 1, "documents": normalized, "active_document_id": active_id}
+
+        return {
+            "schema": PRESENTATION_SCHEMA_VERSION,
+            "documents": normalized,
+            "active_document_id": active_id,
+        }
 
     @staticmethod
     def _deserialize_control_configuration(data: Mapping[str, Any], project_id: str) -> ControlConfiguration:
@@ -394,6 +413,85 @@ class ProjectPersistenceService:
             raise ValueError("Control configuration project_id does not match the project.")
         configuration.validate()
         return configuration
+
+    @staticmethod
+    def _validate_canonical_project_data(project: Mapping[str, Any]) -> None:
+        """Validate only the current persistence representation, before deserialization."""
+        if not isinstance(project, Mapping):
+            raise ProjectPersistenceError("Canonical project representation must be an object.")
+
+        allowed = {
+            "schema",
+            "project",
+            "network",
+            "presentations",
+            "dynamic_models",
+            "measurement",
+            "control",
+            "protection",
+            "protection_presentation",
+            "draft_network",
+        }
+        unknown = sorted(set(project) - allowed)
+        if unknown:
+            raise ProjectPersistenceError(
+                "Unknown canonical project fields are rejected to prevent silent data loss: "
+                + ", ".join(str(item) for item in unknown)
+            )
+        if project.get("schema") != PROJECT_SCHEMA_VERSION:
+            raise ProjectPersistenceError(
+                f"Canonical project schema must be {PROJECT_SCHEMA_VERSION}, got {project.get('schema')!r}."
+            )
+
+        metadata = project.get("project")
+        if not isinstance(metadata, Mapping):
+            raise ProjectPersistenceError("Canonical project metadata must be an object.")
+        project_id = metadata.get("project_id")
+        name = metadata.get("name")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ProjectPersistenceError("project_id must be a non-empty string.")
+        if not isinstance(name, str) or not name.strip():
+            raise ProjectPersistenceError("project name must be a non-empty string.")
+
+        network = project.get("network")
+        if not isinstance(network, Mapping):
+            raise ProjectPersistenceError("Canonical network must be an object.")
+        if network.get("schema") != CORE_SERIALIZATION_VERSION:
+            raise ProjectPersistenceError(
+                f"Canonical Core serialization schema must be {CORE_SERIALIZATION_VERSION}, "
+                f"got {network.get('schema')!r}."
+            )
+        if not isinstance(network.get("elements"), list):
+            raise ProjectPersistenceError("Canonical network elements must be an array.")
+        connectivity = network.get("connectivity")
+        if not isinstance(connectivity, Mapping):
+            raise ProjectPersistenceError("Canonical network connectivity must be an object.")
+        if connectivity.get("schema") != CORE_SERIALIZATION_VERSION:
+            raise ProjectPersistenceError(
+                f"Canonical connectivity serialization schema must be {CORE_SERIALIZATION_VERSION}, "
+                f"got {connectivity.get('schema')!r}."
+            )
+        if not isinstance(connectivity.get("simple_wires"), list):
+            raise ProjectPersistenceError("Canonical simple_wires must be an array.")
+
+        collection = project.get("presentations")
+        if not isinstance(collection, Mapping):
+            raise ProjectPersistenceError("Canonical presentations collection is required.")
+        ProjectPersistenceService._normalize_presentation_collection(collection, project_id)
+
+        dynamic_models = project.get("dynamic_models")
+        if not isinstance(dynamic_models, list):
+            raise ProjectPersistenceError("Canonical dynamic_models must be an array.")
+        measurement = project.get("measurement")
+        if not isinstance(measurement, Mapping):
+            raise ProjectPersistenceError("Canonical measurement must be an object.")
+        channels = measurement.get("channels")
+        if not isinstance(channels, list) or any(not isinstance(item, Mapping) for item in channels):
+            raise ProjectPersistenceError("Canonical measurement.channels must be an array of objects.")
+
+        for key in ("control", "protection", "protection_presentation", "draft_network"):
+            if key in project and project[key] is not None and not isinstance(project[key], Mapping):
+                raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
 
     @staticmethod
     def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, presentation_collection: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
