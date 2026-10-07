@@ -693,6 +693,19 @@ class SLDService:
         if self._symbol_presentation_factory is not None:
             presentation = self._symbol_presentation_factory(equipment_type)
 
+        def restore() -> None:
+            for connection_id_to_remove in (first_id, second_id):
+                if self.document.model.get_connection_optional(connection_id_to_remove) is not None:
+                    self.document.model.remove_connection(connection_id_to_remove)
+            if self.document.model.get_node_optional(node_id) is not None:
+                self.document.model.remove_node(node_id)
+            if self.document.model.get_connection_optional(old_id) is None:
+                self._restore_connection_snapshot(snapshot)
+
+        # Register the inverse before mutating the presentation so any failure
+        # during the multi-object replacement is rollback-safe as well.
+        transaction.record_undo(restore)
+
         self.document.model.remove_connection(old_id)
         self.document.model.create_node(
             node_id=node_id,
@@ -721,14 +734,6 @@ class SLDService:
             properties=dict(properties, core_connection_id=second_core_id),
         )
         self.document.mark_modified()
-
-        def restore() -> None:
-            self.document.model.remove_connection(first_id)
-            self.document.model.remove_connection(second_id)
-            self.document.model.remove_node(node_id)
-            self._restore_connection_snapshot(snapshot)
-
-        transaction.record_undo(restore)
 
     def reconcile_element_delete(
         self,
