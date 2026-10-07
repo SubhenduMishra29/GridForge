@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from ui.core.qt import QAction, QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
+from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
 from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
@@ -184,13 +184,6 @@ class SLDEditor(QWidget):
         self._presentation_maximized = False
         self._maximize_callback = None
 
-        self._maximize_action = QAction("Maximize SLD Editor", self)
-        self._maximize_action.setShortcut("Ctrl+Space")
-        self._maximize_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._maximize_action.setStatusTip("Maximize or restore the SLD editor.")
-        self._maximize_action.triggered.connect(self._toggle_presentation_maximized)
-        self.addAction(self._maximize_action)
-
         # Defaults: only the engineering surface, compact tool shelf and status
         # remain permanently visible. Secondary regions are contextual.
         for region_id in ("explorer", "sidebar", "diagnostics", "tool_settings"):
@@ -296,9 +289,6 @@ class SLDEditor(QWidget):
         self._sync_panel_buttons()
         if callable(self._maximize_callback):
             self._maximize_callback(maximized)
-
-    def _toggle_presentation_maximized(self) -> None:
-        self.set_presentation_maximized(not self._presentation_maximized)
 
     def set_editor_context(self, context: object | None) -> None:
         self._editor_context = context
