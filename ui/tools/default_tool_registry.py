@@ -96,8 +96,20 @@ def create_default_tool_factories(
             symbol_registry=symbol_registry,
         )
 
+    def insertion_factory(**_ignored: Any) -> ElectricalInsertionTool:
+        if symbol_registry is None:
+            raise ValueError("symbol_registry is required for ElectricalInsertionTool.")
+        return ElectricalInsertionTool(
+            controller=controller,
+            application=application,
+            selection_manager=selection_manager,
+            snap_system=snap_system,
+            preview_layer=preview_layer,
+            symbol_registry=symbol_registry,
+        )
+
     return {
-        "electrical-insertion": factory(ElectricalInsertionTool),
+        "electrical-insertion": insertion_factory,
         "select": factory(SelectTool),
         "bus": factory(BusTool),
         "wire": factory(WireTool),
