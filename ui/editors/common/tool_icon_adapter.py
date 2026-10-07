@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, QRectF, Qt
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -103,7 +102,7 @@ class ToolIconAdapter:
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             painter.setPen(Qt.GlobalColor.black)
-            painter.setBrush(QBrush(Qt.GlobalColor.transparent))
+            painter.setBrush(QBrush())
             painter.drawRoundedRect(QRectF(3, 3, 58, 58), 8, 8)
             painter.drawText(QRectF(5, 5, 54, 54), Qt.AlignmentFlag.AlignCenter, text)
         finally:
