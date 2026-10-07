@@ -90,6 +90,16 @@ class ModelPlacementTool(ToolBase):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
+
+        # An equipment tool keeps its normal position-first placement semantics.
+        # When the initial press lands on an existing Simple Wire, however, the
+        # same equipment gesture is temporarily delegated to the canonical
+        # ElectricalInsertionTool. No draft/Core/SLD state is created by this
+        # decision; the insertion tool only submits an immutable command on
+        # release.
+        if draft.placement_position is None and self._try_begin_wire_insertion(event, draft):
+            return True
+
         if draft.placement_position is None:
             snap = self._snap_result(event)
         else:
@@ -242,6 +252,32 @@ class ModelPlacementTool(ToolBase):
         self._accepted_endpoint_snap = snap
         self._endpoint_acquired_this_interaction = True
         return True
+
+    def _try_begin_wire_insertion(self, event: Any, draft: CreationDraft) -> bool:
+        manager_getter = getattr(self.controller, "get_tool_manager", None)
+        if callable(manager_getter):
+            tool_manager = manager_getter()
+        else:
+            tool_manager = getattr(self.controller, "_tool_manager", None)
+        if tool_manager is None:
+            return False
+        begin = getattr(tool_manager, "begin_equipment_insertion", None)
+        if not callable(begin):
+            return False
+        try:
+            parameters = dict(draft.snapshot_values())
+            orientation = float(draft.preview_state.get("rotation", 0.0))
+            return bool(
+                begin(
+                    draft.equipment_type,
+                    creation_parameters=parameters,
+                    orientation=orientation,
+                    equipment_id=None,
+                    initial_event=event,
+                )
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return False
 
     def _report_feedback(self, message: str) -> None:
         """Use an existing presentation feedback hook when the composition provides one."""
