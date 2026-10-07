@@ -186,6 +186,38 @@ class ControlSurfaceHost(QWidget):
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
 
+    def set_region_visible(self, editor_type: str, region_id: str, visible: bool) -> None:
+        editor_id = {
+            "sld": "sld-editor",
+            "control": "control-editor",
+            "protection": "protection-editor",
+            "study": "study-editor",
+        }.get(editor_type, editor_type)
+        editor = self._host.widget(editor_id)
+        if editor is None:
+            raise KeyError(f"Unknown editor type: {editor_type!r}")
+        setter = getattr(editor, "set_region_visible", None)
+        if not callable(setter):
+            raise AttributeError(f"Editor {editor_id!r} does not expose contextual region visibility.")
+        setter(region_id, bool(visible), user=True)
+
+    def toggle_region(self, editor_type: str, region_id: str) -> bool:
+        editor_id = {
+            "sld": "sld-editor",
+            "control": "control-editor",
+            "protection": "protection-editor",
+            "study": "study-editor",
+        }.get(editor_type, editor_type)
+        editor = self._host.widget(editor_id)
+        if editor is None:
+            raise KeyError(f"Unknown editor type: {editor_type!r}")
+        widget = getattr(editor, "region_widget", lambda _id: None)(region_id)
+        if widget is None:
+            raise KeyError(f"Unknown editor region: {region_id!r}")
+        visible = not widget.isVisible()
+        self.set_region_visible(editor_type, region_id, visible)
+        return visible
+
     def refresh_selection_context(self, selected_ids: object) -> None:
         context = self._host.editor_context
         if context is None:
