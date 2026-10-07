@@ -155,7 +155,7 @@ class ElectricalInsertionTool(ToolBase):
         if self._target_item is not None:
             setter = getattr(self._target_item, "set_visual_state", None)
             if callable(setter):
-                setter("selected")
+                setter("preview")
 
     def _clear_target_visual(self) -> None:
         if self._target_item is not None:
