@@ -38,7 +38,12 @@ class SLDNodeItem(QGraphicsEllipseItem):
         return self._object_id
 
     def set_visual_position(self, x: float, y: float) -> None:
-        """Set presentation position without modifying Core state."""
+        """Apply only the position supplied by the canonical canvas snapshot.
+
+        This method is a renderer operation, not an edit API. Persistent node
+        movement must use SetSLDNodePositionCommand; this item never decides
+        whether a position change is accepted.
+        """
         self.setPos(QPointF(float(x), float(y)))
 
     def visual_position(self) -> tuple[float, float]:
