@@ -113,6 +113,7 @@ class ElectricalInsertionService:
         forbidden = {
             "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b",
             "p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint",
+            "command_id", "correlation_id", "causation_id",
         }
         if forbidden.intersection(parameters):
             raise ValidationError(
