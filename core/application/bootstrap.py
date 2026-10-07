@@ -123,10 +123,17 @@ def create_application(network: Any) -> Application:
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
         register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
-        draft_provider = lambda: application.draft_network if application is not None else None
-        register_handlers(handlers, DraftCommandHandlers(draft_provider).handlers(), "draft")
-        register_handlers(handlers, {"network.commit_draft": CommitNetworkHandler(draft_provider)}, "aggregate network commit")
         command_manager = CommandManager(context=context, handlers=handlers)
+        draft_provider = lambda: application.draft_network if application is not None else None
+        for command_type, handler in DraftCommandHandlers(draft_provider).handlers().items():
+            command_manager.register_handler(command_type, handler)
+        command_manager.register_handler(
+            "network.commit_draft",
+            CommitNetworkHandler(
+                draft_provider,
+                command_executor=command_manager.execute_in_transaction,
+            ),
+        )
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
     command_manager, read_service, validation_service = build_runtime(network)
