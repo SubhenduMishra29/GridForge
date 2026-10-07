@@ -610,6 +610,126 @@ class SLDService:
         )
         self.document.mark_modified()
 
+    def reconcile_insertion(
+        self,
+        *,
+        connection_id: str,
+        equipment_id: str,
+        equipment_type: str,
+        insertion_position: tuple[float, float],
+        orientation: float,
+        segment_index: int,
+        input_endpoint: Mapping[str, Any],
+        output_endpoint: Mapping[str, Any],
+        replacement_connection_ids: tuple[str, str],
+        transaction: Transaction,
+    ) -> None:
+        """Atomically replace one persistent SLD wire with an inserted node and two wires.
+
+        The operation mutates only the persistent SLD presentation companion
+        inside the originating Application transaction. The old connection
+        snapshot is retained exactly for undo.
+        """
+        old_id = self.presentation_connection_id(connection_id)
+        old_connection = self.document.model.get_connection_optional(old_id)
+        if old_connection is None:
+            raise ValueError(
+                f"No persistent SLD connection companion exists for Core connection {connection_id!r}."
+            )
+
+        first_core_id, second_core_id = replacement_connection_ids
+        first_id = self.presentation_connection_id(first_core_id)
+        second_id = self.presentation_connection_id(second_core_id)
+        node_id = f"sld-core-{equipment_id}"
+        if self.document.model.get_node_optional(node_id) is not None:
+            raise ValueError(f"SLD node {node_id!r} already exists.")
+        if self.document.model.get_connection_optional(first_id) is not None:
+            raise ValueError(f"SLD connection {first_id!r} already exists.")
+        if self.document.model.get_connection_optional(second_id) is not None:
+            raise ValueError(f"SLD connection {second_id!r} already exists.")
+
+        snapshot = old_connection.to_dict()
+        source_node = self.document.model.get_node(old_connection.source_node_id)
+        target_node = self.document.model.get_node(old_connection.target_node_id)
+        position = (float(insertion_position[0]), float(insertion_position[1]))
+
+        route = old_connection.route.to_dict()
+        polyline = [
+            (float(source_node.x), float(source_node.y)),
+            *tuple(tuple(point) for point in old_connection.route.points),
+            (float(target_node.x), float(target_node.y)),
+        ]
+        if segment_index < 0 or segment_index >= len(polyline) - 1:
+            raise ValueError(
+                f"Invalid insertion route segment index {segment_index} for connection {connection_id!r}."
+            )
+        first_polyline = [*polyline[: segment_index + 1], position]
+        second_polyline = [position, *polyline[segment_index + 1 :]]
+
+        def route_for(points: list[tuple[float, float]]) -> dict[str, Any]:
+            return {
+                "routing_mode": route["routing_mode"],
+                "ownership": route["ownership"],
+                "points": [list(point) for point in points[1:-1]],
+            }
+
+        properties = dict(old_connection.properties)
+        properties["connection_kind"] = "SIMPLE_WIRE"
+        properties["presentation_owner"] = properties.get("presentation_owner", "projection")
+        properties["projection_source"] = "connectivity.insert_equipment_into_connection"
+        properties["lifecycle_state"] = "BOUND"
+        properties["insertion_parent_connection_id"] = connection_id
+
+        node_properties = {
+            "presentation_owner": "projection",
+            "projection_source": "connectivity.insert_equipment_into_connection",
+            "lifecycle_state": "BOUND",
+            "element_type": equipment_type,
+            "position_owner": "engineer",
+            "rotation": float(orientation),
+            "insertion_parent_connection_id": connection_id,
+        }
+        presentation = None
+        if self._symbol_presentation_factory is not None:
+            presentation = self._symbol_presentation_factory(equipment_type)
+
+        self.document.model.remove_connection(old_id)
+        self.document.model.create_node(
+            node_id=node_id,
+            equipment_id=equipment_id,
+            x=position[0],
+            y=position[1],
+            presentation=presentation,
+            properties=node_properties,
+        )
+        self.document.model.create_connection(
+            connection_id=first_id,
+            source_node_id=old_connection.source_node_id,
+            target_node_id=node_id,
+            source_endpoint=old_connection.source_endpoint.to_dict() if old_connection.source_endpoint is not None else None,
+            target_endpoint=dict(input_endpoint),
+            route=route_for(first_polyline),
+            properties=dict(properties, core_connection_id=first_core_id),
+        )
+        self.document.model.create_connection(
+            connection_id=second_id,
+            source_node_id=node_id,
+            target_node_id=old_connection.target_node_id,
+            source_endpoint=dict(output_endpoint),
+            target_endpoint=old_connection.target_endpoint.to_dict() if old_connection.target_endpoint is not None else None,
+            route=route_for(second_polyline),
+            properties=dict(properties, core_connection_id=second_core_id),
+        )
+        self.document.mark_modified()
+
+        def restore() -> None:
+            self.document.model.remove_connection(first_id)
+            self.document.model.remove_connection(second_id)
+            self.document.model.remove_node(node_id)
+            self._restore_connection_snapshot(snapshot)
+
+        transaction.record_undo(restore)
+
     def reconcile_element_delete(
         self,
         *,
