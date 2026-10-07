@@ -269,6 +269,24 @@ def test_draft_endpoint_translation_maps_draft_bus_and_terminal_to_core_identity
     assert terminal_ref.to_mapping()["terminal_role"] == "FROM"
 
 
+def test_commit_undo_restores_draft_and_redo_recommits():
+    app = create_application(Network())
+    draft = DraftNetwork("project-undo", 1)
+    draft.add_equipment(_bus("b1"))
+
+    assert _commit(app, draft).success
+    assert not app.draft_network.equipment
+    assert any(element.object_id == "bus-b1" for element in app.read_network().elements)
+
+    assert app.undo().success
+    assert len(app.draft_network.equipment) == 1
+    assert not app.read_network().elements
+
+    assert app.redo().success
+    assert not app.draft_network.equipment
+    assert any(element.object_id == "bus-b1" for element in app.read_network().elements)
+
+
 def test_valid_draft_connection_commits_as_core_simple_wire():
     app = create_application(Network())
     draft = DraftNetwork("project-4", 1)
