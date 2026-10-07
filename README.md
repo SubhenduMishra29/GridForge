@@ -410,15 +410,8 @@ GridForge/
 │   ├── results/                  Study/solver results
 │   ├── simulation/               Headless simulation execution
 │   └── application/              Semantic UI↔Core boundary
-│       ├── commands/
-│       ├── handlers/
-│       ├── services/
-│       ├── transactions/
-│       ├── history/
-│       ├── events/
-│       ├── read_models/
-│       ├── persistence/
-│       └── lifecycle/
+│       ├── commands/              Immutable command definitions
+│       └── services/              Application workflow services
 │
 ├── ui/                           Interaction, presentation and projection
 │   ├── core/                     Shared UI infrastructure
