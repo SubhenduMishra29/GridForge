@@ -334,10 +334,7 @@ class ProjectWorkspaceApplicationAdapter:
                 previous_active = self._lifecycle.document
                 if previous_active is not document:
                     self.activate_document(document_id)
-                try:
-                    self._application.save_project()
-                except BaseException:
-                    return self._lifecycle.state
+                self._application.save_project()
             elif decision == "discard":
                 document.mark_clean()
                 self._lifecycle.documents.mark_clean(document_id)
