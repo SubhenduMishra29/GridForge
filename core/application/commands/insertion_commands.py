@@ -26,7 +26,7 @@ class InsertEquipmentIntoConnectionCommand(Command):
         *,
         connection_id: str,
         equipment_type: str,
-        equipment_id: str,
+        equipment_id: str | None = None,
         insertion_position: tuple[float, float],
         orientation: float = 0.0,
         terminal_mapping: tuple[str, str] | None = None,
@@ -40,8 +40,10 @@ class InsertEquipmentIntoConnectionCommand(Command):
             raise ValueError("connection_id must be a non-empty string.")
         if not isinstance(equipment_type, str) or not equipment_type.strip():
             raise ValueError("equipment_type must be a non-empty string.")
-        if not isinstance(equipment_id, str) or not equipment_id.strip():
-            raise ValueError("equipment_id must be a non-empty string.")
+        if equipment_id is not None and (
+            not isinstance(equipment_id, str) or not equipment_id.strip()
+        ):
+            raise ValueError("equipment_id must be a non-empty string when provided.")
         if (
             not isinstance(insertion_position, (tuple, list))
             or len(insertion_position) != 2
@@ -69,7 +71,9 @@ class InsertEquipmentIntoConnectionCommand(Command):
             payload={
                 "connection_id": connection_id.strip(),
                 "equipment_type": equipment_type.strip().lower(),
-                "equipment_id": equipment_id.strip(),
+                "equipment_id": (
+                    None if equipment_id is None else equipment_id.strip()
+                ),
                 "insertion_position": (float(x), float(y)),
                 "orientation": float(orientation),
                 "terminal_mapping": None if terminal_mapping is None else tuple(str(role).strip() for role in terminal_mapping),
