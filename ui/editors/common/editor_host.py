@@ -162,6 +162,13 @@ class EngineeringEditorHost(QWidget):
             self._maximized_area_id = None
             self.setProperty("gridforge_area_maximized", False)
 
+        # Maximization is a presentation operation on the already-realized
+        # editor. The editor remains mounted; no scene/document is recreated.
+        editor = self._editors.get(self._active_editor_id or "")
+        apply_presentation_state = getattr(editor, "set_presentation_maximized", None)
+        if callable(apply_presentation_state):
+            apply_presentation_state(bool(maximized))
+
     def widget(self, editor_id: str) -> QWidget | None:
         return self._editors.get(editor_id)
 
