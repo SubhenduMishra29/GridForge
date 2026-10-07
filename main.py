@@ -614,6 +614,15 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
         )
 
+    def _toggle_sld_maximize() -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
+        workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
+
+    def _toggle_sld_region(region_id: str) -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        workspace_surface_host.toggle_region("sld", region_id)
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -637,17 +646,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
-        "view.maximize_editor": lambda: (
-            workspace_controller.activate(SLD_WORKSPACE_ID),
-            workspace_surface_host.editor_host.set_area_maximized(
-                "main-sld",
-                workspace_surface_host.editor_host.maximized_area_id != "main-sld",
-            ),
-        ),
-        "view.toggle_explorer": lambda: workspace_surface_host.toggle_region("sld", "explorer"),
-        "view.toggle_inspector": lambda: workspace_surface_host.toggle_region("sld", "sidebar"),
-        "view.toggle_messages": lambda: workspace_surface_host.toggle_region("sld", "diagnostics"),
-        "view.toggle_tool_settings": lambda: workspace_surface_host.toggle_region("sld", "tool_settings"),
+        "view.maximize_editor": _toggle_sld_maximize,
+        "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
+        "view.toggle_inspector": lambda: _toggle_sld_region("sidebar"),
+        "view.toggle_messages": lambda: _toggle_sld_region("diagnostics"),
+        "view.toggle_tool_settings": lambda: _toggle_sld_region("tool_settings"),
         "view.equipment_browser": _show_equipment_browser,
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
