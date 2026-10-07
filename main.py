@@ -847,13 +847,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_state = SLDState(
         selection_manager=canvas_composition.selection_manager,
         tool_manager=tool_manager,
+        document_manager=project_workspace_lifecycle.documents,
     )
     sld_controller = SLDController(
         state=sld_state,
         projection_manager=sld_projection_manager,
         application=gridforge_application,
+        workspace_lifecycle=project_workspace_lifecycle,
     )
-    sld_controller.register_document(sld_document)
     sld_controller.reconcile_presentation()
     from ui.sld.sld_route_edit_controller import SLDRouteEditController
     sld_canvas_render_system.bind_route_edit_controller(SLDRouteEditController(sld_controller))
@@ -868,11 +869,55 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
         if isinstance(document, SLDDocument):
-            sld_controller.replace_document(document)
-            sld_controller.activate_document(document.document_id)
+            sld_controller.reconcile_presentation()
+            engineering_context.update(document_id=document.document_id)
+            workspace_surface_host.set_sld_document(document)
+            workspace_surface_host.refresh_sld_document_tabs()
             synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
+
+    def _new_sld_document() -> None:
+        document = project_workspace_adapter.new_sld_document()
+        engineering_context.update(document_id=document.document_id)
+        workspace_surface_host.refresh_sld_document_tabs()
+        synchronize_canvas()
+
+    def _close_sld_document(document_id: str) -> None:
+        document = project_workspace_adapter.documents.require(document_id)
+        if project_workspace_adapter.is_document_dirty(document_id):
+            box = QMessageBox(window)
+            box.setWindowTitle("Close SLD Document")
+            box.setText("Save changes to " + str(document.name) + "?")
+            save_button = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+            discard_button = box.addButton("Don't Save", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_button = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(save_button)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is cancel_button:
+                return
+            decision = "save" if clicked is save_button else "discard"
+        else:
+            decision = "discard"
+        try:
+            project_workspace_adapter.close_document(document_id, decision=decision)
+        except BaseException as exc:
+            QMessageBox.critical(window, "Close SLD Document", str(exc))
+            return
+        workspace_surface_host.refresh_sld_document_tabs()
+        active = project_workspace_adapter.lifecycle.document
+        if isinstance(active, SLDDocument):
+            engineering_context.update(document_id=active.document_id)
+        synchronize_canvas()
+
+    workspace_surface_host.configure_sld_document_lifecycle(
+        project_workspace_lifecycle.documents,
+        activate=project_workspace_adapter.activate_document,
+        new_document=_new_sld_document,
+        close_document=_close_sld_document,
+    )
+    workspace_surface_host.refresh_sld_document_tabs()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
