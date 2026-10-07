@@ -12,6 +12,10 @@ from core.application.draft.network import (
     DraftNetwork,
 )
 from core.network import Network
+from core.application.project import ProjectContext
+from core.persistence.project_persistence import ProjectPersistenceService
+from core.application.services.sld_service import SLDService
+from ui.sld.sld_document import SLDDocument
 
 
 def _equipment(
@@ -287,6 +291,30 @@ def test_commit_undo_restores_draft_and_redo_recommits():
     assert any(element.object_id == "bus-b1" for element in app.read_network().elements)
 
 
+def _route() -> dict:
+    return {
+        "routing_mode": "orthogonal",
+        "ownership": "engineer",
+        "points": [
+            {"x": 100.0, "y": 200.0},
+            {"x": 150.0, "y": 200.0},
+            {"x": 150.0, "y": 300.0},
+        ],
+    }
+
+
+def _commit_with_sld(draft: DraftNetwork):
+    app = create_application(Network())
+    document = SLDDocument("route:sld", project_id=draft.project_id)
+    app.attach_sld_service(SLDService(document))
+    app.set_draft_network(draft)
+    result = app.execute(CommitNetworkCommand(
+        project_id=draft.project_id,
+        activation_generation=draft.activation_generation,
+        draft_network=draft.to_dict(),
+    ))
+    return app, result, document
+
 def test_valid_draft_connection_commits_as_core_simple_wire():
     app = create_application(Network())
     draft = DraftNetwork("project-4", 1)
@@ -320,6 +348,89 @@ def test_valid_draft_connection_commits_as_core_simple_wire():
     assert not app.draft_network.connections
 
 
+def test_commit_persists_engineer_authored_draft_route_structurally():
+    draft = DraftNetwork("project-route", 1)
+    draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_transformer("t1"))
+    authored_route = _route()
+    draft.add_connection(DraftConnection(
+        connection_id="wire-route",
+        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
+        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
+        route=authored_route,
+    ))
+
+    app, result, document = _commit_with_sld(draft)
+
+    assert result.success
+    connection = document.model.get_connection("sld-wire-wire-route")
+    assert connection.route.to_dict() == authored_route
+    assert connection.properties["route_owner"] == "engineer"
+
+
+def test_commit_route_is_not_replaced_by_generated_routing():
+    draft = DraftNetwork("project-route-generated", 1)
+    draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_transformer("t1"))
+    authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [{"x": 901.0, "y": 902.0}, {"x": 903.0, "y": 904.0}, {"x": 905.0, "y": 906.0}]}
+    draft.add_connection(DraftConnection(
+        connection_id="wire-distinctive",
+        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
+        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
+        route=authored_route,
+    ))
+
+    app, result, document = _commit_with_sld(draft)
+
+    assert result.success
+    assert document.model.get_connection("sld-wire-wire-distinctive").route.to_dict() == authored_route
+
+
+def test_commit_route_undo_redo_restores_the_same_persistent_sld_route():
+    draft = DraftNetwork("project-route-history", 1)
+    draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_transformer("t1"))
+    authored_route = _route()
+    draft.add_connection(DraftConnection(
+        connection_id="wire-history",
+        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
+        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
+        route=authored_route,
+    ))
+
+    app, result, document = _commit_with_sld(draft)
+    assert result.success
+    assert document.model.get_connection("sld-wire-wire-history").route.to_dict() == authored_route
+
+    assert app.undo().success
+    assert document.model.get_connection_optional("sld-wire-wire-history") is None
+
+    assert app.redo().success
+    assert document.model.get_connection("sld-wire-wire-history").route.to_dict() == authored_route
+
+
+def test_commit_route_save_reload_preserves_persistent_sld_route(tmp_path):
+    draft = DraftNetwork("project-route-persistence", 1)
+    draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_transformer("t1"))
+    authored_route = _route()
+    draft.add_connection(DraftConnection(
+        connection_id="wire-persist",
+        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
+        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
+        route=authored_route,
+    ))
+
+    app, result, document = _commit_with_sld(draft)
+    assert result.success
+
+    path = tmp_path / "route-roundtrip.gridforge"
+    context = ProjectContext(draft.project_id, "Route Persistence", None)
+    ProjectPersistenceService().save(context, app._command_manager.context.network, document.to_dict(), path)
+    loaded = ProjectPersistenceService().load(path)
+    restored = SLDDocument.from_dict(loaded.presentation)
+
+    assert restored.model.get_connection("sld-wire-wire-persist").route.to_dict() == authored_route
 def test_empty_draft_commit_is_rejected_and_retained():
     app = create_application(Network())
     draft = DraftNetwork("project-5", 1)
