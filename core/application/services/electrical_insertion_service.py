@@ -303,7 +303,7 @@ class ElectricalInsertionService:
             ) from exc
 
         return ApplicationResult.success_result(
-            value=create_result.value,
+            value=(None if existing_equipment else create_result.value),
             message=f"{equipment_type.title()} {equipment_id} inserted into {connection_id}.",
             metadata={
                 "insertion": True,
