@@ -497,9 +497,46 @@ class ProjectLifecycleService:
         if loaded is not None and loaded.context.project_id != context.project_id:
             raise ValueError("Loaded project context does not match the candidate context.")
 
+        collection = getattr(loaded, "presentation_collection", None) if loaded is not None else None
+        if collection is not None:
+            self._validate_presentation_collection(context, collection)
+
         if self._project_state_validator is None:
             raise RuntimeError("Application-owned candidate validator is not configured.")
         self._project_state_validator(context, loaded, network, presentation)
+
+    def _validate_presentation_collection(
+        self,
+        context: ProjectContext,
+        collection: ProjectPresentationCollection,
+    ) -> None:
+        """Validate a loaded presentation collection before workspace installation."""
+        if not isinstance(collection, ProjectPresentationCollection):
+            raise TypeError("Presentation collection must be a ProjectPresentationCollection.")
+        documents = tuple(collection.documents)
+        if not documents:
+            raise ValueError("Presentation collection must contain at least one SLD document.")
+        seen: set[str] = set()
+        for document in documents:
+            document_id = getattr(document, "document_id", None)
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise ValueError("Presentation collection contains an invalid document_id.")
+            if document_id in seen:
+                raise ValueError(f"Duplicate presentation document_id: {document_id}")
+            seen.add(document_id)
+            if getattr(document, "document_type", None) != "sld":
+                raise ValueError(f"Unsupported presentation document type: {getattr(document, 'document_type', None)!r}")
+            document_project_id = getattr(document, "project_id", None)
+            if document_project_id not in (None, context.project_id):
+                raise ValueError(
+                    f"Presentation document {document_id!r} belongs to project "
+                    f"{document_project_id!r}, not {context.project_id!r}."
+                )
+        active_id = collection.active_document_id
+        if active_id is not None and active_id not in seen:
+            raise ValueError(f"Active presentation document does not exist: {active_id}")
+        if active_id is None:
+            raise ValueError("Presentation collection must have an active SLD document.")
 
     def _activate_project_state(
         self,
