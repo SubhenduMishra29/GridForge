@@ -115,3 +115,11 @@ PanelArea describes where the panel belongs.
 
 The actual Qt QDockWidget integration belongs to the composition/UI
 layer.
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+Panels are read/intent surfaces. Inspectors and property editors display Application read models and submit immutable commands; they never mutate Core objects directly.
+
+Panel state must not become a second source of engineering truth, topology, selection history, or persistence.

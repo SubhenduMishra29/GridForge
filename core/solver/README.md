@@ -1411,3 +1411,11 @@ The resulting architecture is:
 This architecture provides GridForge V2 with a reusable numerical foundation capable of supporting increasingly advanced power-system studies while preserving strict separation between physical models, network representation, numerical execution, protection, analysis, GUI, and persistence.
 
 **`core/solver/README.md` → FINALIZE / FREEZE**
+
+---
+
+## Current Architecture Alignment — 2026-10-07
+
+This package remains headless and authoritative only within its documented domain. UI/SLD code consumes it through the Application boundary and must not create a parallel store here.
+
+Recent electrical insertion work preserves the separation between canonical Terminal endpoint state, Network connectivity, derived topology, and SLD presentation. None of those boundaries are replaced by graphics or by insertion-specific state.

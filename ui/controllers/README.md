@@ -92,3 +92,11 @@ Renderer          → visual realization
 GraphicsItem      → Qt visual projection
 Canvas            → viewport + navigation + interaction infrastructure
 ```
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+Controllers coordinate UI intent and Application requests. They do not implement electrical insertion, topology splitting, terminal endpoint mutation, or SLD persistence.
+
+Existing-equipment drag/insertion must terminate in InsertEquipmentIntoConnectionCommand and the canonical Application service path.
