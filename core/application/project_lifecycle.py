@@ -283,13 +283,13 @@ class ProjectLifecycleService:
         presentation_data: Mapping[str, Any] | None = None
         collection_data: Mapping[str, Any] | None = None
         collection = None
-        if self._presentation_collection_snapshot_provider is not None:
+        if self._presentation_collection_serializer is not None:
+            if self._presentation_collection_snapshot_provider is None:
+                raise RuntimeError("Presentation collection persistence requires a live collection snapshot provider.")
             collection = self._presentation_collection_snapshot_provider()
             if not isinstance(collection, ProjectPresentationCollection):
                 raise TypeError("Presentation collection snapshot provider must return ProjectPresentationCollection.")
-        else:
-            collection = getattr(self, "_runtime_presentation_collection", None)
-        if self._presentation_collection_serializer is not None and collection is not None:
+        elif self._presentation is not None:
             collection_data = self._presentation_collection_serializer(collection)
             if not isinstance(collection_data, Mapping):
                 raise TypeError("Presentation collection serializer must return a mapping.")
