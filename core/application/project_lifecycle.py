@@ -101,6 +101,18 @@ class ProjectLifecycleService:
     def network(self) -> Any: return self._network
     @property
     def presentation(self) -> Any: return self._presentation
+    def activate_presentation(self, presentation: Any | None) -> Any | None:
+        """Switch the active in-project presentation without changing project identity."""
+        if presentation is not None:
+            if self._context is None:
+                raise RuntimeError("Cannot activate a presentation without an active project.")
+            project_id = getattr(presentation, "project_id", None)
+            if project_id not in (None, self._context.project_id):
+                raise ValueError("Presentation belongs to a different project.")
+        previous = self._presentation
+        self._presentation = presentation
+        return previous
+
     @property
     def has_project(self) -> bool: return self._context is not None
     @property
