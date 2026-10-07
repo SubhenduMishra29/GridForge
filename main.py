@@ -829,9 +829,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     # Resolve the canonical canvas synchronization callable before registering
     # lifecycle callbacks that may invoke it. This removes the composition-order
     # dependency on a later local binding.
-    synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
+    synchronize_canvas = getattr(canvas_plugin, "refresh_canvas", None)
     if not callable(synchronize_canvas):
-        raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
+        raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
