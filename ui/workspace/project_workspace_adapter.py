@@ -332,9 +332,21 @@ class ProjectWorkspaceApplicationAdapter:
         if self._lifecycle.documents.is_dirty(document_id):
             if decision == "save":
                 previous_active = self._lifecycle.document
-                if previous_active is not document:
-                    self.activate_document(document_id)
-                self._application.save_project()
+                previous_snapshot = self._lifecycle.capture_transition_state()
+                try:
+                    if previous_active is not document:
+                        self.activate_document(document_id)
+                    self._application.save_project()
+                except BaseException:
+                    self._lifecycle.restore_last_state(previous_snapshot)
+                    if previous_active is not None:
+                        try:
+                            self._application.activate_presentation(previous_active)
+                            if self._presentation_activation_bridge is not None:
+                                self._presentation_activation_bridge(previous_active)
+                        except BaseException:
+                            pass
+                    raise
             elif decision == "discard":
                 document.mark_clean()
                 self._lifecycle.documents.mark_clean(document_id)
