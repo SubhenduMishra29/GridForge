@@ -112,7 +112,7 @@ class Network:
         if len(junction_ids) != len(junctions):
             raise ValueError("Network contains duplicate canonical Junction identities.")
         for junction in junctions:
-            if junction.network_token is not self._junctions._network_token:
+            if junction._gridforge_network_token is not self._junctions._network_token:
                 raise ValueError(f"Junction ownership token is invalid for '{junction.junction_id}'.")
 
         from core.model.base import ElectricalObject
