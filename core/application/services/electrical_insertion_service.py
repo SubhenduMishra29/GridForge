@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import math
 from typing import Any
 
 from core.model import EndpointReference
@@ -26,6 +27,35 @@ from ..transaction import Transaction
 from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
 
 CommandExecutor = Callable[[Command, Transaction], ApplicationResult[Any]]
+
+
+_CREATION_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
+    "breaker": frozenset({
+        "name", "in_service", "closed", "failed", "voltage_kv", "current_a",
+        "interrupting_ka", "presentation_x", "presentation_y",
+    }),
+    "disconnector": frozenset({
+        "voltage_kv", "rated_current_a", "operating_time", "closed", "in_service",
+        "name", "presentation_x", "presentation_y",
+    }),
+    "transformer": frozenset({
+        "r", "x", "b", "impedance_basis", "impedance_base_mva",
+        "impedance_base_voltage_kv", "tap", "shift", "name", "rate_mva",
+        "presentation_x", "presentation_y",
+    }),
+    "current_transformer": frozenset({
+        "name", "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+        "accuracy_class", "frequency_hz", "polarity", "in_service",
+        "presentation_x", "presentation_y",
+    }),
+}
+
+_CREATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "breaker": (),
+    "disconnector": ("voltage_kv", "rated_current_a"),
+    "transformer": ("r", "x", "impedance_basis", "impedance_base_voltage_kv"),
+    "current_transformer": (),
+}
 
 
 class ElectricalInsertionService:
@@ -169,13 +199,21 @@ class ElectricalInsertionService:
             raise ValidationError(
                 code="INSERTION_ENDPOINT_OVERRIDE",
                 message="Insertion creation parameters cannot override terminal endpoints.",
-                details={"fields": sorted(forbidden.intersection(parameters))},
+                details={
+                    "equipment_type": equipment_type,
+                    "equipment_id": equipment_id,
+                    "fields": sorted(forbidden.intersection(parameters)),
+                },
             )
-        # Engineering parameter authority belongs to the canonical creation
-        # command/definition.  The insertion contract describes topology only.
-        # Executing the canonical creation child command before touching the
-        # existing wire therefore performs the authoritative validation while
-        # the outer transaction still guarantees complete rollback.
+        self._validate_creation_parameters(
+            equipment_type=equipment_type,
+            equipment_id=equipment_id,
+            parameters=parameters,
+        )
+
+        # The complete insertion definition is validated above before the
+        # canonical creation child command can be constructed or any Core
+        # mutation can occur.
         insertion_position = tuple(payload["insertion_position"])
         if len(insertion_position) != 2:
             raise ValidationError(
@@ -411,6 +449,79 @@ class ElectricalInsertionService:
                 ),
             },
         )
+
+    @staticmethod
+    def _validate_creation_parameters(
+        *,
+        equipment_type: str,
+        equipment_id: str,
+        parameters: Mapping[str, Any],
+    ) -> None:
+        """Validate insertion engineering data before child-command construction."""
+        allowed = _CREATION_ALLOWED_FIELDS[equipment_type]
+        invalid_fields = sorted(set(parameters) - allowed)
+        missing_fields = tuple(
+            field
+            for field in _CREATION_REQUIRED_FIELDS[equipment_type]
+            if field not in parameters or parameters[field] is None
+        )
+        invalid_values: dict[str, str] = {}
+
+        numeric_fields = {
+            "voltage_kv", "rated_current_a", "operating_time", "presentation_x",
+            "presentation_y", "r", "x", "b", "impedance_base_mva",
+            "impedance_base_voltage_kv", "tap", "shift", "rate_mva",
+            "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+            "frequency_hz", "current_a", "interrupting_ka",
+        }
+        positive_fields = {
+            "voltage_kv", "rated_current_a", "operating_time", "impedance_base_mva",
+            "impedance_base_voltage_kv", "tap", "rate_mva",
+            "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+            "frequency_hz",
+        }
+        for field in numeric_fields.intersection(parameters):
+            value = parameters[field]
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                invalid_values[field] = "must be numeric"
+                continue
+            numeric = float(value)
+            if not math.isfinite(numeric):
+                invalid_values[field] = "must be finite"
+            elif field in positive_fields and numeric <= 0.0:
+                invalid_values[field] = "must be greater than zero"
+
+        if equipment_type == "transformer":
+            basis = parameters.get("impedance_basis")
+            if basis is None:
+                if "impedance_basis" not in missing_fields:
+                    missing_fields = (*missing_fields, "impedance_basis")
+            else:
+                normalized_basis = (
+                    basis.value if hasattr(basis, "value") else str(basis).strip().lower()
+                )
+                if normalized_basis not in {"pu", "engineering"}:
+                    invalid_values["impedance_basis"] = "must be 'pu' or 'engineering'"
+
+            if parameters.get("impedance_base_mva") is None and parameters.get("rate_mva") is None:
+                missing_fields = (*missing_fields, "impedance_base_mva_or_rate_mva")
+
+        if invalid_fields or missing_fields or invalid_values:
+            details = {
+                "equipment_type": equipment_type,
+                "equipment_id": equipment_id,
+                "missing_fields": tuple(dict.fromkeys(missing_fields)),
+                "invalid_fields": tuple(invalid_fields),
+            }
+            if invalid_values:
+                details["invalid_values"] = dict(invalid_values)
+            raise ValidationError(
+                code="INVALID_INSERTION_CREATION_PARAMETERS",
+                message=f"Invalid engineering parameters for {equipment_type!r} insertion.",
+                details=details,
+            )
 
     @staticmethod
     def _creation_command(

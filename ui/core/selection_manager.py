@@ -21,60 +21,87 @@ class SelectionManager(QObject):
     selection_changed = Signal(object)
     selection_cleared = Signal()
 
+    NODE = "node"
+    CONNECTION = "connection"
+
     def __init__(self, scene: Optional[QGraphicsScene] = None, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._selected_ids: list[Any] = []
+        self._selected_ids_by_domain: dict[str, list[Any]] = {"default": []}
         self.scene = scene
 
-    def get_selected_ids(self) -> tuple[Any, ...]:
-        return tuple(self._selected_ids)
+    @staticmethod
+    def _require_domain(domain: str) -> str:
+        if not isinstance(domain, str) or not domain:
+            raise ValueError("domain must be a non-empty string.")
+        return domain
+
+    def get_selected_ids(self, domain: Optional[str] = None) -> tuple[Any, ...]:
+        if domain is not None:
+            domain = self._require_domain(domain)
+            return tuple(self._selected_ids_by_domain.get(domain, ()))
+        selected: list[Any] = []
+        for ids in self._selected_ids_by_domain.values():
+            selected.extend(ids)
+        return tuple(selected)
 
     @property
     def selected_ids(self) -> tuple[Any, ...]:
         return self.get_selected_ids()
 
-    def has_selection(self) -> bool:
-        return bool(self._selected_ids)
+    def has_selection(self, domain: Optional[str] = None) -> bool:
+        return bool(self.get_selected_ids(domain=domain))
 
-    def is_selected(self, object_id: Any) -> bool:
+    def is_selected(self, object_id: Any, domain: Optional[str] = None) -> bool:
         if object_id is None:
             return False
-        return any(selected_id == object_id for selected_id in self._selected_ids)
+        return any(selected_id == object_id for selected_id in self.get_selected_ids(domain=domain))
 
-    def select(self, object_id: Any, multi: bool = False) -> None:
+    def select(self, object_id: Any, multi: bool = False, *, domain: str = "default") -> None:
         if object_id is None:
             raise ValueError("object_id must not be None.")
         if not isinstance(multi, bool):
             raise TypeError("multi must be a bool.")
-        previous = tuple(self._selected_ids)
+        domain = self._require_domain(domain)
+        previous = self.get_selected_ids()
+        selected_ids = self._selected_ids_by_domain.setdefault(domain, [])
         if multi:
-            if not self.is_selected(object_id):
-                self._selected_ids.append(object_id)
-        elif self._selected_ids != [object_id]:
-            self._selected_ids = [object_id]
+            if not self.is_selected(object_id, domain=domain):
+                selected_ids.append(object_id)
+        else:
+            # A non-additive selection is globally single-selection, even
+            # when the selected object belongs to a typed presentation
+            # domain. This prevents a connection ID from coexisting with a
+            # node ID unless the caller explicitly requests additive
+            # selection.
+            for ids in self._selected_ids_by_domain.values():
+                ids.clear()
+            self._selected_ids_by_domain[domain] = [object_id]
         self._emit_if_changed(previous)
 
-    def select_single(self, object_id: Any) -> None:
-        self.select(object_id, multi=False)
+    def select_single(self, object_id: Any, *, domain: str = "default") -> None:
+        self.select(object_id, multi=False, domain=domain)
 
-    def add_to_selection(self, object_id: Any) -> None:
-        self.select(object_id, multi=True)
+    def add_to_selection(self, object_id: Any, *, domain: str = "default") -> None:
+        self.select(object_id, multi=True, domain=domain)
 
-    def toggle_selection(self, object_id: Any) -> None:
+    def toggle_selection(self, object_id: Any, *, domain: str = "default") -> None:
         if object_id is None:
             raise ValueError("object_id must not be None.")
-        previous = tuple(self._selected_ids)
-        if self.is_selected(object_id):
-            self._selected_ids = [selected_id for selected_id in self._selected_ids if selected_id != object_id]
+        domain = self._require_domain(domain)
+        previous = self.get_selected_ids()
+        selected_ids = self._selected_ids_by_domain.setdefault(domain, [])
+        if self.is_selected(object_id, domain=domain):
+            self._selected_ids_by_domain[domain] = [selected_id for selected_id in selected_ids if selected_id != object_id]
         else:
-            self._selected_ids.append(object_id)
+            selected_ids.append(object_id)
         self._emit_if_changed(previous)
 
     def clear(self) -> None:
-        previous = tuple(self._selected_ids)
+        previous = self.get_selected_ids()
         if not previous:
             return
-        self._selected_ids.clear()
+        for selected_ids in self._selected_ids_by_domain.values():
+            selected_ids.clear()
         self._emit_if_changed(previous)
 
     def _emit_if_changed(self, previous: tuple[Any, ...]) -> None:
@@ -164,7 +191,7 @@ class SelectionManager(QObject):
         }
 
     def __repr__(self) -> str:
-        return f"SelectionManager(selected={len(self._selected_ids)}, scene={self.scene is not None})"
+        return f"SelectionManager(selected={len(self.get_selected_ids())}, scene={self.scene is not None})"
 
 
 __all__ = ["SelectionManager"]

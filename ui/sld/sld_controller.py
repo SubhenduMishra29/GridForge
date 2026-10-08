@@ -285,14 +285,6 @@ class SLDController:
     def clear_selection(self) -> None:
         self._state.clear_selection()
 
-    def set_active_tool(self, tool_id: Optional[str]) -> None:
-        self._state.active_tool_id = tool_id
-
-    def set_interaction_mode(self, mode: str) -> None:
-        if not mode:
-            raise ValueError("mode must not be empty")
-        self._state.interaction_mode = mode
-
     def mark_clean(self) -> None:
         document = self.active_document
         if document is not None:
