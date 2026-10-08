@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .connectivity import ConnectivityStore, SimpleWireConnection
+from .connectivity import ConnectivityError, ConnectivityStore, SimpleWireConnection
 from .electrical_boundary import EndpointCompatibility, conduction_state
 from .indexing import BusIndex
 from .junction import Junction
@@ -266,23 +266,81 @@ class Network:
         self._invalidate_topology()
 
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
+        """Add one binary Simple Wire after complete endpoint validation."""
         if not isinstance(connection, SimpleWireConnection):
-            raise TypeError("connection must be a SimpleWireConnection.")
-        if connection.endpoint_a.kind is not TopologyEndpointReferenceKind.TERMINAL:
-            raise ValueError(
-                "Simple Wire currently supports terminal topology endpoints only; "
-                f"got {connection.endpoint_a.kind.value!r}."
+            raise ConnectivityError(
+                "connection must be a SimpleWireConnection."
             )
-        if connection.endpoint_b.kind is not TopologyEndpointReferenceKind.TERMINAL:
-            raise ValueError(
-                "Simple Wire currently supports terminal topology endpoints only; "
-                f"got {connection.endpoint_b.kind.value!r}."
+
+        endpoints = (connection.endpoint_a, connection.endpoint_b)
+        if connection.endpoint_a == connection.endpoint_b:
+            raise ConnectivityError(
+                "A Simple Wire cannot connect a topology endpoint to itself."
             )
-        endpoint_a = connection.endpoint_a.terminal_reference
-        endpoint_b = connection.endpoint_b.terminal_reference
-        EndpointCompatibility.validate_reference(endpoint_a, self)
-        EndpointCompatibility.validate_reference(endpoint_b, self)
-        EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, self)
+
+        # Validate every endpoint before ConnectivityStore mutation. Terminal
+        # identities continue through EndpointCompatibility; Junction identities
+        # are validated against this Network's authoritative JunctionRegistry.
+        for endpoint in endpoints:
+            if endpoint.kind is TopologyEndpointReferenceKind.TERMINAL:
+                try:
+                    EndpointCompatibility.validate_reference(
+                        endpoint.terminal_reference,
+                        self,
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Invalid terminal topology endpoint: {endpoint}"
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.JUNCTION:
+                junction_id = endpoint.junction_id
+                try:
+                    junction = self.get_junction(junction_id)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not registered on this Network."
+                    ) from exc
+
+                registry_token = getattr(
+                    self._junctions,
+                    "_network_token",
+                    None,
+                )
+                junction_token = getattr(
+                    junction,
+                    "_gridforge_network_token",
+                    None,
+                )
+                if registry_token is None or junction_token is not registry_token:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not owned by this Network."
+                    )
+                continue
+
+            raise ConnectivityError(
+                f"Unsupported topology endpoint kind: {endpoint.kind!r}."
+            )
+
+        if (
+            connection.endpoint_a.is_terminal
+            and connection.endpoint_b.is_terminal
+        ):
+            try:
+                EndpointCompatibility.validate_pair(
+                    connection.endpoint_a.terminal_reference,
+                    connection.endpoint_b.terminal_reference,
+                    self,
+                )
+            except (TypeError, ValueError) as exc:
+                raise ConnectivityError(
+                    "Simple Wire terminal compatibility validation failed."
+                ) from exc
+
+        # ConnectivityStore performs duplicate detection, endpoint indexing,
+        # and terminal-vs-Junction cardinality checks only after all of the
+        # above Network-level validation has succeeded.
         self.connectivity.add(connection, self)
         self._invalidate_topology()
 
