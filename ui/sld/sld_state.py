@@ -38,11 +38,17 @@ class SLDState:
         getter = getattr(manager, "get_selected_ids", None)
         if not callable(getter):
             return frozenset()
-        return frozenset(str(value) for value in getter())
+        return frozenset(str(value) for value in getter(domain="node"))
 
     @property
     def selected_connection_ids(self) -> frozenset[str]:
-        return frozenset()
+        manager = self.selection_manager
+        if manager is None:
+            return frozenset()
+        getter = getattr(manager, "get_selected_ids", None)
+        if not callable(getter):
+            return frozenset()
+        return frozenset(str(value) for value in getter(domain="connection"))
 
     @property
     def active_tool_id(self) -> Optional[str]:
@@ -65,20 +71,27 @@ class SLDState:
         manager = self.selection_manager
         if manager is None:
             raise RuntimeError("SelectionManager must be attached for selection operations.")
-        manager.select(node_id, multi=additive)
+        manager.select(node_id, multi=additive, domain="node")
 
     def deselect_node(self, node_id: str) -> None:
         manager = self.selection_manager
         if manager is None:
             raise RuntimeError("SelectionManager must be attached for selection operations.")
-        if manager.is_selected(node_id):
-            manager.toggle_selection(node_id)
+        if manager.is_selected(node_id, domain="node"):
+            manager.toggle_selection(node_id, domain="node")
 
     def select_connection(self, connection_id: str, *, additive: bool = False) -> None:
-        self.select_node(connection_id, additive=additive)
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        manager.select(connection_id, multi=additive, domain="connection")
 
     def deselect_connection(self, connection_id: str) -> None:
-        self.deselect_node(connection_id)
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        if manager.is_selected(connection_id, domain="connection"):
+            manager.toggle_selection(connection_id, domain="connection")
 
     def clear_selection(self) -> None:
         manager = self.selection_manager
