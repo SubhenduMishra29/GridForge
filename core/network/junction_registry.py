@@ -19,6 +19,18 @@ class JunctionRegistry:
     def __init__(self) -> None:
         self._junctions: dict[str, Junction] = {}
         self._network_token = object()
+        self._network = None
+
+    @property
+    def network(self):
+        return self._network
+
+    def _bind_network(self, network: object) -> None:
+        if network is None:
+            raise ValueError("JunctionRegistry network owner cannot be None.")
+        if self._network is not None and self._network is not network:
+            raise ValueError("JunctionRegistry belongs to another Network.")
+        self._network = network
 
     @staticmethod
     def _canonical_id(junction: Junction) -> str:
