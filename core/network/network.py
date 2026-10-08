@@ -226,12 +226,11 @@ class Network:
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
         if not isinstance(connection, SimpleWireConnection):
             raise TypeError("connection must be a SimpleWireConnection.")
-        # EndpointReference is the single canonical endpoint contract.
-        # validate_reference handles both BUS and TERMINAL endpoints; Network
-        # must not duplicate terminal-only interpretation here.
-        EndpointCompatibility.validate_reference(connection.endpoint_a, self)
-        EndpointCompatibility.validate_reference(connection.endpoint_b, self)
-        EndpointCompatibility.validate_pair(connection.endpoint_a, connection.endpoint_b, self)
+        endpoint_a = connection.endpoint_a.endpoint_reference
+        endpoint_b = connection.endpoint_b.endpoint_reference
+        EndpointCompatibility.validate_reference(endpoint_a, self)
+        EndpointCompatibility.validate_reference(endpoint_b, self)
+        EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, self)
         self.connectivity.add(connection, self)
         self._invalidate_topology()
 

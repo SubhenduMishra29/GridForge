@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from core.model import EndpointReference
-from core.network import EndpointCompatibility, EndpointCompatibilityError, SimpleWireConnection
+from core.network import (
+    EndpointCompatibility,
+    EndpointCompatibilityError,
+    SimpleWireConnection,
+    TopologyEndpointReference,
+)
 from ..command import Command
 from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE, CreateSimpleWireConnectionCommand
 from ..endpoint_resolver import resolve_terminal_reference
@@ -72,21 +77,23 @@ class SimpleWireConnectionService:
         network = self._network(context)
         endpoint_a = command.payload["endpoint_a"]
         endpoint_b = command.payload["endpoint_b"]
-        if not isinstance(endpoint_a, EndpointReference) or not isinstance(endpoint_b, EndpointReference):
+        if not isinstance(endpoint_a, TopologyEndpointReference) or not isinstance(endpoint_b, TopologyEndpointReference):
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINT",
-                message="Simple Wire requires EndpointReference values.",
+                message="Simple Wire requires topology endpoint references.",
                 details={},
             )
 
-        if endpoint_a == endpoint_b:
+        endpoint_a_reference = endpoint_a.endpoint_reference
+        endpoint_b_reference = endpoint_b.endpoint_reference
+        if endpoint_a_reference == endpoint_b_reference:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINTS",
                 message="Simple Wire endpoints must be distinct.",
                 details={},
             )
         try:
-            EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, network)
+            EndpointCompatibility.validate_pair(endpoint_a_reference, endpoint_b_reference, network)
         except EndpointCompatibilityError as exc:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINT",
@@ -96,10 +103,8 @@ class SimpleWireConnectionService:
 
         # Resolve terminal ownership without requiring an attached endpoint.
         # Bus references are already validated by EndpointCompatibility.
-        if endpoint_a.is_terminal:
-            resolve_terminal_reference(context, endpoint_a)
-        if endpoint_b.is_terminal:
-            resolve_terminal_reference(context, endpoint_b)
+        resolve_terminal_reference(context, endpoint_a_reference)
+        resolve_terminal_reference(context, endpoint_b_reference)
 
         connection = SimpleWireConnection(
             connection_id=str(command.payload["connection_id"]),

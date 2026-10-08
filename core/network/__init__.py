@@ -220,6 +220,10 @@ from .state import NetworkState
 # =====================================================================
 
 from .topology import TopologyManager
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 from .connectivity import (
     ConnectivityError,
     ConnectivityResolver,
@@ -268,6 +272,8 @@ __all__ = [
     "SIMPLE_WIRE_KIND",
     "SimpleWireCompatibility",
     "SimpleWireConnection",
+    "TopologyEndpointReference",
+    "TopologyEndpointReferenceKind",
 
     # Base-layer service
     "PerUnitSystem",
