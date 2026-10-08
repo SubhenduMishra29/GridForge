@@ -13,6 +13,8 @@ from typing import Any, Optional
 from .connectivity import ConnectivityStore, SimpleWireConnection
 from .electrical_boundary import EndpointCompatibility, conduction_state
 from .indexing import BusIndex
+from .junction import Junction
+from .junction_registry import JunctionRegistry
 from .registry import NetworkRegistry
 from .state import NetworkState
 from .topology import TopologyManager
@@ -22,8 +24,10 @@ from .topology_endpoint_reference import TopologyEndpointReferenceKind
 class Network:
     """Authoritative electrical network aggregate."""
 
-    def __init__(self, *, registry: Optional[NetworkRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
+    def __init__(self, *, registry: Optional[NetworkRegistry] = None, junctions: Optional[JunctionRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
         self.registry = registry or NetworkRegistry()
+        self._junctions = junctions or JunctionRegistry()
+        self._junctions._bind_network(self)
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
@@ -81,19 +85,36 @@ class Network:
     def disconnectors(self) -> tuple[Any, ...]: return self.registry.disconnectors
     @property
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
+    @property
+    def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         return self.registry.get_by_id(element_type, object_id)
 
     def get_by_identity(self, object_id: str) -> Any:
-        """Resolve one canonical Core object by its globally unique Network identity."""
+        """Resolve one canonical electrical object by NetworkRegistry identity."""
         return self.registry.get_by_identity(object_id)
+
+    def get_junction(self, junction_id: str) -> Junction:
+        """Resolve one Junction through the Network-owned topology registry."""
+        return self._junctions.get(junction_id)
+
+    def contains_junction(self, junction_id: str) -> bool:
+        return self._junctions.contains(junction_id)
 
     def validate(self) -> bool:
         """Validate the complete authoritative Network membership and endpoint graph."""
         registered = {element.id: element for element in self.registry._objects.values()}
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
+        junctions = self._junctions.snapshot
+        junction_ids = {junction.junction_id for junction in junctions}
+        if len(junction_ids) != len(junctions):
+            raise ValueError("Network contains duplicate canonical Junction identities.")
+        for junction in junctions:
+            if junction._gridforge_network_token is not self._junctions._network_token:
+                raise ValueError(f"Junction ownership token is invalid for '{junction.junction_id}'.")
 
         from core.model.base import ElectricalObject
 
@@ -224,6 +245,14 @@ class Network:
     def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
 
+    def add_junction(self, junction: Junction) -> None:
+        if not isinstance(junction, Junction):
+            raise TypeError("junction must be a Junction.")
+        self._junctions.add(junction)
+
+    def remove_junction(self, junction: Junction) -> None:
+        self._junctions.remove(junction)
+
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
         if not isinstance(connection, SimpleWireConnection):
             raise TypeError("connection must be a SimpleWireConnection.")
@@ -284,7 +313,7 @@ class Network:
     def index_valid(self) -> bool: return self.index.valid
 
     def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"junctions={len(self.junctions)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
 
 
 __all__ = ["Network"]
