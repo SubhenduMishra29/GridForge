@@ -11,7 +11,10 @@ from typing import Any
 
 from core.model import EndpointReference
 from .electrical_boundary import EndpointCompatibility
-from .topology_endpoint_reference import TopologyEndpointReference
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 
 SIMPLE_WIRE_KIND = "SIMPLE_WIRE"
 
@@ -45,9 +48,11 @@ class SimpleWireConnection:
             raise ValueError(
                 f"Simple Wire kind must be {SIMPLE_WIRE_KIND!r}."
             )
+        _require_supported_topology_endpoint(self.endpoint_a)
+        _require_supported_topology_endpoint(self.endpoint_b)
         EndpointCompatibility.validate_pair(
-            self.endpoint_a.endpoint_reference,
-            self.endpoint_b.endpoint_reference,
+            self.endpoint_a.terminal_reference,
+            self.endpoint_b.terminal_reference,
         )
 
     @property
@@ -57,9 +62,11 @@ class SimpleWireConnection:
 
     @property
     def equipment_ids(self):
+        _require_supported_topology_endpoint(self.endpoint_a)
+        _require_supported_topology_endpoint(self.endpoint_b)
         return (
-            self.endpoint_a.endpoint_reference.object_id,
-            self.endpoint_b.endpoint_reference.object_id,
+            self.endpoint_a.terminal_reference.object_id,
+            self.endpoint_b.terminal_reference.object_id,
         )
 
     def to_dict(self):
@@ -101,13 +108,36 @@ def _coerce_topology_endpoint(value: Any) -> TopologyEndpointReference:
     )
 
 
+def _require_supported_topology_endpoint(
+    reference: TopologyEndpointReference,
+) -> EndpointReference:
+    """Dispatch topology endpoint identity to the currently supported domain."""
+    if not isinstance(reference, TopologyEndpointReference):
+        raise TypeError("Expected a TopologyEndpointReference.")
+    if reference.kind is TopologyEndpointReferenceKind.TERMINAL:
+        endpoint = reference.terminal_reference
+        if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
+            raise ConnectivityError(
+                "Terminal topology endpoint does not contain a valid terminal EndpointReference."
+            )
+        return endpoint
+    if reference.kind is TopologyEndpointReferenceKind.JUNCTION:
+        raise ConnectivityError(
+            f"Junction topology endpoint {reference.junction_id!r} is unsupported "
+            "until Junction topology is implemented."
+        )
+    raise ConnectivityError(
+        f"Unsupported topology endpoint kind: {reference.kind!r}."
+    )
+
+
 def _key(reference: TopologyEndpointReference):
-    endpoint = reference.endpoint_reference
+    endpoint = _require_supported_topology_endpoint(reference)
     return (
         reference.kind.value,
-        endpoint.equipment_type.value if endpoint.equipment_type else "",
+        endpoint.equipment_type.value,
         endpoint.object_id,
-        endpoint.terminal_role or "",
+        endpoint.terminal_role,
     )
 
 
@@ -137,9 +167,11 @@ class ConnectivityStore:
     def add(self, connection, network=None):
         if not isinstance(connection, SimpleWireConnection):
             raise TypeError("connection must be a SimpleWireConnection.")
+        endpoint_a = _require_supported_topology_endpoint(connection.endpoint_a)
+        endpoint_b = _require_supported_topology_endpoint(connection.endpoint_b)
         EndpointCompatibility.validate_pair(
-            connection.endpoint_a.endpoint_reference,
-            connection.endpoint_b.endpoint_reference,
+            endpoint_a,
+            endpoint_b,
             network,
         )
         if connection.connection_id in self._connections:
@@ -152,10 +184,10 @@ class ConnectivityStore:
         ):
             raise ConnectivityError("Duplicate Simple Wire relationship.")
         for endpoint in (connection.endpoint_a, connection.endpoint_b):
-            if endpoint.is_terminal and self.connections_for_endpoint(endpoint):
+            if self.connections_for_endpoint(endpoint):
                 raise ConnectivityError(
                     "Terminal "
-                    f"{endpoint.endpoint_reference} already participates "
+                    f"{endpoint.terminal_reference} already participates "
                     "in a Simple Wire relationship."
                 )
         self._connections[connection.connection_id] = connection
@@ -208,7 +240,7 @@ class ConnectivityStore:
 
     def _index(self, connection):
         for endpoint in (connection.endpoint_a, connection.endpoint_b):
-            endpoint_reference = endpoint.endpoint_reference
+            endpoint_reference = _require_supported_topology_endpoint(endpoint)
             self._endpoint_index.setdefault(endpoint, set()).add(
                 connection.connection_id
             )
@@ -219,7 +251,7 @@ class ConnectivityStore:
 
     def _deindex(self, connection):
         for endpoint in (connection.endpoint_a, connection.endpoint_b):
-            endpoint_reference = endpoint.endpoint_reference
+            endpoint_reference = _require_supported_topology_endpoint(endpoint)
             ids = self._endpoint_index.get(endpoint)
             if ids is not None:
                 ids.discard(connection.connection_id)
@@ -258,9 +290,12 @@ class ConnectivityResolver:
         endpoint: EndpointReference,
     ) -> tuple[str, ...]:
         """Resolve the Bus boundaries reached by one terminal through Simple Wire."""
+        if isinstance(endpoint, TopologyEndpointReference):
+            endpoint = _require_supported_topology_endpoint(endpoint)
         if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
             raise ConnectivityError(
-                "bus_ids_for_terminal requires a terminal EndpointReference."
+                "bus_ids_for_terminal requires a terminal EndpointReference "
+                "or a supported terminal TopologyEndpointReference."
             )
         component = self.terminal_component(endpoint)
         return tuple(
@@ -290,8 +325,8 @@ class ConnectivityResolver:
             self._network.connectivity.connections,
             key=lambda item: item.connection_id,
         ):
-            endpoint_a = connection.endpoint_a.endpoint_reference
-            endpoint_b = connection.endpoint_b.endpoint_reference
+            endpoint_a = _require_supported_topology_endpoint(connection.endpoint_a)
+            endpoint_b = _require_supported_topology_endpoint(connection.endpoint_b)
             adjacency.setdefault(endpoint_a, set()).add(endpoint_b)
             adjacency.setdefault(endpoint_b, set()).add(endpoint_a)
         return ResolvedConnectivity(
@@ -308,9 +343,12 @@ class ConnectivityResolver:
         )
 
     def terminal_component(self, endpoint):
+        if isinstance(endpoint, TopologyEndpointReference):
+            endpoint = _require_supported_topology_endpoint(endpoint)
         if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
             raise ConnectivityError(
-                "terminal_component requires a terminal EndpointReference."
+                "terminal_component requires a terminal EndpointReference "
+                "or a supported terminal TopologyEndpointReference."
             )
         resolved = self.resolve()
         seen = {endpoint}

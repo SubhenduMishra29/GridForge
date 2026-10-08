@@ -16,6 +16,7 @@ from .indexing import BusIndex
 from .registry import NetworkRegistry
 from .state import NetworkState
 from .topology import TopologyManager
+from .topology_endpoint_reference import TopologyEndpointReferenceKind
 
 
 class Network:
@@ -226,8 +227,18 @@ class Network:
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
         if not isinstance(connection, SimpleWireConnection):
             raise TypeError("connection must be a SimpleWireConnection.")
-        endpoint_a = connection.endpoint_a.endpoint_reference
-        endpoint_b = connection.endpoint_b.endpoint_reference
+        if connection.endpoint_a.kind is not TopologyEndpointReferenceKind.TERMINAL:
+            raise ValueError(
+                "Simple Wire currently supports terminal topology endpoints only; "
+                f"got {connection.endpoint_a.kind.value!r}."
+            )
+        if connection.endpoint_b.kind is not TopologyEndpointReferenceKind.TERMINAL:
+            raise ValueError(
+                "Simple Wire currently supports terminal topology endpoints only; "
+                f"got {connection.endpoint_b.kind.value!r}."
+            )
+        endpoint_a = connection.endpoint_a.terminal_reference
+        endpoint_b = connection.endpoint_b.terminal_reference
         EndpointCompatibility.validate_reference(endpoint_a, self)
         EndpointCompatibility.validate_reference(endpoint_b, self)
         EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, self)
