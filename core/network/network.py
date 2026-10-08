@@ -33,7 +33,7 @@ class Network:
             raise TypeError("junctions must be a JunctionRegistry.")
         self._junctions = junctions if junctions is not None else JunctionRegistry()
         self._junctions._bind_network(self)
-        self._junctions.validate()
+        self._junctions.validate(self)
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
