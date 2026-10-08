@@ -463,6 +463,25 @@ class ConnectivityResolver:
             )
         )
 
+    def components(self) -> tuple[tuple[TopologyEndpointReference, ...], ...]:
+        """Return all deterministic connected components of the endpoint graph."""
+        resolved=self.resolve()
+        remaining={source for source,_ in resolved.topology_adjacency}
+        components=[]
+        while remaining:
+            start=min(remaining,key=_topology_reference_key)
+            seen={start}
+            queue=[start]
+            while queue:
+                current=queue.pop(0)
+                for neighbour in resolved.neighbours(current):
+                    if neighbour not in seen:
+                        seen.add(neighbour)
+                        queue.append(neighbour)
+            remaining-=seen
+            components.append(tuple(sorted(seen,key=_topology_reference_key)))
+        return tuple(components)
+
     def topology_component(
         self,
         endpoint: TopologyEndpointReference,
