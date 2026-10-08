@@ -484,14 +484,10 @@ class ElectricalInsertionService:
             value = parameters[field]
             if value is None:
                 continue
-            if isinstance(value, bool):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
                 invalid_values[field] = "must be numeric"
                 continue
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                invalid_values[field] = "must be numeric"
-                continue
+            numeric = float(value)
             if not math.isfinite(numeric):
                 invalid_values[field] = "must be finite"
             elif field in positive_fields and numeric <= 0.0:
