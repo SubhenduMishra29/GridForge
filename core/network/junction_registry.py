@@ -21,10 +21,6 @@ class JunctionRegistry:
         self._network_token = object()
         self._network = None
 
-    @property
-    def network(self):
-        return self._network
-
     def _bind_network(self, network: object) -> None:
         if network is None:
             raise ValueError("JunctionRegistry network owner cannot be None.")
