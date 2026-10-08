@@ -18,7 +18,10 @@ from .junction_registry import JunctionRegistry
 from .registry import NetworkRegistry
 from .state import NetworkState
 from .topology import TopologyManager
-from .topology_endpoint_reference import (\n    TopologyEndpointReference,\n    TopologyEndpointReferenceKind,\n)
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 
 
 class Network:
@@ -26,7 +29,11 @@ class Network:
 
     def __init__(self, *, registry: Optional[NetworkRegistry] = None, junctions: Optional[JunctionRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
         self.registry = registry or NetworkRegistry()
-        self._junctions = junctions or JunctionRegistry()
+        if junctions is not None and not isinstance(junctions, JunctionRegistry):
+            raise TypeError("junctions must be a JunctionRegistry.")
+        self._junctions = junctions if junctions is not None else JunctionRegistry()
+        self._junctions._bind_network(self)
+        self._junctions.validate()
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
