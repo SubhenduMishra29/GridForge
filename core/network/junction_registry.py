@@ -58,7 +58,7 @@ class JunctionRegistry:
         existing = self._junctions.get(junction_id)
         if existing is not None:
             raise ValueError(f"Duplicate canonical Junction ID: {junction_id}")
-        owner = junction.network_token
+        owner = junction._gridforge_network_token
         if owner is not None and owner is not self._network_token:
             raise ValueError(f"Junction {junction_id!r} is already owned by another Network.")
         self._junctions[junction_id] = junction
