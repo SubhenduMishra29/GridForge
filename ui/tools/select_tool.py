@@ -424,6 +424,8 @@ class SelectTool(ToolBase):
     def _capture_route_edit_target(self, hit: CanvasHitTarget) -> None:
         if hit.kind != CanvasHitKind.SIMPLE_WIRE_SEGMENT:
             return
+        if hit.route_ownership != "engineer":
+            return
         route_points = hit.route_points
         if not route_points:
             return
