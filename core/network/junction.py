@@ -38,10 +38,6 @@ class Junction:
     def id(self) -> str:
         return self._junction_id
 
-    @property
-    def network_token(self) -> object | None:
-        return self._gridforge_network_token
-
     def _bind_network(self, token: object) -> None:
         if token is None:
             raise ValueError("Junction network binding token cannot be None.")
