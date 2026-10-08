@@ -27,7 +27,6 @@ class Network:
     def __init__(self, *, registry: Optional[NetworkRegistry] = None, junctions: Optional[JunctionRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
         self.registry = registry or NetworkRegistry()
         self._junctions = junctions or JunctionRegistry()
-        self._junctions._bind_network(self)
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
@@ -108,13 +107,7 @@ class Network:
         registered = {element.id: element for element in self.registry._objects.values()}
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
-        junctions = self._junctions.snapshot
-        junction_ids = {junction.junction_id for junction in junctions}
-        if len(junction_ids) != len(junctions):
-            raise ValueError("Network contains duplicate canonical Junction identities.")
-        for junction in junctions:
-            if junction._gridforge_network_token is not self._junctions._network_token:
-                raise ValueError(f"Junction ownership token is invalid for '{junction.junction_id}'.")
+        self._junctions.validate()
 
         from core.model.base import ElectricalObject
 
@@ -246,12 +239,20 @@ class Network:
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
 
     def add_junction(self, junction: Junction) -> None:
+        """Add one Junction through the authoritative Network lifecycle."""
         if not isinstance(junction, Junction):
             raise TypeError("junction must be a Junction.")
         self._junctions.add(junction)
+        self._invalidate_topology()
 
     def remove_junction(self, junction: Junction) -> None:
+        """Remove one Junction through the authoritative Network lifecycle."""
+        if not isinstance(junction, Junction):
+            raise TypeError("junction must be a Junction.")
+        # Junction incidence is not implemented yet, so there are currently
+        # no Junction-specific topology dependencies to reject.
         self._junctions.remove(junction)
+        self._invalidate_topology()
 
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
         if not isinstance(connection, SimpleWireConnection):

@@ -18,15 +18,9 @@ class JunctionRegistry:
 
     def __init__(self) -> None:
         self._junctions: dict[str, Junction] = {}
+        # Ownership follows the same registry-token model as NetworkRegistry:
+        # the registry is the Network-owned membership authority.
         self._network_token = object()
-        self._network = None
-
-    def _bind_network(self, network: object) -> None:
-        if network is None:
-            raise ValueError("JunctionRegistry network owner cannot be None.")
-        if self._network is not None and self._network is not network:
-            raise ValueError("JunctionRegistry belongs to another Network.")
-        self._network = network
 
     @staticmethod
     def _canonical_id(junction: Junction) -> str:
@@ -49,6 +43,19 @@ class JunctionRegistry:
     def __len__(self) -> int:
         return len(self._junctions)
 
+    def validate(self) -> bool:
+        """Validate canonical Junction membership and registry ownership."""
+        for junction_id, junction in self._junctions.items():
+            if self._canonical_id(junction) != junction_id:
+                raise ValueError(
+                    f"Junction registry key is not canonical for '{junction_id}'."
+                )
+            if junction._gridforge_network_token is not self._network_token:
+                raise ValueError(
+                    f"Junction ownership token is invalid for '{junction_id}'."
+                )
+        return True
+
     def add(self, junction: Junction) -> None:
         junction_id = self._canonical_id(junction)
         existing = self._junctions.get(junction_id)
@@ -57,11 +64,11 @@ class JunctionRegistry:
         owner = junction._gridforge_network_token
         if owner is not None and owner is not self._network_token:
             raise ValueError(f"Junction {junction_id!r} is already owned by another Network.")
-        self._junctions[junction_id] = junction
+        junction._bind_network(self._network_token)
         try:
-            junction._bind_network(self._network_token)
+            self._junctions[junction_id] = junction
         except Exception:
-            del self._junctions[junction_id]
+            junction._unbind_network(self._network_token)
             raise
 
     def remove(self, junction: Junction) -> None:
