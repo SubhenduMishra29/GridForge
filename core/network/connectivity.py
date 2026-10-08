@@ -67,12 +67,11 @@ class SimpleWireConnection:
     @property
     def equipment_ids(self) -> tuple[str, ...]:
         """Return only actual equipment identities represented by endpoints."""
-        equipment_ids = {
+        return tuple(
             endpoint.terminal_reference.object_id
             for endpoint in (self.endpoint_a, self.endpoint_b)
             if endpoint.is_terminal
-        }
-        return tuple(sorted(equipment_ids))
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize both endpoint kinds through the canonical discriminator."""
