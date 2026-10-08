@@ -248,21 +248,34 @@ class Network:
     def add_junction(self, junction: Junction) -> None:
         """Add one Junction through the authoritative Network lifecycle."""
         if not isinstance(junction, Junction):
-            raise TypeError("junction must be a Junction.")
-        self._junctions.add(junction)
+            raise ConnectivityError("junction must be a Junction.")
+        try:
+            self._junctions.add(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Cannot add Junction '{getattr(junction, 'junction_id', junction)}'."
+            ) from exc
         self._invalidate_topology()
 
     def remove_junction(self, junction: Junction) -> None:
         """Remove one Junction without leaving topology relationships dangling."""
         if not isinstance(junction, Junction):
-            raise TypeError("junction must be a Junction.")
+            raise ConnectivityError("junction must be a Junction.")
+
         endpoint = TopologyEndpointReference.from_junction(junction.junction_id)
         dependencies = self.connectivity.connections_for_endpoint(endpoint)
         if dependencies:
-            raise ValueError(
-                f"Cannot remove Junction '{junction.junction_id}': dependent topology relationships exist."
+            raise ConnectivityError(
+                f"Cannot remove Junction '{junction.junction_id}': dependent "
+                "Simple Wire relationships exist."
             )
-        self._junctions.remove(junction)
+
+        try:
+            self._junctions.remove(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Junction '{junction.junction_id}' is not registered on this Network."
+            ) from exc
         self._invalidate_topology()
 
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
