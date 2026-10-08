@@ -132,14 +132,18 @@ class SelectTool(ToolBase):
         end = self._xy(self._event_scene_position(event))
 
         if self._route_edit_bend_index is not None and self._route_edit_item is not None:
-            if self._dragging and self._route_edit_position is not None:
-                item = self._route_edit_item
-                item.set_bend(
-                    self._route_edit_bend_index,
-                    self._route_edit_position[0],
-                    self._route_edit_position[1],
-                )
-            self._clear_pointer_state()
+            try:
+                if self._dragging and self._route_edit_position is not None:
+                    item = self._route_edit_item
+                    item.set_bend(
+                        self._route_edit_bend_index,
+                        self._route_edit_position[0],
+                        self._route_edit_position[1],
+                    )
+            finally:
+                # Route-edit interaction state is transient even when the
+                # Application rejects the proposed presentation command.
+                self._clear_pointer_state()
             return True
 
         if self._dragging:
