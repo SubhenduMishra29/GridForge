@@ -21,6 +21,9 @@ class SelectionManager(QObject):
     selection_changed = Signal(object)
     selection_cleared = Signal()
 
+    NODE = "node"
+    CONNECTION = "connection"
+
     def __init__(self, scene: Optional[QGraphicsScene] = None, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._selected_ids_by_domain: dict[str, list[Any]] = {"default": []}
@@ -64,7 +67,14 @@ class SelectionManager(QObject):
         if multi:
             if not self.is_selected(object_id, domain=domain):
                 selected_ids.append(object_id)
-        elif selected_ids != [object_id]:
+        else:
+            # A non-additive selection is globally single-selection, even
+            # when the selected object belongs to a typed presentation
+            # domain. This prevents a connection ID from coexisting with a
+            # node ID unless the caller explicitly requests additive
+            # selection.
+            for ids in self._selected_ids_by_domain.values():
+                ids.clear()
             self._selected_ids_by_domain[domain] = [object_id]
         self._emit_if_changed(previous)
 
