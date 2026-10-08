@@ -18,9 +18,18 @@ class JunctionRegistry:
 
     def __init__(self) -> None:
         self._junctions: dict[str, Junction] = {}
-        # Ownership follows the same registry-token model as NetworkRegistry:
-        # the registry is the Network-owned membership authority.
+        # Registry ownership is established once by Network construction.
+        # The registry token is the membership token assigned to its Junctions.
         self._network_token = object()
+        self._network = None
+
+    def _bind_network(self, network: object) -> None:
+        if network is None:
+            raise ValueError("JunctionRegistry network owner cannot be None.")
+        if self._network is not None and self._network is not network:
+            raise ValueError("JunctionRegistry belongs to another Network.")
+        self._network = network
+        self.validate(network)
 
     @staticmethod
     def _canonical_id(junction: Junction) -> str:
@@ -43,8 +52,10 @@ class JunctionRegistry:
     def __len__(self) -> int:
         return len(self._junctions)
 
-    def validate(self) -> bool:
+    def validate(self, network: object | None = None) -> bool:
         """Validate canonical Junction membership and registry ownership."""
+        if network is not None and self._network is not network:
+            raise ValueError("JunctionRegistry is not owned by the supplied Network.")
         for junction_id, junction in self._junctions.items():
             if self._canonical_id(junction) != junction_id:
                 raise ValueError(
