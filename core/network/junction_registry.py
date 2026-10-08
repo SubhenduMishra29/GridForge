@@ -29,7 +29,7 @@ class JunctionRegistry:
         if self._network is not None and self._network is not network:
             raise ValueError("JunctionRegistry belongs to another Network.")
         self._network = network
-        self.validate()
+        self.validate(network)
 
     @staticmethod
     def _canonical_id(junction: Junction) -> str:
@@ -52,8 +52,10 @@ class JunctionRegistry:
     def __len__(self) -> int:
         return len(self._junctions)
 
-    def validate(self) -> bool:
+    def validate(self, network: object | None = None) -> bool:
         """Validate canonical Junction membership and registry ownership."""
+        if network is not None and self._network is not network:
+            raise ValueError("JunctionRegistry is not owned by the supplied Network.")
         for junction_id, junction in self._junctions.items():
             if self._canonical_id(junction) != junction_id:
                 raise ValueError(
