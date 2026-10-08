@@ -84,8 +84,14 @@ class SimpleWireConnectionService:
                 details={},
             )
 
-        endpoint_a_reference = endpoint_a.endpoint_reference
-        endpoint_b_reference = endpoint_b.endpoint_reference
+        if not endpoint_a.is_terminal or not endpoint_b.is_terminal:
+            raise ValidationError(
+                code="UNSUPPORTED_TOPOLOGY_ENDPOINT",
+                message="Current Simple Wire connectivity supports terminal topology endpoints only.",
+                details={"endpoint_a_kind": endpoint_a.kind.value, "endpoint_b_kind": endpoint_b.kind.value},
+            )
+        endpoint_a_reference = endpoint_a.terminal_reference
+        endpoint_b_reference = endpoint_b.terminal_reference
         if endpoint_a_reference == endpoint_b_reference:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINTS",
