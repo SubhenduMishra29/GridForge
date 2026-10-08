@@ -18,7 +18,7 @@ from .junction_registry import JunctionRegistry
 from .registry import NetworkRegistry
 from .state import NetworkState
 from .topology import TopologyManager
-from .topology_endpoint_reference import TopologyEndpointReferenceKind
+from .topology_endpoint_reference import (\n    TopologyEndpointReference,\n    TopologyEndpointReferenceKind,\n)
 
 
 class Network:
@@ -246,11 +246,15 @@ class Network:
         self._invalidate_topology()
 
     def remove_junction(self, junction: Junction) -> None:
-        """Remove one Junction through the authoritative Network lifecycle."""
+        """Remove one Junction without leaving topology relationships dangling."""
         if not isinstance(junction, Junction):
             raise TypeError("junction must be a Junction.")
-        # Junction incidence is not implemented yet, so there are currently
-        # no Junction-specific topology dependencies to reject.
+        endpoint = TopologyEndpointReference.from_junction(junction.junction_id)
+        dependencies = self.connectivity.connections_for_endpoint(endpoint)
+        if dependencies:
+            raise ValueError(
+                f"Cannot remove Junction '{junction.junction_id}': dependent topology relationships exist."
+            )
         self._junctions.remove(junction)
         self._invalidate_topology()
 
