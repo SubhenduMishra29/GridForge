@@ -13,7 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .project_package import PROJECT_SCHEMA_VERSION, PRESENTATION_SCHEMA_VERSION, SLD_SCHEMA_VERSION
+from .project_package import PROJECT_SCHEMA_VERSION, PRESENTATION_SCHEMA_VERSION, SLD_SCHEMA_VERSION, CONNECTIVITY_SERIALIZATION_VERSION
 
 
 class AmbiguousElectricalDataError(ValueError):
@@ -449,8 +449,50 @@ class ProjectPersistenceMigration:
         current.setdefault("dynamic_models", [])
         current.setdefault("measurement", {"channels": []})
         current = self._migrate_presentation_collection(current)
+        current = self._migrate_network_connectivity(current)
         self._reject_legacy_project_aliases(current)
         return current
+
+    @staticmethod
+    def _migrate_network_connectivity(project: dict[str, Any]) -> dict[str, Any]:
+        """Normalize legacy Core connectivity schema 1 to canonical schema 2."""
+        network = project.get("network")
+        if not isinstance(network, Mapping):
+            raise ProjectMigrationError("Project network payload must be an object.")
+        connectivity = network.get("connectivity")
+        if connectivity is None:
+            connectivity = {"schema": 1, "simple_wires": []}
+        if not isinstance(connectivity, Mapping):
+            raise ProjectMigrationError("Project connectivity payload must be an object.")
+        schema = connectivity.get("schema", 1)
+        if isinstance(schema, bool) or not isinstance(schema, int):
+            raise ProjectMigrationError(f"Connectivity schema must be an integer, got {schema!r}.")
+        if schema > CONNECTIVITY_SERIALIZATION_VERSION:
+            raise ProjectMigrationError(
+                f"Unsupported future connectivity schema {schema}; supported schema is {CONNECTIVITY_SERIALIZATION_VERSION}."
+            )
+        if schema < 1:
+            raise ProjectMigrationError(f"Unsupported connectivity schema {schema}.")
+        if schema == 1:
+            if "junctions" in connectivity:
+                raise ProjectMigrationError("Connectivity schema 1 cannot contain junctions.")
+            wires = connectivity.get("simple_wires", [])
+            if not isinstance(wires, list):
+                raise ProjectMigrationError("Legacy connectivity.simple_wires must be an array.")
+            migrated = deepcopy(dict(connectivity))
+            migrated["schema"] = CONNECTIVITY_SERIALIZATION_VERSION
+            migrated["junctions"] = []
+            network_copy = deepcopy(dict(network))
+            network_copy["connectivity"] = migrated
+            project["network"] = network_copy
+            return project
+        if schema == CONNECTIVITY_SERIALIZATION_VERSION:
+            if not isinstance(connectivity.get("junctions", []), list):
+                raise ProjectMigrationError("Canonical connectivity.junctions must be an array.")
+            if not isinstance(connectivity.get("simple_wires", []), list):
+                raise ProjectMigrationError("Canonical connectivity.simple_wires must be an array.")
+            return project
+        raise ProjectMigrationError(f"Unsupported connectivity schema {schema!r}.")
 
     def _migrate_presentation_collection(self, project: dict[str, Any]) -> dict[str, Any]:
         project_data = project.get("project")

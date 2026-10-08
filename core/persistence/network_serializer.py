@@ -11,10 +11,10 @@ from __future__ import annotations
 from typing import Any
 
 from core.model.terminal import Terminal
-from core.network import Network, SimpleWireConnection
+from core.network import Junction, Network, SimpleWireConnection
 
 from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
-from .project_package import CORE_SERIALIZATION_VERSION
+from .project_package import CONNECTIVITY_SERIALIZATION_VERSION, CORE_SERIALIZATION_VERSION
 from .type_registry import ModelTypeRegistry, network_adder_name
 
 
@@ -49,11 +49,16 @@ def serialize_network(network: Network) -> dict[str, Any]:
         (connection.to_dict() for connection in network.connectivity.connections),
         key=lambda item: item["connection_id"],
     )
+    junctions = [
+        {"junction_id": junction.junction_id}
+        for junction in sorted(network.junctions, key=lambda item: item.junction_id)
+    ]
     return {
         "schema": CORE_SERIALIZATION_VERSION,
         "elements": elements,
         "connectivity": {
-            "schema": 1,
+            "schema": CONNECTIVITY_SERIALIZATION_VERSION,
+            "junctions": junctions,
             "simple_wires": simple_wires,
         },
     }
@@ -161,13 +166,63 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
     if not isinstance(connectivity_data, dict):
         raise NetworkSerializationError("Persisted connectivity payload must be an object.")
     connectivity_schema = connectivity_data.get("schema", 1)
-    if connectivity_schema != 1:
+    if isinstance(connectivity_schema, bool) or not isinstance(connectivity_schema, int):
+        raise NetworkSerializationError(
+            f"Connectivity schema must be an integer, got {connectivity_schema!r}."
+        )
+    if connectivity_schema not in {1, CONNECTIVITY_SERIALIZATION_VERSION}:
         raise NetworkSerializationError(
             f"Unsupported project connectivity schema: {connectivity_schema!r}"
         )
+
+    raw_junctions = connectivity_data.get("junctions", [])
+    if connectivity_schema == 1:
+        if "junctions" in connectivity_data:
+            raise NetworkSerializationError(
+                "Connectivity schema 1 must not contain a Junction collection."
+            )
+        raw_junctions = []
+    elif not isinstance(raw_junctions, list):
+        raise NetworkSerializationError(
+            "Persisted connectivity.junctions payload must be an array."
+        )
+
+    seen_junction_ids: set[str] = set()
+    for raw_junction in raw_junctions:
+        if not isinstance(raw_junction, dict):
+            raise NetworkSerializationError(
+                "Every persisted Junction record must be an object."
+            )
+        if set(raw_junction) != {"junction_id"}:
+            raise NetworkSerializationError(
+                "Persisted Junction records must contain exactly junction_id."
+            )
+        junction_id = raw_junction.get("junction_id")
+        if not isinstance(junction_id, str):
+            raise NetworkSerializationError("Persisted Junction junction_id must be a string.")
+        if not junction_id.strip():
+            raise NetworkSerializationError("Persisted Junction junction_id cannot be empty.")
+        if junction_id != junction_id.strip():
+            raise NetworkSerializationError(
+                f"Persisted Junction ID is not canonical: {junction_id!r}."
+            )
+        if junction_id in seen_junction_ids:
+            raise NetworkSerializationError(
+                f"Duplicate persisted Junction ID: {junction_id!r}."
+            )
+        seen_junction_ids.add(junction_id)
+        try:
+            network.add_junction(Junction(junction_id))
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Unable to register persisted Junction '{junction_id}': {exc}"
+            ) from exc
+
     simple_wires = connectivity_data.get("simple_wires", ())
     if not isinstance(simple_wires, list):
-        raise NetworkSerializationError("Persisted connectivity.simple_wires payload must be an array.")
+        raise NetworkSerializationError(
+            "Persisted connectivity.simple_wires payload must be an array."
+        )
     for raw_connection in simple_wires:
         try:
             connection = SimpleWireConnection.from_dict(raw_connection)

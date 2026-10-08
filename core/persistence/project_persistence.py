@@ -34,6 +34,7 @@ from .project_package import (
     PRESENTATION_SCHEMA_VERSION,
     SLD_SCHEMA_VERSION,
     CORE_SERIALIZATION_VERSION,
+    CONNECTIVITY_SERIALIZATION_VERSION,
     manifest_path,
     normalize_package_path,
     project_path,
@@ -410,9 +411,9 @@ class ProjectPersistenceService:
         if not isinstance(network.get("elements"), list):
             raise ProjectPersistenceError("Canonical network elements must be an array.")
         connectivity = network.get("connectivity")
-        if not isinstance(connectivity, Mapping) or connectivity.get("schema") != CORE_SERIALIZATION_VERSION:
+        if not isinstance(connectivity, Mapping) or connectivity.get("schema") != CONNECTIVITY_SERIALIZATION_VERSION:
             raise ProjectPersistenceError(
-                f"Canonical connectivity serialization schema must be {CORE_SERIALIZATION_VERSION}."
+                f"Canonical connectivity serialization schema must be {CONNECTIVITY_SERIALIZATION_VERSION}."
             )
         if not isinstance(connectivity.get("simple_wires"), list):
             raise ProjectPersistenceError("Canonical simple_wires must be an array.")
