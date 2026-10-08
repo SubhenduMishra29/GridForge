@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from typing import Any, Mapping
 
 Point = tuple[float, float]
@@ -74,13 +75,15 @@ class CanvasHitTarget:
             return cls.none()
         if isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 0:
             return cls.none()
-        if not isinstance(distance, (int, float)) or isinstance(distance, bool) or distance < 0:
+        if not isinstance(distance, (int, float)) or isinstance(distance, bool) or not math.isfinite(float(distance)) or distance < 0:
             return cls.none()
         try:
             normalized_route = tuple((float(point[0]), float(point[1])) for point in route_points)
             normalized_closest = (float(closest_point[0]), float(closest_point[1]))
             normalized_source = (float(source_point[0]), float(source_point[1]))
             normalized_target = (float(target_point[0]), float(target_point[1]))
+            if any(not math.isfinite(value) for point in (normalized_route, normalized_closest, normalized_source, normalized_target) for value in point):
+                return cls.none()
         except (TypeError, ValueError, IndexError):
             return cls.none()
         return cls(kind=CanvasHitKind.SIMPLE_WIRE_SEGMENT, object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id, segment_index=segment_index, closest_point=normalized_closest, distance=float(distance), source_point=normalized_source, target_point=normalized_target, route_points=normalized_route, route_ownership=None if route_ownership is None else str(route_ownership))
