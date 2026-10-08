@@ -25,8 +25,8 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
     def __init__(
         self,
         *,
-        endpoint_a: EndpointReference,
-        endpoint_b: EndpointReference,
+        endpoint_a: EndpointReference | TopologyEndpointReference,
+        endpoint_b: EndpointReference | TopologyEndpointReference,
         connection_id: str | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
@@ -68,8 +68,8 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
         self,
         *,
         connection_id: str,
-        endpoint_a: EndpointReference | None = None,
-        endpoint_b: EndpointReference | None = None,
+        endpoint_a: EndpointReference | TopologyEndpointReference | None = None,
+        endpoint_b: EndpointReference | TopologyEndpointReference | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -112,7 +112,9 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
         )
 
 
-def _topology_endpoint(value):
+def _topology_endpoint(
+    value: EndpointReference | TopologyEndpointReference,
+) -> TopologyEndpointReference:
     if isinstance(value, TopologyEndpointReference):
         return value
     if isinstance(value, EndpointReference):
