@@ -34,10 +34,6 @@ class Junction:
     def junction_id(self) -> str:
         return self._junction_id
 
-    @property
-    def id(self) -> str:
-        return self._junction_id
-
     def _bind_network(self, token: object) -> None:
         if token is None:
             raise ValueError("Junction network binding token cannot be None.")
