@@ -30,9 +30,9 @@ class TopologyEndpointReference:
     This type owns the topology discriminator so future topology primitives
     do not need to masquerade as electrical terminals.
 
-    Current connectivity supports only TERMINAL references. JUNCTION is a
-    structural identity contract only; it does not resolve to or contain a
-    Junction Core object.
+    Connectivity supports both TERMINAL and JUNCTION references. A JUNCTION
+    reference carries only the canonical Junction identity; ownership and
+    membership are validated by the Network/JunctionRegistry boundary.
     """
 
     kind: TopologyEndpointReferenceKind
