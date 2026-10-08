@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ui.core.qt import QGraphicsItem, QPointF
-from ui.canvas.canvas_hit import CanvasHitKind, CanvasHitTarget
+from ui.canvas.canvas_hit import CanvasHitTarget
 
 
 @dataclass(frozen=True, slots=True)
