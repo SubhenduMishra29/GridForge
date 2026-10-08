@@ -204,6 +204,8 @@ from __future__ import annotations
 # =====================================================================
 
 from .network import Network
+from .junction import Junction
+from .junction_registry import JunctionRegistry
 
 
 # =====================================================================
@@ -257,6 +259,8 @@ from core.base.per_unit import PerUnitSystem
 __all__ = [
     # Primary façade
     "Network",
+    "Junction",
+    "JunctionRegistry",
 
     # Assembly infrastructure
     "NetworkRegistry",
