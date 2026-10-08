@@ -98,12 +98,17 @@ class TopologyEndpointReference:
         )
 
     @classmethod
-    def junction(cls, junction_id: str) -> "TopologyEndpointReference":
-        """Create a structural Junction topology identity without a Junction object."""
+    def from_junction(cls, junction_id: str) -> "TopologyEndpointReference":
+        """Create an immutable Junction topology identity from canonical ID."""
         return cls(
             kind=TopologyEndpointReferenceKind.JUNCTION,
             junction_id=junction_id,
         )
+
+    @classmethod
+    def junction(cls, junction_id: str) -> "TopologyEndpointReference":
+        """Compatibility alias for from_junction."""
+        return cls.from_junction(junction_id)
 
     @property
     def identity(self) -> EndpointReference | str:
