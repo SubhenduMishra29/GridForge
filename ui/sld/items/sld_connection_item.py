@@ -9,13 +9,14 @@ from __future__ import annotations
 from typing import Iterable
 import math
 
-from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
+from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
 
 class SLDConnectionItem(QGraphicsPathItem):
     route_edit_requested = Signal(object)
+    INTERACTION_WIDTH = 10.0
     """Render resolved semantic endpoints and engineer-owned route geometry."""
 
     def __init__(
@@ -147,10 +148,37 @@ class SLDConnectionItem(QGraphicsPathItem):
         return ((path.elementAt(0).x, path.elementAt(0).y),
                 (path.elementAt(path.elementCount() - 1).x, path.elementAt(path.elementCount() - 1).y))
 
+    def shape(self):
+        """Return the presentation-only interaction envelope for Simple Wires.
+
+        The visible path and 2px pen remain unchanged. QGraphicsScene uses
+        shape() for point hit testing, so a wider stroker provides an
+        engineer-friendly target that follows the complete routed polyline.
+        """
+        if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
+            return super().shape()
+        path = self.path()
+        if path.isEmpty():
+            return super().shape()
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self.INTERACTION_WIDTH)
+        return stroker.createStroke(path)
+
+    def boundingRect(self):
+        """Include the wider interaction envelope in the scene index bounds."""
+        if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
+            return super().boundingRect()
+        path = self.path()
+        if path.isEmpty():
+            return super().boundingRect()
+        return self.shape().boundingRect()
+
     def insertion_target(self, position: tuple[float, float]) -> dict[str, object]:
         """Return immutable insertion-hit data without mutating the graphics item."""
         if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
             raise ValueError("Only persistent Simple Wire connections are insertion targets.")
+        if not isinstance(self._core_connection_id, str) or not self._core_connection_id:
+            raise ValueError("Simple Wire interaction requires an explicit Core connection identity.")
         if not isinstance(position, (tuple, list)) or len(position) != 2:
             raise TypeError("position must contain exactly two coordinates.")
         px, py = float(position[0]), float(position[1])
@@ -183,6 +211,7 @@ class SLDConnectionItem(QGraphicsPathItem):
             "presentation_id": self._presentation_id,
             "route": tuple(self._route_points),
             "closest_point": best_point,
+            "distance": best_distance,
             "segment_index": best_segment,
             "source": (float(self._visual_source.x()), float(self._visual_source.y())),
             "target": (float(self._visual_target.x()), float(self._visual_target.y())),
