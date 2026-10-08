@@ -86,7 +86,7 @@ class Network:
     @property
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
     @property
-    def junction_snapshot(self) -> tuple[Junction, ...]: return self.junctions.snapshot
+    def junction_snapshot(self) -> tuple[Junction, ...]: return self._junctions.snapshot
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         return self.registry.get_by_id(element_type, object_id)
