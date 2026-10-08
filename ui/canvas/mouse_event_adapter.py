@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ui.core.qt import QGraphicsItem, QPointF
+from ui.canvas.canvas_hit import CanvasHitKind, CanvasHitTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,16 +20,24 @@ class CanvasMouseEvent:
     ``position`` is the viewport-local pointer position and
     ``scene_position`` is its mapped scene coordinate. Qt-specific enum/flag
     values are normalized to integers at the input boundary.
+    ``presentation_hit`` contains immutable presentation-only hit metadata.
+    ``object_id`` remains the legacy semantic selection key.
     """
 
     position: QPointF
     scene_position: QPointF
     object_id: Any = None
+    presentation_hit: CanvasHitTarget = field(default_factory=CanvasHitTarget.none)
     button: Optional[int] = None
     buttons: int = 0
     modifiers: int = 0
     event_type: Optional[int] = None
     timestamp: Optional[int] = None
+
+    @property
+    def hit_target(self) -> CanvasHitTarget:
+        """Compatibility/readability alias for presentation hit metadata."""
+        return self.presentation_hit
 
 
 class MouseEventAdapter:
@@ -57,10 +66,12 @@ class MouseEventAdapter:
         scene_position = self._map_to_scene(viewport_position)
         viewport_point = self._point(viewport_position)
         scene_point = self._point(scene_position)
+        hit = self._hit_test(scene_point)
         return CanvasMouseEvent(
             position=viewport_point,
             scene_position=scene_point,
-            object_id=self._hit_test(scene_point),
+            object_id=hit.object_id,
+            presentation_hit=hit,
             button=self._event_flag(event, "button", allow_none=True),
             buttons=self._event_flag(event, "buttons", default=0),
             modifiers=self._event_flag(event, "modifiers", default=0),
@@ -87,21 +98,12 @@ class MouseEventAdapter:
         mapper = getattr(self._view, "mapToScene", None)
         if not callable(mapper):
             raise TypeError("view must provide mapToScene().")
-        # QGraphicsView.mapToScene() resolves through QPoint/QPolygon/
-        # QRect overloads in PySide6. Passing a QPointF directly can enter
-        # PySide6's parameterized-generic isinstance() path and emit:
-        # "qt_isinstance(...): isinstance() argument 2 cannot be a
-        # parameterized generic". Normalize the viewport coordinate to the
-        # canonical QPoint overload at the Qt boundary.
         to_point = getattr(position, "toPoint", None)
         if callable(to_point):
             return mapper(to_point())
-        try:
-            return mapper(position)
-        except (TypeError, AttributeError):
-            raise
+        return mapper(position)
 
-    def _hit_test(self, scene_position: Any) -> Optional[Any]:
+    def _hit_test(self, scene_position: Any) -> CanvasHitTarget:
         item_at = getattr(self._scene, "itemAt", None)
         if not callable(item_at):
             raise TypeError("scene must provide itemAt().")
@@ -109,18 +111,38 @@ class MouseEventAdapter:
         x = float(scene_position.x())
         y = float(scene_position.y())
         transform = self._view.viewportTransform()
+        try:
+            item = item_at(x, y, transform)
+        except (TypeError, ValueError, AttributeError):
+            return CanvasHitTarget.none()
 
-        # Use QGraphicsScene.itemAt's scalar overload directly.  Passing
-        # Python QPointF objects through the overloaded dispatcher can enter
-        # PySide6's generated isinstance() machinery; the scalar overload
-        # avoids that path while preserving Qt's indexed topmost hit test.
-        item = item_at(x, y, transform)
         while item is not None:
             if self._is_selectable(item):
-                return getattr(item, "object_id", None)
+                return self._presentation_hit_for_item(item, (x, y))
             parent = getattr(item, "parentItem", None)
             item = parent() if callable(parent) else None
-        return None
+        return CanvasHitTarget.none()
+
+    @classmethod
+    def _presentation_hit_for_item(cls, item: Any, position: tuple[float, float]) -> CanvasHitTarget:
+        object_id = getattr(item, "object_id", None)
+        connection_kind = str(getattr(item, "connection_kind", "") or "").upper()
+        resolver = getattr(item, "insertion_target", None)
+        if connection_kind == "SIMPLE_WIRE" and callable(resolver):
+            try:
+                raw_hit = resolver(position)
+            except (TypeError, ValueError):
+                return CanvasHitTarget.none()
+            if not isinstance(raw_hit, dict):
+                return CanvasHitTarget.none()
+            return CanvasHitTarget.from_connection_item(item, raw_hit)
+        if connection_kind:
+            return CanvasHitTarget.connection(
+                object_id=object_id,
+                presentation_id=getattr(item, "presentation_id", None),
+                core_connection_id=getattr(item, "core_connection_id", None),
+            )
+        return CanvasHitTarget.node(object_id)
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
@@ -163,14 +185,7 @@ class MouseEventAdapter:
         return value
 
     @classmethod
-    def _event_flag(
-        cls,
-        event: Any,
-        name: str,
-        *,
-        default: Optional[int] = None,
-        allow_none: bool = False,
-    ) -> Optional[int]:
+    def _event_flag(cls, event: Any, name: str, *, default: Optional[int] = None, allow_none: bool = False) -> Optional[int]:
         value = cls._event_value(event, name)
         if value is None:
             if allow_none:
@@ -187,19 +202,10 @@ class MouseEventAdapter:
             raise TypeError(f"event {name} must be an integer flag, not bool.")
         if isinstance(raw_value, int):
             return raw_value
-        raise TypeError(
-            f"event {name} must be an integer or expose an integer .value."
-        )
+        raise TypeError(f"event {name} must be an integer or expose an integer .value.")
 
     @classmethod
-    def _event_integer(
-        cls,
-        event: Any,
-        name: str,
-        *,
-        default: Optional[int] = None,
-        allow_none: bool = False,
-    ) -> Optional[int]:
+    def _event_integer(cls, event: Any, name: str, *, default: Optional[int] = None, allow_none: bool = False) -> Optional[int]:
         value = cls._event_value(event, name)
         if value is None:
             if allow_none:
