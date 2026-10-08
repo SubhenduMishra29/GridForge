@@ -86,7 +86,8 @@ class Network:
     @property
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
     @property
-    def junction_snapshot(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+    def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         return self.registry.get_by_id(element_type, object_id)
@@ -312,7 +313,7 @@ class Network:
     def index_valid(self) -> bool: return self.index.valid
 
     def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"junctions={len(self._junctions)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"junctions={len(self.junctions)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
 
 
 __all__ = ["Network"]
