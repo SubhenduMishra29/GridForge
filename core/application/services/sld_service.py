@@ -12,6 +12,7 @@ from typing import Any
 import math
 
 from ..command import Command
+from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
@@ -29,6 +30,9 @@ class SLDService:
     The service performs presentation mutation only inside the Application
     transaction supplied by CommandManager. It never owns history or undo/redo.
     """
+
+    INSERTION_POSITION_TOLERANCE = 5.0
+    INSERTION_POSITION_TOLERANCE_SQ = INSERTION_POSITION_TOLERANCE ** 2
 
     COMMAND_TYPES = frozenset({
         "sld.set_node_position",
@@ -611,6 +615,160 @@ class SLDService:
         )
         self.document.mark_modified()
 
+    @classmethod
+    def _validate_insertion_geometry(
+        cls,
+        *,
+        connection_id: str,
+        old_connection: Any,
+        source_node: Any,
+        target_node: Any,
+        insertion_position: tuple[float, float] | list[float],
+        segment_index: int,
+    ) -> tuple[float, float]:
+        """Validate insertion geometry against exactly the selected SLD segment.
+
+        The SLD document is authoritative for presentation route geometry.
+        Core topology geometry is intentionally not consulted here.
+        """
+        if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+            raise ValidationError(
+                code="INVALID_INSERTION_CONNECTION",
+                message="Electrical insertion requires a Simple Wire SLD connection.",
+                details={"connection_id": str(connection_id), "reason": "not_simple_wire"},
+            )
+
+        if not isinstance(segment_index, int) or isinstance(segment_index, bool):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion segment index must be an integer.",
+                details={"connection_id": str(connection_id), "segment_index": segment_index, "reason": "invalid_segment_index_type"},
+            )
+
+        if not isinstance(insertion_position, (tuple, list)) or len(insertion_position) != 2:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position must contain exactly two coordinates.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": insertion_position,
+                    "reason": "invalid_coordinate_count",
+                },
+            )
+
+        try:
+            px, py = float(insertion_position[0]), float(insertion_position[1])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position coordinates must be numeric.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": tuple(insertion_position),
+                    "reason": "non_numeric_coordinate",
+                },
+            ) from exc
+
+        if not math.isfinite(px) or not math.isfinite(py):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position coordinates must be finite.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "non_finite_coordinate",
+                },
+            )
+
+        try:
+            source = (float(source_node.x), float(source_node.y))
+            target = (float(target_node.x), float(target_node.y))
+            route_points = tuple(
+                (float(point[0]), float(point[1]))
+                for point in old_connection.route.points
+            )
+        except (AttributeError, TypeError, ValueError, IndexError, OverflowError) as exc:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="The selected SLD connection has invalid route geometry.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "invalid_route_geometry",
+                },
+            ) from exc
+
+        polyline = (source, *route_points, target)
+        segment_count = len(polyline) - 1
+        if segment_index < 0 or segment_index >= segment_count:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message=(
+                    f"Insertion segment index {segment_index} is outside the "
+                    f"route range for connection {connection_id}."
+                ),
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "segment_count": segment_count,
+                    "supplied_position": (px, py),
+                    "reason": "segment_index_out_of_range",
+                },
+            )
+
+        ax, ay = polyline[segment_index]
+        bx, by = polyline[segment_index + 1]
+        if not all(math.isfinite(value) for value in (ax, ay, bx, by)):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="The selected SLD route segment contains non-finite coordinates.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "non_finite_segment",
+                },
+            )
+
+        dx, dy = bx - ax, by - ay
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 0.0:
+            closest_dx = px - ax
+            closest_dy = py - ay
+            distance_sq = closest_dx * closest_dx + closest_dy * closest_dy
+        else:
+            projection = ((px - ax) * dx + (py - ay) * dy) / length_sq
+            projection = max(0.0, min(1.0, projection))
+            closest_x = ax + projection * dx
+            closest_y = ay + projection * dy
+            closest_dx = px - closest_x
+            closest_dy = py - closest_y
+            distance_sq = closest_dx * closest_dx + closest_dy * closest_dy
+
+        if not math.isfinite(distance_sq) or distance_sq > cls.INSERTION_POSITION_TOLERANCE_SQ:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message=(
+                    f"Insertion position is not on selected SLD route segment "
+                    f"{segment_index} within the allowed tolerance."
+                ),
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "distance_squared": float(distance_sq),
+                    "tolerance": float(cls.INSERTION_POSITION_TOLERANCE),
+                    "tolerance_squared": float(cls.INSERTION_POSITION_TOLERANCE_SQ),
+                    "reason": "position_outside_selected_segment",
+                },
+            )
+
+        return (px, py)
+
     def reconcile_insertion(
         self,
         *,
@@ -648,8 +806,16 @@ class SLDService:
                     f"Multiple persistent SLD companions exist for Core connection {connection_id!r}."
                 )
             else:
-                raise ValueError(
-                    f"No persistent SLD connection companion exists for Core connection {connection_id!r}."
+                raise ValidationError(
+                    code="INVALID_INSERTION_CONNECTION",
+                    message=(
+                        f"No persistent SLD connection companion exists for "
+                        f"Core connection {connection_id!r}."
+                    ),
+                    details={
+                        "connection_id": str(connection_id),
+                        "reason": "sld_connection_not_found",
+                    },
                 )
 
         first_core_id, second_core_id = replacement_connection_ids
@@ -680,7 +846,14 @@ class SLDService:
         previous_document_modified = bool(getattr(self.document, "modified", False))
         source_node = self.document.model.get_node(old_connection.source_node_id)
         target_node = self.document.model.get_node(old_connection.target_node_id)
-        position = (float(insertion_position[0]), float(insertion_position[1]))
+        position = self._validate_insertion_geometry(
+            connection_id=connection_id,
+            old_connection=old_connection,
+            source_node=source_node,
+            target_node=target_node,
+            insertion_position=insertion_position,
+            segment_index=segment_index,
+        )
 
         # Capture ownership/provenance before replacing the persistent
         # connection. These values belong to the authored SLD presentation and
