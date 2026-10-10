@@ -83,11 +83,14 @@ _CONTRACTS: dict[str, ProtectionFunctionInputContract] = {
 
 
 def validate_protection_input_contracts(
-    configuration: Any, channels: Mapping[str, Any]
+    configuration: Any, channels: Mapping[str, Any], *, require_all_bindings: bool = True
 ) -> tuple[str, ...]:
     """Return all configuration/channel contract violations without executing relays."""
     diagnostics: list[str] = []
-    for element in configuration.elements:
+    elements = getattr(configuration, "elements", None)
+    if elements is None:
+        elements = (configuration,)
+    for element in elements:
         if not element.enabled:
             continue
         code = str(element.function_code).strip().upper()
@@ -109,7 +112,8 @@ def validate_protection_input_contracts(
             channel_id = configured.get(name)
             detail = f"{prefix}, input={name!r}, channel={channel_id!r}"
             if not isinstance(channel_id, str) or not channel_id:
-                diagnostics.append(f"{detail}: required input binding is missing.")
+                if require_all_bindings:
+                    diagnostics.append(f"{detail}: required input binding is missing.")
                 continue
             channel = channels.get(channel_id)
             if channel is None:
