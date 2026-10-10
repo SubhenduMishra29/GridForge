@@ -17,6 +17,19 @@ from typing import Any, Mapping
 from .read_service import ReadService
 
 
+def _freeze_snapshot(value: Any) -> Any:
+    """Recursively detach and freeze containers in a resolved signal snapshot."""
+    if isinstance(value, Mapping):
+        # Stable ordering makes equivalent mapping snapshots deterministic.
+        items = sorted(value.items(), key=lambda item: str(item[0]))
+        return MappingProxyType({key: _freeze_snapshot(item) for key, item in items})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_snapshot(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_snapshot(item) for item in value)
+    return value
+
+
 class ControlSignalQuality(str, Enum):
     VALID="valid"; INVALID="invalid"; STALE="stale"; UNAVAILABLE="unavailable"; WRONG_TYPE="wrong_type"; MISSING="missing"
 
@@ -89,7 +102,7 @@ class ControlSignalResolution:
         object.__setattr__(self, "bindings", tuple(self.bindings))
         object.__setattr__(self, "quality", MappingProxyType(dict(self.quality)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
-        object.__setattr__(self, "interlock_inputs", MappingProxyType({str(key): MappingProxyType(dict(value)) for key, value in self.interlock_inputs.items()}))
+        object.__setattr__(self, "interlock_inputs", _freeze_snapshot(self.interlock_inputs))
 
 
 class ControlSignalResolutionError(ValueError):
@@ -169,13 +182,9 @@ class ControlSignalMapping:
                 # Keep the complete source envelope for freshness-sensitive gates.
                 interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = dict(envelope)
                 value = envelope.get("value")
-            else:
-                # Plain read-model values are usable by ordinary logic, but have
-                # no trustworthy sample timestamp and therefore cannot authorize
-                # an interlocked action.
-                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = {
-                    "value": value, "quality": "valid"
-                }
+            # Plain values intentionally do not enter interlock_inputs:
+            # no quality or timestamp metadata may be manufactured. A required
+            # interlock input will therefore fail closed as missing.
             quality[binding]=signal_quality
             if signal_quality is not ControlSignalQuality.VALID:
                 diagnostics.append(f"Signal '{source.signal}' on {source.element_type}:{source.object_id} has quality {signal_quality.value}.")

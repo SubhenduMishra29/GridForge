@@ -1,9 +1,9 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation, transaction, SLD reconciliation, undo/redo and semantic-event ordering | CRITICAL | **STATICALLY VERIFIED — CLOSED** | Creation and update pre-commit reconciliation consume authoritative transaction-visible Core objects from ApplicationResult.value; CommandManager remains the sole command/transaction/history boundary; semantic publication remains post-commit | Prevents active-transaction SLD reconciliation from treating ReadModels as authoritative mutation state | One Command → one Transaction → Core + SLD pre-commit reconciliation → commit → history → semantic event → read projection | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Current effective authority (2026-09-30):**
-- Implementation: `madhuri196mishra-cpu/GridForge:main`
-- Audit/Register: `SubhenduMishra29/GridForge:main`
+**Current effective authority (reconciled 2026-10-10):**
+- Implementation and active audit/register target: `madhuri196mishra-cpu/GridForge:main`
+- `SubhenduMishra29/GridForge` is a reference/audit repository only when explicitly designated for a given historical cycle.
 - Historical/provenance only: `pandaraseswari03-collab/GridForge`
 
 Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
@@ -1900,3 +1900,23 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 **Phase 3 batch closure:** not marked CLOSED. Static correction and affected-path re-audit are recorded; runtime verification remains a separate future activity.
 
 **Author:** Subhendu Mishra
+
+
+## 2026-10-10 — Complete SLD-to-Study/Control/Protection lifecycle re-audit
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge:main`  
+**Inspected baseline:** `5304c53541ddb889d533263762c40546899c17c0`  
+**Audit mode:** static source inspection; production source unchanged; pytest, CI, startup and GUI not run.  
+**Report:** `audit/SLD_TO_STUDY_CONTROL_PROTECTION_LIFECYCLE_REAUDIT_2026-10-10.md`
+
+| Finding | Domain | Severity | Status | Evidence / disposition |
+|---|---|---|---|---|
+| GF-MASTER-0116 | Control signal snapshot | HIGH | OPEN — STATIC FINDING | `ControlSignalResolution.external_inputs` is only shallowly frozen; recursive helper already exists. |
+| GF-MASTER-0117 | Control feedback | MEDIUM | OPEN — STATIC FINDING | `ControlFeedback.metadata` exposes mutable shallow dictionary state. |
+| GF-MASTER-0118 | Protection prepared input | HIGH | OPEN — STATIC FINDING | Prepared relay settings are shallowly frozen; post-preparation nested mutation is possible. |
+| GF-MASTER-0119 | Study request | MEDIUM | OPEN — STATIC FINDING | `StudyRequest.configuration` shallow freeze differs from recursive StudyCaseDefinition freeze. |
+| GF-MASTER-0120 | SLD projection | MEDIUM | OPEN — STATIC FINDING | Node/connection projection properties are shallowly frozen and may retain nested mutable references. |
+| GF-MASTER-0121 | Protection execution result | MEDIUM | OPEN — STATIC FINDING | Public result DTO does not normalize/validate tuple-annotated fields. |
+| GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Historical finding retained; complete CT/PT/CVT provisioning-to-runtime consumer path still requires dedicated proof. |
+
+**Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
