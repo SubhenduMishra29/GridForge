@@ -17,6 +17,19 @@ from typing import Any, Mapping
 from .read_service import ReadService
 
 
+def _freeze_snapshot(value: Any) -> Any:
+    """Recursively detach and freeze containers in a resolved signal snapshot."""
+    if isinstance(value, Mapping):
+        # Stable ordering makes equivalent mapping snapshots deterministic.
+        items = sorted(value.items(), key=lambda item: str(item[0]))
+        return MappingProxyType({key: _freeze_snapshot(item) for key, item in items})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_snapshot(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_snapshot(item) for item in value)
+    return value
+
+
 class ControlSignalQuality(str, Enum):
     VALID="valid"; INVALID="invalid"; STALE="stale"; UNAVAILABLE="unavailable"; WRONG_TYPE="wrong_type"; MISSING="missing"
 
@@ -89,7 +102,7 @@ class ControlSignalResolution:
         object.__setattr__(self, "bindings", tuple(self.bindings))
         object.__setattr__(self, "quality", MappingProxyType(dict(self.quality)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
-        object.__setattr__(self, "interlock_inputs", MappingProxyType({str(key): MappingProxyType(dict(value)) for key, value in self.interlock_inputs.items()}))
+        object.__setattr__(self, "interlock_inputs", _freeze_snapshot(self.interlock_inputs))
 
 
 class ControlSignalResolutionError(ValueError):
