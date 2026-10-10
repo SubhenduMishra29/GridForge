@@ -61,6 +61,7 @@ from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from core.protection.context import ProtectionContext
+from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite
 from .services.control_service import ControlApplicationService
@@ -329,6 +330,7 @@ class Application:
         evaluation_time: float,
         *,
         action_resolver: Any | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -378,8 +380,19 @@ class Application:
             raise RuntimeError("Measurement channel registry activation generation is stale.")
 
         channels = service.channels
+        if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
+            raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
+        diagnostics.extend(
+            f"project={project.project_id!r}: {message}"
+            for message in validate_protection_input_contracts(runtime.configuration, channels)
+        )
         for element in runtime.configuration.elements:
+            if element.enabled and element.function_code == "67":
+                diagnostics.extend(
+                    f"project={project.project_id!r}, element={element.element_id!r}: {message}"
+                    for message in validate_directional_context(evaluation_metadata)
+                )
             if not element.enabled:
                 continue
             for input_name, channel_id in element.input_channel_ids.items():
@@ -443,6 +456,7 @@ class Application:
         context = ProtectionContext(
             time=evaluation_time,
             metadata={
+                **dict(evaluation_metadata or {}),
                 "project_id": project.project_id,
                 "activation_generation": lifecycle.activation_generation,
             },
