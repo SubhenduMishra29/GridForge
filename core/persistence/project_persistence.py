@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
+from core.application.control_signal_mapping import ControlSignalMapping
 from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
 from core.network import Network
@@ -52,6 +53,7 @@ class LoadedProject:
     protection_configuration: ProtectionProjectConfiguration | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
     control_configuration: ControlConfiguration | None = None
+    control_signal_mapping: ControlSignalMapping | None = None
     draft_network: DraftNetwork | None = None
     protection_presentation: Mapping[str, Any] | None = None
 
@@ -138,6 +140,15 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("Control configuration project_id does not match project metadata.")
         control_configuration.validate()
 
+        mapping_data = project.get("control_signal_mapping")
+        try:
+            control_signal_mapping = (
+                ControlSignalMapping.from_dict(mapping_data)
+                if mapping_data is not None else None
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ProjectPersistenceError(f"Invalid Control signal mapping: {exc}") from exc
+
         protection_data = project.get("protection")
         protection_presentation = project.get("protection_presentation")
         protection_configuration = None
@@ -161,6 +172,7 @@ class ProjectPersistenceService:
             protection_configuration=protection_configuration,
             measurement_definitions=tuple(dict(item) for item in measurement_definitions),
             control_configuration=control_configuration,
+            control_signal_mapping=control_signal_mapping,
             draft_network=draft_network,
             protection_presentation=protection_presentation,
         )
@@ -172,6 +184,7 @@ class ProjectPersistenceService:
              protection_configuration: ProtectionProjectConfiguration | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
+             control_signal_mapping: ControlSignalMapping | None = None,
              draft_network: DraftNetwork | None = None,
              protection_presentation: Mapping[str, Any] | None = None,
              presentation_collection: Mapping[str, Any] | None = None) -> None:
@@ -217,6 +230,8 @@ class ProjectPersistenceService:
             if control_configuration.project_id != context.project_id:
                 raise ProjectPersistenceError("Control configuration project_id does not match the project.")
             control_configuration.validate()
+        if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping):
+            raise TypeError("control_signal_mapping must be ControlSignalMapping or None.")
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -275,6 +290,8 @@ class ProjectPersistenceService:
             project["protection_presentation"] = dict(protection_presentation)
         if control_configuration is not None:
             project["control"] = control_configuration.to_dict()
+        if control_signal_mapping is not None:
+            project["control_signal_mapping"] = control_signal_mapping.to_dict()
         if draft_network is not None:
             project["draft_network"] = draft_network.to_dict()
 
