@@ -44,7 +44,7 @@ from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged,
-    SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
+    SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
@@ -1283,7 +1283,21 @@ class Application:
                 causation_id=command.causation_id,
             ))
             return
-        if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
+        if command.command_type in {"connectivity.create_junction", "connectivity.remove_junction"}:
+            action = "create" if command.command_type == "connectivity.create_junction" else "remove"
+            if operation == "undo":
+                action = "remove" if action == "create" else "create"
+            junction_id = str(metadata.get("junction_id") or command.payload.get("junction_id"))
+            event_type = JunctionCreated if action == "create" else JunctionRemoved
+            self._event_bus.publish(event_type(
+                junction_id=junction_id, correlation_id=command.correlation_id,
+                causation_id=command.causation_id, metadata=metadata,
+            ))
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata,
+                correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata,
+                correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
             action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
             if operation == "undo":
                 action = "remove" if action == "create" else "create"

@@ -44,6 +44,7 @@ from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
 from .services.simple_wire_service import SimpleWireConnectionCommandHandlers
+from .services.junction_service import JunctionCommandHandlers
 from .services.electrical_insertion_service import ElectricalInsertionService, ElectricalInsertionCommandHandlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
@@ -106,6 +107,7 @@ def create_application(network: Any) -> Application:
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
         register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
+        register_handlers(handlers, JunctionCommandHandlers().handlers(), "junction topology")
         register_handlers(
             handlers,
             RelayCommandHandlers(
