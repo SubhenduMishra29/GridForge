@@ -24,6 +24,7 @@ from core.protection.overcurrent import (
 )
 from core.protection.thermal import ThermalOverloadRelay
 from core.protection.voltage import OverVoltageRelay, UnderVoltageRelay
+from core.protection.input_contracts import (CONTRACT_50, CONTRACT_51, CONTRACT_50N, CONTRACT_51N, CONTRACT_27, CONTRACT_59, CONTRACT_46, CONTRACT_49, CONTRACT_67, CONTRACT_21)
 
 
 class ProtectionFunctionStatus(str, Enum):
@@ -41,6 +42,7 @@ class ProtectionFunctionSpecification:
     name: str
     status: ProtectionFunctionStatus
     implementation: type[Any] | None = None
+    input_contract: Any | None = None
 
     def __post_init__(self) -> None:
         code = self.code.strip().upper()
@@ -58,17 +60,17 @@ class ProtectionFunctionSpecification:
 
 
 _SPECS = (
-    ProtectionFunctionSpecification("50", "Instantaneous overcurrent", ProtectionFunctionStatus.IMPLEMENTED, InstantaneousOvercurrentRelay),
-    ProtectionFunctionSpecification("51", "Inverse-time overcurrent", ProtectionFunctionStatus.IMPLEMENTED, IECOvercurrentRelay),
-    ProtectionFunctionSpecification("50N", "Instantaneous earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthInstantaneousOvercurrentRelay),
-    ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthIECOvercurrentRelay),
-    ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.IMPLEMENTED, UnderVoltageRelay),
-    ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.IMPLEMENTED, OverVoltageRelay),
-    ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.IMPLEMENTED, NegativeSequenceOvercurrentRelay),
-    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.IMPLEMENTED, ThermalOverloadRelay),
-    ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay),
+    ProtectionFunctionSpecification("50", "Instantaneous overcurrent", ProtectionFunctionStatus.IMPLEMENTED, InstantaneousOvercurrentRelay, CONTRACT_50),
+    ProtectionFunctionSpecification("51", "Inverse-time overcurrent", ProtectionFunctionStatus.IMPLEMENTED, IECOvercurrentRelay, CONTRACT_51),
+    ProtectionFunctionSpecification("50N", "Instantaneous earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthInstantaneousOvercurrentRelay, CONTRACT_50N),
+    ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthIECOvercurrentRelay, CONTRACT_51N),
+    ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.IMPLEMENTED, UnderVoltageRelay, CONTRACT_27),
+    ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.IMPLEMENTED, OverVoltageRelay, CONTRACT_59),
+    ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.IMPLEMENTED, NegativeSequenceOvercurrentRelay, CONTRACT_46),
+    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.IMPLEMENTED, ThermalOverloadRelay, CONTRACT_49),
+    ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay, CONTRACT_67),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
-    ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay),
+    ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay, CONTRACT_21),
 )
 
 _CATALOG: Mapping[str, ProtectionFunctionSpecification] = MappingProxyType({spec.code: spec for spec in _SPECS})
