@@ -60,31 +60,28 @@ _TEMP_INPUT = ProtectionInputContract(
 # Contract phase choices are deliberately narrow and use only canonical enums.
 # Unit strings must be explicit; pickup/reach values are interpreted in the
 # same engineering convention as their inputs. This layer never rescales data.
-_CONTRACTS: dict[str, ProtectionFunctionInputContract] = {
-    "50": ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT}),
-    "51": ProtectionFunctionInputContract("51", {"current": _CURRENT_INPUT}),
-    "50N": ProtectionFunctionInputContract("50N", {"residual_current": _RESIDUAL_INPUT}),
-    "51N": ProtectionFunctionInputContract("51N", {"residual_current": _RESIDUAL_INPUT}),
-    "27": ProtectionFunctionInputContract("27", {"voltage": _VOLTAGE_INPUT}),
-    "59": ProtectionFunctionInputContract("59", {"voltage": _VOLTAGE_INPUT}),
-    "46": ProtectionFunctionInputContract("46", {"negative_sequence_current": _SEQUENCE_CURRENT}),
-    "49": ProtectionFunctionInputContract("49", {"temperature": _TEMP_INPUT}),
-    "67": ProtectionFunctionInputContract("67", {"current": _CURRENT_INPUT}),
-    # Distance reach settings currently carry complex values but no engineering
-    # unit. A V/I quotient cannot be proven comparable to those reaches without
-    # a declared reach unit; reject rather than silently assuming ohms.
-    "21": ProtectionFunctionInputContract(
-        "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
-        supported=False,
-        unsupported_reason="distance zone reach settings do not declare an engineering unit; V/I cannot be proven comparable to configured reach",
-    ),
-}
+CONTRACT_50 = ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT})
+CONTRACT_51 = ProtectionFunctionInputContract("51", {"current": _CURRENT_INPUT})
+CONTRACT_50N = ProtectionFunctionInputContract("50N", {"residual_current": _RESIDUAL_INPUT})
+CONTRACT_51N = ProtectionFunctionInputContract("51N", {"residual_current": _RESIDUAL_INPUT})
+CONTRACT_27 = ProtectionFunctionInputContract("27", {"voltage": _VOLTAGE_INPUT})
+CONTRACT_59 = ProtectionFunctionInputContract("59", {"voltage": _VOLTAGE_INPUT})
+CONTRACT_46 = ProtectionFunctionInputContract("46", {"negative_sequence_current": _SEQUENCE_CURRENT})
+CONTRACT_49 = ProtectionFunctionInputContract("49", {"temperature": _TEMP_INPUT})
+CONTRACT_67 = ProtectionFunctionInputContract("67", {"current": _CURRENT_INPUT})
+# Distance reach has no declared engineering unit; the catalog marks ANSI 21 fail-closed.
+CONTRACT_21 = ProtectionFunctionInputContract(
+    "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
+    supported=False,
+    unsupported_reason="distance zone reach settings do not declare an engineering unit; V/I cannot be proven comparable to configured reach",
+)
 
 
 def validate_protection_input_contracts(
     configuration: Any, channels: Mapping[str, Any], *, require_all_bindings: bool = True
 ) -> tuple[str, ...]:
     """Return all configuration/channel contract violations without executing relays."""
+    from core.protection.function_catalog import get_protection_function
     diagnostics: list[str] = []
     elements = getattr(configuration, "elements", None)
     if elements is None:
@@ -93,10 +90,15 @@ def validate_protection_input_contracts(
         if not element.enabled:
             continue
         code = str(element.function_code).strip().upper()
-        contract = _CONTRACTS.get(code)
         prefix = f"element={element.element_id!r}, function={code!r}"
+        try:
+            specification = get_protection_function(code)
+        except (KeyError, TypeError, ValueError):
+            diagnostics.append(f"{prefix}: no canonical function specification/input contract; function is fail-closed.")
+            continue
+        contract = specification.input_contract
         if contract is None:
-            diagnostics.append(f"{prefix}: no declared input contract; function is fail-closed.")
+            diagnostics.append(f"{prefix}: canonical catalog has no declared input contract; function is fail-closed.")
             continue
         if not contract.supported:
             diagnostics.append(f"{prefix}: no defensible input contract: {contract.unsupported_reason}.")
@@ -171,5 +173,8 @@ def validate_directional_context(metadata: Mapping[str, Any] | None) -> tuple[st
 
 __all__ = [
     "ProtectionInputContract", "ProtectionFunctionInputContract",
+    "CONTRACT_50", "CONTRACT_51", "CONTRACT_50N", "CONTRACT_51N",
+    "CONTRACT_27", "CONTRACT_59", "CONTRACT_46", "CONTRACT_49",
+    "CONTRACT_67", "CONTRACT_21",
     "validate_protection_input_contracts", "validate_directional_context",
 ]
