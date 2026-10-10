@@ -61,6 +61,8 @@ from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from core.protection.context import ProtectionContext
+from core.protection.runtime import ProtectionRuntime
+from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite
 from .services.control_service import ControlApplicationService
@@ -329,6 +331,7 @@ class Application:
         evaluation_time: float,
         *,
         action_resolver: Any | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -378,8 +381,19 @@ class Application:
             raise RuntimeError("Measurement channel registry activation generation is stale.")
 
         channels = service.channels
+        if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
+            raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
+        diagnostics.extend(
+            f"project={project.project_id!r}: {message}"
+            for message in validate_protection_input_contracts(runtime.configuration, channels)
+        )
         for element in runtime.configuration.elements:
+            if element.enabled and element.function_code == "67":
+                diagnostics.extend(
+                    f"project={project.project_id!r}, element={element.element_id!r}: {message}"
+                    for message in validate_directional_context(evaluation_metadata)
+                )
             if not element.enabled:
                 continue
             for input_name, channel_id in element.input_channel_ids.items():
@@ -443,6 +457,7 @@ class Application:
         context = ProtectionContext(
             time=evaluation_time,
             metadata={
+                **dict(evaluation_metadata or {}),
                 "project_id": project.project_id,
                 "activation_generation": lifecycle.activation_generation,
             },
@@ -810,6 +825,28 @@ class Application:
         )
 
         command_type = command.command_type
+        if command_type in {
+            "protection.create_configuration",
+            "protection.update_configuration",
+            "protection.delete_configuration",
+            "protection.bind_measurement",
+            "protection.unbind_measurement",
+        }:
+            configuration_service = getattr(self, "protection_configuration_service", None)
+            channel_service = self._measurement_channel_service
+            if configuration_service is None or configuration_service.configuration is None:
+                raise RuntimeError("Protection configuration service is unavailable during transactional recomposition.")
+            if channel_service is None:
+                raise RuntimeError("Measurement channel service is unavailable during transactional recomposition.")
+            if network is None:
+                raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
+            previous_runtime = getattr(self, "protection_runtime", None)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration)
+            candidate_runtime.compose(channel_service.channels)
+            self.protection_runtime = candidate_runtime
+            transaction.record_undo(
+                lambda previous=previous_runtime: setattr(self, "protection_runtime", previous)
+            )
         if command_type == INSERT_EQUIPMENT_INTO_CONNECTION:
             if self._sld_service is not None:
                 metadata = result.metadata

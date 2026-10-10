@@ -17,6 +17,7 @@ from core.network.network import Network
 from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
 from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
+from core.protection.input_contracts import validate_protection_input_contracts
 from core.protection.project_configuration import (
     ProtectionFunctionConfiguration,
     ProtectionProjectConfiguration,
@@ -62,6 +63,15 @@ class ProtectionConfigurationService:
                     raise ResourceError(code="PROTECTION_CHANNEL_NOT_FOUND", message=f"Measurement channel not found for protection input {name}: {channel_id}", details={"channel_id": channel_id, "element_id": configuration.element_id, "input_name": name})
                 if not isinstance(channels[channel_id], MeasurementChannel):
                     raise TypeError(f"Measurement channel provider returned an invalid channel for {channel_id}.")
+            contract_diagnostics = validate_protection_input_contracts(
+                configuration, channels, require_all_bindings=False
+            )
+            if contract_diagnostics:
+                raise DomainError(
+                    code="PROTECTION_INPUT_CONTRACT_INVALID",
+                    message="Protection input binding violates its declared measurement contract.",
+                    details={"element_id": configuration.element_id, "diagnostics": contract_diagnostics},
+                )
         if self._network_provider is not None:
             network = self._network_provider()
             if network is None: raise RuntimeError("No active Network is available for protection configuration validation.")
