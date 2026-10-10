@@ -61,6 +61,7 @@ from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from core.protection.context import ProtectionContext
+from core.protection.runtime import ProtectionRuntime
 from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite
@@ -824,6 +825,28 @@ class Application:
         )
 
         command_type = command.command_type
+        if command_type in {
+            "protection.create_configuration",
+            "protection.update_configuration",
+            "protection.delete_configuration",
+            "protection.bind_measurement",
+            "protection.unbind_measurement",
+        }:
+            configuration_service = getattr(self, "protection_configuration_service", None)
+            channel_service = self._measurement_channel_service
+            if configuration_service is None or configuration_service.configuration is None:
+                raise RuntimeError("Protection configuration service is unavailable during transactional recomposition.")
+            if channel_service is None:
+                raise RuntimeError("Measurement channel service is unavailable during transactional recomposition.")
+            if network is None:
+                raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
+            previous_runtime = getattr(self, "protection_runtime", None)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration)
+            candidate_runtime.compose(channel_service.channels)
+            self.protection_runtime = candidate_runtime
+            transaction.record_undo(
+                lambda previous=previous_runtime: setattr(self, "protection_runtime", previous)
+            )
         if command_type == INSERT_EQUIPMENT_INTO_CONNECTION:
             if self._sld_service is not None:
                 metadata = result.metadata
