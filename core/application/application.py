@@ -103,6 +103,8 @@ class Application:
         self._sld_service = sld_service
         self._control_service = control_service
         self._control_signal_mapping = control_signal_mapping
+        if control_signal_mapping is not None and control_service is not None:
+            self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._measurement_channel_service = measurement_channel_service
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
@@ -161,17 +163,55 @@ class Application:
         """Return the Application-owned immutable engineering signal mapping."""
         return self._control_signal_mapping
 
-    def configure_control_signal_mapping(self, mapping: ControlSignalMapping | None) -> None:
-        """Configure or clear canonical signal mapping through the Application boundary.
+    def _validate_control_signal_mapping(self, mapping: ControlSignalMapping, configuration: Any) -> None:
+        """Validate binding destinations against the active project Control graph."""
+        if self._control_service is None:
+            raise RuntimeError("Control service is required to validate signal mapping destinations.")
+        if configuration is not self._control_service.configuration:
+            raise ValueError("Signal mapping must be validated against the active Control configuration.")
+        records = {record.component_id: record.component for record in configuration.program.engine.records()}
+        action_ids = {binding.control_id for binding in configuration.action_bindings}
+        for binding in mapping.bindings:
+            source = binding.source
+            destination = binding.destination
+            if source.domain != "core":
+                raise ValueError(f"Unsupported signal domain {source.domain!r} for {source.element_type}:{source.object_id}:{source.signal}.")
+            component = records.get(destination.component_id)
+            if component is None:
+                raise ValueError(f"Signal mapping destination component {destination.component_id!r} does not exist.")
+            if destination.control_id not in action_ids:
+                raise ValueError(f"Signal mapping control/action identity {destination.control_id!r} does not exist.")
+            input_definition = next(
+                (item for item in component.input_definition() if item.name == destination.input_name),
+                None,
+            )
+            if input_definition is None:
+                raise ValueError(
+                    f"Signal mapping destination input {destination.component_id}.{destination.input_name} does not exist."
+                )
+            expected = source.expected_type
+            if expected is not None:
+                accepted = expected if isinstance(expected, tuple) else (expected,)
+                if input_definition.value_type not in accepted:
+                    names = ", ".join(item.__name__ for item in accepted)
+                    raise TypeError(
+                        f"Signal mapping type constraint for {destination.component_id}.{destination.input_name} "
+                        f"({input_definition.value_type.__name__}) is incompatible with {names}."
+                    )
 
-        A configured mapping always resolves through this Application's read
-        service. Rebuild the cycle atomically so mapping changes cannot leave
-        the exposed cycle using stale configuration.
+    def configure_control_signal_mapping(self, mapping: ControlSignalMapping | None) -> None:
+        """Configure or clear project-scoped signal bindings through Application.
+
+        UI edits use SetControlSignalMappingCommand so configuration participates
+        in command history and dirty-state revision tracking. This direct setter
+        is reserved for composition and transactional project activation/rollback.
         """
         if mapping is not None and not isinstance(mapping, ControlSignalMapping):
             raise TypeError("mapping must be a ControlSignalMapping or None.")
         if mapping is not None and not isinstance(self._read_service, ReadService):
             raise TypeError("Application read_service is required when control signal mapping is configured.")
+        if mapping is not None and self._control_service is not None:
+            self._validate_control_signal_mapping(mapping, self._control_service.configuration)
         next_cycle = None
         if self._control_engine is not None:
             next_cycle = ControlCycleService(
