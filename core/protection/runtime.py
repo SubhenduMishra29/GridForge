@@ -23,6 +23,7 @@ class ProtectionRuntime:
         self._network = network
         self._configuration = configuration
         self._system = ProtectionSystem()
+        self._channels: dict[str, Any] = {}
 
     @property
     def network(self) -> Network:
@@ -36,12 +37,18 @@ class ProtectionRuntime:
     def configuration(self) -> ProtectionProjectConfiguration:
         return self._configuration
 
+    @property
+    def channels(self) -> Mapping[str, Any]:
+        """Exact channel objects used by the current runtime composition."""
+        return dict(self._channels)
+
     def compose(self, channels: Mapping[str, Any]) -> ProtectionSystem:
         """Rebuild runtime composition from project configuration and live channels."""
         if not isinstance(channels, Mapping):
             raise TypeError("channels must be a mapping of channel IDs to MeasurementChannel objects.")
 
         self._system = ProtectionSystem()
+        self._channels = dict(channels)
         for item in self._configuration.elements:
             relay = self._network.get_by_id("relay", item.relay_id)
             relay_inputs: dict[str, RelayInput] = {}
