@@ -114,7 +114,7 @@ CONTRACT_49 = ProtectionFunctionInputContract(
     "49", {}, supported=False,
     unsupported_reason="CUSTOM signal type and an arbitrary unit do not establish temperature semantics or the pickup unit",
 )
-CONTRACT_67 = ProtectionFunctionInputContract("67", {"current": _CURRENT_INPUT})
+CONTRACT_67 = ProtectionFunctionInputContract("67", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT})
 CONTRACT_21 = ProtectionFunctionInputContract(
     "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
     supported=False,

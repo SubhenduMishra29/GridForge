@@ -175,6 +175,7 @@ FUNCTION_CODE = "67"
 FUNCTION_NAME = "DIRECTIONAL OVERCURRENT"
 
 CURRENT_INPUT = "current"
+VOLTAGE_INPUT = "voltage"
 
 DEFAULT_FORWARD_ANGLE = 90.0
 DEFAULT_TOLERANCE = 90.0
@@ -369,7 +370,8 @@ class DirectionalRelay(RelayBase):
         self._last_decision: ProtectionDecision | None = None
 
         self.require_inputs(
-            self.CURRENT_INPUT
+            self.CURRENT_INPUT,
+            self.VOLTAGE_INPUT,
         )
 
     # ================================================================
@@ -614,8 +616,8 @@ class DirectionalRelay(RelayBase):
     # CONTEXT ANGLES
     # ================================================================
 
-    @staticmethod
     def _context_angles(
+        self,
         context: ProtectionContext | None,
     ) -> tuple[float, float]:
         """
@@ -648,12 +650,18 @@ class DirectionalRelay(RelayBase):
                 "directional phase-angle data."
             )
 
+        per_element = metadata.get("directional_angles_by_element")
+        if isinstance(per_element, Mapping):
+            selected = per_element.get(self.element_id)
+            if not isinstance(selected, Mapping):
+                raise ValueError(
+                    f"Directional protection context has no authoritative angle entry for element {self.element_id!r}."
+                )
+            metadata = selected
+
         missing = [
             name
-            for name in (
-                "voltage_angle",
-                "current_angle",
-            )
+            for name in ("voltage_angle", "current_angle")
             if name not in metadata
         ]
 

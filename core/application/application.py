@@ -64,7 +64,7 @@ from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
-from math import isfinite
+from math import isfinite, atan2, degrees
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
@@ -384,16 +384,12 @@ class Application:
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
+        validated_sample_values: dict[tuple[str, str], tuple[Any, Any, float]] = {}
         diagnostics.extend(
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
         )
         for element in runtime.configuration.elements:
-            if element.enabled and element.function_code == "67":
-                diagnostics.extend(
-                    f"project={project.project_id!r}, element={element.element_id!r}: {message}"
-                    for message in validate_directional_context(evaluation_metadata)
-                )
             if not element.enabled:
                 continue
             for input_name, channel_id in element.input_channel_ids.items():
@@ -471,18 +467,98 @@ class Application:
                 # RelayInput instances. Compare by identity, not merely channel ID.
                 if runtime.channels.get(channel_id) is not channel:
                     diagnostics.append(f"{prefix}: protection runtime retains a stale channel object.")
+                    continue
+                validated_sample_values[(element.element_id, input_name)] = (channel, value, timestamp)
+
+        directional_metadata: dict[str, dict[str, Any]] = {}
+        for element in runtime.configuration.elements:
+            if not element.enabled or str(element.function_code).strip().upper() != "67":
+                continue
+            prefix = f"project={project.project_id!r}, element={element.element_id!r}, function='67'"
+            voltage_id = element.input_channel_ids.get("voltage")
+            current_id = element.input_channel_ids.get("current")
+            voltage_sample = validated_sample_values.get((element.element_id, "voltage"))
+            current_sample = validated_sample_values.get((element.element_id, "current"))
+            if voltage_sample is None or current_sample is None:
+                diagnostics.append(
+                    f"{prefix}: validated voltage/current samples are unavailable; directional evaluation is refused."
+                )
+                continue
+            voltage_channel, voltage_value, voltage_timestamp = voltage_sample
+            current_channel, current_value, current_timestamp = current_sample
+            if runtime.channels.get(voltage_id) is not voltage_channel or channels.get(voltage_id) is not voltage_channel:
+                diagnostics.append(f"{prefix}: configured voltage channel object changed after validation.")
+                continue
+            if runtime.channels.get(current_id) is not current_channel or channels.get(current_id) is not current_channel:
+                diagnostics.append(f"{prefix}: configured current channel object changed after validation.")
+                continue
+            if voltage_channel is current_channel or voltage_id == current_id:
+                diagnostics.append(f"{prefix}: voltage and current must be distinct configured channel identities.")
+                continue
+            if voltage_channel.phase is not current_channel.phase:
+                diagnostics.append(
+                    f"{prefix}: voltage phase {getattr(voltage_channel.phase, 'value', voltage_channel.phase)!r} "
+                    f"does not match current phase {getattr(current_channel.phase, 'value', current_channel.phase)!r}."
+                )
+                continue
+            if voltage_timestamp != current_timestamp:
+                diagnostics.append(
+                    f"{prefix}: voltage/current sample timestamps differ; a coherent phasor evaluation cycle is required."
+                )
+                continue
+            if not isinstance(voltage_value, complex) or not isinstance(current_value, complex):
+                diagnostics.append(
+                    f"{prefix}: voltage and current must both be complex phasor samples; scalar magnitudes cannot establish phase angle."
+                )
+                continue
+            if abs(voltage_value) == 0.0 or abs(current_value) == 0.0:
+                diagnostics.append(
+                    f"{prefix}: zero-magnitude voltage/current phasor has no defined phase angle."
+                )
+                continue
+            voltage_angle = degrees(atan2(voltage_value.imag, voltage_value.real))
+            current_angle = degrees(atan2(current_value.imag, current_value.real))
+            if not isfinite(voltage_angle) or not isfinite(current_angle):
+                diagnostics.append(f"{prefix}: derived phasor angle is non-finite.")
+                continue
+            directional_metadata[element.element_id] = {
+                "voltage_angle": voltage_angle,
+                "current_angle": current_angle,
+                "angle_provenance": {
+                    "voltage_channel_id": voltage_id,
+                    "current_channel_id": current_id,
+                    "reference_convention": "complex engineering phasor; atan2(imaginary, real); degrees; angle_difference=V-I",
+                    "sample_timestamp": voltage_timestamp,
+                },
+            }
 
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
 
+        context_metadata = dict(evaluation_metadata or {})
+        context_metadata.update({
+            "project_id": project.project_id,
+            "activation_generation": lifecycle.activation_generation,
+        })
+        # Internally derived angles override any caller-supplied values. Each
+        # ANSI 67 element receives a fresh context so metadata cannot cross-bind
+        # angles between protection elements.
         context = ProtectionContext(
             time=evaluation_time,
-            metadata={
-                **dict(evaluation_metadata or {}),
-                "project_id": project.project_id,
-                "activation_generation": lifecycle.activation_generation,
-            },
+            metadata=context_metadata,
         )
+        # Keep one immutable evaluation context while carrying per-element
+        # internally-derived phasor angles. DirectionalRelay selects only its
+        # own element entry, preventing cross-binding in multi-element systems.
+        for element in runtime.configuration.elements:
+            if element.enabled and str(element.function_code).strip().upper() == "67":
+                if element.element_id not in directional_metadata:
+                    return ProtectionExecutionResult(
+                        diagnostics=(f"project={project.project_id!r}, element={element.element_id!r}: authoritative directional phasor derivation is unavailable.",)
+                    )
+        if directional_metadata:
+            context_metadata["directional_angles_by_element"] = directional_metadata
+        context = ProtectionContext(time=evaluation_time, metadata=context_metadata)
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
             return ProtectionExecutionResult(decisions=decisions)
