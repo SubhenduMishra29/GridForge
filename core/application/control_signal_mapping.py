@@ -154,8 +154,11 @@ class ControlSignalMapping:
             envelope = value if isinstance(value, Mapping) and "value" in value else None
             signal_quality = ControlSignalQuality.VALID
             if envelope is not None:
+                raw_quality = envelope.get("quality", "missing")
+                if isinstance(raw_quality, Enum):
+                    raw_quality = raw_quality.value
                 try:
-                    signal_quality = ControlSignalQuality(str(envelope.get("quality", "missing")))
+                    signal_quality = ControlSignalQuality(str(raw_quality))
                 except (ValueError, TypeError):
                     signal_quality = ControlSignalQuality.WRONG_TYPE
                 # Keep the complete source envelope for freshness-sensitive gates.
