@@ -46,10 +46,12 @@ class ControlCycleResult:
         if not isinstance(self.execution, ControlExecutionResult):
             raise TypeError("execution must be a ControlExecutionResult.")
 
-        evaluation_by_id = {
-            decision.control_id: decision for decision in self.evaluation.decisions
-        }
-        for decision in self.evaluation.blocked_actions:
+        evaluation_by_id = {}
+        for decision in (*self.evaluation.decisions, *self.evaluation.blocked_actions):
+            if decision.control_id in evaluation_by_id:
+                raise ValueError(f"Evaluation contains duplicate decision identity {decision.control_id!r}.")
+            if decision.simulation_time != self.evaluation.simulation_time:
+                raise ValueError("Evaluated decision simulation_time must match evaluation simulation_time.")
             evaluation_by_id[decision.control_id] = decision
 
         outcome_sets = (
@@ -92,10 +94,23 @@ class ControlCycleResult:
                 f"Execution outcomes must account for every evaluated decision; missing={missing}, unexpected={unexpected}."
             )
 
-        evaluation_blocked = tuple(decision.control_id for decision in self.evaluation.blocked_actions)
-        execution_blocked = tuple(decision.control_id for decision in self.execution.blocked_decisions)
-        if evaluation_blocked != execution_blocked:
-            raise ValueError("blocked_decisions must match evaluation.blocked_actions in order.")
+        if self.execution.blocked_decisions != self.evaluation.blocked_actions:
+            raise ValueError("blocked_decisions must match evaluation.blocked_actions in identity, content, and order.")
+
+        executed_by_id = {item.control_id: item for item in self.execution.executed_decisions}
+        for category_name, feedback in (
+            ("acknowledged", self.execution.acknowledged_decisions),
+            ("mismatched", self.execution.mismatched_decisions),
+        ):
+            feedback_ids: set[str] = set()
+            for decision in feedback:
+                if decision.control_id in feedback_ids:
+                    raise ValueError(f"{category_name} feedback contains duplicate decision identity {decision.control_id!r}.")
+                feedback_ids.add(decision.control_id)
+                if executed_by_id.get(decision.control_id) != decision:
+                    raise ValueError(f"{category_name} feedback must reference the exact successfully executed decision.")
+                if decision.simulation_time != self.evaluation.simulation_time:
+                    raise ValueError(f"{category_name} feedback simulation_time must match evaluation simulation_time.")
 
     @property
     def simulation_time(self) -> float:
@@ -197,8 +212,23 @@ class ControlCycleService:
             context = ControlExecutionContext(
                 simulation_time=simulation_time,
                 external_inputs=resolved.external_inputs,
-                metadata={"control_signal_bindings": resolved.bindings},
+                metadata={
+                    "control_signal_bindings": resolved.bindings,
+                    "control_interlock_inputs": resolved.interlock_inputs,
+                },
             )
+            # Keep ordinary logic inputs and freshness-bearing interlock inputs
+            # separate. Route only mapped envelopes to the interlocks attached
+            # to the corresponding action binding.
+            if interlock_inputs is not None:
+                raise ValueError("interlock_inputs cannot be combined with signal_mapping.")
+            mapped = resolved.interlock_inputs
+            interlock_inputs = {}
+            for binding in self._control_engine.bindings:
+                if binding.interlock_id is None:
+                    continue
+                values = mapped.get(binding.control_id, {})
+                interlock_inputs.setdefault(binding.interlock_id, {}).update(values)
 
         evaluation = self._control_engine.evaluate(
             simulation_time=simulation_time,
