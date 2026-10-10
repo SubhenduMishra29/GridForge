@@ -24,7 +24,11 @@ from core.protection.overcurrent import (
 )
 from core.protection.thermal import ThermalOverloadRelay
 from core.protection.voltage import OverVoltageRelay, UnderVoltageRelay
-from core.protection.input_contracts import (CONTRACT_50, CONTRACT_51, CONTRACT_50N, CONTRACT_51N, CONTRACT_27, CONTRACT_59, CONTRACT_46, CONTRACT_49, CONTRACT_67, CONTRACT_21)
+from core.protection.input_contracts import (
+    ProtectionFunctionInputContract,
+    CONTRACT_50, CONTRACT_51, CONTRACT_50N, CONTRACT_51N,
+    CONTRACT_27, CONTRACT_59, CONTRACT_46, CONTRACT_49, CONTRACT_67, CONTRACT_21,
+)
 
 
 class ProtectionFunctionStatus(str, Enum):
@@ -42,7 +46,7 @@ class ProtectionFunctionSpecification:
     name: str
     status: ProtectionFunctionStatus
     implementation: type[Any] | None = None
-    input_contract: Any | None = None
+    input_contract: ProtectionFunctionInputContract | None = None
 
     def __post_init__(self) -> None:
         code = self.code.strip().upper()
@@ -55,6 +59,12 @@ class ProtectionFunctionSpecification:
             raise ValueError("Implemented protection functions require an implementation.")
         if self.status is ProtectionFunctionStatus.NOT_IMPLEMENTED and self.implementation is not None:
             raise ValueError("Unimplemented protection functions cannot advertise an implementation.")
+        if self.status is ProtectionFunctionStatus.IMPLEMENTED and self.input_contract is None:
+            raise ValueError("Implemented protection functions require an explicit input contract, including a fail-closed contract when semantics are unresolved.")
+        if self.status is ProtectionFunctionStatus.NOT_IMPLEMENTED and self.input_contract is not None:
+            raise ValueError("Unimplemented protection functions cannot advertise an input contract.")
+        if self.input_contract is not None and self.input_contract.function_code != code:
+            raise ValueError("Protection function input contract code must match the catalog code.")
         object.__setattr__(self, "code", code)
         object.__setattr__(self, "name", name)
 
