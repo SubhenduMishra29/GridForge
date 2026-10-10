@@ -413,14 +413,20 @@ class Application:
                     diagnostics.append(f"{prefix}: sample timestamp is missing; freshness cannot be established.")
                     continue
                 try:
+                    if isinstance(timestamp, bool):
+                        raise TypeError("boolean timestamp is not valid")
                     timestamp = float(timestamp)
                     value = channel.engineering_value
+                    if isinstance(value, bool):
+                        raise TypeError("boolean engineering sample is not valid")
                     finite_value = (
                         isfinite(float(value.real)) and isfinite(float(value.imag))
                         if isinstance(value, complex) else isfinite(float(value))
                     )
                 except (TypeError, ValueError, OverflowError, AttributeError):
-                    diagnostics.append(f"{prefix}: sample value or timestamp is non-numeric/non-finite.")
+                    diagnostics.append(
+                        f"{prefix}: live sample value or timestamp violates the numeric representation contract."
+                    )
                     continue
                 if not isfinite(timestamp) or timestamp > evaluation_time:
                     diagnostics.append(f"{prefix}: sample timestamp is non-finite or later than evaluation time.")
