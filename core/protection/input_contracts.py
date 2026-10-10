@@ -40,34 +40,36 @@ _CURRENT_PHASES = frozenset({
 _VOLTAGE_PHASES = _CURRENT_PHASES
 _CURRENT = frozenset({MeasurementSignalType.CURRENT})
 _VOLTAGE = frozenset({MeasurementSignalType.VOLTAGE})
-_SCALAR_OR_PHASOR = "finite numeric scalar or complex phasor (function consumes magnitude)"
-_SCALAR = "finite real scalar"
+_SCALAR_OR_PHASOR = "numeric scalar or complex phasor (function consumes magnitude); live finiteness is checked at evaluation"
+_SCALAR = "real scalar; live finiteness is checked at evaluation"
 _SEQUENCE_CURRENT = ProtectionInputContract(
     "negative_sequence_current", _CURRENT,
     frozenset({MeasurementPhase.NEGATIVE_SEQUENCE}), _SCALAR_OR_PHASOR,
 )
 _CURRENT_INPUT = ProtectionInputContract("current", _CURRENT, _CURRENT_PHASES, _SCALAR_OR_PHASOR)
 _VOLTAGE_INPUT = ProtectionInputContract("voltage", _VOLTAGE, _VOLTAGE_PHASES, _SCALAR)
-_RESIDUAL_INPUT = ProtectionInputContract(
-    "residual_current", _CURRENT,
-    frozenset({MeasurementPhase.ZERO_SEQUENCE}), _SCALAR_OR_PHASOR,
-)
-_TEMP_INPUT = ProtectionInputContract(
-    "temperature", frozenset({MeasurementSignalType.CUSTOM}),
-    frozenset(MeasurementPhase), _SCALAR,
-)
+
 
 # Contract phase choices are deliberately narrow and use only canonical enums.
 # Unit strings must be explicit; pickup/reach values are interpreted in the
 # same engineering convention as their inputs. This layer never rescales data.
 CONTRACT_50 = ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT})
 CONTRACT_51 = ProtectionFunctionInputContract("51", {"current": _CURRENT_INPUT})
-CONTRACT_50N = ProtectionFunctionInputContract("50N", {"residual_current": _RESIDUAL_INPUT})
-CONTRACT_51N = ProtectionFunctionInputContract("51N", {"residual_current": _RESIDUAL_INPUT})
+CONTRACT_50N = ProtectionFunctionInputContract(
+    "50N", {}, supported=False,
+    unsupported_reason="MeasurementSignalType has no residual-current classification; CURRENT/ZERO_SEQUENCE alone does not distinguish residual current from I0 semantics",
+)
+CONTRACT_51N = ProtectionFunctionInputContract(
+    "51N", {}, supported=False,
+    unsupported_reason="MeasurementSignalType has no residual-current classification; CURRENT/ZERO_SEQUENCE alone does not distinguish residual current from I0 semantics",
+)
 CONTRACT_27 = ProtectionFunctionInputContract("27", {"voltage": _VOLTAGE_INPUT})
 CONTRACT_59 = ProtectionFunctionInputContract("59", {"voltage": _VOLTAGE_INPUT})
 CONTRACT_46 = ProtectionFunctionInputContract("46", {"negative_sequence_current": _SEQUENCE_CURRENT})
-CONTRACT_49 = ProtectionFunctionInputContract("49", {"temperature": _TEMP_INPUT})
+CONTRACT_49 = ProtectionFunctionInputContract(
+    "49", {}, supported=False,
+    unsupported_reason="CUSTOM signal type and an arbitrary unit do not establish temperature semantics or the pickup unit",
+)
 CONTRACT_67 = ProtectionFunctionInputContract("67", {"current": _CURRENT_INPUT})
 # Distance reach has no declared engineering unit; the catalog marks ANSI 21 fail-closed.
 CONTRACT_21 = ProtectionFunctionInputContract(
