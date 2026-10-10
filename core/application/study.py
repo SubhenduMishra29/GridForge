@@ -65,7 +65,7 @@ class StudyRequest:
             raise TypeError("configuration must be a mapping.")
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
-        object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
+        object.__setattr__(self, "configuration", _freeze_study_value(self.configuration))
 
 
 def _freeze_study_value(value: Any) -> Any:
