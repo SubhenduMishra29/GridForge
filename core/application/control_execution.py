@@ -80,6 +80,12 @@ class ControlExecutionResult:
             )
         if len(attributed_ids) != len(self.failure_diagnostics):
             raise ValueError("failure_diagnostics must contain at most one record per control ID.")
+        missing_attributions = failed_ids - attributed_ids
+        if missing_attributions:
+            raise ValueError(
+                "Every failed decision must have exactly one failure diagnostic; "
+                f"missing control IDs={sorted(missing_attributions)}."
+            )
 
 
 class ControlExecutionService:
