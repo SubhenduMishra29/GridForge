@@ -136,21 +136,26 @@ class ControlSignalMapping:
                 continue
             try:
                 read_model = read_service.element(source.element_type, source.object_id)
+                attributes = getattr(read_model, "attributes", {})
+                if source.signal not in attributes:
+                    diagnostics.append(
+                        f"Signal '{source.signal}' is not available on "
+                        f"{source.element_type}:{source.object_id}."
+                    )
+                    continue
+                value = attributes[source.signal]
             except Exception as exc:
+                # Read-model lookup, attribute access, membership checks, and
+                # value retrieval are all part of the resolution boundary.
+                # Convert failures into source-specific diagnostics so callers
+                # receive an actionable resolution error and no partial inputs
+                # can reach Control evaluation or command dispatch.
                 diagnostics.append(
-                    f"Unable to resolve signal source {source.element_type}:{source.object_id}: {exc}"
+                    f"Unable to read signal '{source.signal}' from "
+                    f"{source.element_type}:{source.object_id}: "
+                    f"{type(exc).__name__}: {exc}"
                 )
                 continue
-
-            attributes = getattr(read_model, "attributes", {})
-            if source.signal not in attributes:
-                diagnostics.append(
-                    f"Signal '{source.signal}' is not available on "
-                    f"{source.element_type}:{source.object_id}."
-                )
-                continue
-
-            value = attributes[source.signal]
             envelope = value if isinstance(value, Mapping) and "value" in value else None
             signal_quality = ControlSignalQuality.VALID
             if envelope is not None:
