@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
+from math import isfinite
+from numbers import Real
 
 from core.measurement.measurement_channel import MeasurementPhase, MeasurementSignalType
 
@@ -29,8 +31,13 @@ class ProtectionInputContract:
             raise ValueError("Protection input contract requires explicit signal types.")
         if not self.phases or any(not isinstance(v, MeasurementPhase) for v in self.phases):
             raise ValueError("Protection input contract requires explicit phase/sequence classifications.")
-        if not isinstance(self.representation, str) or not self.representation.strip():
-            raise ValueError("Protection input contract representation must be explicit.")
+        if self.representation not in {
+            "real numeric scalar; sample validity checked at evaluation",
+            "real numeric scalar or complex phasor; sample validity checked at evaluation",
+        }:
+            raise ValueError(
+                f"Unsupported protection input representation policy: {self.representation!r}."
+            )
         if not self.compatible_units or any(not isinstance(v, str) or not v.strip() for v in self.compatible_units):
             raise ValueError("Protection input contract requires explicit compatible engineering units.")
         object.__setattr__(self, "name", self.name.strip())
@@ -81,8 +88,10 @@ _SEQUENCE_CURRENT = ProtectionInputContract(
 _CURRENT_INPUT = ProtectionInputContract(
     "current", _CURRENT, _PHASE_CURRENT, _SCALAR_OR_PHASOR, frozenset({"A"}),
 )
+# ANSI 27/59 implementations consume voltage magnitude from a scalar or
+# complex phasor, so their contracts must match the actual relay input path.
 _VOLTAGE_INPUT = ProtectionInputContract(
-    "voltage", _VOLTAGE, _PHASE_VOLTAGE, _SCALAR, frozenset({"V"}),
+    "voltage", _VOLTAGE, _PHASE_VOLTAGE, _SCALAR_OR_PHASOR, frozenset({"V"}),
 )
 
 # The accepted units are exact canonical units; this layer does not rescale
@@ -111,6 +120,40 @@ CONTRACT_21 = ProtectionFunctionInputContract(
     supported=False,
     unsupported_reason="distance zone reach settings do not declare an engineering unit; V/I cannot be proven comparable to configured reach",
 )
+
+
+def validate_sample_representation(value: Any, requirement: ProtectionInputContract) -> str | None:
+    """Return a rejection reason when a live value violates its declared representation."""
+    if isinstance(value, bool):
+        return f"Boolean value is not permitted by representation {requirement.representation!r}."
+    permits_complex = requirement.representation.startswith("real numeric scalar or complex phasor")
+    if isinstance(value, complex):
+        if not permits_complex:
+            return f"Complex value is not permitted by real-scalar representation {requirement.representation!r}."
+        if not isfinite(value.real) or not isfinite(value.imag):
+            return "Complex phasor has a non-finite real or imaginary component."
+        return None
+    if not isinstance(value, Real):
+        return f"Value type {type(value).__name__!r} is not a real numeric scalar."
+    try:
+        if not isfinite(value):
+            return "Real numeric scalar is non-finite."
+    except (TypeError, ValueError, OverflowError):
+        return f"Value type {type(value).__name__!r} cannot be validated as a finite real scalar."
+    return None
+
+
+def input_contract_for(configuration: Any, element: Any, input_name: str) -> ProtectionInputContract | None:
+    """Resolve the canonical input contract for one configured element/input."""
+    from core.protection.function_catalog import get_protection_function
+    try:
+        specification = get_protection_function(str(element.function_code).strip().upper())
+    except (KeyError, TypeError, ValueError):
+        return None
+    contract = getattr(specification, "input_contract", None)
+    if contract is None or not contract.supported:
+        return None
+    return contract.inputs.get(input_name)
 
 
 def validate_protection_input_contracts(
@@ -188,7 +231,9 @@ def validate_directional_context(metadata: Mapping[str, Any] | None) -> tuple[st
     """Validate ANSI 67's consumed angle values and provenance before evaluation."""
     if metadata is None:
         return ("function='67': ProtectionContext metadata is missing voltage_angle/current_angle and provenance.",)
-    diagnostics: list[str] = []
+    diagnostics: list[str] = [
+        "function='67', context='angle_provenance': authoritative angle derivation from configured voltage/current channel samples is not implemented; caller-supplied angle metadata cannot establish channel provenance, so directional evaluation is refused."
+    ]
     provenance_key = "angle_provenance"
     provenance = metadata.get(provenance_key)
     if not isinstance(provenance, Mapping):
@@ -224,4 +269,5 @@ __all__ = [
     "CONTRACT_27", "CONTRACT_59", "CONTRACT_46", "CONTRACT_49",
     "CONTRACT_67", "CONTRACT_21",
     "validate_protection_input_contracts", "validate_directional_context",
+    "validate_sample_representation", "input_contract_for",
 ]
