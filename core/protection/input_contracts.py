@@ -88,8 +88,10 @@ _SEQUENCE_CURRENT = ProtectionInputContract(
 _CURRENT_INPUT = ProtectionInputContract(
     "current", _CURRENT, _PHASE_CURRENT, _SCALAR_OR_PHASOR, frozenset({"A"}),
 )
+# ANSI 27/59 implementations consume voltage magnitude from a scalar or
+# complex phasor, so their contracts must match the actual relay input path.
 _VOLTAGE_INPUT = ProtectionInputContract(
-    "voltage", _VOLTAGE, _PHASE_VOLTAGE, _SCALAR, frozenset({"V"}),
+    "voltage", _VOLTAGE, _PHASE_VOLTAGE, _SCALAR_OR_PHASOR, frozenset({"V"}),
 )
 
 # The accepted units are exact canonical units; this layer does not rescale
