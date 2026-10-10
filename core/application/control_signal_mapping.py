@@ -78,6 +78,7 @@ class ControlSignalResolution:
     bindings: tuple[ControlSignalBinding, ...]
     quality: Mapping[ControlSignalBinding, ControlSignalQuality] = field(default_factory=dict)
     diagnostics: tuple[str, ...] = ()
+    interlock_inputs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         frozen_inputs = {
@@ -88,6 +89,7 @@ class ControlSignalResolution:
         object.__setattr__(self, "bindings", tuple(self.bindings))
         object.__setattr__(self, "quality", MappingProxyType(dict(self.quality)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+        object.__setattr__(self, "interlock_inputs", MappingProxyType({str(key): MappingProxyType(dict(value)) for key, value in self.interlock_inputs.items()}))
 
 
 class ControlSignalResolutionError(ValueError):
@@ -120,6 +122,7 @@ class ControlSignalMapping:
 
         external_inputs: dict[str, dict[str, Any]] = {}
         quality: dict[ControlSignalBinding, ControlSignalQuality] = {}
+        interlock_inputs: dict[str, dict[str, Any]] = {}
         diagnostics: list[str] = []
 
         for binding in self.bindings:
@@ -148,11 +151,23 @@ class ControlSignalMapping:
                 continue
 
             value = attributes[source.signal]
-            signal_quality=ControlSignalQuality.VALID
-            if isinstance(value, Mapping) and "value" in value:
-                try: signal_quality=ControlSignalQuality(str(value.get("quality","valid")))
-                except ValueError: signal_quality=ControlSignalQuality.WRONG_TYPE
-                value=value.get("value")
+            envelope = value if isinstance(value, Mapping) and "value" in value else None
+            signal_quality = ControlSignalQuality.VALID
+            if envelope is not None:
+                try:
+                    signal_quality = ControlSignalQuality(str(envelope.get("quality", "missing")))
+                except (ValueError, TypeError):
+                    signal_quality = ControlSignalQuality.WRONG_TYPE
+                # Keep the complete source envelope for freshness-sensitive gates.
+                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = dict(envelope)
+                value = envelope.get("value")
+            else:
+                # Plain read-model values are usable by ordinary logic, but have
+                # no trustworthy sample timestamp and therefore cannot authorize
+                # an interlocked action.
+                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = {
+                    "value": value, "quality": "valid"
+                }
             quality[binding]=signal_quality
             if signal_quality is not ControlSignalQuality.VALID:
                 diagnostics.append(f"Signal '{source.signal}' on {source.element_type}:{source.object_id} has quality {signal_quality.value}.")
@@ -175,7 +190,7 @@ class ControlSignalMapping:
         if diagnostics:
             raise ControlSignalResolutionError(tuple(diagnostics))
 
-        return ControlSignalResolution(external_inputs=external_inputs, bindings=self.bindings, quality=quality)
+        return ControlSignalResolution(external_inputs=external_inputs, bindings=self.bindings, quality=quality, interlock_inputs=interlock_inputs)
 
 
 __all__ = [
