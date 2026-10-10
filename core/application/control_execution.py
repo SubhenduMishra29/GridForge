@@ -70,7 +70,15 @@ class ControlExecutionResult:
                 if previous is not None:
                     raise ValueError(f"Decision {decision.control_id!r} has contradictory feedback states.")
                 feedback_seen[decision.control_id] = name
-        if len({item.control_id for item in self.failure_diagnostics}) != len(self.failure_diagnostics):
+        failed_ids = {item.control_id for item in self.failed_decisions}
+        attributed_ids = {control_id for control_id, _ in self.failure_diagnostics}
+        unexpected_attributions = attributed_ids - failed_ids
+        if unexpected_attributions:
+            raise ValueError(
+                "failure_diagnostics must reference failed decisions only; "
+                f"unexpected control IDs={sorted(unexpected_attributions)}."
+            )
+        if len(attributed_ids) != len(self.failure_diagnostics):
             raise ValueError("failure_diagnostics must contain at most one record per control ID.")
 
 
