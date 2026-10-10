@@ -418,16 +418,10 @@ class Application:
                 if validity is not MeasurementValidity.VALID:
                     diagnostics.append(f"{prefix}: measurement validity is {getattr(validity, 'value', validity)!r}.")
                     continue
-                # A fresh channel ID is not enough: runtime RelayInput objects
-                # must retain the same live channel object from the active registry.
-                element_runtime = next(
-                    (item for item in runtime.system.elements() if str(item.id) == str(element.element_id)),
-                    None,
-                )
-                relay_inputs = getattr(element_runtime, "relay_inputs", {}) if element_runtime is not None else {}
-                relay_input = relay_inputs.get(input_name) if hasattr(relay_inputs, "get") else None
-                if relay_input is None or getattr(relay_input, "channel", None) is not channel:
-                    diagnostics.append(f"{prefix}: runtime input is not bound to the active channel object.")
+                # Runtime composition records the exact objects it bound into
+                # RelayInput instances. Compare by identity, not merely channel ID.
+                if runtime.channels.get(channel_id) is not channel:
+                    diagnostics.append(f"{prefix}: protection runtime retains a stale channel object.")
 
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
