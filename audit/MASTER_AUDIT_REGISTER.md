@@ -1920,3 +1920,35 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 | GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Historical finding retained; complete CT/PT/CVT provisioning-to-runtime consumer path still requires dedicated proof. |
 
 **Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
+
+## 2026-10-10 — Batch 69 GF-PROT-042 protection measurement integration correction
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge:main`  
+**Finding:** `GF-PROT-042` — retained verbatim; no renumbering, merging, replacement, or closure.  
+**Status:** **OPEN — INTEGRATION GAP**  
+**Verification:** Static source inspection only. No tests, CI, startup, GUI, or runtime execution was performed.
+
+### Source evidence by lifecycle transition
+
+| Transition | Current source evidence | Result | Remaining proof |
+|---|---|---|---|
+| CT/PT/CVT physical equipment and terminal identity | `core/model/ct.py`, `core/model/pt.py`, `core/model/cvt.py`; historical Batch 28/29 terminal catalogue evidence | PARTIAL | Trace current creation/configuration commands and verify instrument ratio/acquisition settings survive commit and reopen. |
+| Channel definitions and provisioning | `core/application/services/measurement_channel_service.py` (`MeasurementChannelService.activate`, `_provision_definition`, `serialize_definitions`); `core/measurement/measurement_provisioning.py` (`MeasurementProvisioning.provision_channel`) | PARTIAL | Confirm the active composition root constructs this service and binds it into the project activation lifecycle for every open/new/switch/close path. |
+| Channel contract and sample validity | `core/measurement/measurement_channel.py` (`MeasurementChannel`, `validity`, `is_valid_at`, `diagnostics`); `core/protection/relay_input.py` (`validity`, `usable`, `status`) | PARTIAL | Protection runtime must evaluate validity at an explicit evaluation time and reject unavailable, invalid, stale, unknown-quality, and incompatible required inputs with source/channel diagnostics. |
+| Project persistence | `core/persistence/project_persistence.py` (`LoadedProject.measurement_definitions`; project `measurement.channels` serialization) | PARTIAL | Prove definitions are serialized from the active service, loaded/migrated, and activated as one rollback-capable project transition; sample values must not be persisted as configuration. |
+| Equipment/channel/protection association | `core/protection/protection_measurement_binding.py`; `core/protection/project_configuration.py` (`input_channel_ids`) | PARTIAL | The binding contract exists, but no complete current caller-to-consumer chain was established linking it to provisioned channel registration and the configuration consumed by runtime composition. |
+| Preparation | `core/protection/preparation.py` (`ProtectionPreparation.prepare`, `PreparedProtectionInput`) | PARTIAL | Preparation snapshots supplied channel values and quality/availability/timestamp, but the upstream resolver and fail-closed freshness/type validation are not proven end to end. |
+| Runtime composition and relay evaluation | `core/protection/runtime.py` (`ProtectionRuntime.compose`); `core/protection/relay_input.py`; `core/protection/protection_system.py` | PARTIAL | `compose` resolves configured channel IDs from a caller-supplied mapping and raises for a missing ID. The canonical caller supplying the active service's channel collection and explicit evaluation time remains unproven; invalid/stale required samples are not rejected by `compose` itself. |
+| Decision → Application command → equipment mutation | `core/application/protection_execution.py` (`ProtectionExecutionService.execute`); Application dispatcher/command boundary | PARTIAL | The service maps actionable protection decisions through an explicit resolver and dispatcher. Verify actual composition, command handler registration, target state mutation and failure propagation from the live protection cycle. |
+| Feedback/read-model reconciliation | `core/application/protection_execution.py`, Application result/read-service contracts | PARTIAL | No runtime evidence establishes that a successful command is distinguished from physical acknowledgement and that resulting equipment state is observed through the canonical read model. |
+
+### Correction disposition
+
+- Do not introduce a second measurement registry: `MeasurementChannelService` is the existing project-scoped channel collection candidate.
+- Do not treat `ProtectionMeasurementBinding` merely existing as proof that it is called.
+- Do not synthesize a sample, substitute a default value, or infer a CT/PT/CVT ratio or terminal role.
+- Missing-channel failure in `ProtectionRuntime.compose` is statically present. Staleness is time-relative in `MeasurementChannel.validity(current_time=...)`; runtime composition currently accepts only `channels` and does not itself validate sample quality/freshness.
+- No production code was changed in this pass because the complete active lifecycle/composition caller and required evaluation-time contract could not be established safely from the inspected source. This is a bounded correction hold, not a claim that no defect exists.
+- Runtime verification remains **DEFERRED / NOT RUN**.
+
+**Next correction target:** trace and wire the existing `Application.measurement_channel_service` into transactional project activation/rollback, then establish one Application-owned protection-cycle entry point that supplies its active channel mapping and explicit evaluation time to the existing `ProtectionRuntime` / `ProtectionPreparation` path. Only after that caller is proven should stale/quality/type fail-closed behavior and decision-to-read-model feedback be corrected and re-audited.
