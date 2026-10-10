@@ -274,9 +274,11 @@ class ControlInspector(QWidget):
                     (str(component.component_id), str(input_name), type_name),
                 )
         for action in getattr(read_model, "action_bindings", ()):
+            # binding_id is retained as the human-facing compatibility label;
+            # mapping destinations use the canonical Control decision identity.
             self._signal_actions.addItem(f"{action.binding_id} → {action.target_type}:{action.target_id}")
             self._signal_actions.item(self._signal_actions.count() - 1).setData(
-                Qt.ItemDataRole.UserRole, str(action.binding_id)
+                Qt.ItemDataRole.UserRole, str(action.control_id)
             )
         mapping = self._application.control_signal_mapping or ControlSignalMapping()
         for index, binding in enumerate(mapping.bindings):
