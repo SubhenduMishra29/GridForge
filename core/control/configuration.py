@@ -14,7 +14,11 @@ from typing import Any, Callable, Mapping
 
 from .action import ControlActionBinding
 from .decision import ControlActionType
-from .interlock import ControlInterlock
+from .interlock import (
+    ControlInterlock,
+    SUPPORTED_INTERLOCK_CONDITIONS,
+    SUPPORTED_INTERLOCK_QUALITY_POLICIES,
+)
 from .logic import LadderProgram
 from .logic.contacts import NormallyClosedContact, NormallyOpenContact
 from .logic.coils import LogicCoil, LogicResetCoil, LogicSetCoil
@@ -42,10 +46,22 @@ class InterlockConfiguration:
         inputs = tuple(str(item).strip() for item in self.required_inputs)
         if any(not item for item in inputs):
             raise ValueError("required_inputs cannot contain empty identities.")
+        condition = str(self.condition).strip()
+        quality_policy = str(self.quality_policy).strip()
+        if condition not in SUPPORTED_INTERLOCK_CONDITIONS:
+            raise ValueError(
+                f"Unsupported interlock condition {condition!r}; supported values: "
+                f"{', '.join(sorted(SUPPORTED_INTERLOCK_CONDITIONS))}."
+            )
+        if quality_policy not in SUPPORTED_INTERLOCK_QUALITY_POLICIES:
+            raise ValueError(
+                f"Unsupported interlock quality_policy {quality_policy!r}; supported values: "
+                f"{', '.join(sorted(SUPPORTED_INTERLOCK_QUALITY_POLICIES))}."
+            )
         object.__setattr__(self, "interlock_id", ident)
         object.__setattr__(self, "required_inputs", inputs)
-        object.__setattr__(self, "condition", str(self.condition).strip())
-        object.__setattr__(self, "quality_policy", str(self.quality_policy).strip())
+        object.__setattr__(self, "condition", condition)
+        object.__setattr__(self, "quality_policy", quality_policy)
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,7 +72,12 @@ class InterlockConfiguration:
         return cls(interlock_id=str(data["interlock_id"]), required_inputs=tuple(data.get("required_inputs", ())), condition=str(data.get("condition", "all_required_inputs_true")), quality_policy=str(data.get("quality_policy", "require_valid_fresh")), metadata=dict(data.get("metadata") or {}))
 
     def runtime(self) -> ControlInterlock:
-        return ControlInterlock(self.interlock_id, required_inputs=self.required_inputs)
+        return ControlInterlock(
+            self.interlock_id,
+            required_inputs=self.required_inputs,
+            condition=self.condition,
+            quality_policy=self.quality_policy,
+        )
 
 @dataclass(frozen=True, slots=True)
 class DynamicControlAssociation:
