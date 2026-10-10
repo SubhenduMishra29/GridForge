@@ -38,6 +38,40 @@ class ControlExecutionResult:
         if any(not control_id or not message for control_id, message in pairs):
             raise ValueError("failure_diagnostics entries require a control ID and diagnostic.")
         object.__setattr__(self, "failure_diagnostics", pairs)
+        categories = {
+            "executed": self.executed_decisions,
+            "failed": self.failed_decisions,
+            "invalid": self.invalid_decisions,
+            "blocked": self.blocked_decisions,
+        }
+        seen: dict[str, str] = {}
+        for name, decisions in categories.items():
+            for decision in decisions:
+                if not isinstance(decision, ControlDecision):
+                    raise TypeError(f"{name}_decisions must contain ControlDecision values.")
+                if name == "executed" and not decision.valid:
+                    raise ValueError("executed decisions must be valid.")
+                if name in {"invalid", "blocked"} and decision.valid:
+                    raise ValueError(f"{name} decisions must be invalid.")
+                previous = seen.get(decision.control_id)
+                if previous is not None:
+                    raise ValueError(f"Decision {decision.control_id!r} appears in both {previous} and {name}.")
+                seen[decision.control_id] = name
+        feedback_seen: dict[str, str] = {}
+        for name, decisions in (("acknowledged", self.acknowledged_decisions), ("mismatched", self.mismatched_decisions)):
+            for decision in decisions:
+                if not isinstance(decision, ControlDecision):
+                    raise TypeError(f"{name}_decisions must contain ControlDecision values.")
+                if not decision.valid:
+                    raise ValueError(f"{name} decisions must reference valid dispatched intent.")
+                if decision.control_id not in {item.control_id for item in self.executed_decisions}:
+                    raise ValueError(f"{name} decisions must reference successfully executed decisions.")
+                previous = feedback_seen.get(decision.control_id)
+                if previous is not None:
+                    raise ValueError(f"Decision {decision.control_id!r} has contradictory feedback states.")
+                feedback_seen[decision.control_id] = name
+        if len({item.control_id for item in self.failure_diagnostics}) != len(self.failure_diagnostics):
+            raise ValueError("failure_diagnostics must contain at most one record per control ID.")
 
 
 class ControlExecutionService:
