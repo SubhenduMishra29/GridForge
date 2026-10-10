@@ -109,7 +109,6 @@ class ControlSignalResolutionError(ValueError):
         super().__init__("; ".join(self.diagnostics))
 
 
-@dataclass(frozen=True, slots=True)
 def _type_key(expected_type: type | tuple[type, ...] | None) -> tuple[str, ...]:
     if expected_type is None:
         return ()
