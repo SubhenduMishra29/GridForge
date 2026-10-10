@@ -159,14 +159,25 @@ class ControlSignalMapping:
         """Return configuration-only JSON-compatible data; no live values are persisted."""
         bindings = []
         for binding in self.bindings:
-            expected_types = list(_type_key(binding.source.expected_type))
+            expected = binding.source.expected_type
+            if isinstance(expected, tuple):
+                expected_types: str | list[str] | None = list(_type_key(expected))
+            elif expected is None:
+                expected_types = None
+            else:
+                expected_types = expected.__name__
+            if expected is not None:
+                names = expected_types if isinstance(expected_types, list) else [expected_types]
+                unsupported = [name for name in names if name not in {"bool", "float", "int", "str"}]
+                if unsupported:
+                    raise ValueError(f"Unsupported persisted Control signal type(s): {', '.join(unsupported)}.")
             bindings.append({
                 "source": {
                     "domain": binding.source.domain,
                     "element_type": binding.source.element_type,
                     "object_id": binding.source.object_id,
                     "signal": binding.source.signal,
-                    "expected_type": expected_types or None,
+                    "expected_type": expected_types,
                 },
                 "destination": {
                     "control_id": binding.destination.control_id,
