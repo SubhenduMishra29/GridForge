@@ -147,9 +147,12 @@ class ControlSignalMapping:
                 binding.destination.input_name,
             ),
         ))
-        destinations = [binding.destination for binding in normalized]
+        destinations = [
+            (binding.destination.component_id, binding.destination.input_name)
+            for binding in normalized
+        ]
         if len(destinations) != len(set(destinations)):
-            raise ValueError("A Control destination may have only one canonical engineering source.")
+            raise ValueError("A Control component input may have only one canonical engineering source.")
         object.__setattr__(self, "bindings", normalized)
 
     def to_dict(self) -> dict[str, Any]:
