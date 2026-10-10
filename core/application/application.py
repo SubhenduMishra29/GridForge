@@ -32,7 +32,7 @@ from .commands.control_commands import (
     ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
 from .control_cycle import ControlCycleResult, ControlCycleService
-from .control_signal_mapping import ControlSignalResolutionError
+from .control_signal_mapping import ControlSignalMapping, ControlSignalResolutionError
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
 from .control_events import (
@@ -85,9 +85,12 @@ class Application:
                  validation_service: ValidationService | None = None,
                  sld_service: SLDService | None = None,
                  measurement_channel_service: MeasurementChannelService | None = None,
-                 control_service: ControlApplicationService | None = None) -> None:
+                 control_service: ControlApplicationService | None = None,
+                 control_signal_mapping: ControlSignalMapping | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
+        if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping): raise TypeError("Application control_signal_mapping must be a ControlSignalMapping or None.")
+        if control_signal_mapping is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service is required when control_signal_mapping is configured.")
         if event_bus is not None and not isinstance(event_bus, ApplicationEventBus): raise TypeError("Application event_bus must be an ApplicationEventBus.")
         if protection_read_service is not None and not isinstance(protection_read_service, ProtectionReadService): raise TypeError("Application protection_read_service must be a ProtectionReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("Application validation_service must be a ValidationService.")
@@ -99,6 +102,7 @@ class Application:
         self._validation_service = validation_service
         self._sld_service = sld_service
         self._control_service = control_service
+        self._control_signal_mapping = control_signal_mapping
         self._measurement_channel_service = measurement_channel_service
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
@@ -116,6 +120,7 @@ class Application:
             self._control_cycle = ControlCycleService(
                 self._control_engine,
                 self._control_execution,
+                signal_mapping=self._control_signal_mapping,
                 read_service=read_service,
             )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
@@ -151,6 +156,33 @@ class Application:
             raise RuntimeError("Application Control-cycle runtime is not configured.")
         return self._control_cycle
 
+    @property
+    def control_signal_mapping(self) -> ControlSignalMapping | None:
+        """Return the Application-owned immutable engineering signal mapping."""
+        return self._control_signal_mapping
+
+    def configure_control_signal_mapping(self, mapping: ControlSignalMapping | None) -> None:
+        """Configure or clear canonical signal mapping through the Application boundary.
+
+        A configured mapping always resolves through this Application's read
+        service. Rebuild the cycle atomically so mapping changes cannot leave
+        the exposed cycle using stale configuration.
+        """
+        if mapping is not None and not isinstance(mapping, ControlSignalMapping):
+            raise TypeError("mapping must be a ControlSignalMapping or None.")
+        if mapping is not None and not isinstance(self._read_service, ReadService):
+            raise TypeError("Application read_service is required when control signal mapping is configured.")
+        next_cycle = None
+        if self._control_engine is not None:
+            next_cycle = ControlCycleService(
+                self._control_engine,
+                self._control_execution,
+                signal_mapping=mapping,
+                read_service=self._read_service,
+            )
+        self._control_signal_mapping = mapping
+        if next_cycle is not None:
+            self._control_cycle = next_cycle
     @property
     def control_service(self) -> ControlApplicationService:
         if self._control_service is None: raise RuntimeError("Application Control service is not configured.")
@@ -574,7 +606,7 @@ class Application:
             self._control_cycle = ControlCycleService(
                 self._control_engine,
                 next_control_execution,
-                signal_mapping=previous_control_cycle.signal_mapping if previous_control_cycle is not None else None,
+                signal_mapping=self._control_signal_mapping,
                 read_service=read_service,
             )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
