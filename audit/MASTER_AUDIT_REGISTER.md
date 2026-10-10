@@ -1911,12 +1911,12 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 
 | Finding | Domain | Severity | Status | Evidence / disposition |
 |---|---|---|---|---|
-| GF-MASTER-0116 | Control signal snapshot | HIGH | OPEN — STATIC FINDING | `ControlSignalResolution.external_inputs` is only shallowly frozen; recursive helper already exists. |
-| GF-MASTER-0117 | Control feedback | MEDIUM | OPEN — STATIC FINDING | `ControlFeedback.metadata` exposes mutable shallow dictionary state. |
-| GF-MASTER-0118 | Protection prepared input | HIGH | OPEN — STATIC FINDING | Prepared relay settings are shallowly frozen; post-preparation nested mutation is possible. |
-| GF-MASTER-0119 | Study request | MEDIUM | OPEN — STATIC FINDING | `StudyRequest.configuration` shallow freeze differs from recursive StudyCaseDefinition freeze. |
-| GF-MASTER-0120 | SLD projection | MEDIUM | OPEN — STATIC FINDING | Node/connection projection properties are shallowly frozen and may retain nested mutable references. |
-| GF-MASTER-0121 | Protection execution result | MEDIUM | OPEN — STATIC FINDING | Public result DTO does not normalize/validate tuple-annotated fields. |
+| GF-MASTER-0116 | Control signal snapshot | HIGH | REMEDIATED — VERIFICATION DEFERRED | `ControlSignalResolution recursively freezes external/interlock snapshots in __post_init__; static source evidence confirms the prior correction. |
+| GF-MASTER-0117 | Control feedback | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `ControlFeedback.metadata` is recursively detached and frozen by __post_init__; runtime mutation verification remains deferred. |
+| GF-MASTER-0118 | Protection prepared input | HIGH | REMEDIATED — VERIFICATION DEFERRED | PreparedProtectionInput settings are recursively detached and frozen; runtime mutation verification remains deferred. |
+| GF-MASTER-0119 | Study request | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `StudyRequest.configuration` uses the recursive study snapshot freezer; typed-configuration compatibility remains runtime-unverified. |
+| GF-MASTER-0120 | SLD projection | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | Node and connection projection properties use recursive detached freezing; rendering/runtime snapshot verification remains deferred. |
+| GF-MASTER-0121 | Protection execution result | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | ProtectionExecutionResult normalizes sequence fields to tuples and validates member types; downstream runtime compatibility remains deferred. |
 | GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Historical finding retained; complete CT/PT/CVT provisioning-to-runtime consumer path still requires dedicated proof. |
 
 **Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
