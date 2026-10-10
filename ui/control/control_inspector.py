@@ -9,11 +9,15 @@ from __future__ import annotations
 from uuid import uuid4
 from typing import Any
 
-from ui.core.qt import QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget
+from ui.core.qt import QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget, Qt
 from core.application.commands.control_commands import (
     AddControlActionBinding,
     AddControlInterlock,
     UpdateControlComponent,
+    SetControlSignalMapping,
+)
+from core.application.control_signal_mapping import (
+    ControlSignalBinding, ControlSignalDestination, ControlSignalMapping, ControlSignalSource,
 )
 
 
@@ -55,6 +59,15 @@ class ControlInspector(QWidget):
         self._bind_button.clicked.connect(lambda _checked=False: self._create_action_binding())
         self._interlock_button = QPushButton("Create Interlock", self)
         self._interlock_button.clicked.connect(lambda _checked=False: self._create_interlock())
+        self._signal_sources = QListWidget(self)
+        self._signal_inputs = QListWidget(self)
+        self._signal_actions = QListWidget(self)
+        self._signal_bindings = QListWidget(self)
+        self._signal_status = QLabel("Signal mapping: select a source, Control input and action binding.", self)
+        self._add_signal_binding_button = QPushButton("Add / Update Engineering Signal Binding", self)
+        self._add_signal_binding_button.clicked.connect(lambda _checked=False: self._add_signal_binding())
+        self._remove_signal_binding_button = QPushButton("Remove Selected Signal Binding", self)
+        self._remove_signal_binding_button.clicked.connect(lambda _checked=False: self._remove_signal_binding())
 
         root = QVBoxLayout(self)
         root.addWidget(QLabel("Control Inspector", self))
@@ -76,6 +89,17 @@ class ControlInspector(QWidget):
         root.addWidget(self._actions)
         root.addWidget(self._bind_button)
         root.addWidget(self._interlock_button)
+        root.addWidget(QLabel("Engineering signal source", self))
+        root.addWidget(self._signal_sources)
+        root.addWidget(QLabel("Selected Control component input", self))
+        root.addWidget(self._signal_inputs)
+        root.addWidget(QLabel("Control action / interlock destination", self))
+        root.addWidget(self._signal_actions)
+        root.addWidget(QLabel("Project engineering signal bindings", self))
+        root.addWidget(self._signal_bindings)
+        root.addWidget(self._add_signal_binding_button)
+        root.addWidget(self._remove_signal_binding_button)
+        root.addWidget(self._signal_status)
         self._set_enabled(False)
 
     def show_read_model(self, read_model: Any, component_id: str | None) -> None:
@@ -89,6 +113,7 @@ class ControlInspector(QWidget):
             self._outputs.clear()
             self._targets.clear()
             self._actions.clear()
+            self._refresh_signal_mapping_lists(read_model, None)
             self._set_enabled(False)
             return
 
@@ -112,6 +137,7 @@ class ControlInspector(QWidget):
         except RuntimeError:
             pass
         self._refresh_action_choices()
+        self._refresh_signal_mapping_lists(read_model, component)
         self._set_enabled(True)
         self._apply.setEnabled(
             component.component_type == "timer"
@@ -137,12 +163,14 @@ class ControlInspector(QWidget):
         if rung is None:
             self._rung_label.setText("Rung: None")
             self._configuration_label.setText("")
+            self._refresh_signal_mapping_lists(read_model, None)
             return
         self._rung_label.setText(
             f"Rung: {rung.rung_id} | order={rung.order} | "
             f"{'enabled' if rung.enabled else 'disabled'} | components={len(rung.component_ids)}"
         )
         self._configuration_label.setText(f"Positions: {dict(rung.positions)}")
+        self._refresh_signal_mapping_lists(read_model, None)
 
     def enter_control_interlock_mode(self, read_model: Any, component_id: str | None) -> None:
         self._selected_id = component_id
@@ -220,6 +248,113 @@ class ControlInspector(QWidget):
                 "required_inputs": [self._selected_id],
             }
         ))
+
+    def _refresh_signal_mapping_lists(self, read_model: Any, component: Any | None) -> None:
+        self._signal_sources.clear()
+        self._signal_inputs.clear()
+        self._signal_actions.clear()
+        self._signal_bindings.clear()
+        try:
+            network = self._application.read_network()
+            for element in network.elements:
+                for signal_name in element.attributes:
+                    self._signal_sources.addItem(f"{element.element_type}:{element.object_id}.{signal_name}")
+                    self._signal_sources.item(self._signal_sources.count() - 1).setData(
+                        Qt.ItemDataRole.UserRole,
+                        (str(element.element_type).lower(), str(element.object_id), str(signal_name)),
+                    )
+        except RuntimeError as exc:
+            self._signal_status.setText(f"Signal mapping unavailable: {exc}")
+        if component is not None:
+            for input_name in component.inputs:
+                type_name = str(component.input_signal_types.get(input_name, "")).strip().lower()
+                self._signal_inputs.addItem(f"{component.component_id}.{input_name} [{type_name or 'any'}]")
+                self._signal_inputs.item(self._signal_inputs.count() - 1).setData(
+                    Qt.ItemDataRole.UserRole,
+                    (str(component.component_id), str(input_name), type_name),
+                )
+        for action in getattr(read_model, "action_bindings", ()):
+            self._signal_actions.addItem(f"{action.binding_id} → {action.target_type}:{action.target_id}")
+            self._signal_actions.item(self._signal_actions.count() - 1).setData(
+                Qt.ItemDataRole.UserRole, str(action.binding_id)
+            )
+        mapping = self._application.control_signal_mapping or ControlSignalMapping()
+        for index, binding in enumerate(mapping.bindings):
+            self._signal_bindings.addItem(
+                f"{binding.source.element_type}:{binding.source.object_id}.{binding.source.signal} → "
+                f"{binding.destination.component_id}.{binding.destination.input_name} "
+                f"(action {binding.destination.control_id})"
+            )
+            self._signal_bindings.item(self._signal_bindings.count() - 1).setData(
+                Qt.ItemDataRole.UserRole, index
+            )
+        self._add_signal_binding_button.setEnabled(
+            self._signal_sources.count() > 0
+            and self._signal_inputs.count() > 0
+            and self._signal_actions.count() > 0
+        )
+        self._remove_signal_binding_button.setEnabled(self._signal_bindings.count() > 0)
+
+    def _apply_signal_mapping(self, mapping: ControlSignalMapping) -> None:
+        result = self._application.execute(SetControlSignalMapping(mapping=mapping.to_dict()))
+        if not getattr(result, "success", False):
+            message = getattr(result, "message", "Application rejected the signal mapping command.")
+            self._signal_status.setText(f"Signal mapping rejected: {message}")
+            return
+        self._signal_status.setText(f"Signal mapping saved in project configuration ({len(mapping.bindings)} binding(s)).")
+        read_model = self._application.read_control()
+        selected = next((item for item in read_model.components if item.component_id == self._selected_id), None)
+        self._refresh_signal_mapping_lists(read_model, selected)
+
+    def _add_signal_binding(self) -> None:
+        source_item = self._signal_sources.currentItem()
+        input_item = self._signal_inputs.currentItem()
+        action_item = self._signal_actions.currentItem()
+        if source_item is None or input_item is None or action_item is None:
+            self._signal_status.setText("Select a signal source, Control input and action binding.")
+            return
+        try:
+            source_type, source_id, signal_name = source_item.data(Qt.ItemDataRole.UserRole)
+            component_id, input_name, input_type_name = input_item.data(Qt.ItemDataRole.UserRole)
+            action_id = str(action_item.data(Qt.ItemDataRole.UserRole))
+            supported_types = {"bool": bool, "float": float, "int": int, "str": str}
+            expected_type = supported_types.get(input_type_name)
+            binding = ControlSignalBinding(
+                source=ControlSignalSource(
+                    domain="core", element_type=source_type, object_id=source_id,
+                    signal=signal_name, expected_type=expected_type,
+                ),
+                destination=ControlSignalDestination(
+                    control_id=action_id, component_id=component_id, input_name=input_name,
+                ),
+            )
+            current = self._application.control_signal_mapping or ControlSignalMapping()
+            retained = tuple(
+                item for item in current.bindings
+                if (item.destination.component_id, item.destination.input_name)
+                != (component_id, input_name)
+            )
+            self._apply_signal_mapping(ControlSignalMapping(bindings=retained + (binding,)))
+        except Exception as exc:
+            self._signal_status.setText(f"Signal mapping error: {type(exc).__name__}: {exc}")
+
+    def _remove_signal_binding(self) -> None:
+        item = self._signal_bindings.currentItem()
+        if item is None:
+            self._signal_status.setText("Select a project signal binding to remove.")
+            return
+        try:
+            index = int(item.data(Qt.ItemDataRole.UserRole))
+            current = self._application.control_signal_mapping or ControlSignalMapping()
+            if index < 0 or index >= len(current.bindings):
+                raise ValueError("Selected signal binding is stale; refresh the inspector and retry.")
+            removed = current.bindings[index]
+            updated = ControlSignalMapping(
+                bindings=tuple(binding for binding in current.bindings if binding != removed)
+            )
+            self._apply_signal_mapping(updated)
+        except Exception as exc:
+            self._signal_status.setText(f"Signal mapping error: {type(exc).__name__}: {exc}")
 
     def _set_enabled(self, enabled: bool) -> None:
         for widget in (

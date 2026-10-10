@@ -94,11 +94,7 @@ class ControlSignalResolution:
     interlock_inputs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        frozen_inputs = {
-            str(component): MappingProxyType(dict(values))
-            for component, values in self.external_inputs.items()
-        }
-        object.__setattr__(self, "external_inputs", MappingProxyType(frozen_inputs))
+        object.__setattr__(self, "external_inputs", _freeze_snapshot(self.external_inputs))
         object.__setattr__(self, "bindings", tuple(self.bindings))
         object.__setattr__(self, "quality", MappingProxyType(dict(self.quality)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
@@ -113,6 +109,21 @@ class ControlSignalResolutionError(ValueError):
         super().__init__("; ".join(self.diagnostics))
 
 
+def _type_key(expected_type: type | tuple[type, ...] | None) -> tuple[str, ...]:
+    if expected_type is None:
+        return ()
+    types = expected_type if isinstance(expected_type, tuple) else (expected_type,)
+    return tuple(item.__name__ for item in types)
+
+
+def _type_from_name(name: str) -> type:
+    supported = {"bool": bool, "float": float, "int": int, "str": str}
+    try:
+        return supported[str(name)]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported persisted Control signal type {name!r}.") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class ControlSignalMapping:
     """Immutable canonical mapping owned by the Application layer."""
@@ -120,13 +131,104 @@ class ControlSignalMapping:
     bindings: tuple[ControlSignalBinding, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        normalized = tuple(sorted(self.bindings))
-        if any(not isinstance(binding, ControlSignalBinding) for binding in normalized):
+        values = tuple(self.bindings)
+        if any(not isinstance(binding, ControlSignalBinding) for binding in values):
             raise TypeError("bindings must contain ControlSignalBinding values.")
-        destinations = [binding.destination for binding in normalized]
+        normalized = tuple(sorted(
+            values,
+            key=lambda binding: (
+                binding.source.domain,
+                binding.source.element_type,
+                binding.source.object_id,
+                binding.source.signal,
+                _type_key(binding.source.expected_type),
+                binding.destination.control_id,
+                binding.destination.component_id,
+                binding.destination.input_name,
+            ),
+        ))
+        destinations = [
+            (binding.destination.component_id, binding.destination.input_name)
+            for binding in normalized
+        ]
         if len(destinations) != len(set(destinations)):
-            raise ValueError("A Control destination may have only one canonical engineering source.")
+            raise ValueError("A Control component input may have only one canonical engineering source.")
         object.__setattr__(self, "bindings", normalized)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return configuration-only JSON-compatible data; no live values are persisted."""
+        bindings = []
+        for binding in self.bindings:
+            expected = binding.source.expected_type
+            if isinstance(expected, tuple):
+                expected_types: str | list[str] | None = list(_type_key(expected))
+            elif expected is None:
+                expected_types = None
+            else:
+                expected_types = expected.__name__
+            if expected is not None:
+                names = expected_types if isinstance(expected_types, list) else [expected_types]
+                unsupported = [name for name in names if name not in {"bool", "float", "int", "str"}]
+                if unsupported:
+                    raise ValueError(f"Unsupported persisted Control signal type(s): {', '.join(unsupported)}.")
+            bindings.append({
+                "source": {
+                    "domain": binding.source.domain,
+                    "element_type": binding.source.element_type,
+                    "object_id": binding.source.object_id,
+                    "signal": binding.source.signal,
+                    "expected_type": expected_types,
+                },
+                "destination": {
+                    "control_id": binding.destination.control_id,
+                    "component_id": binding.destination.component_id,
+                    "input_name": binding.destination.input_name,
+                },
+            })
+        return {"schema_version": 1, "bindings": bindings}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ControlSignalMapping":
+        if not isinstance(data, Mapping):
+            raise TypeError("Control signal mapping data must be a mapping.")
+        version = int(data.get("schema_version", 1))
+        if version != 1:
+            raise ValueError(f"Unsupported Control signal mapping schema version {version}.")
+        records = data.get("bindings", ())
+        if not isinstance(records, (list, tuple)):
+            raise TypeError("Control signal mapping bindings must be a sequence.")
+        bindings: list[ControlSignalBinding] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise TypeError("Each Control signal binding must be a mapping.")
+            source_data = record.get("source")
+            destination_data = record.get("destination")
+            if not isinstance(source_data, Mapping) or not isinstance(destination_data, Mapping):
+                raise TypeError("Control signal binding requires source and destination mappings.")
+            raw_expected = source_data.get("expected_type")
+            if raw_expected is None:
+                expected_type = None
+            elif isinstance(raw_expected, str):
+                expected_type = _type_from_name(raw_expected)
+            elif isinstance(raw_expected, (list, tuple)) and raw_expected:
+                expected_type = tuple(_type_from_name(item) for item in raw_expected)
+            else:
+                raise TypeError("expected_type must be a supported type name or non-empty sequence of names.")
+            bindings.append(ControlSignalBinding(
+                source=ControlSignalSource(
+                    domain=str(source_data["domain"]),
+                    element_type=str(source_data["element_type"]),
+                    object_id=str(source_data["object_id"]),
+                    signal=str(source_data["signal"]),
+                    expected_type=expected_type,
+                ),
+                destination=ControlSignalDestination(
+                    control_id=str(destination_data["control_id"]),
+                    component_id=str(destination_data["component_id"]),
+                    input_name=str(destination_data["input_name"]),
+                ),
+            ))
+        return cls(bindings=tuple(bindings))
 
     def resolve(self, read_service: ReadService) -> ControlSignalResolution:
         """Resolve every source through Application read models, never Core objects."""

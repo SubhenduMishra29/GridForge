@@ -28,6 +28,29 @@ class ProtectionExecutionResult:
     application_results: tuple[ApplicationResult, ...] = ()
     diagnostics: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        sequence_fields = (
+            ("decisions", ProtectionDecision),
+            ("control_decisions", ControlDecision),
+            ("commands", Command),
+            ("application_results", ApplicationResult),
+        )
+        for name, expected_type in sequence_fields:
+            values = getattr(self, name)
+            if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+                raise TypeError(f"{name} must be a sequence of {expected_type.__name__} values.")
+            normalized = tuple(values)
+            if any(not isinstance(value, expected_type) for value in normalized):
+                raise TypeError(f"{name} must contain only {expected_type.__name__} values.")
+            object.__setattr__(self, name, normalized)
+        diagnostics = self.diagnostics
+        if isinstance(diagnostics, (str, bytes)) or not isinstance(diagnostics, Iterable):
+            raise TypeError("diagnostics must be a sequence of strings.")
+        normalized_diagnostics = tuple(diagnostics)
+        if any(not isinstance(value, str) for value in normalized_diagnostics):
+            raise TypeError("diagnostics must contain only strings.")
+        object.__setattr__(self, "diagnostics", normalized_diagnostics)
+
 
 class ProtectionExecutionService:
     """Dispatch actionable protection decisions through Control and Application.

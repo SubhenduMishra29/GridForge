@@ -17,7 +17,9 @@ from .commands.control_commands import (
     UPDATE_CONTROL_COMPONENT, SET_LADDER_RUNG_ENABLED, MOVE_LADDER_RUNG,
     ADD_CONTROL_ACTION_BINDING, REMOVE_CONTROL_ACTION_BINDING, ADD_CONTROL_INTERLOCK, REMOVE_CONTROL_INTERLOCK,
     ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
+    SET_CONTROL_SIGNAL_MAPPING,
 )
+from .control_signal_mapping import ControlSignalMapping
 from .results import ApplicationResult
 from .transaction import Transaction
 
@@ -27,10 +29,24 @@ Handler = Callable[[Command, Any, Transaction], ApplicationResult[Any]]
 class ControlCommandHandlers:
     """Handlers that keep Control mutation inside the Application boundary."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(
+        self,
+        service: Any,
+        *,
+        signal_mapping_getter: Callable[[], ControlSignalMapping | None] | None = None,
+        signal_mapping_setter: Callable[[ControlSignalMapping | None], None] | None = None,
+    ) -> None:
         if service is None:
             raise ValueError("control service is required.")
+        if (signal_mapping_getter is None) != (signal_mapping_setter is None):
+            raise ValueError("signal mapping getter and setter must be configured together.")
+        if signal_mapping_getter is not None and not callable(signal_mapping_getter):
+            raise TypeError("signal_mapping_getter must be callable.")
+        if signal_mapping_setter is not None and not callable(signal_mapping_setter):
+            raise TypeError("signal_mapping_setter must be callable.")
         self._service = service
+        self._signal_mapping_getter = signal_mapping_getter
+        self._signal_mapping_setter = signal_mapping_setter
 
     def handlers(self) -> Mapping[str, Handler]:
         return {
@@ -49,6 +65,7 @@ class ControlCommandHandlers:
             ADD_CONTROL_ACTION_BINDING: self.add_action_binding, REMOVE_CONTROL_ACTION_BINDING: self.remove_action_binding,
             ADD_CONTROL_INTERLOCK: self.add_interlock, REMOVE_CONTROL_INTERLOCK: self.remove_interlock,
             ADD_DYNAMIC_CONTROL_ASSOCIATION: self.add_dynamic_association, REMOVE_DYNAMIC_CONTROL_ASSOCIATION: self.remove_dynamic_association,
+            SET_CONTROL_SIGNAL_MAPPING: self.set_signal_mapping,
         }
 
     def add_component(self, command, context, transaction):
@@ -93,6 +110,19 @@ class ControlCommandHandlers:
     def remove_interlock(self, command, context, transaction): return self._service.remove_interlock(transaction, **dict(command.payload))
     def add_dynamic_association(self, command, context, transaction): return self._service.add_dynamic_association(transaction, **dict(command.payload))
     def remove_dynamic_association(self, command, context, transaction): return self._service.remove_dynamic_association(transaction, **dict(command.payload))
+
+    def set_signal_mapping(self, command, context, transaction):
+        if self._signal_mapping_getter is None or self._signal_mapping_setter is None:
+            raise RuntimeError("Application signal mapping configuration is not wired into the command boundary.")
+        mapping = ControlSignalMapping.from_dict(command.payload["mapping"])
+        previous = self._signal_mapping_getter()
+        self._signal_mapping_setter(mapping)
+        transaction.record_undo(lambda: self._signal_mapping_setter(previous))
+        return ApplicationResult.success_result(
+            value=mapping,
+            message="Control engineering signal mapping updated.",
+            metadata={"binding_count": len(mapping.bindings)},
+        )
 
 
 __all__ = ["ControlCommandHandlers", "Handler"]
