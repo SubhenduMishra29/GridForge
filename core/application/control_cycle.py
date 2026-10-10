@@ -230,12 +230,20 @@ class ControlCycleService:
                 values = mapped.get(binding.control_id, {})
                 interlock_inputs.setdefault(binding.interlock_id, {}).update(values)
 
-        evaluation = self._control_engine.evaluate(
-            simulation_time=simulation_time,
-            external_inputs=external_inputs,
-            context=context,
-            interlock_inputs=interlock_inputs,
-        )
+        if context is not None:
+            # Context owns simulation time and ordinary inputs. Do not pass
+            # mutually exclusive legacy arguments alongside it.
+            evaluation = self._control_engine.evaluate(
+                context=context,
+                interlock_inputs=interlock_inputs,
+            )
+        else:
+            # Preserve the legacy path for callers without an explicit context.
+            evaluation = self._control_engine.evaluate(
+                simulation_time=simulation_time,
+                external_inputs=external_inputs,
+                interlock_inputs=interlock_inputs,
+            )
         execution = self._execution_service.execute(evaluation)
         return ControlCycleResult(evaluation=evaluation, execution=execution)
 
