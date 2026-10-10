@@ -182,13 +182,9 @@ class ControlSignalMapping:
                 # Keep the complete source envelope for freshness-sensitive gates.
                 interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = dict(envelope)
                 value = envelope.get("value")
-            else:
-                # Plain read-model values are usable by ordinary logic, but have
-                # no trustworthy sample timestamp and therefore cannot authorize
-                # an interlocked action.
-                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = {
-                    "value": value, "quality": "valid"
-                }
+            # Plain values intentionally do not enter interlock_inputs:
+            # no quality or timestamp metadata may be manufactured. A required
+            # interlock input will therefore fail closed as missing.
             quality[binding]=signal_quality
             if signal_quality is not ControlSignalQuality.VALID:
                 diagnostics.append(f"Signal '{source.signal}' on {source.element_type}:{source.object_id} has quality {signal_quality.value}.")
