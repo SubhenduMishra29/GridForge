@@ -31,6 +31,7 @@ class RevisionService:
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
+        "connectivity.create_junction", "connectivity.remove_junction",
         "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.delete_cable",
