@@ -600,7 +600,6 @@ class Application:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        previous_control_cycle = self._control_cycle
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
         if self._control_engine is not None:
             self._control_cycle = ControlCycleService(
