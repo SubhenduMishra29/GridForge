@@ -8,6 +8,7 @@ composition until that ambiguity is resolved in the settings model.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from core.measurement.measurement_channel import MeasurementPhase, MeasurementSignalType
@@ -28,6 +29,22 @@ class ProtectionFunctionInputContract:
     inputs: Mapping[str, ProtectionInputContract]
     supported: bool = True
     unsupported_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.function_code, str) or not self.function_code.strip():
+            raise ValueError("Protection input contract requires a function code.")
+        if not isinstance(self.inputs, Mapping):
+            raise TypeError("Protection input contract inputs must be a mapping.")
+        if not isinstance(self.supported, bool):
+            raise TypeError("Protection input contract supported flag must be boolean.")
+        if not self.supported and not self.unsupported_reason.strip():
+            raise ValueError("Fail-closed input contracts require an explicit reason.")
+        normalized = dict(self.inputs)
+        for name, contract in normalized.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(contract, ProtectionInputContract):
+                raise TypeError("Protection input contracts require named ProtectionInputContract values.")
+        object.__setattr__(self, "function_code", self.function_code.strip().upper())
+        object.__setattr__(self, "inputs", MappingProxyType(normalized))
 
 
 _CURRENT_PHASES = frozenset({
@@ -50,7 +67,7 @@ _CURRENT_INPUT = ProtectionInputContract("current", _CURRENT, _CURRENT_PHASES, _
 _VOLTAGE_INPUT = ProtectionInputContract("voltage", _VOLTAGE, _VOLTAGE_PHASES, _SCALAR)
 
 
-# Contract phase choices are deliberately narrow and use only canonical enums.
+# Contracts use canonical phase enums; phases are unconstrained where the implementation does not inspect them.
 # Unit strings must be explicit; pickup/reach values are interpreted in the
 # same engineering convention as their inputs. This layer never rescales data.
 CONTRACT_50 = ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT})
