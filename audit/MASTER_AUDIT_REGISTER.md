@@ -42,7 +42,7 @@ The findings in this remediation batch are synchronized to the latest static evi
 - GF-SLD-TERM-020, -021, -023 through -028, GF-SLD-SNAP-022, RCA-SLD-CONN-002, and GF-MASTER-0067 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-035, -036, -038, -039, and -040 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-037 — **STATICALLY VERIFIED — BOUNDARY ADDED**.
-- GF-PROT-042 — **OPEN — INTEGRATION GAP**. The repository does not statically establish the authoritative CT/PT/CVT → MeasurementProvisioning → channel registration/collection → protection mapping → ProtectionRuntime.compose() consumer path.
+- GF-PROT-042 — **OPEN — INTEGRATION GAP**. Batch 72 adds an Application-owned `evaluate_protection_cycle(evaluation_time)` gate, project/generation/network checks, explicit GOOD-quality and timestamp/freshness validation, finite-value rejection, and runtime channel-object identity checks. `ProtectionRuntime` records the exact channel objects used at composition. The full configured input signal-contract validation and proven protection-to-action-to-command-to-feedback path remain incomplete; dispatch requires an explicit action resolver and no physical target is inferred.
 - GF-SLD-WF-TOOL-006 — **STATICALLY VERIFIED — CORRECTED**.
 
 For all corrected items, **RUNTIME VERIFICATION — DEFERRED / UNVERIFIED**.
@@ -1917,7 +1917,7 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 | GF-MASTER-0119 | Study request | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `StudyRequest.configuration` uses the recursive study snapshot freezer; typed-configuration compatibility remains runtime-unverified. |
 | GF-MASTER-0120 | SLD projection | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | Node and connection projection properties use recursive detached freezing; rendering/runtime snapshot verification remains deferred. |
 | GF-MASTER-0121 | Protection execution result | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `ProtectionExecutionResult` normalizes sequence fields to tuples and validates member types; downstream runtime compatibility remains deferred. |
-| GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Historical finding retained; complete CT/PT/CVT provisioning-to-runtime consumer path still requires dedicated proof. |
+| GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Batch 72 source adds Application-owned evaluation-time gating, active project/generation checks, GOOD-only quality, explicit timestamp/stale_after requirements, finite-value rejection, and exact runtime channel-reference checks. Configured signal-contract compatibility and the complete protection-decision-to-action-to-command-to-feedback path remain unproven; runtime verification not performed. |
 
 **Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
 
