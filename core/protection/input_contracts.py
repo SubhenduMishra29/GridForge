@@ -1,9 +1,8 @@
-"""Fail-closed contracts between configured protection inputs and measurement channels.
+"""Fail-closed contracts between protection inputs and measurement channels.
 
-Contracts describe the current implementations, not inferred physical wiring.
-No unit conversion is performed. Where a function's settings do not declare
-enough information to validate engineering dimensions, its contract rejects
-composition until that ambiguity is resolved in the settings model.
+These checks cover stable channel configuration only. Sample availability, quality,
+timestamps, freshness and numeric validity belong to explicit evaluation time.
+No unit conversion or physical-source inference is performed.
 """
 from __future__ import annotations
 
@@ -20,7 +19,22 @@ class ProtectionInputContract:
     signal_types: frozenset[MeasurementSignalType]
     phases: frozenset[MeasurementPhase]
     representation: str
+    compatible_units: frozenset[str]
     require_unit: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("Protection input contract name must be non-empty.")
+        if not self.signal_types or any(not isinstance(v, MeasurementSignalType) for v in self.signal_types):
+            raise ValueError("Protection input contract requires explicit signal types.")
+        if not self.phases or any(not isinstance(v, MeasurementPhase) for v in self.phases):
+            raise ValueError("Protection input contract requires explicit phase/sequence classifications.")
+        if not isinstance(self.representation, str) or not self.representation.strip():
+            raise ValueError("Protection input contract representation must be explicit.")
+        if not self.compatible_units or any(not isinstance(v, str) or not v.strip() for v in self.compatible_units):
+            raise ValueError("Protection input contract requires explicit compatible engineering units.")
+        object.__setattr__(self, "name", self.name.strip())
+        object.__setattr__(self, "compatible_units", frozenset(v.strip() for v in self.compatible_units))
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +51,7 @@ class ProtectionFunctionInputContract:
             raise TypeError("Protection input contract inputs must be a mapping.")
         if not isinstance(self.supported, bool):
             raise TypeError("Protection input contract supported flag must be boolean.")
-        if not self.supported and not self.unsupported_reason.strip():
+        if not self.supported and (not isinstance(self.unsupported_reason, str) or not self.unsupported_reason.strip()):
             raise ValueError("Fail-closed input contracts require an explicit reason.")
         normalized = dict(self.inputs)
         for name, contract in normalized.items():
@@ -47,29 +61,33 @@ class ProtectionFunctionInputContract:
         object.__setattr__(self, "inputs", MappingProxyType(normalized))
 
 
-_CURRENT_PHASES = frozenset({
+# Ordinary overcurrent inputs explicitly exclude sequence-classified channels.
+# Sequence-specific ANSI 46 accepts negative-sequence current only.
+_PHASE_CURRENT = frozenset({MeasurementPhase.A, MeasurementPhase.B, MeasurementPhase.C, MeasurementPhase.N})
+_PHASE_VOLTAGE = frozenset({
     MeasurementPhase.A, MeasurementPhase.B, MeasurementPhase.C,
-    MeasurementPhase.N, MeasurementPhase.NONE,
     MeasurementPhase.AB, MeasurementPhase.BC, MeasurementPhase.CA,
-    MeasurementPhase.THREE_PHASE, MeasurementPhase.POSITIVE_SEQUENCE,
-    MeasurementPhase.NEGATIVE_SEQUENCE, MeasurementPhase.ZERO_SEQUENCE,
 })
-_VOLTAGE_PHASES = _CURRENT_PHASES
 _CURRENT = frozenset({MeasurementSignalType.CURRENT})
 _VOLTAGE = frozenset({MeasurementSignalType.VOLTAGE})
-_SCALAR_OR_PHASOR = "numeric scalar or complex phasor (function consumes magnitude); live finiteness is checked at evaluation"
-_SCALAR = "real scalar; live finiteness is checked at evaluation"
+_SCALAR_OR_PHASOR = "real numeric scalar or complex phasor; sample validity checked at evaluation"
+_SCALAR = "real numeric scalar; sample validity checked at evaluation"
+
 _SEQUENCE_CURRENT = ProtectionInputContract(
     "negative_sequence_current", _CURRENT,
     frozenset({MeasurementPhase.NEGATIVE_SEQUENCE}), _SCALAR_OR_PHASOR,
+    frozenset({"A"}),
 )
-_CURRENT_INPUT = ProtectionInputContract("current", _CURRENT, _CURRENT_PHASES, _SCALAR_OR_PHASOR)
-_VOLTAGE_INPUT = ProtectionInputContract("voltage", _VOLTAGE, _VOLTAGE_PHASES, _SCALAR)
+_CURRENT_INPUT = ProtectionInputContract(
+    "current", _CURRENT, _PHASE_CURRENT, _SCALAR_OR_PHASOR, frozenset({"A"}),
+)
+_VOLTAGE_INPUT = ProtectionInputContract(
+    "voltage", _VOLTAGE, _PHASE_VOLTAGE, _SCALAR, frozenset({"V"}),
+)
 
-
-# Contracts use canonical phase enums; phases are unconstrained where the implementation does not inspect them.
-# Unit strings must be explicit; pickup/reach values are interpreted in the
-# same engineering convention as their inputs. This layer never rescales data.
+# The accepted units are exact canonical units; this layer does not rescale
+# kA/mA or kV/mV. Settings models must declare semantics before broader units
+# can be safely accepted.
 CONTRACT_50 = ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT})
 CONTRACT_51 = ProtectionFunctionInputContract("51", {"current": _CURRENT_INPUT})
 CONTRACT_50N = ProtectionFunctionInputContract(
@@ -88,7 +106,6 @@ CONTRACT_49 = ProtectionFunctionInputContract(
     unsupported_reason="CUSTOM signal type and an arbitrary unit do not establish temperature semantics or the pickup unit",
 )
 CONTRACT_67 = ProtectionFunctionInputContract("67", {"current": _CURRENT_INPUT})
-# Distance reach has no declared engineering unit; the catalog marks ANSI 21 fail-closed.
 CONTRACT_21 = ProtectionFunctionInputContract(
     "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
     supported=False,
@@ -99,17 +116,22 @@ CONTRACT_21 = ProtectionFunctionInputContract(
 def validate_protection_input_contracts(
     configuration: Any, channels: Mapping[str, Any], *, require_all_bindings: bool = True
 ) -> tuple[str, ...]:
-    """Return all configuration/channel contract violations without executing relays."""
+    """Validate stable function/channel configuration, never live sample state."""
     from core.protection.function_catalog import get_protection_function
+
     diagnostics: list[str] = []
     elements = getattr(configuration, "elements", None)
     if elements is None:
         elements = (configuration,)
+    project_id = getattr(configuration, "project_id", None)
     for element in elements:
         if not element.enabled:
             continue
         code = str(element.function_code).strip().upper()
-        prefix = f"element={element.element_id!r}, function={code!r}"
+        prefix = (
+            f"project={project_id!r}, element={element.element_id!r}, "
+            f"function={code!r}"
+        )
         try:
             specification = get_protection_function(code)
         except (KeyError, TypeError, ValueError):
@@ -154,35 +176,41 @@ def validate_protection_input_contracts(
             unit = getattr(channel, "unit", None)
             if requirement.require_unit and (not isinstance(unit, str) or not unit.strip()):
                 diagnostics.append(f"{detail}: engineering unit is missing; implicit units/conversions are forbidden.")
-            value = getattr(channel, "engineering_value", None)
-            if isinstance(value, bool) or not isinstance(value, (int, float, complex)):
+            elif requirement.require_unit and unit.strip() not in requirement.compatible_units:
                 diagnostics.append(
-                    f"{detail}: representation violates contract; expected {requirement.representation}."
+                    f"{detail}: unit {unit!r} is incompatible; accepted canonical units are "
+                    f"{sorted(requirement.compatible_units)!r}; no implicit conversion is performed."
                 )
-            elif isinstance(value, complex):
-                # Scalar-only functions explicitly convert with float() and must not
-                # receive a complex representation even if its imaginary part is zero.
-                if requirement.representation == _SCALAR:
-                    diagnostics.append(f"{detail}: complex phasor violates scalar-only contract.")
-    # ANSI 67 additionally reads both phase angles from ProtectionContext metadata.
-    # Those values are live evaluation inputs, so Application validates them at
-    # evaluation time rather than treating them as channel bindings.
     return tuple(diagnostics)
 
 
 def validate_directional_context(metadata: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Validate ANSI 67's explicitly consumed angle metadata before any element runs."""
+    """Validate ANSI 67's consumed angle values and provenance before evaluation."""
     if metadata is None:
-        return ("function='67': ProtectionContext metadata is missing voltage_angle/current_angle.",)
+        return ("function='67': ProtectionContext metadata is missing voltage_angle/current_angle and provenance.",)
     diagnostics: list[str] = []
+    provenance_key = "angle_provenance"
+    provenance = metadata.get(provenance_key)
+    if not isinstance(provenance, Mapping):
+        diagnostics.append(
+            "function='67', context='angle_provenance': explicit provenance mapping is required "
+            "(source channel IDs and angle reference convention)."
+        )
+    else:
+        for key in ("voltage_channel_id", "current_channel_id", "reference_convention"):
+            value = provenance.get(key)
+            if not isinstance(value, str) or not value.strip():
+                diagnostics.append(
+                    f"function='67', context={provenance_key}.{key}: non-empty provenance value is required."
+                )
     for key in ("voltage_angle", "current_angle"):
         value = metadata.get(key)
         if isinstance(value, bool):
             diagnostics.append(f"function='67', context={key!r}: expected a finite numeric angle in degrees.")
             continue
         try:
-            import math
-            finite = math.isfinite(float(value))
+            from math import isfinite
+            finite = isfinite(float(value))
         except (TypeError, ValueError, OverflowError):
             finite = False
         if not finite:
