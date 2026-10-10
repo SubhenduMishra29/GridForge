@@ -49,8 +49,8 @@ class ControlExecutionResult:
             for decision in decisions:
                 if not isinstance(decision, ControlDecision):
                     raise TypeError(f"{name}_decisions must contain ControlDecision values.")
-                if name == "executed" and not decision.valid:
-                    raise ValueError("executed decisions must be valid.")
+                if name in {"executed", "failed"} and not decision.valid:
+                    raise ValueError(f"{name} decisions must be valid evaluated intents.")
                 if name in {"invalid", "blocked"} and decision.valid:
                     raise ValueError(f"{name} decisions must be invalid.")
                 previous = seen.get(decision.control_id)
