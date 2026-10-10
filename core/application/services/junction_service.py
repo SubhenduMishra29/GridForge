@@ -1,7 +1,7 @@
 """Application orchestration for authoritative Network Junction membership."""
 from __future__ import annotations
 from typing import Any
-from core.network import ConnectivityError, Junction
+from core.network import ConnectivityError, Junction, Network
 from ..command import Command
 from ..commands.junction_commands import CREATE_JUNCTION, REMOVE_JUNCTION
 from ..errors import DomainError, ResourceError, ValidationError
@@ -26,8 +26,7 @@ class JunctionService:
                 message=f"Unsupported Junction command: {command.command_type!r}.",
                 details={"command_type": command.command_type})
         network = getattr(context, "network", None)
-        if network is None or not all(callable(getattr(network, name, None)) for name in
-            ("add_junction", "remove_junction", "get_junction", "contains_junction")):
+        if not isinstance(network, Network):
             raise ResourceError(code="NETWORK_CONTEXT_MISSING",
                 message="Application context does not expose a canonical Junction-capable Network.", details={})
         junction_id = command.payload.get("junction_id")
