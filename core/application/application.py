@@ -32,6 +32,7 @@ from .commands.control_commands import (
     ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
 from .control_cycle import ControlCycleResult, ControlCycleService
+from .control_signal_mapping import ControlSignalResolutionError
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
 from .control_events import (
@@ -1002,7 +1003,18 @@ class Application:
                 interlock_inputs=interlock_inputs,
             )
         except Exception as exc:
-            self._event_bus.publish(ControlExecutionFailed(metadata={**scope, "simulation_time": t, "error": str(exc)}))
+            failure_metadata = {
+                **scope,
+                "simulation_time": t,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+            if isinstance(exc, ControlSignalResolutionError):
+                # Keep per-source resolution failures machine-readable at the
+                # established Application event boundary; re-raise unchanged
+                # so callers retain the original exception and traceback.
+                failure_metadata["diagnostics"] = exc.diagnostics
+            self._event_bus.publish(ControlExecutionFailed(metadata=failure_metadata))
             raise
         self._event_bus.publish(ControlExecutionCompleted(metadata={
             **scope,
