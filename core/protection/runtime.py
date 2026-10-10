@@ -65,8 +65,8 @@ class ProtectionRuntime:
             raise ValueError("Protection input-contract validation failed before composition: " + " | ".join(contract_diagnostics))
         configuration_snapshot = canonical_configuration_value(self._configuration.to_dict())
 
-        self._system = ProtectionSystem()
-        self._channels = dict(channels)
+        composed_system = ProtectionSystem()
+        composed_channels = dict(channels)
         for item in self._configuration.elements:
             relay = self._network.get_by_id("relay", item.relay_id)
             relay_inputs: dict[str, RelayInput] = {}
@@ -92,10 +92,12 @@ class ProtectionRuntime:
                 priority=item.priority,
                 metadata=item.metadata,
             )
-            self._system.add_element(element)
+            composed_system.add_element(element)
         # The aggregate itself is mutable (transactional updates replace
         # entries in-place), so object identity alone cannot prove that the
         # currently composed system reflects its current contents.
+        self._system = composed_system
+        self._channels = composed_channels
         self._composed_configuration_snapshot = configuration_snapshot
         return self._system
 
