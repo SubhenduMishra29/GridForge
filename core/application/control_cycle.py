@@ -197,8 +197,23 @@ class ControlCycleService:
             context = ControlExecutionContext(
                 simulation_time=simulation_time,
                 external_inputs=resolved.external_inputs,
-                metadata={"control_signal_bindings": resolved.bindings},
+                metadata={
+                    "control_signal_bindings": resolved.bindings,
+                    "control_interlock_inputs": resolved.interlock_inputs,
+                },
             )
+            # Keep ordinary logic inputs and freshness-bearing interlock inputs
+            # separate. Route only mapped envelopes to the interlocks attached
+            # to the corresponding action binding.
+            if interlock_inputs is not None:
+                raise ValueError("interlock_inputs cannot be combined with signal_mapping.")
+            mapped = resolved.interlock_inputs
+            interlock_inputs = {}
+            for binding in self._control_engine.bindings:
+                if binding.interlock_id is None:
+                    continue
+                values = mapped.get(binding.control_id, {})
+                interlock_inputs.setdefault(binding.interlock_id, {}).update(values)
 
         evaluation = self._control_engine.evaluate(
             simulation_time=simulation_time,
