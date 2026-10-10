@@ -8,6 +8,8 @@ from typing import Any, Mapping
 
 def canonical_configuration_value(value: Any) -> Any:
     """Detached deterministic snapshot; reject unsupported types explicitly."""
+    if isinstance(value, Enum):
+        return ("enum", value.__class__.__module__, value.__class__.__qualname__, value.name)
     if value is None or isinstance(value, (str, bool, int)):
         return (type(value).__name__, value)
     if isinstance(value, float):
@@ -18,8 +20,6 @@ def canonical_configuration_value(value: Any) -> Any:
         if not (isfinite(value.real) and isfinite(value.imag)):
             raise ValueError("Configuration contains a non-finite complex value.")
         return ("complex", value.real.hex(), value.imag.hex())
-    if isinstance(value, Enum):
-        return ("enum", value.__class__.__module__, value.__class__.__qualname__, value.name)
     if isinstance(value, Mapping):
         entries = []
         for key, item in value.items():
