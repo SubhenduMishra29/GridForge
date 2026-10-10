@@ -200,7 +200,7 @@ class ControlCycleService:
         simulation_time: float | None = None,
         external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
         context: ControlExecutionContext | None = None,
-        interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None,
+        interlock_inputs: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> ControlCycleResult:
         """Resolve engineering inputs when configured, then evaluate and execute Control intent."""
         if self._signal_mapping is not None:
