@@ -24,6 +24,7 @@ class ControlExecutionResult:
     failed_decisions: tuple[ControlDecision, ...] = ()
     application_results: tuple[ApplicationResult[Any], ...] = ()
     diagnostics: tuple[str, ...] = ()
+    failure_diagnostics: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "executed_decisions", tuple(self.executed_decisions))
@@ -34,6 +35,7 @@ class ControlExecutionResult:
         object.__setattr__(self, "failed_decisions", tuple(self.failed_decisions))
         object.__setattr__(self, "application_results", tuple(self.application_results))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+        object.__setattr__(self, "failure_diagnostics", tuple((str(key), str(value)) for key, value in self.failure_diagnostics))
 
 
 class ControlExecutionService:
@@ -68,6 +70,7 @@ class ControlExecutionService:
         failed: list[ControlDecision] = []
         results: list[ApplicationResult[Any]] = []
         diagnostics: list[str] = []
+        failure_diagnostics: list[tuple[str, str]] = []
 
         for decision in evaluation.decisions:
             if not decision.valid:
@@ -78,18 +81,17 @@ class ControlExecutionService:
                 result = self._dispatcher.execute(decision)
             except Exception as exc:
                 failed.append(decision)
-                diagnostics.append(
-                    f"Control '{decision.control_id}' execution failed: {exc}"
-                )
-                continue
+                message = f"Control '{decision.control_id}' execution failed: {exc}"
+                diagnostics.append(message)
+                failure_diagnostics.append((decision.control_id, message))
+continue
 
             if not isinstance(result, ApplicationResult):
                 failed.append(decision)
-                diagnostics.append(
-                    f"Control '{decision.control_id}' execution failed: dispatcher returned "
-                    f"{type(result).__name__}, not ApplicationResult."
-                )
-                continue
+                message = f"Control '{decision.control_id}' execution failed: dispatcher returned {type(result).__name__}, not ApplicationResult."
+                diagnostics.append(message)
+                failure_diagnostics.append((decision.control_id, message))
+continue
 
             # Preserve every returned Application result, including explicit
             # failures, so the outcome remains traceable to the command layer.
@@ -99,17 +101,17 @@ class ControlExecutionService:
             else:
                 failed.append(decision)
                 detail = result.message.strip() or "Application command reported failure without a diagnostic."
-                diagnostics.append(
-                    f"Control '{decision.control_id}' execution failed: {detail}"
-                )
-
-        return ControlExecutionResult(
+                message = f"Control '{decision.control_id}' execution failed: {detail}"
+                diagnostics.append(message)
+                failure_diagnostics.append((decision.control_id, message))
+return ControlExecutionResult(
             executed_decisions=tuple(executed),
             invalid_decisions=tuple(invalid),
             blocked_decisions=tuple(evaluation.blocked_actions),
             failed_decisions=tuple(failed),
             application_results=tuple(results),
             diagnostics=tuple(diagnostics),
+            failure_diagnostics=tuple(failure_diagnostics),
         )
 
 
