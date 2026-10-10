@@ -356,6 +356,20 @@ class Application:
             raise RuntimeError("Active project protection runtime/configuration is not available.")
         if runtime.network is not lifecycle.network:
             raise RuntimeError("Protection runtime network is stale for the active project.")
+        active_configuration = configuration.configuration
+        if active_configuration is None:
+            raise RuntimeError("Active project protection configuration is unavailable.")
+        if runtime.configuration is not active_configuration:
+            raise RuntimeError(
+                "Protection runtime configuration is not the exact active Application configuration."
+            )
+        if not runtime.configuration_matches_composition:
+            return ProtectionExecutionResult(
+                diagnostics=(
+                    f"project={project.project_id!r}: protection configuration changed after runtime "
+                    "composition; runtime is stale and evaluation was refused.",
+                )
+            )
         if runtime.configuration.project_id != project.project_id:
             raise RuntimeError("Protection runtime project identity does not match the active project.")
         if service.project_id != project.project_id:
