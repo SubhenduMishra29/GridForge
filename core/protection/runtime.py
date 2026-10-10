@@ -10,6 +10,8 @@ from .factory import ProtectionFactory
 from .project_configuration import ProtectionProjectConfiguration
 from .protection_system import ProtectionSystem
 from .relay_input import RelayInput
+from .input_contracts import validate_protection_input_contracts
+from .configuration_fingerprint import canonical_configuration_value
 
 
 class ProtectionRuntime:
@@ -24,7 +26,7 @@ class ProtectionRuntime:
         self._configuration = configuration
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
-        self._composed_configuration_snapshot: dict[str, Any] | None = None
+        self._composed_configuration_snapshot: Any | None = None
 
     @property
     def network(self) -> Network:
@@ -47,12 +49,21 @@ class ProtectionRuntime:
     def configuration_matches_composition(self) -> bool:
         """Whether mutable project configuration still matches the composed runtime."""
         snapshot = self._composed_configuration_snapshot
-        return snapshot is not None and self._configuration.to_dict() == snapshot
+        if snapshot is None:
+            return False
+        try:
+            return canonical_configuration_value(self._configuration.to_dict()) == snapshot
+        except (TypeError, ValueError):
+            return False
 
     def compose(self, channels: Mapping[str, Any]) -> ProtectionSystem:
         """Rebuild runtime composition from project configuration and live channels."""
         if not isinstance(channels, Mapping):
             raise TypeError("channels must be a mapping of channel IDs to MeasurementChannel objects.")
+        contract_diagnostics = validate_protection_input_contracts(self._configuration, channels)
+        if contract_diagnostics:
+            raise ValueError("Protection input-contract validation failed before composition: " + " | ".join(contract_diagnostics))
+        configuration_snapshot = canonical_configuration_value(self._configuration.to_dict())
 
         self._system = ProtectionSystem()
         self._channels = dict(channels)
@@ -85,7 +96,7 @@ class ProtectionRuntime:
         # The aggregate itself is mutable (transactional updates replace
         # entries in-place), so object identity alone cannot prove that the
         # currently composed system reflects its current contents.
-        self._composed_configuration_snapshot = self._configuration.to_dict()
+        self._composed_configuration_snapshot = configuration_snapshot
         return self._system
 
 
