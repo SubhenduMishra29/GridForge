@@ -62,7 +62,7 @@ from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
-from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context
+from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite
 from .services.control_service import ControlApplicationService
@@ -417,8 +417,23 @@ class Application:
                         raise TypeError("boolean timestamp is not valid")
                     timestamp = float(timestamp)
                     value = channel.engineering_value
-                    if isinstance(value, bool):
-                        raise TypeError("boolean engineering sample is not valid")
+                    requirement = input_contract_for(runtime.configuration, element, input_name)
+                    if requirement is not None:
+                        rejected_representation = validate_sample_representation(value, requirement)
+                        if rejected_representation is not None:
+                            diagnostics.append(
+                                f"{prefix}, function={element.function_code!r}: "
+                                f"engineering sample representation rejected: {rejected_representation}"
+                            )
+                            continue
+                    elif element.function_code == "67":
+                        # ANSI 67 also consumes angle inputs; no unsupported representation
+                        # or caller-provided metadata may bypass the directional fail-closed gate.
+                        diagnostics.append(
+                            f"{prefix}, function='67': no supported canonical input representation "
+                            "is available for this configured directional input."
+                        )
+                        continue
                     finite_value = (
                         isfinite(float(value.real)) and isfinite(float(value.imag))
                         if isinstance(value, complex) else isfinite(float(value))
