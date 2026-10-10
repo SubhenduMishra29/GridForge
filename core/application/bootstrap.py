@@ -206,9 +206,11 @@ def create_application(network: Any) -> Application:
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
-        previous_measurement = measurement_channel_service.serialize_definitions()
-        previous_measurement_project = measurement_channel_service.project_id
-        previous_measurement_generation = measurement_channel_service.activation_generation
+        # Retain the exact live service state. Serialized definitions omit
+        # authoritative sample state and reprovisioning would invalidate
+        # channel references already held by the prior ProtectionRuntime and
+        # RelayInput instances.
+        previous_measurement_state = measurement_channel_service.snapshot_state()
         # Capture the exact pre-transition authority. Reconstructing a synthetic
         # ProjectContext or consulting lifecycle.network during compensation can
         # bind old channel definitions to the candidate network.
@@ -233,19 +235,9 @@ def create_application(network: Any) -> Application:
             application.configure_control_signal_mapping(previous_control_signal_mapping)
 
         def restore_project_state() -> None:
-            if previous_measurement_project is None:
-                measurement_channel_service.deactivate()
-            else:
-                if previous_lifecycle_context is None or previous_lifecycle_network is None:
-                    raise RuntimeError(
-                        "Cannot restore measurement channels without the prior project context and network."
-                    )
-                measurement_channel_service.activate(
-                    previous_lifecycle_context,
-                    previous_lifecycle_network,
-                    previous_measurement,
-                    previous_measurement_generation,
-                )
+            # Restore the exact registry and channel objects before restoring
+            # consumers that retain references to those objects.
+            measurement_channel_service.restore_state(previous_measurement_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -323,8 +315,15 @@ def create_application(network: Any) -> Application:
                 application.protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
 
-        except Exception:
-            restore_project_state()
+        except Exception as transition_error:
+            try:
+                restore_project_state()
+            except Exception as compensation_error:
+                raise ExceptionGroup(
+                    "Project activation failed and rollback compensation also failed; "
+                    "both failures are preserved.",
+                    [transition_error, compensation_error],
+                ) from None
             raise
 
         def rollback() -> None:
