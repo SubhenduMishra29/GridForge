@@ -24,6 +24,7 @@ class ProtectionRuntime:
         self._configuration = configuration
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
+        self._composed_configuration_snapshot: dict[str, Any] | None = None
 
     @property
     def network(self) -> Network:
@@ -41,6 +42,12 @@ class ProtectionRuntime:
     def channels(self) -> Mapping[str, Any]:
         """Exact channel objects used by the current runtime composition."""
         return dict(self._channels)
+
+    @property
+    def configuration_matches_composition(self) -> bool:
+        """Whether mutable project configuration still matches the composed runtime."""
+        snapshot = self._composed_configuration_snapshot
+        return snapshot is not None and self._configuration.to_dict() == snapshot
 
     def compose(self, channels: Mapping[str, Any]) -> ProtectionSystem:
         """Rebuild runtime composition from project configuration and live channels."""
@@ -75,6 +82,10 @@ class ProtectionRuntime:
                 metadata=item.metadata,
             )
             self._system.add_element(element)
+        # The aggregate itself is mutable (transactional updates replace
+        # entries in-place), so object identity alone cannot prove that the
+        # currently composed system reflects its current contents.
+        self._composed_configuration_snapshot = self._configuration.to_dict()
         return self._system
 
 
