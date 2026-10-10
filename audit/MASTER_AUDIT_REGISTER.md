@@ -42,7 +42,7 @@ The findings in this remediation batch are synchronized to the latest static evi
 - GF-SLD-TERM-020, -021, -023 through -028, GF-SLD-SNAP-022, RCA-SLD-CONN-002, and GF-MASTER-0067 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-035, -036, -038, -039, and -040 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-037 — **STATICALLY VERIFIED — BOUNDARY ADDED**.
-- GF-PROT-042 — **OPEN — INTEGRATION GAP**. Batch 72 adds an Application-owned `evaluate_protection_cycle(evaluation_time)` gate, project/generation/network checks, explicit GOOD-quality and timestamp/freshness validation, finite-value rejection, and runtime channel-object identity checks. `ProtectionRuntime` records the exact channel objects used at composition. The full configured input signal-contract validation and proven protection-to-action-to-command-to-feedback path remain incomplete; dispatch requires an explicit action resolver and no physical target is inferred.
+- GF-PROT-042 — **OPEN — INTEGRATION GAP**. Batch 73 adds exact active-configuration object identity and a runtime composition snapshot guard; changed in-place configuration is refused before evaluation. Batch 72 project/generation/network checks, explicit GOOD-quality and timestamp/freshness validation, finite-value rejection, and runtime channel-object identity checks remain. Function-specific input signal-contract validation and the complete protection-to-action-to-command-to-feedback path remain incomplete; dispatch requires an explicit action resolver and no physical target is inferred.
 - GF-SLD-WF-TOOL-006 — **STATICALLY VERIFIED — CORRECTED**.
 
 For all corrected items, **RUNTIME VERIFICATION — DEFERRED / UNVERIFIED**.
