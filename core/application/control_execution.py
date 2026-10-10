@@ -27,23 +27,21 @@ class ControlExecutionResult:
     failure_diagnostics: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "executed_decisions", tuple(self.executed_decisions))
-        object.__setattr__(self, "acknowledged_decisions", tuple(self.acknowledged_decisions))
-        object.__setattr__(self, "mismatched_decisions", tuple(self.mismatched_decisions))
-        object.__setattr__(self, "invalid_decisions", tuple(self.invalid_decisions))
-        object.__setattr__(self, "blocked_decisions", tuple(self.blocked_decisions))
-        object.__setattr__(self, "failed_decisions", tuple(self.failed_decisions))
-        object.__setattr__(self, "application_results", tuple(self.application_results))
+        for name in (
+            "executed_decisions", "acknowledged_decisions", "mismatched_decisions",
+            "invalid_decisions", "blocked_decisions", "failed_decisions",
+            "application_results",
+        ):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
-        object.__setattr__(self, "failure_diagnostics", tuple((str(key), str(value)) for key, value in self.failure_diagnostics))
+        pairs = tuple((str(control_id), str(message)) for control_id, message in self.failure_diagnostics)
+        if any(not control_id or not message for control_id, message in pairs):
+            raise ValueError("failure_diagnostics entries require a control ID and diagnostic.")
+        object.__setattr__(self, "failure_diagnostics", pairs)
 
 
 class ControlExecutionService:
-    """Execute permitted Control intent through the existing command boundary.
-
-    This service deliberately lives in Application. Control remains an intent
-    producer and never reaches Core equipment or Network mutation itself.
-    """
+    """Execute permitted Control intent through the existing command boundary."""
 
     def __init__(self, dispatcher: ControlCommandDispatcher) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
@@ -52,16 +50,10 @@ class ControlExecutionService:
 
     @property
     def dispatcher(self) -> ControlCommandDispatcher:
-        """Return the configured Control command dispatcher."""
         return self._dispatcher
 
     def execute(self, evaluation: ControlEvaluationResult) -> ControlExecutionResult:
-        """Dispatch valid decisions while preserving every execution outcome.
-
-        Blocked evaluation actions and invalid decisions are reported separately
-        and are never dispatched. A failed Application command is recorded as
-        an execution failure and does not suppress later deterministic intents.
-        """
+        """Dispatch every valid decision; failures never suppress later decisions."""
         if not isinstance(evaluation, ControlEvaluationResult):
             raise TypeError("evaluation must be a ControlEvaluationResult.")
 
@@ -84,19 +76,22 @@ class ControlExecutionService:
                 message = f"Control '{decision.control_id}' execution failed: {exc}"
                 diagnostics.append(message)
                 failure_diagnostics.append((decision.control_id, message))
-continue
+                continue
 
             if not isinstance(result, ApplicationResult):
                 failed.append(decision)
-                message = f"Control '{decision.control_id}' execution failed: dispatcher returned {type(result).__name__}, not ApplicationResult."
+                message = (
+                    f"Control '{decision.control_id}' execution failed: dispatcher returned "
+                    f"{type(result).__name__}, not ApplicationResult."
+                )
                 diagnostics.append(message)
                 failure_diagnostics.append((decision.control_id, message))
-continue
+                continue
 
-            # Preserve every returned Application result, including explicit
-            # failures, so the outcome remains traceable to the command layer.
             results.append(result)
             if result.success:
+                # This means the Application command succeeded, not that
+                # equipment physically operated or acknowledged the action.
                 executed.append(decision)
             else:
                 failed.append(decision)
@@ -104,7 +99,8 @@ continue
                 message = f"Control '{decision.control_id}' execution failed: {detail}"
                 diagnostics.append(message)
                 failure_diagnostics.append((decision.control_id, message))
-return ControlExecutionResult(
+
+        return ControlExecutionResult(
             executed_decisions=tuple(executed),
             invalid_decisions=tuple(invalid),
             blocked_decisions=tuple(evaluation.blocked_actions),
