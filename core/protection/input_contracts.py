@@ -33,12 +33,11 @@ class ProtectionFunctionInputContract:
 _CURRENT_PHASES = frozenset({
     MeasurementPhase.A, MeasurementPhase.B, MeasurementPhase.C,
     MeasurementPhase.N, MeasurementPhase.NONE,
+    MeasurementPhase.AB, MeasurementPhase.BC, MeasurementPhase.CA,
+    MeasurementPhase.THREE_PHASE, MeasurementPhase.POSITIVE_SEQUENCE,
+    MeasurementPhase.NEGATIVE_SEQUENCE, MeasurementPhase.ZERO_SEQUENCE,
 })
-_VOLTAGE_PHASES = frozenset({
-    MeasurementPhase.A, MeasurementPhase.B, MeasurementPhase.C,
-    MeasurementPhase.N, MeasurementPhase.AB, MeasurementPhase.BC,
-    MeasurementPhase.CA, MeasurementPhase.NONE,
-})
+_VOLTAGE_PHASES = _CURRENT_PHASES
 _CURRENT = frozenset({MeasurementSignalType.CURRENT})
 _VOLTAGE = frozenset({MeasurementSignalType.VOLTAGE})
 _SCALAR_OR_PHASOR = "finite numeric scalar or complex phasor (function consumes magnitude)"
@@ -55,7 +54,7 @@ _RESIDUAL_INPUT = ProtectionInputContract(
 )
 _TEMP_INPUT = ProtectionInputContract(
     "temperature", frozenset({MeasurementSignalType.CUSTOM}),
-    frozenset({MeasurementPhase.NONE}), _SCALAR,
+    frozenset(MeasurementPhase), _SCALAR,
 )
 
 # Contract phase choices are deliberately narrow and use only canonical enums.
