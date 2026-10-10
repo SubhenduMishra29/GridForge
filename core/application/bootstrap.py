@@ -209,6 +209,11 @@ def create_application(network: Any) -> Application:
         previous_measurement = measurement_channel_service.serialize_definitions()
         previous_measurement_project = measurement_channel_service.project_id
         previous_measurement_generation = measurement_channel_service.activation_generation
+        # Capture the exact pre-transition authority. Reconstructing a synthetic
+        # ProjectContext or consulting lifecycle.network during compensation can
+        # bind old channel definitions to the candidate network.
+        previous_lifecycle_context = application.project_lifecycle.context
+        previous_lifecycle_network = application.project_lifecycle.network
         previous_dynamic_models = dynamic_models.snapshot()
         previous_control_configuration = control_service.configuration
         previous_control_signal_mapping = application.control_signal_mapping
@@ -226,6 +231,30 @@ def create_application(network: Any) -> Application:
                 )
             control_service.activate(previous_control_configuration)
             application.configure_control_signal_mapping(previous_control_signal_mapping)
+
+        def restore_project_state() -> None:
+            if previous_measurement_project is None:
+                measurement_channel_service.deactivate()
+            else:
+                if previous_lifecycle_context is None or previous_lifecycle_network is None:
+                    raise RuntimeError(
+                        "Cannot restore measurement channels without the prior project context and network."
+                    )
+                measurement_channel_service.activate(
+                    previous_lifecycle_context,
+                    previous_lifecycle_network,
+                    previous_measurement,
+                    previous_measurement_generation,
+                )
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            application.protection_runtime = previous_protection_runtime
+            application.protection_presentation = previous_protection_presentation
+            application.set_draft_network(previous_draft)
+            dynamic_models.replace(previous_dynamic_models)
+            restore_control_runtime()
 
         try:
             if context is None:
@@ -295,44 +324,14 @@ def create_application(network: Any) -> Application:
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
 
         except Exception:
-            if previous_measurement_project is None:
-                measurement_channel_service.deactivate()
-            else:
-                measurement_channel_service.activate(
-                    ProjectContext(previous_measurement_project, "restored", None),
-                    application.project_lifecycle.network,
-                    previous_measurement,
-                    previous_measurement_generation,
-                )
-            if previous_configuration is None:
-                protection_configuration_service.deactivate()
-            else:
-                protection_configuration_service.activate(previous_configuration)
-            application.protection_runtime = previous_protection_runtime
-            application.protection_presentation = previous_protection_presentation
-            application.set_draft_network(previous_draft)
-            dynamic_models.replace(previous_dynamic_models)
-            restore_control_runtime()
+            restore_project_state()
             raise
 
         def rollback() -> None:
-            if previous_measurement_project is None:
-                measurement_channel_service.deactivate()
-            else:
-                measurement_channel_service.activate(
-                    ProjectContext(previous_measurement_project, "restored", None),
-                    application.project_lifecycle.network,
-                    previous_measurement,
-                    previous_measurement_generation,
-                )
-            if previous_configuration is None:
-                protection_configuration_service.deactivate()
-            else:
-                protection_configuration_service.activate(previous_configuration)
-            application.protection_runtime = previous_protection_runtime
-            application.protection_presentation = previous_protection_presentation
-            dynamic_models.replace(previous_dynamic_models)
-            restore_control_runtime()
+            # The lifecycle invokes this callback after a later activation
+            # stage fails. Restore the complete snapshot, not just protection
+            # and Control services; draft state is part of project identity.
+            restore_project_state()
 
         return rollback
 
