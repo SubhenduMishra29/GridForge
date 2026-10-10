@@ -59,6 +59,10 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
+from core.protection.context import ProtectionContext
+from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
+from math import isfinite
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
@@ -319,6 +323,124 @@ class Application:
     def measurement_channel_service(self) -> MeasurementChannelService:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
+
+    def evaluate_protection_cycle(
+        self,
+        evaluation_time: float,
+        *,
+        action_resolver: Any | None = None,
+    ) -> ProtectionExecutionResult:
+        """Evaluate the active project's protection system at an explicit time.
+
+        Required configured inputs fail closed before any protection element
+        executes. Action dispatch is optional and must be explicitly configured;
+        this method never infers a physical target from a protection decision.
+        """
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        if project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Protection evaluation requires an active project.")
+        if isinstance(evaluation_time, bool):
+            raise TypeError("evaluation_time must be an explicit finite numeric timestamp.")
+        try:
+            evaluation_time = float(evaluation_time)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("evaluation_time must be an explicit finite numeric timestamp.") from exc
+        if not isfinite(evaluation_time) or evaluation_time < 0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+
+        service = self.measurement_channel_service
+        runtime = getattr(self, "protection_runtime", None)
+        configuration = getattr(self, "protection_configuration_service", None)
+        if runtime is None or configuration is None:
+            raise RuntimeError("Active project protection runtime/configuration is not available.")
+        if runtime.network is not lifecycle.network:
+            raise RuntimeError("Protection runtime network is stale for the active project.")
+        if runtime.configuration.project_id != project.project_id:
+            raise RuntimeError("Protection runtime project identity does not match the active project.")
+        if service.project_id != project.project_id:
+            raise RuntimeError("Measurement channel registry belongs to a different project.")
+        if service.activation_generation != lifecycle.activation_generation:
+            raise RuntimeError("Measurement channel registry activation generation is stale.")
+
+        channels = service.channels
+        diagnostics: list[str] = []
+        for element in runtime.configuration.elements:
+            if not element.enabled:
+                continue
+            for input_name, channel_id in element.input_channel_ids.items():
+                prefix = (
+                    f"project={project.project_id!r}, element={element.element_id!r}, "
+                    f"input={input_name!r}, channel={channel_id!r}"
+                )
+                channel = channels.get(channel_id)
+                if channel is None:
+                    diagnostics.append(f"{prefix}: required measurement channel is missing.")
+                    continue
+                if getattr(channel, "id", None) != channel_id:
+                    diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
+                    continue
+                timestamp = getattr(channel, "timestamp", None)
+                if timestamp is None:
+                    diagnostics.append(f"{prefix}: sample timestamp is missing; freshness cannot be established.")
+                    continue
+                try:
+                    timestamp = float(timestamp)
+                    value = channel.engineering_value
+                    finite_value = (
+                        isfinite(float(value.real)) and isfinite(float(value.imag))
+                        if isinstance(value, complex) else isfinite(float(value))
+                    )
+                except (TypeError, ValueError, OverflowError, AttributeError):
+                    diagnostics.append(f"{prefix}: sample value or timestamp is non-numeric/non-finite.")
+                    continue
+                if not isfinite(timestamp) or timestamp > evaluation_time:
+                    diagnostics.append(f"{prefix}: sample timestamp is non-finite or later than evaluation time.")
+                    continue
+                quality = getattr(channel, "quality", None)
+                if quality is not MeasurementQuality.GOOD:
+                    diagnostics.append(
+                        f"{prefix}: quality {getattr(quality, 'value', quality)!r} is not permitted; "
+                        "only GOOD quality is accepted by the protection evaluation policy."
+                    )
+                    continue
+                if not bool(getattr(channel, "available", False)):
+                    diagnostics.append(f"{prefix}: measurement channel is unavailable.")
+                    continue
+                if not finite_value:
+                    diagnostics.append(f"{prefix}: engineering sample is non-finite.")
+                    continue
+                stale_after = getattr(channel, "stale_after", None)
+                if stale_after is None:
+                    diagnostics.append(f"{prefix}: stale_after freshness limit is not configured.")
+                    continue
+                validity = channel.validity(current_time=evaluation_time)
+                if validity is not MeasurementValidity.VALID:
+                    diagnostics.append(f"{prefix}: measurement validity is {getattr(validity, 'value', validity)!r}.")
+                    continue
+                # Runtime composition records the exact objects it bound into
+                # RelayInput instances. Compare by identity, not merely channel ID.
+                if runtime.channels.get(channel_id) is not channel:
+                    diagnostics.append(f"{prefix}: protection runtime retains a stale channel object.")
+
+        if diagnostics:
+            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+
+        context = ProtectionContext(
+            time=evaluation_time,
+            metadata={
+                "project_id": project.project_id,
+                "activation_generation": lifecycle.activation_generation,
+            },
+        )
+        decisions = runtime.system.evaluate(context)
+        if action_resolver is None:
+            return ProtectionExecutionResult(decisions=decisions)
+        execution = ProtectionExecutionService(
+            self.control_execution.dispatcher,
+            action_resolver=action_resolver,
+        )
+        return execution.execute(decisions)
 
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
