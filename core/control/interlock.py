@@ -37,7 +37,9 @@ class ControlInterlock:
 
     Only explicitly implemented condition and quality policies are accepted.
     The quality policy requires an explicit `valid` quality marker for each
-    required input; unqualified raw values are not considered trustworthy.
+    required input. Freshness is established by an explicit finite `timestamp`
+    equal to the current simulation time; no implicit timeout or missing-time
+    fallback is permitted.
     """
 
     interlock_id: str
@@ -127,6 +129,38 @@ class ControlInterlock:
                     False,
                     f"Interlock '{self.interlock_id}' input '{name}' has no value.",
                     SignalQuality.MISSING,
+                )
+            if "timestamp" not in signal:
+                return InterlockResult(
+                    False,
+                    f"Interlock '{self.interlock_id}' input '{name}' has no timestamp; freshness cannot be established.",
+                    SignalQuality.MISSING,
+                )
+            try:
+                timestamp = float(signal["timestamp"])
+            except (TypeError, ValueError, OverflowError):
+                return InterlockResult(
+                    False,
+                    f"Interlock '{self.interlock_id}' input '{name}' has an invalid timestamp.",
+                    SignalQuality.INVALID,
+                )
+            if not isfinite(timestamp):
+                return InterlockResult(
+                    False,
+                    f"Interlock '{self.interlock_id}' input '{name}' timestamp must be finite.",
+                    SignalQuality.INVALID,
+                )
+            if timestamp > current_time:
+                return InterlockResult(
+                    False,
+                    f"Interlock '{self.interlock_id}' input '{name}' timestamp is in the future.",
+                    SignalQuality.INVALID,
+                )
+            if timestamp != current_time:
+                return InterlockResult(
+                    False,
+                    f"Interlock '{self.interlock_id}' input '{name}' is not fresh for simulation time {current_time!r}.",
+                    SignalQuality.STALE,
                 )
             if signal["value"] is not True:
                 blocked.append(name)

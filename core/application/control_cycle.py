@@ -75,6 +75,23 @@ class ControlCycleResult:
                     )
                 seen_outcomes[decision.control_id] = name
 
+        expected_ids = {decision.control_id for decision in self.evaluation.decisions}
+        reported_ids = {
+            decision.control_id
+            for category in (
+                self.execution.executed_decisions,
+                self.execution.failed_decisions,
+                self.execution.invalid_decisions,
+            )
+            for decision in category
+        }
+        if expected_ids != reported_ids:
+            missing = sorted(expected_ids - reported_ids)
+            unexpected = sorted(reported_ids - expected_ids)
+            raise ValueError(
+                f"Execution outcomes must account for every evaluated decision; missing={missing}, unexpected={unexpected}."
+            )
+
         evaluation_blocked = tuple(decision.control_id for decision in self.evaluation.blocked_actions)
         execution_blocked = tuple(decision.control_id for decision in self.execution.blocked_decisions)
         if evaluation_blocked != execution_blocked:
@@ -102,8 +119,11 @@ class ControlCycleResult:
 
     @property
     def execution_failure_diagnostics(self) -> tuple[tuple[str, str], ...]:
-        failed_ids = tuple(decision.control_id for decision in self.execution.failed_decisions)
-        return tuple(zip(failed_ids, self.execution.diagnostics, strict=False))
+        if self.execution.failure_diagnostics:
+            return self.execution.failure_diagnostics
+        # Legacy results have no structured association. Do not guess which
+        # failure a free-form diagnostic belongs to by positional pairing.
+        return ()
 
     @property
     def diagnostic_records(self) -> tuple[ControlDiagnostic, ...]:
