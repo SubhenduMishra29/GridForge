@@ -83,8 +83,25 @@ class ControlExecutionService:
                 )
                 continue
 
-            executed.append(decision)
+            if not isinstance(result, ApplicationResult):
+                failed.append(decision)
+                diagnostics.append(
+                    f"Control '{decision.control_id}' execution failed: dispatcher returned "
+                    f"{type(result).__name__}, not ApplicationResult."
+                )
+                continue
+
+            # Preserve every returned Application result, including explicit
+            # failures, so the outcome remains traceable to the command layer.
             results.append(result)
+            if result.success:
+                executed.append(decision)
+            else:
+                failed.append(decision)
+                detail = result.message.strip() or "Application command reported failure without a diagnostic."
+                diagnostics.append(
+                    f"Control '{decision.control_id}' execution failed: {detail}"
+                )
 
         return ControlExecutionResult(
             executed_decisions=tuple(executed),
