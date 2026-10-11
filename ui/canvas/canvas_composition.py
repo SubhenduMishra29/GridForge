@@ -70,25 +70,114 @@ class SLDCanvasSurface(QWidget):
             raise ValueError("sld_canvas_render_system must target the canonical GraphicsView scene.")
         self._sld_canvas_projection = sld_canvas_projection
         self._sld_canvas_render_system = sld_canvas_render_system
-        self._view = view
-        self._navigation_controller = navigation_controller
-        self._build_ui()
+        self._document_id: str | None = None
+        self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
+        self.setObjectName("SLDCanvasSurface")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self._tab_bar = QTabWidget(self)
-        self._tab_bar.setDocumentMode(True)
-        self._tab_bar.setTabsClosable(False)
-        self._tab_bar.addTab(self._view, "SLD (Main)")
-        layout.addWidget(self._tab_bar)
-        self._title_label = QLabel("SLD (Main)", self)
-        self._title_label.setObjectName("sldDocumentTitle")
-        layout.addWidget(self._title_label)
+        header = QWidget(self)
+        header.setObjectName("SLDCanvasHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 5, 8, 5)
+        header_layout.setSpacing(5)
+
+        title = QLabel("SLD (Main)", header)
+        title.setObjectName("SLDDocumentTitle")
+        self._title_label = title
+        header_layout.addWidget(title)
+        header_layout.addStretch(1)
+
+        mode = QComboBox(header)
+        mode.addItems(("Normal Mode", "Placement Mode", "Connection Mode"))
+        mode.setObjectName("SLDModeSelector")
+        mode.setToolTip("Presentation mode for the active SLD canvas.")
+        header_layout.addWidget(mode)
+
+        zoom_out = QPushButton("−", header)
+        zoom_out.setObjectName("SLDZoomOut")
+        zoom_out.setToolTip("Zoom out")
+        zoom_out.clicked.connect(navigation_controller.zoom_out)
+        header_layout.addWidget(zoom_out)
+
+        zoom_label = QLabel("100%", header)
+        zoom_label.setObjectName("SLDZoomValue")
+        header_layout.addWidget(zoom_label)
+
+        zoom_in = QPushButton("+", header)
+        zoom_in.setObjectName("SLDZoomIn")
+        zoom_in.setToolTip("Zoom in")
+        zoom_in.clicked.connect(navigation_controller.zoom_in)
+        header_layout.addWidget(zoom_in)
+
+        fit = QPushButton("Fit", header)
+        fit.setObjectName("SLDFit")
+        fit.setToolTip("Fit the SLD content in the viewport")
+        # QPushButton.clicked emits a bool; do not pass that signal payload as
+        # the numeric fit margin.
+        fit.clicked.connect(
+            lambda _checked=False: navigation_controller.fit_content()
+        )
+        header_layout.addWidget(fit)
+
+        root.addWidget(header)
+
+        tabs = QTabWidget(self)
+        tabs.setObjectName("SLDDocumentTabs")
+        tabs.setTabsClosable(False)
+        page = QWidget(tabs)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(view)
+        tabs.addTab(page, "SLD (Main)")
+        plus = QPushButton("+", tabs)
+        plus.setObjectName("SLDNewDocumentButton")
+        plus.setEnabled(False)
+        plus.setToolTip("Additional SLD documents are managed by the project/document lifecycle.")
+        tabs.setCornerWidget(plus)
+        root.addWidget(tabs, 1)
+
+    def present_document(self, document: SLDDocument) -> SLDCanvasSnapshot:
+        """Present the Application-authoritative SLD document on this surface."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument.")
+        snapshot = self._sld_canvas_projection.project(document.model)
+        self._sld_canvas_render_system.synchronize(snapshot)
+        self._document_id = document.document_id
+        self._sld_canvas_snapshot = snapshot
+        return snapshot
+
+    def present_composite_document(
+        self,
+        document: SLDDocument,
+        draft_snapshot: DraftSLDCanvasSnapshot,
+    ) -> CompositeSLDCanvasSnapshot:
+        """Present committed and DraftNetwork state as one complete canvas snapshot."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument.")
+        if not isinstance(draft_snapshot, DraftSLDCanvasSnapshot):
+            raise TypeError("draft_snapshot must be a DraftSLDCanvasSnapshot.")
+        committed = self._sld_canvas_projection.project(document.model)
+        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
+        self._sld_canvas_render_system.synchronize(composite)
+        self._document_id = document.document_id
+        self._sld_canvas_snapshot = committed
+        return composite
+
+    def clear_document(self) -> None:
+        """Clear canonical SLD graphics without mutating Core/Application state."""
+        self._sld_canvas_render_system.clear()
+        self._document_id = None
+        self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
+
+    @property
+    def document_id(self) -> str | None:
+        return self._document_id
 
     @property
     def sld_canvas_snapshot(self) -> SLDCanvasSnapshot:
-        return self._sld_canvas_projection.snapshot
+        return self._sld_canvas_snapshot
 
     def set_document_title(self, title: str | None) -> None:
         """Update only the visible document-tab title from projected application state."""
@@ -164,11 +253,11 @@ class CanvasComposer:
         sld_canvas_projection: SLDCanvasProjection | None = None,
         sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
     ) -> CanvasComposition:
-        """Construct one complete Canvas service graph around canonical authorities.
+        """Construct one complete Canvas service graph.
 
-        The SLDController is injected by the composition root rather than
-        discovered indirectly from UI/workspace owners. Its SelectionManager
-        must be the exact instance prepared for ToolManager and this canvas.
+        The canonical SLDController is injected by the composition root,
+        never discovered indirectly from UI/workspace owners. Its shared
+        interaction authorities must match the prepared Canvas dependencies.
         """
         if controller is None:
             raise ValueError("controller must not be None.")
