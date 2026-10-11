@@ -29,6 +29,10 @@ class ToolIconAdapter:
         "bus": "▰", "snap": "⊙", "delete": "×",
         "zoom_in": "+", "zoom_out": "−", "fit": "□",
         "line": "╱", "cable": "≋",
+        "electrical-insertion": "EI", "connect_measurement": "CM",
+        "inspect": "I", "diagnostics": "!", "run": "▶", "cancel": "×",
+        "compare": "⇄", "plot": "∿", "filter": "▽", "export": "↓",
+        "navigation": "↔", "navigate": "↔",
     }
 
     def __init__(self, symbol_registry: SymbolRegistry) -> None:
@@ -51,20 +55,23 @@ class ToolIconAdapter:
         if generic is not None:
             return generic
 
-        # Equipment tools may reuse canonical engineering artwork through the
-        # palette adapter, but this remains a presentation-only fallback.
+        # An absent icon_id is an intentional metadata choice. Use a neutral
+        # text/glyph fallback rather than probing the equipment symbol registry
+        # or emitting a missing-symbol diagnostic for an optional icon.
         explicit = definition.icon_id
-        if explicit:
-            icon = self._symbol_icon(explicit)
-            if icon is not None:
-                return icon
+        if explicit is None:
+            return self._fallback_icon(definition.tool_id)
 
-        canonical = self._symbol_icon(definition.tool_id)
-        if canonical is not None:
-            return canonical
+        # An explicit icon_id must resolve canonically. Only equipment tools
+        # may reuse a symbol whose stable ID is the same as the tool ID.
+        icon = self._symbol_icon(explicit)
+        if icon is not None:
+            return icon
+        if explicit != definition.tool_id:
+            canonical = self._symbol_icon(definition.tool_id)
+            if canonical is not None:
+                return canonical
 
-        # Deterministic engineering fallback. This path is intentionally
-        # non-empty so a missing symbol can never make the shaft blank.
         _LOG.warning(
             "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s",
             definition.tool_id,
