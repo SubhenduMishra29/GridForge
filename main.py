@@ -425,11 +425,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             result = gridforge_application.execute(command)
         except ExecutionError as exc:
             # Expected Application execution failures are surfaced once at
-            # this UI boundary; retain the stable code and diagnostic text.
+            # this UI boundary; retain structured and causal diagnostics.
+            diagnostic = f"{exc.code}: {exc.message}"
+            if exc.details:
+                diagnostic += f"\nDetails: {dict(exc.details)!r}"
+            if exc.cause is not None:
+                diagnostic += f"\nCause: {exc.cause}"
             QMessageBox.critical(
                 window,
                 "Commit Network",
-                f"{exc.code}: {exc.message}",
+                diagnostic,
             )
             return
         if not result.success:
