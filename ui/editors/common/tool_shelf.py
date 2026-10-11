@@ -118,9 +118,9 @@ class ToolShelf(QWidget):
             button.setAutoRaise(True)
             button.setIconSize(QSize(22, 22))
             button.setToolButtonStyle(
-                QToolButton.ToolButtonStyle.ToolButtonIconOnly
+                Qt.ToolButtonStyle.ToolButtonIconOnly
                 if self._compact_mode
-                else QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon
+                else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
             )
             if self._icon_provider is not None:
                 try:
