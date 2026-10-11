@@ -31,6 +31,7 @@ class ToolIconAdapter:
         "line": "╱", "cable": "≋",
         "electrical-insertion": "EI", "connect_measurement": "CM",
         "inspect": "I", "diagnostics": "!", "run": "▶", "cancel": "×",
+        "run_study": "▶", "inspect_result": "IR", "compare_results": "⇄",
         "compare": "⇄", "plot": "∿", "filter": "▽", "export": "↓",
         "navigation": "↔", "navigate": "↔",
     }
