@@ -300,15 +300,9 @@ class CanvasComposer:
         if sld_canvas_render_system.snap_system is not snap_system:
             raise ValueError("SLDCanvasRenderSystem must use the same canonical SnapSystem as ToolManager and the active Canvas scene.")
 
-        # Route editing is composed from the already-existing SLD controller.
-        # Canvas composition must never construct a second SLDController: the
-        # route-edit controller is only the transient presentation interaction
-        # adapter around the canonical SLDController command boundary.
-        sld_controller = self._canonical_sld_controller(
-            controller=controller,
-            application=application,
-            tool_manager=tool_manager,
-        )
+        # Route editing is composed exactly once from the canonical controller
+        # explicitly supplied by the application composition root. This method
+        # must not rediscover or replace that dependency.
         route_edit_controller = SLDRouteEditController(sld_controller)
         sld_canvas_render_system.bind_route_edit_controller(route_edit_controller)
         if sld_canvas_render_system.selection_manager is not None and sld_canvas_render_system.selection_manager is not selection_manager:
@@ -379,59 +373,6 @@ class CanvasComposer:
             interaction_contract=interaction_contract,
         )
 
-
-    @staticmethod
-    def _canonical_sld_controller(*, controller: Any, application: Any, tool_manager: ToolManager) -> Any:
-        """Resolve the already-composed SLDController for the active Canvas.
-
-        Canvas composition is not an SLDController factory. It accepts only an
-        existing controller exposed by the active UI/Application/workspace
-        composition and fails closed when that canonical dependency is absent
-        or ambiguous.
-        """
-        candidates: list[Any] = []
-
-        for owner in (controller, tool_manager, application):
-            if owner is None:
-                continue
-            direct = getattr(owner, "sld_controller", None)
-            if direct is not None:
-                candidates.append(direct)
-            getter = getattr(owner, "get_sld_controller", None)
-            if callable(getter):
-                resolved = getter()
-                if resolved is not None:
-                    candidates.append(resolved)
-
-        lifecycle = getattr(application, "project_lifecycle", None)
-        workspace_controller = getattr(lifecycle, "workspace_controller", None)
-        for owner in (lifecycle, workspace_controller):
-            if owner is None:
-                continue
-            direct = getattr(owner, "sld_controller", None)
-            if direct is not None:
-                candidates.append(direct)
-            getter = getattr(owner, "get_sld_controller", None)
-            if callable(getter):
-                resolved = getter()
-                if resolved is not None:
-                    candidates.append(resolved)
-
-        valid = [
-            candidate
-            for candidate in candidates
-            if callable(getattr(candidate, "set_connection_route", None))
-        ]
-        unique: list[Any] = []
-        for candidate in valid:
-            if all(candidate is not existing for existing in unique):
-                unique.append(candidate)
-        if len(unique) != 1:
-            raise RuntimeError(
-                "CanvasComposer requires exactly one canonical existing "
-                "SLDController for the active SLD/Application/workspace composition."
-            )
-        return unique[0]
 
     def bind_selection_projection(
         self,
