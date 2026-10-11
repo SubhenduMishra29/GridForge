@@ -82,6 +82,9 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     errors: list[BaseException] = []
+    sld_controller = resources.get("sld_controller")
+    if isinstance(sld_controller, SLDController):
+        _invoke_cleanup(sld_controller.dispose, errors)
     startup_splash = resources.get("startup_splash")
     if isinstance(startup_splash, StartupSplash):
         _invoke_cleanup(startup_splash.close, errors)
@@ -129,7 +132,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     network = Network(); gridforge_application = create_application(network)
     startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
-    sld_controller: SLDController
 
     def serialize_sld(document: SLDDocument) -> dict:
         if not isinstance(document, SLDDocument): raise TypeError("Persistent presentation must be an SLDDocument")
@@ -165,6 +167,19 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         preview_layer=canvas_preparation.preview_layer,
         equipment_registry=equipment_registry,
     )
+    # Construct the one canonical SLD controller as soon as its authoritative
+    # projection manager and shared interaction dependencies exist. The active
+    # document is registered later, after project activation creates it.
+    sld_state = SLDState(
+        selection_manager=canvas_preparation.selection_manager,
+        tool_manager=tool_manager,
+    )
+    sld_controller = SLDController(
+        state=sld_state,
+        projection_manager=sld_projection_manager,
+        application=gridforge_application,
+    )
+    resources["sld_controller"] = sld_controller
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_preparation.scene,
@@ -172,10 +187,15 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         semantic_realization=presentation_bootstrap.semantic_realization,
         snap_system=canvas_preparation.snap_system,
     )
+    from ui.sld.sld_route_edit_controller import SLDRouteEditController
+    sld_canvas_render_system.bind_route_edit_controller(
+        SLDRouteEditController(sld_controller)
+    )
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
         preparation=canvas_preparation,
+        sld_controller=sld_controller,
         parent=None,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
@@ -855,20 +875,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-    sld_state = SLDState(
-        selection_manager=canvas_composition.selection_manager,
-        tool_manager=tool_manager,
-        document_manager=project_workspace_lifecycle.documents,
-    )
-    sld_controller = SLDController(
-        state=sld_state,
-        projection_manager=sld_projection_manager,
-        application=gridforge_application,
-        workspace_lifecycle=project_workspace_lifecycle,
-    )
+    sld_controller.register_document(sld_document)
     sld_controller.reconcile_presentation()
-    from ui.sld.sld_route_edit_controller import SLDRouteEditController
-    sld_canvas_render_system.bind_route_edit_controller(SLDRouteEditController(sld_controller))
 
     # Resolve the canonical canvas synchronization callable before registering
     # lifecycle callbacks that may invoke it. This removes the composition-order

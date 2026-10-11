@@ -28,6 +28,7 @@ from ui.projection.selection_projection_coordinator import SelectionProjectionCo
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
 from ui.canvas.draft_sld_projection import DraftSLDProjection, DraftSLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_route_edit_controller import SLDRouteEditController
 
@@ -201,6 +202,7 @@ class CanvasComposition:
     snap_system: SnapSystem
     preview_layer: PreviewLayer
     application: Any
+    sld_controller: SLDController
     sld_canvas_projection: SLDCanvasProjection
     sld_canvas_render_system: SLDCanvasRenderSystem
     route_edit_controller: SLDRouteEditController
@@ -245,6 +247,7 @@ class CanvasComposer:
         controller: Controller,
         tool_manager: ToolManager,
         preparation: CanvasCompositionPreparation,
+        sld_controller: SLDController,
         parent: Optional[QWidget] = None,
         workspace_id: str = "sld",
         discipline: str | None = None,
@@ -254,10 +257,9 @@ class CanvasComposer:
     ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
-        The SelectionProjectionCoordinator is always composed with the
-        Canvas service graph. Its PropertiesPanel target may be bound later
-        through the same coordinator instance when the PanelsPlugin presents
-        the canonical PropertiesPanel.
+        The canonical SLDController is injected by the composition root,
+        never discovered indirectly from UI/workspace owners. Its shared
+        interaction authorities must match the prepared Canvas dependencies.
         """
         if controller is None:
             raise ValueError("controller must not be None.")
@@ -265,6 +267,8 @@ class CanvasComposer:
             raise ValueError("tool_manager must not be None.")
         if not isinstance(preparation, CanvasCompositionPreparation):
             raise TypeError("preparation must be CanvasCompositionPreparation.")
+        if not isinstance(sld_controller, SLDController):
+            raise TypeError("sld_controller must be the canonical SLDController.")
         if not isinstance(sld_canvas_projection, SLDCanvasProjection):
             raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
         if not isinstance(sld_canvas_render_system, SLDCanvasRenderSystem):
@@ -274,6 +278,8 @@ class CanvasComposer:
         interaction_contract = CanvasInteractionContract()
         if application is None:
             raise ValueError("tool_manager must retain the canonical Application.")
+        if sld_controller.application is not application:
+            raise ValueError("SLDController and ToolManager must share the canonical Application.")
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
@@ -281,6 +287,10 @@ class CanvasComposer:
         snap_system = preparation.snap_system
         preview_layer = preparation.preview_layer
 
+        if sld_controller.state.selection_manager is not selection_manager:
+            raise ValueError("SLDController must use the prepared canonical SelectionManager.")
+        if sld_controller.state.tool_manager is not tool_manager:
+            raise ValueError("SLDController must use the canonical ToolManager.")
         if tool_manager.selection_manager is not selection_manager:
             raise ValueError("ToolManager must use the prepared SelectionManager.")
         if tool_manager.snap_system is not snap_system:
@@ -360,6 +370,7 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             application=application,
+            sld_controller=sld_controller,
             sld_canvas_projection=sld_canvas_projection,
             sld_canvas_render_system=sld_canvas_render_system,
             route_edit_controller=route_edit_controller,
