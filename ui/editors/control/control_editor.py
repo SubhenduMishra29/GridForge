@@ -72,7 +72,10 @@ class ControlEditor(QWidget):
             "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region,
             "overlay": overlay_region, "diagnostics": diagnostics_region, "status": status_region,
         }
-        self._tool_shelf = shelf.contained_widget
+        resolved_tool_shelf = shelf.contained_widget
+        if not isinstance(resolved_tool_shelf, ToolShelf):
+            raise TypeError("tool_shelf region must contain a ToolShelf instance.")
+        self._tool_shelf = resolved_tool_shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
         self._region_splitters = {"body": body, "left": left, "center": center, "sidebar": sidebar, "bottom": bottom}
