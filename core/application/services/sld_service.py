@@ -476,13 +476,27 @@ class SLDService:
         properties.update(dict(presentation_properties))
 
         presentation = p.get("presentation")
-        if presentation is None and self._symbol_presentation_factory is not None:
+        if presentation is None and equipment_id is not None:
+            if self._symbol_presentation_factory is None:
+                raise ValueError(
+                    f"SLD equipment node {p['node_id']!r} has no symbol presentation "
+                    "and no symbol presentation factory is configured."
+                )
             if not isinstance(element_type, str) or not element_type.strip():
                 raise ValueError(
-                    "SLD node creation requires element_type when a default "
-                    "symbol presentation factory is configured."
+                    "SLD equipment node creation requires its canonical element_type "
+                    "when a default symbol presentation factory is configured."
                 )
             presentation = self._symbol_presentation_factory(element_type)
+        if presentation is not None and not isinstance(presentation, Mapping):
+            raise TypeError(
+                f"SLD symbol presentation for node {p['node_id']!r} must be a mapping "
+                "accepted by SymbolBase.from_dict()."
+            )
+        if presentation is not None:
+            # Copy the complete renderer-neutral representation without
+            # rewriting symbol identity, rotation, geometry, or properties.
+            presentation = dict(presentation)
 
         node_id = p["node_id"]
         # Reject identity collisions before registering compensation. In
