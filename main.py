@@ -326,6 +326,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(
         workspace_controller=workspace_controller,
     )
+    # Complete the canonical controller/lifecycle graph now that the workspace
+    # host exists. SLDController is created earlier because Canvas composition
+    # depends on it, so lifecycle ownership is attached explicitly here.
+    sld_controller.bind_workspace_lifecycle(project_workspace_lifecycle)
     project_workspace_adapter = ProjectWorkspaceApplicationAdapter(
         application=gridforge_application,
         lifecycle=project_workspace_lifecycle,
