@@ -16,9 +16,9 @@ class StudyToolRuntime:
     """Own contextual Study actions without becoming a second study authority."""
 
     TOOL_DEFINITIONS = (
-        ToolDefinition("run_study", "Run Study", "Execute the selected Study Case through Application.", icon_id="run_study", editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
-        ToolDefinition("inspect_result", "Inspect Result", "Inspect the selected Study Result.", icon_id="inspect_result", editor_types=("study",), capabilities=("result", "inspect"), supported_modes=("select",), default_mode="select", category="results"),
-        ToolDefinition("compare_results", "Compare Results", "Select Study Results for comparison.", icon_id="compare_results", editor_types=("study",), capabilities=("result", "compare"), supported_modes=("select",), default_mode="select", category="results"),
+        ToolDefinition("run_study", "Run Study", "Execute the selected Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
+        ToolDefinition("inspect_result", "Inspect Result", "Inspect the selected Study Result.", icon_id=None, editor_types=("study",), capabilities=("result", "inspect"), supported_modes=("select",), default_mode="select", category="results"),
+        ToolDefinition("compare_results", "Compare Results", "Select Study Results for comparison.", icon_id=None, editor_types=("study",), capabilities=("result", "compare"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("plot", "Plot", "Prepare the selected Study Result for plotting.", icon_id="plot", editor_types=("study",), capabilities=("result", "plot"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("filter", "Filter", "Filter visible Study Results.", icon_id="filter", editor_types=("study",), capabilities=("result", "filter"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("export", "Export", "Export the selected Study Result through the presentation/Application boundary.", icon_id="export", editor_types=("study",), capabilities=("result", "export"), supported_modes=("select",), default_mode="select", category="results"),
