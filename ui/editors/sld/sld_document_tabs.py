@@ -71,29 +71,42 @@ class SLDDocumentTabs(QWidget):
         self._close_callback = close_document
         self.refresh()
 
+    def _remove_all_tabs(self) -> None:
+        """Remove presentation tabs using the supported QTabBar API."""
+        while self._tabs.count() > 0:
+            self._tabs.removeTab(self._tabs.count() - 1)
+
     def refresh(self) -> None:
         manager = self._document_manager
-        if manager is None:
-            self._tabs.clear()
-            return
-        active_id = getattr(manager, "active_document_id", None)
-        documents = tuple(manager.documents())
+        previous_reordering = self._reordering
+        previous_blocked = self._tabs.blockSignals(True)
         self._reordering = True
         try:
-            self._tabs.blockSignals(True)
-            self._tabs.clear()
+            self._remove_all_tabs()
+            if manager is None:
+                return
+
+            active_id = getattr(manager, "active_document_id", None)
+            documents = tuple(manager.documents())
+            active_index = -1
             for document in documents:
+                document_id = str(document.document_id)
                 label = str(getattr(document, "name", "Untitled SLD"))
-                if bool(getattr(manager, "is_dirty", lambda *_: False)(document.document_id)):
+                is_dirty = getattr(manager, "is_dirty", None)
+                if callable(is_dirty) and bool(is_dirty(document_id)):
                     label += " *"
                 index = self._tabs.addTab(label)
-                self._tabs.setTabData(index, str(document.document_id))
-                self._tabs.setTabToolTip(index, str(document.document_id))
-                if document.document_id == active_id:
-                    self._tabs.setCurrentIndex(index)
+                self._tabs.setTabData(index, document_id)
+                self._tabs.setTabToolTip(index, document_id)
+                if document_id == active_id:
+                    active_index = index
+
+            # Do not implicitly select the first document when the manager
+            # has no active document or its active ID is absent from the list.
+            self._tabs.setCurrentIndex(active_index)
         finally:
-            self._tabs.blockSignals(False)
-            self._reordering = False
+            self._tabs.blockSignals(previous_blocked)
+            self._reordering = previous_reordering
 
     def _document_id_at(self, index: int) -> str | None:
         data = self._tabs.tabData(index)
