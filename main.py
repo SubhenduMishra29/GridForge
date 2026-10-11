@@ -82,6 +82,9 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     errors: list[BaseException] = []
+    sld_controller = resources.get("sld_controller")
+    if isinstance(sld_controller, SLDController):
+        _invoke_cleanup(sld_controller.dispose, errors)
     startup_splash = resources.get("startup_splash")
     if isinstance(startup_splash, StartupSplash):
         _invoke_cleanup(startup_splash.close, errors)
@@ -176,6 +179,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         projection_manager=sld_projection_manager,
         application=gridforge_application,
     )
+    resources["sld_controller"] = sld_controller
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_preparation.scene,
