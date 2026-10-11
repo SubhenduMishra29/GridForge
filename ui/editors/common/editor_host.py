@@ -190,6 +190,16 @@ class EditorRegionFrame(QFrame):
         self._content = QVBoxLayout()
         layout.addLayout(self._content)
 
+    @property
+    def contained_widget(self) -> QWidget | None:
+        """Return the widget currently mounted in this Region frame."""
+        for index in range(self._content.count()):
+            item = self._content.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                return widget
+        return None
+
     def set_title_visible(self, visible: bool) -> None:
         if self._title_label is not None:
             self._title_label.setVisible(bool(visible))
