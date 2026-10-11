@@ -67,6 +67,28 @@ class SLDController:
     def application(self) -> Application:
         return self._require_application()
 
+    def bind_workspace_lifecycle(
+        self,
+        lifecycle: ProjectWorkspaceLifecycle,
+    ) -> None:
+        """Bind the one canonical workspace lifecycle after UI composition.
+
+        The composition graph creates SLDController before the workspace host
+        can be realized. This explicit one-time binding completes that graph
+        without creating a second controller or inferring lifecycle ownership.
+        """
+        if not isinstance(lifecycle, ProjectWorkspaceLifecycle):
+            raise TypeError(
+                "lifecycle must be the canonical ProjectWorkspaceLifecycle."
+            )
+        if self._workspace_lifecycle is lifecycle:
+            return
+        if self._workspace_lifecycle is not None:
+            raise RuntimeError(
+                "SLDController is already bound to a different ProjectWorkspaceLifecycle."
+            )
+        self._workspace_lifecycle = lifecycle
+
     @property
     def active_document(self) -> Optional[SLDDocument]:
         lifecycle = self._workspace_lifecycle
