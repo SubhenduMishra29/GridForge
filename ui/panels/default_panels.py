@@ -547,10 +547,10 @@ class PropertiesPanelWidget(QWidget):
         if self._apply_button is not None:
             self._apply_button.setText("Place Draft Equipment")
             self._apply_button.setProperty("role", "draftPlacementAction")
-            self._apply_button.setEnabled(
-                draft.configuration_complete
-                and draft.placement_position is not None
-            )
+            # DraftNetwork accepts valid position-first authoring state.
+            # Engineering completeness is validated at the explicit Commit
+            # Network boundary, not as a prerequisite for draft placement.
+            self._apply_button.setEnabled(draft.placement_position is not None)
             if self._apply_changes_connected:
                 try:
                     self._apply_button.clicked.disconnect(self._apply_changes)
