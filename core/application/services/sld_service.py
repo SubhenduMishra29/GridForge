@@ -484,16 +484,37 @@ class SLDService:
                 )
             presentation = self._symbol_presentation_factory(element_type)
 
-        self.document.model.create_node(
-            node_id=p["node_id"],
-            equipment_id=equipment_id,
-            x=float(p["x"]),
-            y=float(p["y"]),
-            presentation=presentation,
-            properties=properties,
-        )
+        node_id = p["node_id"]
+        # Reject identity collisions before registering compensation. In
+        # particular, never let a failed create roll back a pre-existing node.
+        if self.document.model.get_node_optional(node_id) is not None:
+            raise ValueError(f"SLD node identity collision: {node_id!r}.")
+
+        # Register compensation before entering model code. A malformed
+        # SymbolBase payload can raise while create_node is constructing the
+        # persistent presentation; rollback must still remove a partially
+        # inserted node. The inverse is deliberately idempotent because the
+        # model may have failed before insertion.
+        def undo_added_node() -> None:
+            if self.document.model.get_node_optional(node_id) is not None:
+                self.document.model.remove_node(node_id)
+                self.document.mark_modified()
+
+        transaction.record_undo(undo_added_node)
+        try:
+            self.document.model.create_node(
+                node_id=node_id,
+                equipment_id=equipment_id,
+                x=float(p["x"]),
+                y=float(p["y"]),
+                presentation=presentation,
+                properties=properties,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"Could not create SLD node {node_id!r} with its symbol presentation: {exc}"
+            ) from exc
         self.document.mark_modified()
-        transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
         return ApplicationResult.success_result(
             message="SLD node added.",
             metadata={"presentation_operation": "add_node", "node_id": p["node_id"]},
