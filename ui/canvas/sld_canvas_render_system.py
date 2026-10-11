@@ -184,15 +184,46 @@ class SLDCanvasRenderSystem:
             setter(selected)
 
     def bind_route_edit_controller(self, controller: Any) -> None:
-        """Bind the presentation route-edit boundary to realized connection items."""
+        """Bind the existing route-edit controller to realized connection items."""
         if controller is None or not callable(getattr(controller, "handle_route_edit_request", None)):
             raise TypeError("route edit controller must expose handle_route_edit_request().")
+        if self._route_edit_controller is controller:
+            return
+        self._unbind_route_edit_controller()
         self._route_edit_controller = controller
+        self._bind_route_edit_items()
+
+    def _bind_route_edit_items(self) -> None:
+        controller = self._route_edit_controller
+        if controller is None:
+            return
+        callback = controller.handle_route_edit_request
         for items in tuple(self._items.values()):
             for item in items:
                 signal = getattr(item, "route_edit_requested", None)
                 if signal is not None and callable(getattr(signal, "connect", None)):
-                    signal.connect(controller.handle_route_edit_request)
+                    signal.connect(callback)
+
+    def _unbind_route_edit_item(self, item: Any) -> None:
+        controller = self._route_edit_controller
+        if controller is None:
+            return
+        signal = getattr(item, "route_edit_requested", None)
+        disconnect = getattr(signal, "disconnect", None) if signal is not None else None
+        if callable(disconnect):
+            try:
+                disconnect(controller.handle_route_edit_request)
+            except (RuntimeError, TypeError):
+                pass
+
+    def _unbind_route_edit_controller(self) -> None:
+        controller = self._route_edit_controller
+        if controller is None:
+            return
+        for items in tuple(self._items.values()):
+            for item in items:
+                self._unbind_route_edit_item(item)
+        self._route_edit_controller = None
 
     def synchronize(self, snapshot: SLDCanvasSnapshot | CompositeSLDCanvasSnapshot) -> None:
         """Incrementally reconcile the scene with one complete immutable snapshot."""
@@ -553,6 +584,7 @@ class SLDCanvasRenderSystem:
     def _remove_realized(self, item_id: str) -> None:
         items = self._items.pop(item_id, ())
         for item in items:
+            self._unbind_route_edit_item(item)
             if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
                 self._snap_system.unregister_item(item)
             if item is not None and item.scene() is self._scene:
@@ -563,6 +595,7 @@ class SLDCanvasRenderSystem:
     def clear(self) -> None:
         for items in tuple(self._items.values()):
             for item in items:
+                self._unbind_route_edit_item(item)
                 if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
                     self._snap_system.unregister_item(item)
                 if item is not None and item.scene() is self._scene:
@@ -578,6 +611,7 @@ class SLDCanvasRenderSystem:
 
     def dispose(self) -> None:
         self.clear()
+        self._unbind_route_edit_controller()
 
 
 __all__ = ["RenderDiagnostic", "SLDCanvasRenderSystem"]

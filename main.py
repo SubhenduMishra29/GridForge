@@ -62,7 +62,7 @@ from ui.tools.tool_definition import contextual_tool_definitions
 from ui.tools.tool_mode import ToolMode
 from ui.tools.tool_settings import ToolSettings
 from ui.editors.study.study_tool_runtime import StudyToolRuntime
-from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
+from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.draft_commands import CommitNetworkCommand
@@ -218,13 +218,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         *protection_tool_definitions,
         *study_tool_definitions,
     )
-    _tool_icon_adapter = PaletteSymbolAdapter(presentation_bootstrap.symbol_registry)
+    # Tool-shaft presentation is deliberately separate from the equipment
+    # palette. ToolIconAdapter may reuse SymbolRegistry definitions, but
+    # ToolDefinition remains the sole tool identity input.
+    _tool_icon_adapter = ToolIconAdapter(presentation_bootstrap.symbol_registry)
 
-    def _tool_icon(icon_id: str):
-        try:
-            return _tool_icon_adapter.icon_for(icon_id)
-        except (KeyError, ValueError, TypeError):
-            return None
+    def _tool_icon(definition):
+        return _tool_icon_adapter.icon_for(definition)
 
     workspace_surface_host = ControlSurfaceHost(
         surfaces={
@@ -234,9 +234,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         },
         application=gridforge_application,
         tool_definitions=contextual_tool_definitions_all,
-        tool_activator=tool_manager.activate,
+        tool_activator=controller.set_tool,
         tool_activators={
-            "sld": tool_manager.activate,
+            "sld": controller.set_tool,
             "control": control_workspace.activate_tool_id,
             "protection": protection_workspace.activate_tool_id,
             "study": study_tool_runtime.activate,
@@ -283,6 +283,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
         selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
         engineering = engineering_context.current.with_updates(
+            project_id=getattr(getattr(gridforge_application.project_lifecycle, "context", None), "project_id", None),
+            document_id=project_workspace_lifecycle.documents.active_document_id,
             discipline=editor_type,
             active_tool=active_tool,
             selected_ids=selected_ids,
@@ -300,9 +302,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
         return EditorContext(
             workspace=workspace_id,
+            workspace_id=workspace_id,
             area=area,
             editor=editor,
+            editor_id=str(getattr(editor, "editor_id", editor_type)),
             region=region,
+            project_id=engineering.project_id,
+            document_id=engineering.document_id,
             engineering=engineering,
             selection_context={"selected_ids": selected_ids},
             active_tool=active_tool,
@@ -330,16 +336,21 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
+    project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
 
     status_plugin = None
 
     def _refresh_status() -> None:
         project_context = getattr(gridforge_application.project_lifecycle, "context", None)
         project_name = getattr(project_context, "name", None)
-        window.setWindowTitle(
-            f"{branding.PRODUCT_NAME} — {project_name}" if project_name else branding.DEFAULT_TITLE
-        )
-        canvas_composition.surface.set_document_title(project_name)
+        active_document = project_workspace_lifecycle.documents.active_document
+        document_name = getattr(active_document, "name", None)
+        title = f"{branding.PRODUCT_NAME} — {project_name}" if project_name else branding.DEFAULT_TITLE
+        if document_name:
+            title += f" — {document_name}"
+        window.setWindowTitle(title)
+        canvas_composition.surface.set_document_title(document_name or project_name)
+        workspace_surface_host.refresh_sld_document_tabs()
         if status_plugin is not None:
             status_plugin.refresh_authoritative_state()
 
@@ -634,6 +645,15 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
         )
 
+    def _toggle_sld_maximize() -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
+        workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
+
+    def _toggle_sld_region(region_id: str) -> None:
+        workspace_controller.activate(SLD_WORKSPACE_ID)
+        workspace_surface_host.toggle_region("sld", region_id)
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -657,6 +677,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.topology": lambda: workspace_surface_host.activate("topology"),
         "view.map": lambda: workspace_surface_host.activate("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
+        "view.maximize_editor": _toggle_sld_maximize,
+        "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
+        "view.toggle_inspector": lambda: _toggle_sld_region("sidebar"),
+        "view.toggle_messages": lambda: _toggle_sld_region("diagnostics"),
+        "view.toggle_tool_settings": lambda: _toggle_sld_region("tool_settings"),
         "view.equipment_browser": _show_equipment_browser,
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
@@ -756,6 +781,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.topology": ("Topology", "Show the topology projection.", None, "workspace"),
         "view.map": ("Map", "Show persisted SLD geometry.", None, "workspace"),
         "view.reports": ("Reports", "Show published study results.", None, "workspace"),
+        "view.maximize_editor": ("Maximize Editor", "Maximize or restore the active SLD editor.", "Ctrl+Space", "view"),
+        "view.toggle_explorer": ("Explorer", "Show or hide the SLD project explorer.", None, "view"),
+        "view.toggle_inspector": ("Inspector", "Show or hide the SLD inspector.", None, "view"),
+        "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
+        "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
         "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
         "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
         "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
@@ -780,7 +810,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         discipline = context.discipline
         if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
-                         "view.protection_workspace", "view.topology", "view.map", "view.reports"}:
+                         "view.protection_workspace", "view.topology", "view.map", "view.reports",
+                         "view.maximize_editor", "view.toggle_explorer", "view.toggle_inspector",
+                         "view.toggle_messages", "view.toggle_tool_settings"}:
             return project_active
         if action_id.startswith("tool."):
             try:
@@ -849,18 +881,61 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     # Resolve the canonical canvas synchronization callable before registering
     # lifecycle callbacks that may invoke it. This removes the composition-order
     # dependency on a later local binding.
-    synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
+    synchronize_canvas = getattr(canvas_plugin, "refresh_canvas", None)
     if not callable(synchronize_canvas):
-        raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
+        raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
         if isinstance(document, SLDDocument):
-            sld_controller.replace_document(document)
-            sld_controller.activate_document(document.document_id)
+            sld_controller.reconcile_presentation()
+            engineering_context.update(document_id=document.document_id)
+            workspace_surface_host.set_sld_document(document)
+            workspace_surface_host.refresh_sld_document_tabs()
             synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
+
+    def _new_sld_document() -> None:
+        document = project_workspace_adapter.new_sld_document()
+        engineering_context.update(document_id=document.document_id)
+        workspace_surface_host.refresh_sld_document_tabs()
+        synchronize_canvas()
+
+    def _close_sld_document(document_id: str) -> None:
+        document = project_workspace_adapter.documents.require(document_id)
+        if project_workspace_adapter.is_document_dirty(document_id):
+            box = QMessageBox(window)
+            box.setWindowTitle("Close SLD Document")
+            box.setText("Save changes to " + str(document.name) + "?")
+            save_button = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+            discard_button = box.addButton("Don't Save", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_button = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is cancel_button:
+                return
+            decision = "save" if clicked is save_button else "discard"
+        else:
+            decision = "discard"
+        try:
+            project_workspace_adapter.close_document(document_id, decision=decision)
+        except BaseException as exc:
+            QMessageBox.critical(window, "Close SLD Document", str(exc))
+            return
+        workspace_surface_host.refresh_sld_document_tabs()
+        active = project_workspace_adapter.lifecycle.document
+        if isinstance(active, SLDDocument):
+            engineering_context.update(document_id=active.document_id)
+        synchronize_canvas()
+
+    workspace_surface_host.configure_sld_document_lifecycle(
+        project_workspace_lifecycle.documents,
+        activate=project_workspace_adapter.activate_document,
+        new_document=_new_sld_document,
+        close_document=_close_sld_document,
+    )
+    workspace_surface_host.refresh_sld_document_tabs()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()

@@ -204,6 +204,8 @@ from __future__ import annotations
 # =====================================================================
 
 from .network import Network
+from .junction import Junction
+from .junction_registry import JunctionRegistry
 
 
 # =====================================================================
@@ -220,6 +222,10 @@ from .state import NetworkState
 # =====================================================================
 
 from .topology import TopologyManager
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 from .connectivity import (
     ConnectivityError,
     ConnectivityResolver,
@@ -253,6 +259,8 @@ from core.base.per_unit import PerUnitSystem
 __all__ = [
     # Primary façade
     "Network",
+    "Junction",
+    "JunctionRegistry",
 
     # Assembly infrastructure
     "NetworkRegistry",
@@ -268,6 +276,8 @@ __all__ = [
     "SIMPLE_WIRE_KIND",
     "SimpleWireCompatibility",
     "SimpleWireConnection",
+    "TopologyEndpointReference",
+    "TopologyEndpointReferenceKind",
 
     # Base-layer service
     "PerUnitSystem",

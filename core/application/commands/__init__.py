@@ -39,9 +39,17 @@ from .pt_commands import (
     CREATE_PT, UPDATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE,
     CreatePTCommand, UpdatePTCommand, DeletePTCommand, PutPTInServiceCommand, TakePTOutOfServiceCommand,
 )
+from .junction_commands import (
+    CREATE_JUNCTION, REMOVE_JUNCTION,
+    CreateJunctionCommand, RemoveJunctionCommand,
+)
 from .simple_wire_commands import (
     CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE,
     CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand,
+)
+from .insertion_commands import (
+    INSERT_EQUIPMENT_INTO_CONNECTION,
+    InsertEquipmentIntoConnectionCommand,
 )
 from .connection_commands import (
     CONNECT_TERMINAL, DISCONNECT_TERMINAL, RECONNECT_TERMINAL,

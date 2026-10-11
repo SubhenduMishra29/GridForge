@@ -54,3 +54,13 @@ Those responsibilities remain in the existing UI subsystems.
         +---------+---------+
         |         |         |
       Scene     View     Render
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+SLD is the canonical visual authoring/projection surface, not electrical truth.
+
+Current insertion semantics support dragging already-placed equipment onto an existing Simple Wire. The preview identifies an insertion target; commit is an Application command and transaction. The resulting wire split and inserted terminals are reconciled from canonical state.
+
+SLD route ownership, presentation ownership, authored node metadata, and projection provenance must survive insertion. QGraphics objects are disposable realizations of persistent SLD state.

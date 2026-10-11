@@ -112,6 +112,26 @@ class NetworkChanged(ApplicationEvent):
 
 
 @dataclass(frozen=True)
+class JunctionCreated(ApplicationEvent):
+    """Semantic fact that a topology Junction was created."""
+    def __init__(self, *, junction_id: str, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None, metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"junction_id": junction_id, "junction_kind": "topology"}
+        if metadata: payload.update(metadata)
+        super().__init__("junction.created", payload, correlation_id=correlation_id, causation_id=causation_id)
+
+
+@dataclass(frozen=True)
+class JunctionRemoved(ApplicationEvent):
+    """Semantic fact that a topology Junction was removed."""
+    def __init__(self, *, junction_id: str, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None, metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"junction_id": junction_id, "junction_kind": "topology"}
+        if metadata: payload.update(metadata)
+        super().__init__("junction.removed", payload, correlation_id=correlation_id, causation_id=causation_id)
+
+
+@dataclass(frozen=True)
 class SimpleWireConnectionCreated(ApplicationEvent):
     """Semantic fact that an authoritative Simple Wire was created."""
 

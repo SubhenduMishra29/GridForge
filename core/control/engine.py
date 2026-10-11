@@ -167,7 +167,7 @@ class ControlEngine:
         simulation_time: float | None = None,
         external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
         context: ControlExecutionContext | None = None,
-        interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None,
+        interlock_inputs: Mapping[str, Any] | None = None,
     ) -> ControlEvaluationResult:
         """Evaluate logic, gate asserted actions, and emit deterministic intents."""
         if self._configuration is None or self._logic_engine is None:
@@ -184,7 +184,7 @@ class ControlEngine:
         candidates: list[ControlDecision] = []
         blocked: list[ControlDecision] = []
         diagnostics: list[str] = []
-        supplied_interlocks = interlock_inputs or {}
+        supplied_interlocks = interlock_inputs
 
         for binding in self._bindings:
             outputs = logic_result.signals.get(binding.source_component, {})
@@ -192,8 +192,13 @@ class ControlEngine:
                 continue
             decision = binding.decision(simulation_time=context.simulation_time)
             if binding.interlock_id is not None:
+                interlock_values: Any
+                if not isinstance(supplied_interlocks, Mapping):
+                    interlock_values = supplied_interlocks
+                else:
+                    interlock_values = supplied_interlocks.get(binding.interlock_id, {})
                 result = self._interlocks[binding.interlock_id].evaluate(
-                    supplied_interlocks.get(binding.interlock_id, {}), context.simulation_time
+                    interlock_values, context.simulation_time
                 )
                 if not result.allowed:
                     blocked.append(

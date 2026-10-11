@@ -10,9 +10,16 @@ from __future__ import annotations
 from typing import Any
 
 from core.model import EndpointReference
-from core.network import EndpointCompatibility, EndpointCompatibilityError, SimpleWireConnection
+from core.network import (
+    ConnectivityError,
+    EndpointCompatibility,
+    EndpointCompatibilityError,
+    SimpleWireConnection,
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 from ..command import Command
-from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE
+from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE, CreateSimpleWireConnectionCommand
 from ..endpoint_resolver import resolve_terminal_reference
 from ..errors import ResourceError, ValidationError
 from ..results import ApplicationResult
@@ -26,6 +33,36 @@ class SimpleWireConnectionService:
 
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
+
+    def create_command(
+        self,
+        *,
+        connection_id: str,
+        source: EndpointReference | TopologyEndpointReference,
+        target: EndpointReference | TopologyEndpointReference,
+    ) -> Command:
+        """Prepare an immutable Simple Wire command without mutating Core."""
+        if not isinstance(connection_id, str) or not connection_id.strip():
+            raise ValueError("connection_id must be a non-empty string.")
+        if not isinstance(source, (EndpointReference, TopologyEndpointReference)) or not isinstance(
+            target, (EndpointReference, TopologyEndpointReference)
+        ):
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                message="Simple Wire endpoints must be topology endpoint references.",
+                details={},
+            )
+        if source == target:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINTS",
+                message="Simple Wire endpoints must be distinct.",
+                details={},
+            )
+        return CreateSimpleWireConnectionCommand(
+            connection_id=connection_id.strip(),
+            endpoint_a=source,
+            endpoint_b=target,
+        )
 
     def execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         if not isinstance(command, Command):
@@ -52,41 +89,91 @@ class SimpleWireConnectionService:
         network = self._network(context)
         endpoint_a = command.payload["endpoint_a"]
         endpoint_b = command.payload["endpoint_b"]
-        if not isinstance(endpoint_a, EndpointReference) or not isinstance(endpoint_b, EndpointReference):
+        if not isinstance(endpoint_a, TopologyEndpointReference) or not isinstance(endpoint_b, TopologyEndpointReference):
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINT",
-                message="Simple Wire requires EndpointReference values.",
+                message="Simple Wire requires topology endpoint references.",
                 details={},
             )
 
-        if endpoint_a == endpoint_b:
+        for endpoint in (endpoint_a, endpoint_b):
+            if endpoint.kind is TopologyEndpointReferenceKind.TERMINAL:
+                try:
+                    EndpointCompatibility.validate_reference(
+                        endpoint.terminal_reference,
+                        network,
+                    )
+                    resolve_terminal_reference(context, endpoint.terminal_reference)
+                except (EndpointCompatibilityError, ResourceError, ValidationError) as exc:
+                    if isinstance(exc, ValidationError):
+                        raise
+                    raise ValidationError(
+                        code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                        message=str(exc),
+                        details={"endpoint": str(endpoint)},
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.JUNCTION:
+                junction_id = endpoint.junction_id
+                try:
+                    junction = network.get_junction(junction_id)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValidationError(
+                        code="JUNCTION_NOT_FOUND",
+                        message=f"Junction '{junction_id}' is not registered on this Network.",
+                        details={"junction_id": junction_id},
+                    ) from exc
+                registry = getattr(network, "_junctions", None)
+                if registry is None or getattr(
+                    junction,
+                    "_gridforge_network_token",
+                    None,
+                ) is not getattr(registry, "_network_token", None):
+                    raise ValidationError(
+                        code="JUNCTION_WRONG_NETWORK",
+                        message=f"Junction '{junction_id}' is not owned by this Network.",
+                        details={"junction_id": junction_id},
+                    )
+                continue
+
             raise ValidationError(
-                code="INVALID_SIMPLE_WIRE_ENDPOINTS",
-                message="Simple Wire endpoints must be distinct.",
+                code="UNSUPPORTED_TOPOLOGY_ENDPOINT",
+                message=f"Unsupported topology endpoint kind: {endpoint.kind.value!r}.",
                 details={},
             )
-        try:
-            EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, network)
-        except EndpointCompatibilityError as exc:
-            raise ValidationError(
-                code="INVALID_SIMPLE_WIRE_ENDPOINT",
-                message=str(exc),
-                details={},
-            ) from exc
 
-        # Resolve terminal ownership without requiring an attached endpoint.
-        # Bus references are already validated by EndpointCompatibility.
-        if endpoint_a.is_terminal:
-            resolve_terminal_reference(context, endpoint_a)
-        if endpoint_b.is_terminal:
-            resolve_terminal_reference(context, endpoint_b)
+        if endpoint_a.is_terminal and endpoint_b.is_terminal:
+            try:
+                EndpointCompatibility.validate_pair(
+                    endpoint_a.terminal_reference,
+                    endpoint_b.terminal_reference,
+                    network,
+                )
+            except EndpointCompatibilityError as exc:
+                raise ValidationError(
+                    code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                    message=str(exc),
+                    details={},
+                ) from exc
 
         connection = SimpleWireConnection(
             connection_id=str(command.payload["connection_id"]),
             endpoint_a=endpoint_a,
             endpoint_b=endpoint_b,
         )
-        network.add_simple_wire_connection(connection)
+        try:
+            network.add_simple_wire_connection(connection)
+        except ConnectivityError as exc:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_CONNECTION",
+                message=str(exc),
+                details={
+                    "connection_id": connection.connection_id,
+                    "endpoint_a": dict(endpoint_a.to_mapping()),
+                    "endpoint_b": dict(endpoint_b.to_mapping()),
+                },
+            ) from exc
         transaction.record_undo(
             lambda connection_id=connection.connection_id, network=network: network.remove_simple_wire_connection(connection_id)
         )

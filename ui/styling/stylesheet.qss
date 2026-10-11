@@ -627,3 +627,34 @@ QWidget#GridForgePanel_properties QDateEdit,
 QWidget#GridForgePanel_properties QTimeEdit { background: {{editor_background}}; color: {{editor_foreground}}; border-color: {{editor_border}}; }
 QWidget#GridForgePanel_messages QListWidget,
 QWidget#GridForgePanel_element_list QTableWidget { background: {{table_background}}; color: {{editor_foreground}}; }
+
+
+/* ============================================================
+   SLD workspace composition
+   ============================================================ */
+#GridForgeApplicationHeader {
+    min-height: 30px;
+    max-height: 38px;
+}
+#GridForgeSLDTitle {
+    font-weight: 700;
+    padding-right: 8px;
+}
+#GridForgeToolShelf {
+    background: {{panel_surface}};
+    border-right: 1px solid {{panel_border}};
+}
+#GridForgeToolShelfSeparator {
+    color: {{separator}};
+    max-height: 1px;
+    margin: 3px 5px;
+}
+#SLDEditor QSplitter::handle {
+    background: {{separator}};
+}
+#SLDEditor QSplitter::handle:hover {
+    background: {{accent_primary}};
+}
+#SLDEditor QLabel {
+    padding: 1px 4px;
+}

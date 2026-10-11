@@ -85,17 +85,52 @@ class MeasurementChannelService:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
                 next_channels[channel.id] = channel
 
-        previous = (self._project_id, self._activation_generation, self._network, self._channels)
+        previous = self.snapshot_state()
         self._project_id = next_project_id
         self._activation_generation = generation if context is not None else 0
         self._network = network if context is not None else None
         self._channels = next_channels
 
         def rollback() -> None:
-            self._project_id, self._activation_generation, self._network, old = previous
-            self._channels = dict(old)
+            self.restore_state(previous)
 
         return rollback
+
+    def snapshot_state(self) -> tuple[str | None, int, Network | None, dict[str, MeasurementChannel]]:
+        """Capture the exact live channel authority for transactional compensation.
+
+        The registry and channel objects are retained by reference. This is
+        intentionally not a serialized definition snapshot: channel identity,
+        live sample values, quality, timestamps, availability and sequence state
+        remain untouched and are restored together with project provenance.
+        """
+        return (
+            self._project_id,
+            self._activation_generation,
+            self._network,
+            self._channels,
+        )
+
+    def restore_state(
+        self,
+        snapshot: tuple[str | None, int, Network | None, dict[str, MeasurementChannel]],
+    ) -> None:
+        """Restore an exact previously captured authority; safe to repeat."""
+        if not isinstance(snapshot, tuple) or len(snapshot) != 4:
+            raise TypeError("Measurement channel snapshot must be a four-item state tuple.")
+        project_id, generation, network, channels = snapshot
+        if project_id is not None and not isinstance(project_id, str):
+            raise TypeError("Measurement channel snapshot project identity is invalid.")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise TypeError("Measurement channel snapshot activation generation is invalid.")
+        if not isinstance(channels, dict):
+            raise TypeError("Measurement channel snapshot registry is invalid.")
+        if project_id is not None and not isinstance(network, Network):
+            raise TypeError("Active measurement channel snapshot requires its original Network.")
+        self._project_id = project_id
+        self._activation_generation = generation
+        self._network = network
+        self._channels = channels
 
     def deactivate(self) -> None:
         self._project_id = None

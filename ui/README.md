@@ -2203,3 +2203,15 @@ Human-interaction cancellation and failure behavior is part of the contract.
 Stale projections, missing renderers, plugin failure, focus, cancellation, and multi-canvas behavior are covered.
 The Qt boundary is explicit.
 The UI is explicitly forbidden from becoming a second Core.
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+The UI remains interaction and presentation only. Recent electrical insertion work does not change that boundary.
+
+Existing-equipment drag onto an SLD Simple Wire is transient UI interaction until release. Release creates the immutable insertion command; ElectricalInsertionService performs the transactional semantic operation. The UI never splits Core wires or mutates Terminal endpoints directly.
+
+SLD presentation is re-projected from canonical persistent state. Graphics objects are realization objects, not persistence or topology authority.
+
+Draft placement remains authoring state until explicit commit. Snap candidates, previews, and route previews are presentation/interaction state and never electrical truth.

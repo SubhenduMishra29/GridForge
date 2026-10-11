@@ -684,3 +684,11 @@ The Numerical layer must preserve the following invariants:
 ```
 
 These invariants form the architectural boundary for the Numerical module and must be checked before individual Numerical files are implemented or frozen.
+
+---
+
+## Current Architecture Alignment — 2026-10-07
+
+This package remains headless and authoritative only within its documented domain. UI/SLD code consumes it through the Application boundary and must not create a parallel store here.
+
+Recent electrical insertion work preserves the separation between canonical Terminal endpoint state, Network connectivity, derived topology, and SLD presentation. None of those boundaries are replaced by graphics or by insertion-specific state.

@@ -35,14 +35,37 @@ class TopologyManager:
         zero={}
         for b in active_buses:self._node(zero,("bus",b.id))
         for a in attachments:self._edge(zero,("terminal",a.equipment_id+"::"+a.terminal_role),("bus",a.bus_id))
-        for source,targets in resolved_connectivity.terminal_adjacency:
-            for target in targets:
-                self._node(zero,self._node_for_reference(source));self._node(zero,self._node_for_reference(target))
-                self._edge(zero,self._node_for_reference(source),self._node_for_reference(target))
-            if source.is_terminal:
-                b=boundary.resolve(source)
-                if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
-                    self._edge(zero,self._node_for_reference(source),self._node_for_reference(b.opposite_terminal))
+
+        # Resolve the complete topology-endpoint graph before projecting it
+        # onto electrical terminals. Junctions remain graph nodes throughout
+        # traversal and never become Buses or fabricated EndpointReferences.
+        for component in resolved_connectivity.components():
+            terminals=tuple(reference for reference in component if reference.is_terminal)
+            if not terminals:
+                continue
+            buses=tuple(sorted({
+                str(resolved.attached_bus_id)
+                for reference in terminals
+                for resolved in (boundary.resolve(reference),)
+                if resolved.attached_bus_id is not None
+                and str(resolved.attached_bus_id) in active_bus_ids
+            }))
+            for i,bus_a in enumerate(buses):
+                for bus_b in buses[i+1:]:
+                    self._edge(zero,("bus",bus_a),("bus",bus_b))
+
+        # Switching boundaries remain electrical boundaries and are handled
+        # independently of Simple Wire/Junction graph traversal.
+        for source,targets in resolved_connectivity.topology_adjacency:
+            if not source.is_terminal:
+                continue
+            b=boundary.resolve(source)
+            if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
+                source_bus=b.attached_bus_id
+                opposite=boundary.resolve(b.opposite_terminal)
+                opposite_bus=opposite.attached_bus_id
+                if source_bus is not None and opposite_bus is not None and str(source_bus) in active_bus_ids and str(opposite_bus) in active_bus_ids:
+                    self._edge(zero,("bus",source_bus),("bus",opposite_bus))
         adjacency={b.id:set() for b in active_buses}
         for component in self._components(zero):
             buses=sorted(n[1] for n in component if n[0]=="bus" and str(n[1]) in active_bus_ids)

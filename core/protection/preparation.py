@@ -10,6 +10,17 @@ from core.measurement.measurement_channel import MeasurementChannel
 from core.network.topology_snapshot import TopologySnapshot
 
 
+def _freeze_preparation_value(value: Any) -> Any:
+    """Detach and freeze supported settings containers, preserving typed values."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_preparation_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_preparation_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_preparation_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedMeasurementValue:
     """Immutable measurement value detached from its live channel."""
@@ -42,7 +53,9 @@ class PreparedProtectionInput:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
         object.__setattr__(self, "measurements", MappingProxyType(dict(self.measurements)))
-        object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
+        if not isinstance(self.settings, Mapping):
+            raise TypeError("settings must be a mapping.")
+        object.__setattr__(self, "settings", _freeze_preparation_value(self.settings))
 
 
 class ProtectionPreparation:

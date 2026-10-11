@@ -28,6 +28,7 @@ class SLDState:
     local_view_dirty: bool = False
     selection_manager: Any = None
     tool_manager: Any = None
+    document_manager: Any = None
 
     @property
     def selected_node_ids(self) -> frozenset[str]:
@@ -37,11 +38,17 @@ class SLDState:
         getter = getattr(manager, "get_selected_ids", None)
         if not callable(getter):
             return frozenset()
-        return frozenset(str(value) for value in getter())
+        return frozenset(str(value) for value in getter(domain="node"))
 
     @property
     def selected_connection_ids(self) -> frozenset[str]:
-        return frozenset()
+        manager = self.selection_manager
+        if manager is None:
+            return frozenset()
+        getter = getattr(manager, "get_selected_ids", None)
+        if not callable(getter):
+            return frozenset()
+        return frozenset(str(value) for value in getter(domain="connection"))
 
     @property
     def active_tool_id(self) -> Optional[str]:
@@ -64,20 +71,27 @@ class SLDState:
         manager = self.selection_manager
         if manager is None:
             raise RuntimeError("SelectionManager must be attached for selection operations.")
-        manager.select(node_id, multi=additive)
+        manager.select(node_id, multi=additive, domain="node")
 
     def deselect_node(self, node_id: str) -> None:
         manager = self.selection_manager
         if manager is None:
             raise RuntimeError("SelectionManager must be attached for selection operations.")
-        if manager.is_selected(node_id):
-            manager.toggle_selection(node_id)
+        if manager.is_selected(node_id, domain="node"):
+            manager.toggle_selection(node_id, domain="node")
 
     def select_connection(self, connection_id: str, *, additive: bool = False) -> None:
-        self.select_node(connection_id, additive=additive)
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        manager.select(connection_id, multi=additive, domain="connection")
 
     def deselect_connection(self, connection_id: str) -> None:
-        self.deselect_node(connection_id)
+        manager = self.selection_manager
+        if manager is None:
+            raise RuntimeError("SelectionManager must be attached for selection operations.")
+        if manager.is_selected(connection_id, domain="connection"):
+            manager.toggle_selection(connection_id, domain="connection")
 
     def clear_selection(self) -> None:
         manager = self.selection_manager
@@ -87,16 +101,25 @@ class SLDState:
 
     @property
     def dirty(self) -> bool:
-        return self.local_view_dirty
+        manager = self.document_manager
+        if manager is not None:
+            return bool(manager.is_dirty(self.active_document_id))
+        return False
 
     @property
     def has_selection(self) -> bool:
         return bool(self.selected_node_ids or self.selected_connection_ids)
 
     def mark_dirty(self) -> None:
-        self.local_view_dirty = True
+        manager = self.document_manager
+        if manager is not None and self.active_document_id is not None:
+            manager.mark_dirty(self.active_document_id)
+        self.local_view_dirty = False
 
     def mark_clean(self) -> None:
+        manager = self.document_manager
+        if manager is not None and self.active_document_id is not None:
+            manager.mark_clean(self.active_document_id)
         self.local_view_dirty = False
 
     def reset(self) -> None:

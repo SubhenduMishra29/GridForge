@@ -20,6 +20,7 @@ class EngineeringContext:
 
     project_id: str | None = None
     project_name: str | None = None
+    document_id: str | None = None
     plant_id: str | None = None
     system_id: str | None = None
     study_id: str | None = None
@@ -27,6 +28,7 @@ class EngineeringContext:
     discipline: str = "sld"
     active_tool: str | None = None
     selected_ids: tuple[str, ...] = ()
+    viewport_state: Mapping[str, object] = field(default_factory=dict)
 
     def with_updates(self, **changes: Any) -> "EngineeringContext":
         allowed = set(self.__dataclass_fields__)
@@ -35,6 +37,8 @@ class EngineeringContext:
             raise TypeError("Unknown engineering context fields: " + ", ".join(sorted(unknown)))
         if "selected_ids" in changes:
             changes["selected_ids"] = tuple(str(value) for value in (changes["selected_ids"] or ()))
+        if "viewport_state" in changes:
+            changes["viewport_state"] = dict(changes["viewport_state"] or {})
         if "discipline" in changes and not str(changes["discipline"]).strip():
             raise ValueError("discipline must not be empty.")
         return replace(self, **changes)
@@ -48,6 +52,7 @@ class EngineeringContext:
         return cls(
             project_id=str(getattr(project, "project_id", "")) or None,
             project_name=str(getattr(project, "name", "")) or None,
+            document_id=getattr(getattr(lifecycle, "documents", None), "active_document_id", None),
             discipline=str(discipline),
             active_tool=active_tool,
             selected_ids=tuple(str(value) for value in selected_ids),
@@ -65,6 +70,10 @@ class EditorContext:
     workspace: Any = None
     area: Any = None
     editor: Any = None
+    project_id: str | None = None
+    document_id: str | None = None
+    workspace_id: str | None = None
+    editor_id: str | None = None
     region: Any = None
     engineering: EngineeringContext = field(default_factory=EngineeringContext)
     selection_context: Mapping[str, object] = field(default_factory=dict)
@@ -73,13 +82,14 @@ class EditorContext:
     tool_settings: ToolSettings | None = None
     interaction_state: Mapping[str, object] = field(default_factory=dict)
     view_state: Mapping[str, object] = field(default_factory=dict)
+    presentation_state: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.engineering, EngineeringContext):
             raise TypeError("engineering must be an EngineeringContext.")
         if not isinstance(self.tool_mode, ToolMode):
             raise TypeError("tool_mode must be a ToolMode.")
-        for name in ("selection_context", "interaction_state", "view_state"):
+        for name in ("selection_context", "interaction_state", "view_state", "presentation_state"):
             value = getattr(self, name)
             if not isinstance(value, Mapping):
                 raise TypeError(f"{name} must be a mapping.")

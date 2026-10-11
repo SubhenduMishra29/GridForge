@@ -22,6 +22,17 @@ from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDR
 from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 
 
+def _freeze_projection_value(value: Any) -> Any:
+    """Detach supported property containers without coercing authored values."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_projection_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_projection_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_projection_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class SLDCanvasNode:
     """Renderer-neutral visual input for one SLD node."""
@@ -97,7 +108,7 @@ class SLDCanvasProjection:
                 if node.presentation is None
                 else SymbolBase.from_dict(node.presentation.to_dict())
             ),
-            properties=MappingProxyType(dict(node.properties)),
+            properties=_freeze_projection_value(node.properties),
         )
 
     @staticmethod
@@ -114,7 +125,7 @@ class SLDCanvasProjection:
             connection_kind=SLDCanvasProjection._property_value(properties, "connection_kind", "kind"),
             presentation_owner=SLDCanvasProjection._property_value(properties, "presentation_owner", "owner"),
             projection_source=SLDCanvasProjection._property_value(properties, "projection_source", "source"),
-            properties=MappingProxyType(properties),
+            properties=_freeze_projection_value(properties),
         )
 
     @staticmethod

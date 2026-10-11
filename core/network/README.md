@@ -448,3 +448,11 @@ core.solver
 ```
 
 No layer may silently become a second owner of another layer's authoritative state.
+
+---
+
+## Current Architecture Alignment — 2026-10-07
+
+This package remains headless and authoritative only within its documented domain. UI/SLD code consumes it through the Application boundary and must not create a parallel store here.
+
+Recent electrical insertion work preserves the separation between canonical Terminal endpoint state, Network connectivity, derived topology, and SLD presentation. None of those boundaries are replaced by graphics or by insertion-specific state.

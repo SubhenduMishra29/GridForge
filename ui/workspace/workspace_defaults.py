@@ -44,7 +44,19 @@ EDITOR_REGIONS = (
     RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=28, preferred_size=32),
 )
 
-SLD_EDITOR_DEFINITION = EditorDefinition("sld-editor", SLD_EDITOR, "SLD Editor", EDITOR_REGIONS)
+SLD_EDITOR_REGIONS = (
+    RegionDefinition(HEADER_REGION, HEADER_REGION, minimum_size=34, preferred_size=38),
+    RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION, minimum_size=44, preferred_size=52),
+    RegionDefinition(TOOL_SETTINGS_REGION, TOOL_SETTINGS_REGION, visible=False, minimum_size=0, preferred_size=42),
+    RegionDefinition("explorer", "explorer", visible=False, minimum_size=0, preferred_size=220),
+    RegionDefinition(CANVAS_REGION, CANVAS_REGION, minimum_size=120),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, visible=False, minimum_size=0, preferred_size=280),
+    RegionDefinition(OVERLAY_REGION, OVERLAY_REGION, visible=False, minimum_size=0, preferred_size=0),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, visible=False, minimum_size=0, preferred_size=180),
+    RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=24, preferred_size=26),
+)
+
+SLD_EDITOR_DEFINITION = EditorDefinition("sld-editor", SLD_EDITOR, "SLD Editor", SLD_EDITOR_REGIONS)
 CONTROL_EDITOR_DEFINITION = EditorDefinition("control-editor", CONTROL_EDITOR, "Control Editor", EDITOR_REGIONS)
 PROTECTION_EDITOR_DEFINITION = EditorDefinition("protection-editor", PROTECTION_EDITOR, "Protection Editor", EDITOR_REGIONS)
 STUDY_EDITOR_DEFINITION = EditorDefinition(
@@ -107,7 +119,7 @@ __all__ = [
     "PROJECT_PANEL_ID", "EQUIPMENT_PANEL_ID", "PROPERTIES_PANEL_ID", "ELEMENT_LIST_PANEL_ID",
     "MESSAGES_PANEL_ID", "STUDY_CASES_PANEL_ID", "CANONICAL_PANEL_IDS",
     "SLD_WORKSPACE", "CONTROL_WORKSPACE", "PROTECTION_WORKSPACE", "STUDY_WORKSPACE",
-    "DEFAULT_WORKSPACES", "SLD_EDITOR_DEFINITION", "CONTROL_EDITOR_DEFINITION",
+    "DEFAULT_WORKSPACES", "SLD_EDITOR_REGIONS", "SLD_EDITOR_DEFINITION", "CONTROL_EDITOR_DEFINITION",
     "PROTECTION_EDITOR_DEFINITION", "STUDY_EDITOR_DEFINITION", "default_workspaces",
     "default_workspace_ids", "get_default_workspace", "get_initial_workspace", "validate_default_workspace",
 ]

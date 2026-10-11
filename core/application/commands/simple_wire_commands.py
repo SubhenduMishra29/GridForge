@@ -10,6 +10,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from core.model import EndpointReference
+from core.network import TopologyEndpointReference
 from ..command import Command
 from ..reversible import ReversibleCommand
 
@@ -24,17 +25,15 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
     def __init__(
         self,
         *,
-        endpoint_a: EndpointReference,
-        endpoint_b: EndpointReference,
+        endpoint_a: EndpointReference | TopologyEndpointReference,
+        endpoint_b: EndpointReference | TopologyEndpointReference,
         connection_id: str | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        if not isinstance(endpoint_a, EndpointReference):
-            raise TypeError("endpoint_a must be an EndpointReference.")
-        if not isinstance(endpoint_b, EndpointReference):
-            raise TypeError("endpoint_b must be an EndpointReference.")
+        endpoint_a = _topology_endpoint(endpoint_a)
+        endpoint_b = _topology_endpoint(endpoint_b)
         resolved_connection_id = connection_id or f"SWC-{uuid4().hex}"
         super().__init__(
             command_type=CREATE_SIMPLE_WIRE,
@@ -69,18 +68,18 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
         self,
         *,
         connection_id: str,
-        endpoint_a: EndpointReference | None = None,
-        endpoint_b: EndpointReference | None = None,
+        endpoint_a: EndpointReference | TopologyEndpointReference | None = None,
+        endpoint_b: EndpointReference | TopologyEndpointReference | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
         if not isinstance(connection_id, str) or not connection_id.strip():
             raise ValueError("connection_id must be a non-empty string.")
-        if endpoint_a is not None and not isinstance(endpoint_a, EndpointReference):
-            raise TypeError("endpoint_a must be an EndpointReference or None.")
-        if endpoint_b is not None and not isinstance(endpoint_b, EndpointReference):
-            raise TypeError("endpoint_b must be an EndpointReference or None.")
+        if endpoint_a is not None:
+            endpoint_a = _topology_endpoint(endpoint_a)
+        if endpoint_b is not None:
+            endpoint_b = _topology_endpoint(endpoint_b)
         super().__init__(
             command_type=REMOVE_SIMPLE_WIRE,
             payload={
@@ -100,9 +99,9 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
     def inverse(self) -> Command:
         endpoint_a = self.payload.get("endpoint_a")
         endpoint_b = self.payload.get("endpoint_b")
-        if not isinstance(endpoint_a, EndpointReference) or not isinstance(endpoint_b, EndpointReference):
+        if not isinstance(endpoint_a, TopologyEndpointReference) or not isinstance(endpoint_b, TopologyEndpointReference):
             raise ValueError(
-                "A remove command needs endpoint snapshots to construct an inverse create command."
+                "A remove command needs topology endpoint snapshots to construct an inverse create command."
             )
         return CreateSimpleWireConnectionCommand(
             connection_id=self.connection_id,
@@ -111,6 +110,19 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
             correlation_id=self.correlation_id,
             causation_id=self.command_id,
         )
+
+
+def _topology_endpoint(
+    value: EndpointReference | TopologyEndpointReference,
+) -> TopologyEndpointReference:
+    if isinstance(value, TopologyEndpointReference):
+        return value
+    if isinstance(value, EndpointReference):
+        return TopologyEndpointReference.from_terminal(value)
+    raise TypeError(
+        "Simple Wire endpoints must be terminal EndpointReference or "
+        "TopologyEndpointReference values."
+    )
 
 
 __all__ = [

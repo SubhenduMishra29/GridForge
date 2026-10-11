@@ -129,7 +129,7 @@ class MenuPlugin(QObject):
 
 
 def default_menus() -> tuple[MenuSpec, ...]:
-    """Return the canonical, non-duplicated application menu taxonomy."""
+    """Return the engineer-oriented application menu taxonomy."""
     def a(action_id: str, text: str, shortcut: str | None = None, separator_before: bool = False) -> MenuActionSpec:
         return MenuActionSpec(action_id, text, shortcut, separator_before)
 
@@ -152,28 +152,36 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("edit.cut", "Cut", "Ctrl+X"),
         )),
         MenuSpec("view", "View", (
-            a("view.fit", "Fit SLD View"),
+            a("view.maximize_editor", "Maximize Editor", "Ctrl+Space"),
+            a("view.toggle_explorer", "Explorer"),
+            a("view.toggle_inspector", "Inspector"),
+            a("view.toggle_messages", "Messages"),
+            a("view.toggle_tool_settings", "Tool Settings"),
+            a("view.fit", "Fit SLD View", None, True),
             a("view.zoom_in", "Zoom In"),
             a("view.zoom_out", "Zoom Out"),
             a("view.pan", "Pan"),
-        )),
-        MenuSpec("workspace", "Workspace", (
-            a("view.sld_workspace", "SLD"),
-            a("view.control_workspace", "Control"),
-            a("view.protection_workspace", "Protection"),
-            a("view.topology", "Topology"),
-            a("view.map", "Map"),
-            a("view.reports", "Reports"),
             a("view.equipment_browser", "Equipment Browser", None, True),
-            a("network.commit_draft", "Commit Network", "Ctrl+Shift+Enter", True),
+        )),
+        MenuSpec("sld", "SLD", (
+            a("tool.select", "Select"),
+            a("tool.bus", "Place Bus"),
+            a("tool.wire", "Wire"),
+            a("network.commit_draft", "Commit Draft", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("study", "Study", (
             a("study.cases", "Study Cases"),
         )),
-        MenuSpec("tools", "Tools", (
-            a("tool.select", "Select"),
-            a("tool.bus", "Bus"),
-            a("tool.wire", "Simple Wired Connection"),
+        MenuSpec("reports", "Reports", (
+            a("view.reports", "Study Reports"),
+        )),
+        MenuSpec("window", "Window", (
+            a("view.sld_workspace", "SLD"),
+            a("view.control_workspace", "Control"),
+            a("view.protection_workspace", "Protection"),
+            a("view.study_workspace", "Study"),
+            a("view.topology", "Topology", None, True),
+            a("view.map", "Map"),
         )),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),

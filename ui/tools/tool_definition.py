@@ -108,13 +108,23 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
         if not tool_id or tool_id in seen:
             continue
         seen.add(tool_id)
+        shortcut_map = {
+            "select": "S", "move": "M", "pan": "H", "wire": "W", "bus": "B",
+            "snap": "N", "delete": "Delete", "zoom_in": "Ctrl+=", "zoom_out": "Ctrl+-", "fit": "F",
+        }
+        generic_tool_ids = {
+            "select", "move", "pan", "wire", "bus", "snap",
+            "delete", "zoom_in", "zoom_out", "fit",
+        }
         definitions.append(
             ToolDefinition(
                 tool_id=tool_id,
                 display_name=tool_id.replace("_", " ").replace(".", " ").title(),
-                icon_id=tool_id,
+                icon_id=None if tool_id in generic_tool_ids else tool_id,
                 editor_types=(editor_type,),
-                category="engineering",
+                shortcuts=((shortcut_map[tool_id],) if tool_id in shortcut_map else ()),
+                category="navigation" if tool_id in {"select", "move", "pan", "zoom_in", "zoom_out", "fit"} else "engineering",
+                metadata={"icon_kind": "tool"},
             )
         )
     return tuple(definitions)

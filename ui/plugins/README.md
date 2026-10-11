@@ -1565,3 +1565,9 @@ The objective is to make **legitimate extensions possible without compromising t
 ---
 
 <p align="center"><em>GridForge Plugins — extend the platform without breaking its engineering boundaries.</em></p>
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+UI plugins extend presentation capabilities through established contracts. They must route semantic engineering changes through Application and may not create a parallel topology, command, transaction, selection, or persistence authority.

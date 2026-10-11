@@ -10,19 +10,30 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .connectivity import ConnectivityStore, SimpleWireConnection
+from .connectivity import ConnectivityError, ConnectivityStore, SimpleWireConnection
 from .electrical_boundary import EndpointCompatibility, conduction_state
 from .indexing import BusIndex
+from .junction import Junction
+from .junction_registry import JunctionRegistry
 from .registry import NetworkRegistry
 from .state import NetworkState
 from .topology import TopologyManager
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
 
 
 class Network:
     """Authoritative electrical network aggregate."""
 
-    def __init__(self, *, registry: Optional[NetworkRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
+    def __init__(self, *, registry: Optional[NetworkRegistry] = None, junctions: Optional[JunctionRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
         self.registry = registry or NetworkRegistry()
+        if junctions is not None and not isinstance(junctions, JunctionRegistry):
+            raise TypeError("junctions must be a JunctionRegistry.")
+        self._junctions = junctions if junctions is not None else JunctionRegistry()
+        self._junctions._bind_network(self)
+        self._junctions.validate(self)
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
@@ -80,19 +91,30 @@ class Network:
     def disconnectors(self) -> tuple[Any, ...]: return self.registry.disconnectors
     @property
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
+    @property
+    def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         return self.registry.get_by_id(element_type, object_id)
 
     def get_by_identity(self, object_id: str) -> Any:
-        """Resolve one canonical Core object by its globally unique Network identity."""
+        """Resolve one canonical electrical object by NetworkRegistry identity."""
         return self.registry.get_by_identity(object_id)
+
+    def get_junction(self, junction_id: str) -> Junction:
+        """Resolve one Junction through the Network-owned topology registry."""
+        return self._junctions.get(junction_id)
+
+    def contains_junction(self, junction_id: str) -> bool:
+        return self._junctions.contains(junction_id)
 
     def validate(self) -> bool:
         """Validate the complete authoritative Network membership and endpoint graph."""
         registered = {element.id: element for element in self.registry._objects.values()}
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
+        self._junctions.validate()
 
         from core.model.base import ElectricalObject
 
@@ -223,15 +245,115 @@ class Network:
     def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
 
+    def add_junction(self, junction: Junction) -> None:
+        """Add one Junction through the authoritative Network lifecycle."""
+        if not isinstance(junction, Junction):
+            raise ConnectivityError("junction must be a Junction.")
+        try:
+            self._junctions.add(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Cannot add Junction '{getattr(junction, 'junction_id', junction)}'."
+            ) from exc
+        self._invalidate_topology()
+
+    def remove_junction(self, junction: Junction) -> None:
+        """Remove one Junction without leaving topology relationships dangling."""
+        if not isinstance(junction, Junction):
+            raise ConnectivityError("junction must be a Junction.")
+
+        endpoint = TopologyEndpointReference.from_junction(junction.junction_id)
+        dependencies = self.connectivity.connections_for_endpoint(endpoint)
+        if dependencies:
+            raise ConnectivityError(
+                f"Cannot remove Junction '{junction.junction_id}': dependent "
+                "Simple Wire relationships exist."
+            )
+
+        try:
+            self._junctions.remove(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Junction '{junction.junction_id}' is not registered on this Network."
+            ) from exc
+        self._invalidate_topology()
+
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
+        """Add one binary Simple Wire after complete endpoint validation."""
         if not isinstance(connection, SimpleWireConnection):
-            raise TypeError("connection must be a SimpleWireConnection.")
-        # EndpointReference is the single canonical endpoint contract.
-        # validate_reference handles both BUS and TERMINAL endpoints; Network
-        # must not duplicate terminal-only interpretation here.
-        EndpointCompatibility.validate_reference(connection.endpoint_a, self)
-        EndpointCompatibility.validate_reference(connection.endpoint_b, self)
-        EndpointCompatibility.validate_pair(connection.endpoint_a, connection.endpoint_b, self)
+            raise ConnectivityError(
+                "connection must be a SimpleWireConnection."
+            )
+
+        endpoints = (connection.endpoint_a, connection.endpoint_b)
+        if connection.endpoint_a == connection.endpoint_b:
+            raise ConnectivityError(
+                "A Simple Wire cannot connect a topology endpoint to itself."
+            )
+
+        # Validate every endpoint before ConnectivityStore mutation. Terminal
+        # identities continue through EndpointCompatibility; Junction identities
+        # are validated against this Network's authoritative JunctionRegistry.
+        for endpoint in endpoints:
+            if endpoint.kind is TopologyEndpointReferenceKind.TERMINAL:
+                try:
+                    EndpointCompatibility.validate_reference(
+                        endpoint.terminal_reference,
+                        self,
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Invalid terminal topology endpoint: {endpoint}"
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.JUNCTION:
+                junction_id = endpoint.junction_id
+                try:
+                    junction = self.get_junction(junction_id)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not registered on this Network."
+                    ) from exc
+
+                registry_token = getattr(
+                    self._junctions,
+                    "_network_token",
+                    None,
+                )
+                junction_token = getattr(
+                    junction,
+                    "_gridforge_network_token",
+                    None,
+                )
+                if registry_token is None or junction_token is not registry_token:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not owned by this Network."
+                    )
+                continue
+
+            raise ConnectivityError(
+                f"Unsupported topology endpoint kind: {endpoint.kind!r}."
+            )
+
+        if (
+            connection.endpoint_a.is_terminal
+            and connection.endpoint_b.is_terminal
+        ):
+            try:
+                EndpointCompatibility.validate_pair(
+                    connection.endpoint_a.terminal_reference,
+                    connection.endpoint_b.terminal_reference,
+                    self,
+                )
+            except (TypeError, ValueError) as exc:
+                raise ConnectivityError(
+                    "Simple Wire terminal compatibility validation failed."
+                ) from exc
+
+        # ConnectivityStore performs duplicate detection, endpoint indexing,
+        # and terminal-vs-Junction cardinality checks only after all of the
+        # above Network-level validation has succeeded.
         self.connectivity.add(connection, self)
         self._invalidate_topology()
 
@@ -274,7 +396,7 @@ class Network:
     def index_valid(self) -> bool: return self.index.valid
 
     def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"junctions={len(self.junctions)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
 
 
 __all__ = ["Network"]

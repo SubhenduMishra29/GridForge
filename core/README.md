@@ -876,3 +876,19 @@ Legacy architectural concepts must be removed or reconciled rather than expanded
 
 ```
 ```
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+The current mainline also includes the draft-first SLD lifecycle, canonical endpoint/connectivity resolution, transactional SLD projection, and existing-equipment electrical insertion workflow.
+
+The insertion path is:
+
+UI interaction → immutable InsertEquipmentIntoConnectionCommand → Application/CommandManager → ElectricalInsertionService → one transaction → Core terminal/topology mutation → canonical SLD binding → semantic events/read models → projection.
+
+The inserted equipment's Terminal state is synchronized through the canonical connection path; Simple Wire topology remains distinct from Terminal endpoint state. SLD route and presentation ownership are preserved during wire splitting.
+
+Core remains headless and owns electrical truth. It does not own SLD graphics, route presentation, Qt objects, or UI interaction.
+
+Folder READMEs under Core are navigation documents only; they never create a parallel authority.

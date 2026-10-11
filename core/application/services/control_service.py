@@ -81,6 +81,16 @@ class ControlActionBindingReadModel:
     action: str
     interlock_id: str | None
 
+    @property
+    def control_id(self) -> str:
+        """Canonical Control decision/action identity used by execution and mappings.
+
+        The current ControlActionBinding model defines binding_id as a legacy
+        alias of control_id. Keep that compatibility label separate from the
+        canonical field used for destination validation and decision routing.
+        """
+        return self.binding_id
+
 
 @dataclass(frozen=True, slots=True)
 class ControlInterlockReadModel:

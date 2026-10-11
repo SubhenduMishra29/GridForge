@@ -17,6 +17,8 @@ from collections.abc import Callable
 from typing import Any, Dict, Mapping, Optional
 
 from ui.workspace.document import Document
+from core.persistence.project_package import SLD_SCHEMA_VERSION
+from core.persistence.migration import validate_canonical_sld
 
 from .sld_model import SLDModel
 from ui.equipment.symbol.symbol_base import SymbolBase
@@ -30,7 +32,7 @@ class SLDDocument(Document):
     """
 
     DOCUMENT_TYPE = "sld"
-    SLD_SCHEMA = 2
+    SLD_SCHEMA = SLD_SCHEMA_VERSION
 
     def __init__(
         self,
@@ -39,6 +41,7 @@ class SLDDocument(Document):
         model: Optional[SLDModel] = None,
         *,
         project_id: str | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
         default_symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(
@@ -46,6 +49,7 @@ class SLDDocument(Document):
             document_type=self.DOCUMENT_TYPE,
             name=name,
             project_id=project_id,
+            metadata=metadata,
         )
         self._model = model if model is not None else SLDModel()
         self._default_symbol_presentation_factory = default_symbol_presentation_factory
@@ -91,7 +95,7 @@ class SLDDocument(Document):
             "project_id": self.project_id,
             "document_type": self.document_type,
             "name": self.name,
-            "modified": self.modified,
+            "metadata": dict(self.metadata),
             "model": self.model.to_dict(),
         }
 
@@ -105,31 +109,18 @@ class SLDDocument(Document):
         """Restore an SLD document and materialize missing symbol presentation defaults."""
         if not isinstance(data, Mapping):
             raise TypeError("SLD document payload must be a mapping.")
-        schema = data.get("schema", 1)
-        if schema not in (1, cls.SLD_SCHEMA):
-            raise ValueError(f"Unsupported SLD representation schema: {schema!r}")
+        validate_canonical_sld(data)
         document = cls(
-            document_id=str(data["document_id"]),
-            name=str(data.get("name", "Untitled SLD")),
-            project_id=data.get("project_id"),
-            model=SLDModel.from_dict(data.get("model", {})),
+            document_id=data["document_id"],
+            name=data["name"],
+            project_id=data["project_id"],
+            metadata=dict(data["metadata"]),
+            model=SLDModel.from_dict(data["model"]),
             default_symbol_presentation_factory=default_symbol_presentation_factory,
         )
-
-        # DraftNetwork entries are not persistent SLD equipment nodes.
-        # Remove only legacy draft placeholders that were previously written
-        # without a canonical equipment_id. Committed Core equipment remains
-        # represented by its canonical equipment_id and is untouched.
-        for node in tuple(document.model.nodes):
-            if (
-                node.equipment_id is None
-                and node.properties.get("lifecycle_state") == "DRAFT"
-            ):
-                document.model.remove_node(node.node_id)
-
+        # Persisted presentation is authored state. Defaults may only be
+        # materialized where presentation is explicitly absent.
         document.materialize_missing_symbol_presentations()
-        if bool(data.get("modified", False)):
-            document.mark_modified()
         return document
 
     def clear(self) -> None:

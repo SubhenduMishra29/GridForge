@@ -81,6 +81,53 @@ def test_registered_tool_receives_one_canonical_dependency_contract(dependencies
     assert manager.get_current_tool().active is True
 
 
+class ActiveCreationContext:
+    active = True
+
+    def snapshot_draft(self):
+        return None
+
+    def restore_draft(self, draft):
+        return None
+
+    def cancel(self):
+        self.active = False
+
+
+def test_lifecycle_aware_switch_cancels_only_transient_creation(dependencies):
+    context = ActiveCreationContext()
+    manager = ToolManager(**dependencies, creation_context=context)
+    first = Tool()
+    second = Tool()
+    manager.register_tool("first", lambda **_: first)
+    manager.register_tool("second", lambda **_: second)
+    manager.activate("first")
+
+    manager.activate("second", cancel_active_creation=True)
+
+    assert context.active is False
+    assert first.active is False
+    assert second.active is True
+    assert manager.get_current_tool_id() == "second"
+
+
+def test_strict_switch_still_rejects_active_creation(dependencies):
+    context = ActiveCreationContext()
+    manager = ToolManager(**dependencies, creation_context=context)
+    first = Tool()
+    second = Tool()
+    manager.register_tool("first", lambda **_: first)
+    manager.register_tool("second", lambda **_: second)
+    manager.activate("first")
+
+    with pytest.raises(RuntimeError, match="explicitly cancelled"):
+        manager.activate("second")
+
+    assert context.active is True
+    assert first.active is True
+    assert manager.get_current_tool_id() == "first"
+
+
 def test_failed_activation_restores_previous_tool(dependencies):
     manager = ToolManager(**dependencies)
     first = Tool()

@@ -1349,3 +1349,11 @@ It preserves clear ownership boundaries, supports multifunction numerical relays
 This document is the package-level architectural reference for the GridForge V2 protection foundation.
 
 Changes to the protection architecture should preserve the invariants and dependency boundaries defined in this document.
+
+---
+
+## Current Architecture Alignment — 2026-10-07
+
+This package remains headless and authoritative only within its documented domain. UI/SLD code consumes it through the Application boundary and must not create a parallel store here.
+
+Recent electrical insertion work preserves the separation between canonical Terminal endpoint state, Network connectivity, derived topology, and SLD presentation. None of those boundaries are replaced by graphics or by insertion-specific state.

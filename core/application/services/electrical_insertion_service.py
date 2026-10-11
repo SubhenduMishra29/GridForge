@@ -1,0 +1,582 @@
+# ============================================================
+# GridForge V2 — Electrical Equipment Insertion Service
+# ============================================================
+
+"""Application transaction service for series equipment insertion."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+import math
+from typing import Any
+
+from core.model import EndpointReference
+from core.model.endpoint_reference import EquipmentType
+from core.network import EndpointCompatibility, EndpointCompatibilityError
+
+from ..command import Command
+from ..commands.breaker_commands import CreateBreakerCommand
+from ..commands.connection_commands import ConnectTerminalCommand
+from ..commands.measurement_commands import CreateCurrentTransformerCommand
+from ..commands.model_commands import CreateDisconnectorCommand, CreateTransformerCommand
+from ..commands.simple_wire_commands import CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand
+from ..errors import ValidationError
+from ..endpoint_resolver import EndpointResolver
+from ..results import ApplicationResult
+from ..transaction import Transaction
+from .insertion_contract import INSERTION_CONTRACTS, InsertionContract
+
+CommandExecutor = Callable[[Command, Transaction], ApplicationResult[Any]]
+
+
+_CREATION_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
+    "breaker": frozenset({
+        "name", "in_service", "closed", "failed", "voltage_kv", "current_a",
+        "interrupting_ka", "presentation_x", "presentation_y",
+    }),
+    "disconnector": frozenset({
+        "voltage_kv", "rated_current_a", "operating_time", "closed", "in_service",
+        "name", "presentation_x", "presentation_y",
+    }),
+    "transformer": frozenset({
+        "r", "x", "b", "impedance_basis", "impedance_base_mva",
+        "impedance_base_voltage_kv", "tap", "shift", "name", "rate_mva",
+        "presentation_x", "presentation_y",
+    }),
+    "current_transformer": frozenset({
+        "name", "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+        "accuracy_class", "frequency_hz", "polarity", "in_service",
+        "presentation_x", "presentation_y",
+    }),
+}
+
+_CREATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "breaker": (),
+    "disconnector": ("voltage_kv", "rated_current_a"),
+    "transformer": ("r", "x", "impedance_basis", "impedance_base_voltage_kv"),
+    "current_transformer": (),
+}
+
+
+class ElectricalInsertionService:
+    """Own the complete Application-side insertion workflow.
+
+    Core topology remains owned by Network/ConnectivityStore. SLD mutation is
+    coordinated by Application's pre-commit hook from the returned immutable
+    insertion metadata.
+    """
+
+    def __init__(self, *, command_executor: CommandExecutor) -> None:
+        if not callable(command_executor):
+            raise TypeError("command_executor must be callable.")
+        self._command_executor = command_executor
+
+    def execute(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        if not isinstance(transaction, Transaction):
+            raise TypeError("transaction must be a Transaction.")
+        network = getattr(context, "network", None)
+        if network is None:
+            raise RuntimeError("Electrical insertion requires the canonical Network.")
+
+        payload = command.payload
+        equipment_type = str(payload["equipment_type"]).strip().lower()
+        contract = INSERTION_CONTRACTS.get(equipment_type)
+        if contract is None:
+            raise ValidationError(
+                code="EQUIPMENT_NOT_INSERTION_CAPABLE",
+                message=f"Equipment type {equipment_type!r} is not insertion-capable.",
+                details={"equipment_type": equipment_type},
+            )
+
+        connection_id = str(payload["connection_id"])
+        connection = network.get_simple_wire_connection(connection_id)
+        endpoint_a = connection.endpoint_a
+        endpoint_b = connection.endpoint_b
+        if endpoint_a == endpoint_b:
+            raise ValidationError(
+                code="INVALID_INSERTION_CONNECTION",
+                message="The target Simple Wire must have two distinct endpoints.",
+                details={"connection_id": connection_id},
+            )
+
+        requested_equipment_id = payload.get("equipment_id")
+        existing_equipment = False
+        equipment_id = (
+            str(requested_equipment_id).strip()
+            if requested_equipment_id is not None
+            else f"insert-{command.command_id.hex}"
+        )
+        try:
+            existing = network.get_by_identity(equipment_id)
+        except KeyError:
+            existing = None
+        if existing is not None:
+            # Existing-equipment insertion is the canonical SelectTool drag
+            # path. Reuse the Core identity; never recreate the object merely
+            # to make it fit the insertion workflow.
+            expected_class = {
+                "breaker": "Breaker",
+                "disconnector": "Disconnector",
+                "transformer": "Transformer",
+                "current_transformer": "CurrentTransformer",
+            }[equipment_type]
+            actual_type = str(
+                getattr(getattr(existing, "equipment_type", None), "value", getattr(existing, "equipment_type", ""))
+            ).strip().lower()
+            class_name = type(existing).__name__.strip().lower()
+            if class_name != expected_class.lower() and actual_type not in {equipment_type, expected_class.lower()}:
+                raise ValidationError(
+                    code="EQUIPMENT_TYPE_MISMATCH",
+                    message=f"Equipment {equipment_id!r} is not a {equipment_type}.",
+                    details={"equipment_id": equipment_id, "equipment_type": equipment_type},
+                )
+            current_connections = tuple(network.connectivity.connections_for_equipment(equipment_id))
+            if current_connections:
+                raise ValidationError(
+                    code="EQUIPMENT_ALREADY_CONNECTED",
+                    message=(
+                        f"Equipment {equipment_id!r} already participates in electrical topology "
+                        "and cannot be inserted without creating conflicting connectivity."
+                    ),
+                    details={
+                        "equipment_id": equipment_id,
+                        "connection_ids": tuple(c.connection_id for c in current_connections),
+                    },
+                )
+            terminal_roles = {str(getattr(t, "role", "")) for t in getattr(existing, "terminals", ())}
+            missing_roles = tuple(role for role in contract.terminal_mapping if role not in terminal_roles)
+            if missing_roles:
+                raise ValidationError(
+                    code="EQUIPMENT_TERMINALS_INCOMPATIBLE",
+                    message=f"Existing {equipment_type} is missing required insertion terminals.",
+                    details={"equipment_id": equipment_id, "missing_roles": missing_roles},
+                )
+            occupied = tuple(
+                str(getattr(terminal, "role", ""))
+                for terminal in getattr(existing, "terminals", ())
+                if getattr(terminal, "endpoint", None) is not None
+            )
+            if occupied:
+                raise ValidationError(
+                    code="EQUIPMENT_TERMINAL_ALREADY_BOUND",
+                    message=f"Equipment {equipment_id!r} has occupied electrical terminals.",
+                    details={"equipment_id": equipment_id, "terminal_roles": occupied},
+                )
+            existing_equipment = True
+
+        mapping = payload.get("terminal_mapping")
+        terminal_mapping = (
+            tuple(mapping)
+            if mapping is not None
+            else contract.terminal_mapping
+        )
+        if tuple(terminal_mapping) != contract.terminal_mapping:
+            raise ValidationError(
+                code="UNSUPPORTED_TERMINAL_MAPPING",
+                message=(
+                    f"{equipment_type!r} insertion requires terminal mapping "
+                    f"{contract.terminal_mapping!r}."
+                ),
+                details={
+                    "equipment_type": equipment_type,
+                    "requested_mapping": tuple(terminal_mapping),
+                    "required_mapping": contract.terminal_mapping,
+                },
+            )
+
+        parameters = dict(payload.get("creation_parameters") or {})
+        forbidden = {
+            "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b",
+            "p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint",
+            "command_id", "correlation_id", "causation_id",
+        }
+        if forbidden.intersection(parameters):
+            raise ValidationError(
+                code="INSERTION_ENDPOINT_OVERRIDE",
+                message="Insertion creation parameters cannot override terminal endpoints.",
+                details={
+                    "equipment_type": equipment_type,
+                    "equipment_id": equipment_id,
+                    "fields": sorted(forbidden.intersection(parameters)),
+                },
+            )
+        self._validate_creation_parameters(
+            equipment_type=equipment_type,
+            equipment_id=equipment_id,
+            parameters=parameters,
+        )
+
+        # The complete insertion definition is validated above before the
+        # canonical creation child command can be constructed or any Core
+        # mutation can occur.
+        insertion_position = tuple(payload["insertion_position"])
+        if len(insertion_position) != 2:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position must contain exactly two coordinates.",
+                details={},
+            )
+
+        # The first mapped terminal is connected to the first side of the
+        # existing relationship; the second mapped terminal is connected to
+        # the second side. The explicit mapping is the engineering contract,
+        # not a UI terminal-name guess.
+        input_role, output_role = terminal_mapping
+        equipment_type_enum = EquipmentType(equipment_type)
+        input_ref = EndpointReference.terminal(
+            equipment_type=equipment_type_enum,
+            equipment_id=equipment_id,
+            terminal_role=input_role,
+        )
+        output_ref = EndpointReference.terminal(
+            equipment_type=equipment_type_enum,
+            equipment_id=equipment_id,
+            terminal_role=output_role,
+        )
+
+        # New-equipment insertion still uses the canonical creation command.
+        # Existing-equipment insertion deliberately skips creation and reuses
+        # the already registered Core object.
+        if not existing_equipment:
+            create_command = self._creation_command(
+                equipment_type=equipment_type,
+                equipment_id=equipment_id,
+                parameters=parameters,
+                command=command,
+            )
+            create_result = self._command_executor(create_command, transaction)
+            if not create_result.success:
+                raise ValidationError(
+                    code="EQUIPMENT_CREATION_FAILED",
+                    message=create_result.message or "Equipment creation failed.",
+                    details=dict(create_result.metadata),
+                )
+
+        # Synchronize the inserted Core terminals through the canonical
+        # Application connection path. Simple Wire relationships intentionally
+        # remain separate topology records; the terminal endpoint is owned by
+        # Terminal and is therefore established by CONNECT_TERMINAL rather than
+        # by mutating Terminal directly here.
+        for role, target_ref in ((input_role, endpoint_a), (output_role, endpoint_b)):
+            connect_result = self._command_executor(
+                ConnectTerminalCommand(
+                    terminal=(input_ref if role == input_role else output_ref),
+                    target=target_ref,
+                    correlation_id=command.correlation_id,
+                    causation_id=command.command_id,
+                ),
+                transaction,
+            )
+            if not connect_result.success:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_CONNECTION_FAILED",
+                    message=connect_result.message or f"Terminal {role!r} connection failed.",
+                    details={
+                        "equipment_id": equipment_id,
+                        "terminal_role": role,
+                        "target": dict(target_ref.to_mapping()),
+                        "metadata": dict(connect_result.metadata),
+                    },
+                )
+
+        # The canonical connection service above is deliberately the only
+        # terminal mutation path. Verify the resulting local Terminal state
+        # before replacing the relationship so a stale/contradictory Core
+        # state can never be hidden by the new Simple Wires.
+        inserted_equipment = network.get_by_identity(equipment_id)
+        terminals_by_role = {
+            str(getattr(terminal, "role", "")): terminal
+            for terminal in getattr(inserted_equipment, "terminals", ())
+        }
+        for role, target_ref in ((input_role, endpoint_a), (output_role, endpoint_b)):
+            terminal = terminals_by_role.get(role)
+            if terminal is None or getattr(terminal, "endpoint", None) is None:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_STATE_INVALID",
+                    message=f"Required insertion terminal {role!r} is not connected.",
+                    details={"equipment_id": equipment_id, "terminal_role": role},
+                )
+            # CONNECT_TERMINAL resolves the target through the canonical
+            # Application endpoint resolver. Re-resolve it here and compare
+            # object identity so Terminal.endpoint and the topology endpoint
+            # cannot silently diverge before the Simple Wires are committed.
+            expected_endpoint = EndpointResolver.resolve(context, target_ref)
+            if terminal.endpoint is not expected_endpoint:
+                raise ValidationError(
+                    code="INSERTION_TERMINAL_TOPOLOGY_MISMATCH",
+                    message=f"Insertion terminal {role!r} does not reference the canonical topology endpoint.",
+                    details={
+                        "equipment_id": equipment_id,
+                        "terminal_role": role,
+                        "target": dict(target_ref.to_mapping()),
+                    },
+                )
+
+        # CT secondary terminals are intentionally outside the insertion
+        # contract. They must retain exactly the state produced before the
+        # insertion transaction (normally disconnected) and are never touched
+        # by the primary-path connection commands above.
+        if equipment_type == "current_transformer":
+            for role in ("S1", "S2"):
+                terminal = terminals_by_role.get(role)
+                if terminal is None:
+                    raise ValidationError(
+                        code="INSERTION_CT_TERMINAL_STATE_INVALID",
+                        message=f"Current Transformer is missing required secondary terminal {role!r}.",
+                        details={"equipment_id": equipment_id, "terminal_role": role},
+                    )
+                if getattr(terminal, "endpoint", None) is not None:
+                    raise ValidationError(
+                        code="INSERTION_CT_SECONDARY_CONNECTED",
+                        message=f"Current Transformer secondary terminal {role!r} must remain unconnected during insertion.",
+                        details={"equipment_id": equipment_id, "terminal_role": role},
+                    )
+
+        # Remove the original relationship only after both inserted terminals
+        # have been established through the canonical Application path.
+        remove_result = self._command_executor(
+            RemoveSimpleWireConnectionCommand(
+                connection_id=connection_id,
+                endpoint_a=endpoint_a,
+                endpoint_b=endpoint_b,
+                correlation_id=command.correlation_id,
+                causation_id=command.command_id,
+            ),
+            transaction,
+        )
+        if not remove_result.success:
+            raise ValidationError(
+                code="INSERTION_ORIGINAL_CONNECTION_REMOVE_FAILED",
+                message=remove_result.message or "Original connection removal failed.",
+                details=dict(remove_result.metadata),
+            )
+
+        first_connection_id = f"{connection_id}-A"
+        second_connection_id = f"{connection_id}-B"
+        if first_connection_id == second_connection_id:
+            raise ValidationError(code="INSERTION_CONNECTION_ID_COLLISION", message="Replacement connection IDs collide.", details={})
+
+        first_result = self._command_executor(
+            CreateSimpleWireConnectionCommand(
+                connection_id=first_connection_id,
+                endpoint_a=endpoint_a,
+                endpoint_b=input_ref,
+                correlation_id=command.correlation_id,
+                causation_id=command.command_id,
+            ),
+            transaction,
+        )
+        if not first_result.success:
+            raise ValidationError(
+                code="INSERTION_FIRST_CONNECTION_FAILED",
+                message=first_result.message or "First replacement connection failed.",
+                details=dict(first_result.metadata),
+            )
+
+        second_result = self._command_executor(
+            CreateSimpleWireConnectionCommand(
+                connection_id=second_connection_id,
+                endpoint_a=output_ref,
+                endpoint_b=endpoint_b,
+                correlation_id=command.correlation_id,
+                causation_id=command.command_id,
+            ),
+            transaction,
+        )
+        if not second_result.success:
+            raise ValidationError(
+                code="INSERTION_SECOND_CONNECTION_FAILED",
+                message=second_result.message or "Second replacement connection failed.",
+                details=dict(second_result.metadata),
+            )
+
+        # Validate the authoritative aggregate before the outer transaction can
+        # commit. The original direct relationship must be gone.
+        if network.connectivity.contains(connection_id):
+            raise ValidationError(
+                code="INSERTION_DIRECT_CONNECTION_REMAINS",
+                message="The original Simple Wire remains after insertion.",
+                details={"connection_id": connection_id},
+            )
+        if not network.connectivity.contains(first_connection_id) or not network.connectivity.contains(second_connection_id):
+            raise ValidationError(
+                code="INSERTION_REPLACEMENT_CONNECTION_MISSING",
+                message="Insertion did not produce both replacement Simple Wires.",
+                details={
+                    "first_connection_id": first_connection_id,
+                    "second_connection_id": second_connection_id,
+                },
+            )
+
+        try:
+            network.connectivity.validate(network)
+            network.validate()
+        except Exception as exc:
+            raise ValidationError(
+                code="INSERTION_TOPOLOGY_INVALID",
+                message=f"Inserted topology failed Core validation: {exc}",
+                details={"connection_id": connection_id, "equipment_id": equipment_id},
+            ) from exc
+
+        return ApplicationResult.success_result(
+            value=(None if existing_equipment else create_result.value),
+            message=f"{equipment_type.title()} {equipment_id} inserted into {connection_id}.",
+            metadata={
+                "insertion": True,
+                "connection_id": connection_id,
+                "equipment_type": equipment_type,
+                "equipment_id": equipment_id,
+                "existing_equipment": existing_equipment,
+                "insertion_position": insertion_position,
+                "orientation": float(payload["orientation"]),
+                "segment_index": int(payload["segment_index"]),
+                "terminal_anchors": payload.get("terminal_anchors"),
+                "terminal_mapping": tuple(terminal_mapping),
+                "endpoint_a": dict(endpoint_a.to_mapping()),
+                "endpoint_b": dict(endpoint_b.to_mapping()),
+                "input_endpoint": dict(input_ref.to_mapping()),
+                "output_endpoint": dict(output_ref.to_mapping()),
+                "replacement_connection_ids": (first_connection_id, second_connection_id),
+                "sld_node_id": f"sld-core-{equipment_id}",
+                "sld_connection_ids": (
+                    f"sld-wire-{first_connection_id}",
+                    f"sld-wire-{second_connection_id}",
+                ),
+            },
+        )
+
+    @staticmethod
+    def _validate_creation_parameters(
+        *,
+        equipment_type: str,
+        equipment_id: str,
+        parameters: Mapping[str, Any],
+    ) -> None:
+        """Validate insertion engineering data before child-command construction."""
+        allowed = _CREATION_ALLOWED_FIELDS[equipment_type]
+        invalid_fields = sorted(set(parameters) - allowed)
+        missing_fields = tuple(
+            field
+            for field in _CREATION_REQUIRED_FIELDS[equipment_type]
+            if field not in parameters or parameters[field] is None
+        )
+        invalid_values: dict[str, str] = {}
+
+        numeric_fields = {
+            "voltage_kv", "rated_current_a", "operating_time", "presentation_x",
+            "presentation_y", "r", "x", "b", "impedance_base_mva",
+            "impedance_base_voltage_kv", "tap", "shift", "rate_mva",
+            "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+            "frequency_hz", "current_a", "interrupting_ka",
+        }
+        positive_fields = {
+            "voltage_kv", "rated_current_a", "operating_time", "impedance_base_mva",
+            "impedance_base_voltage_kv", "tap", "rate_mva",
+            "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+            "frequency_hz",
+        }
+        for field in numeric_fields.intersection(parameters):
+            value = parameters[field]
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                invalid_values[field] = "must be numeric"
+                continue
+            numeric = float(value)
+            if not math.isfinite(numeric):
+                invalid_values[field] = "must be finite"
+            elif field in positive_fields and numeric <= 0.0:
+                invalid_values[field] = "must be greater than zero"
+
+        if equipment_type == "transformer":
+            basis = parameters.get("impedance_basis")
+            if basis is None:
+                if "impedance_basis" not in missing_fields:
+                    missing_fields = (*missing_fields, "impedance_basis")
+            else:
+                normalized_basis = (
+                    basis.value if hasattr(basis, "value") else str(basis).strip().lower()
+                )
+                if normalized_basis not in {"pu", "engineering"}:
+                    invalid_values["impedance_basis"] = "must be 'pu' or 'engineering'"
+
+            if parameters.get("impedance_base_mva") is None and parameters.get("rate_mva") is None:
+                missing_fields = (*missing_fields, "impedance_base_mva_or_rate_mva")
+
+        if invalid_fields or missing_fields or invalid_values:
+            details = {
+                "equipment_type": equipment_type,
+                "equipment_id": equipment_id,
+                "missing_fields": tuple(dict.fromkeys(missing_fields)),
+                "invalid_fields": tuple(invalid_fields),
+            }
+            if invalid_values:
+                details["invalid_values"] = dict(invalid_values)
+            raise ValidationError(
+                code="INVALID_INSERTION_CREATION_PARAMETERS",
+                message=f"Invalid engineering parameters for {equipment_type!r} insertion.",
+                details=details,
+            )
+
+    @staticmethod
+    def _creation_command(
+        *,
+        equipment_type: str,
+        equipment_id: str,
+        parameters: Mapping[str, Any],
+        command: Command,
+    ) -> Command:
+        common = dict(
+            parameters,
+            command_id=None,
+            correlation_id=command.correlation_id,
+            causation_id=command.command_id,
+        )
+        if equipment_type == "breaker":
+            return CreateBreakerCommand(
+                breaker_id=equipment_id,
+                **common,
+            )
+        if equipment_type == "disconnector":
+            return CreateDisconnectorCommand(
+                disconnector_id=equipment_id,
+                **common,
+            )
+        if equipment_type == "transformer":
+            return CreateTransformerCommand(
+                transformer_id=equipment_id,
+                **common,
+            )
+        if equipment_type == "current_transformer":
+            return CreateCurrentTransformerCommand(
+                transformer_id=equipment_id,
+                **common,
+            )
+        raise ValueError(f"Unsupported insertion-capable equipment type: {equipment_type!r}")
+
+
+class ElectricalInsertionCommandHandlers:
+    """Register the insertion command in the single Application registry."""
+
+    def __init__(self, service: ElectricalInsertionService) -> None:
+        if not isinstance(service, ElectricalInsertionService):
+            raise TypeError("service must be an ElectricalInsertionService.")
+        self._service = service
+
+    def handlers(self) -> dict[str, Any]:
+        from ..commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
+        return {INSERT_EQUIPMENT_INTO_CONNECTION: self.execute}
+
+    def execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._service.execute(command, context, transaction)
+
+
+__all__ = [
+    "ElectricalInsertionService",
+    "ElectricalInsertionCommandHandlers",
+]

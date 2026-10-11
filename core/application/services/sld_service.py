@@ -9,8 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Callable, Mapping
 from typing import Any
+import math
 
 from ..command import Command
+from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
@@ -28,6 +30,9 @@ class SLDService:
     The service performs presentation mutation only inside the Application
     transaction supplied by CommandManager. It never owns history or undo/redo.
     """
+
+    INSERTION_POSITION_TOLERANCE = 5.0
+    INSERTION_POSITION_TOLERANCE_SQ = INSERTION_POSITION_TOLERANCE ** 2
 
     COMMAND_TYPES = frozenset({
         "sld.set_node_position",
@@ -83,6 +88,93 @@ class SLDService:
         if not isinstance(core_connection_id, str) or not core_connection_id:
             raise ValueError("core_connection_id must be a non-empty string")
         return f"sld-wire-{core_connection_id}"
+
+    def audit_simple_wire_projection(self, network: Any) -> tuple[dict[str, Any], ...]:
+        """Audit Core/SLD Simple-Wire consistency without mutating the document.
+
+        This method is the activation/read-side counterpart to the mutating
+        reconcile_simple_wire_projection method. It never creates, removes, or
+        rewrites persistent SLD state and never marks the document modified.
+        """
+        if network is None or not hasattr(network, "connectivity"):
+            raise TypeError("network must expose the authoritative connectivity aggregate")
+
+        core_connections = tuple(network.connectivity.connections)
+        core_by_id = {str(connection.connection_id): connection for connection in core_connections}
+        diagnostics: list[dict[str, Any]] = []
+        companions: dict[str, Any] = {}
+
+        for connection in self.document.model.connections:
+            properties = connection.properties
+            kind = str(properties.get("connection_kind", "")).upper()
+            lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
+            core_id = properties.get("core_connection_id")
+            owner = str(properties.get("presentation_owner", "")).lower()
+
+            if kind != "SIMPLE_WIRE" and not core_id:
+                continue
+            if kind != "SIMPLE_WIRE":
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "reason": "core_connection_mapping_on_non_simple_wire",
+                })
+                continue
+            if lifecycle == "ORPHANED":
+                continue
+            if lifecycle != "BOUND":
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "reason": f"unsupported_lifecycle_state:{lifecycle}",
+                })
+                continue
+            if not core_id:
+                diagnostics.append({
+                    "code": "SLD_WIRE_WITHOUT_CORE",
+                    "connection_id": str(connection.connection_id),
+                })
+                continue
+
+            core_id = str(core_id)
+            if core_id in companions:
+                diagnostics.append({
+                    "code": "DUPLICATE_PRESENTATION_COMPANION",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                })
+                continue
+
+            companions[core_id] = connection
+            if core_id not in core_by_id:
+                diagnostics.append({
+                    "code": "SLD_WIRE_WITHOUT_CORE",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                    "presentation_owner": owner,
+                })
+                continue
+
+            core = core_by_id[core_id]
+            expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
+            expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+            actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
+            actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
+            if actual_a != expected_a or actual_b != expected_b:
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                    "presentation_owner": owner,
+                })
+
+        for core_id in core_by_id:
+            if core_id not in companions:
+                diagnostics.append({
+                    "code": "CORE_WIRE_WITHOUT_SLD_COMPANION",
+                    "connection_id": core_id,
+                })
+        return tuple(diagnostics)
 
     def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
         """Reconcile persistent projection companions against authoritative Core Simple Wires.
@@ -523,6 +615,443 @@ class SLDService:
         )
         self.document.mark_modified()
 
+    @classmethod
+    def _validate_insertion_geometry(
+        cls,
+        *,
+        connection_id: str,
+        old_connection: Any,
+        source_node: Any,
+        target_node: Any,
+        insertion_position: tuple[float, float] | list[float],
+        segment_index: int,
+    ) -> tuple[float, float]:
+        """Validate insertion geometry against exactly the selected SLD segment.
+
+        The SLD document is authoritative for presentation route geometry.
+        Core topology geometry is intentionally not consulted here.
+        """
+        if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+            raise ValidationError(
+                code="INVALID_INSERTION_CONNECTION",
+                message="Electrical insertion requires a Simple Wire SLD connection.",
+                details={"connection_id": str(connection_id), "reason": "not_simple_wire"},
+            )
+
+        if not isinstance(segment_index, int) or isinstance(segment_index, bool):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion segment index must be an integer.",
+                details={"connection_id": str(connection_id), "segment_index": segment_index, "reason": "invalid_segment_index_type"},
+            )
+
+        if not isinstance(insertion_position, (tuple, list)) or len(insertion_position) != 2:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position must contain exactly two coordinates.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": insertion_position,
+                    "reason": "invalid_coordinate_count",
+                },
+            )
+
+        try:
+            px, py = float(insertion_position[0]), float(insertion_position[1])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position coordinates must be numeric.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": tuple(insertion_position),
+                    "reason": "non_numeric_coordinate",
+                },
+            ) from exc
+
+        if not math.isfinite(px) or not math.isfinite(py):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="Insertion position coordinates must be finite.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "non_finite_coordinate",
+                },
+            )
+
+        try:
+            source = (float(source_node.x), float(source_node.y))
+            target = (float(target_node.x), float(target_node.y))
+            route_points = tuple(
+                (float(point[0]), float(point[1]))
+                for point in old_connection.route.points
+            )
+        except (AttributeError, TypeError, ValueError, IndexError, OverflowError) as exc:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="The selected SLD connection has invalid route geometry.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "invalid_route_geometry",
+                },
+            ) from exc
+
+        polyline = (source, *route_points, target)
+        segment_count = len(polyline) - 1
+        if segment_index < 0 or segment_index >= segment_count:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message=(
+                    f"Insertion segment index {segment_index} is outside the "
+                    f"route range for connection {connection_id}."
+                ),
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "segment_count": segment_count,
+                    "supplied_position": (px, py),
+                    "reason": "segment_index_out_of_range",
+                },
+            )
+
+        ax, ay = polyline[segment_index]
+        bx, by = polyline[segment_index + 1]
+        if not all(math.isfinite(value) for value in (ax, ay, bx, by)):
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message="The selected SLD route segment contains non-finite coordinates.",
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "reason": "non_finite_segment",
+                },
+            )
+
+        dx, dy = bx - ax, by - ay
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 0.0:
+            closest_dx = px - ax
+            closest_dy = py - ay
+            distance_sq = closest_dx * closest_dx + closest_dy * closest_dy
+        else:
+            projection = ((px - ax) * dx + (py - ay) * dy) / length_sq
+            projection = max(0.0, min(1.0, projection))
+            closest_x = ax + projection * dx
+            closest_y = ay + projection * dy
+            closest_dx = px - closest_x
+            closest_dy = py - closest_y
+            distance_sq = closest_dx * closest_dx + closest_dy * closest_dy
+
+        if not math.isfinite(distance_sq) or distance_sq > cls.INSERTION_POSITION_TOLERANCE_SQ:
+            raise ValidationError(
+                code="INVALID_INSERTION_POSITION",
+                message=(
+                    f"Insertion position is not on selected SLD route segment "
+                    f"{segment_index} within the allowed tolerance."
+                ),
+                details={
+                    "connection_id": str(connection_id),
+                    "segment_index": int(segment_index),
+                    "supplied_position": (px, py),
+                    "distance_squared": float(distance_sq),
+                    "tolerance": float(cls.INSERTION_POSITION_TOLERANCE),
+                    "tolerance_squared": float(cls.INSERTION_POSITION_TOLERANCE_SQ),
+                    "reason": "position_outside_selected_segment",
+                },
+            )
+
+        return (px, py)
+
+    def reconcile_insertion(
+        self,
+        *,
+        connection_id: str,
+        equipment_id: str,
+        equipment_type: str,
+        insertion_position: tuple[float, float],
+        orientation: float,
+        segment_index: int,
+        input_endpoint: Mapping[str, Any],
+        output_endpoint: Mapping[str, Any],
+        replacement_connection_ids: tuple[str, str],
+        transaction: Transaction,
+        terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
+    ) -> None:
+        """Atomically replace one persistent SLD wire with an inserted node and two wires.
+
+        The operation mutates only the persistent SLD presentation companion
+        inside the originating Application transaction. The old connection
+        snapshot is retained exactly for undo.
+        """
+        old_id = self.presentation_connection_id(connection_id)
+        old_connection = self.document.model.get_connection_optional(old_id)
+        if old_connection is None:
+            candidates = tuple(
+                item
+                for item in self.document.model.connections
+                if str(item.properties.get("core_connection_id", "")) == str(connection_id)
+            )
+            if len(candidates) == 1:
+                old_connection = candidates[0]
+                old_id = old_connection.connection_id
+            elif len(candidates) > 1:
+                raise ValueError(
+                    f"Multiple persistent SLD companions exist for Core connection {connection_id!r}."
+                )
+            else:
+                raise ValidationError(
+                    code="INVALID_INSERTION_CONNECTION",
+                    message=(
+                        f"No persistent SLD connection companion exists for "
+                        f"Core connection {connection_id!r}."
+                    ),
+                    details={
+                        "connection_id": str(connection_id),
+                        "reason": "sld_connection_not_found",
+                    },
+                )
+
+        first_core_id, second_core_id = replacement_connection_ids
+        first_id = self.presentation_connection_id(first_core_id)
+        second_id = self.presentation_connection_id(second_core_id)
+        existing_node = self.document.model.get_node_by_equipment_id_optional(equipment_id)
+        node_id = str(existing_node.node_id) if existing_node is not None else f"sld-core-{equipment_id}"
+        if existing_node is not None:
+            attached = tuple(
+                item for item in self.document.model.connections
+                if item.source_node_id == existing_node.node_id or item.target_node_id == existing_node.node_id
+            )
+            if attached:
+                raise ValueError(
+                    f"Existing equipment SLD node {node_id!r} already has persistent connection companions."
+                )
+        elif self.document.model.get_node_optional(node_id) is not None:
+            raise ValueError(f"SLD node {node_id!r} already exists.")
+        if self.document.model.get_connection_optional(first_id) is not None:
+            raise ValueError(f"SLD connection {first_id!r} already exists.")
+        if self.document.model.get_connection_optional(second_id) is not None:
+            raise ValueError(f"SLD connection {second_id!r} already exists.")
+
+        if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+            raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
+        snapshot = old_connection.to_dict()
+        node_snapshot = existing_node.to_dict() if existing_node is not None else None
+        previous_document_modified = bool(getattr(self.document, "modified", False))
+        source_node = self.document.model.get_node(old_connection.source_node_id)
+        target_node = self.document.model.get_node(old_connection.target_node_id)
+        position = self._validate_insertion_geometry(
+            connection_id=connection_id,
+            old_connection=old_connection,
+            source_node=source_node,
+            target_node=target_node,
+            insertion_position=insertion_position,
+            segment_index=segment_index,
+        )
+
+        # Capture ownership/provenance before replacing the persistent
+        # connection. These values belong to the authored SLD presentation and
+        # must not be inferred from the insertion command itself.
+        route = old_connection.route.to_dict()
+        original_route_ownership = str(route.get("ownership", "auto")).lower()
+        original_route_owner = old_connection.properties.get("route_owner")
+        original_presentation_owner = old_connection.properties.get("presentation_owner")
+        original_projection_source = old_connection.properties.get("projection_source")
+        if original_presentation_owner not in (None, "engineer", "projection"):
+            raise ValueError("SLD connection presentation ownership is unknown; insertion is rejected.")
+        polyline = [
+            (float(source_node.x), float(source_node.y)),
+            *tuple(tuple(point) for point in old_connection.route.points),
+            (float(target_node.x), float(target_node.y)),
+        ]
+        if segment_index < 0 or segment_index >= len(polyline) - 1:
+            raise ValueError(
+                f"Invalid insertion route segment index {segment_index} for connection {connection_id!r}."
+            )
+        anchors = dict(terminal_anchors or {})
+        input_role = str(input_endpoint.get("terminal_role") or "")
+        output_role = str(output_endpoint.get("terminal_role") or "")
+
+        def rotated_anchor(role: str) -> tuple[float, float]:
+            local = anchors.get(role)
+            if local is None:
+                return position
+            lx, ly = float(local[0]), float(local[1])
+            radians = math.radians(float(orientation))
+            return (
+                position[0] + lx * math.cos(radians) - ly * math.sin(radians),
+                position[1] + lx * math.sin(radians) + ly * math.cos(radians),
+            )
+
+        input_anchor = rotated_anchor(input_role)
+        output_anchor = rotated_anchor(output_role)
+        first_polyline = [*polyline[: segment_index + 1], position, input_anchor]
+        second_polyline = [output_anchor, position, *polyline[segment_index + 1 :]]
+
+        def normalize_route(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+            normalized: list[tuple[float, float]] = []
+            for point in points:
+                value = (float(point[0]), float(point[1]))
+                if normalized and value == normalized[-1]:
+                    continue
+                normalized.append(value)
+            if str(route.get("ownership", "auto")).lower() != "engineer":
+                compact: list[tuple[float, float]] = []
+                for point in normalized:
+                    if len(compact) >= 2:
+                        ax, ay = compact[-2]
+                        bx, by = compact[-1]
+                        cx, cy = point
+                        if abs((bx - ax) * (cy - by) - (by - ay) * (cx - bx)) <= 1e-9:
+                            compact[-1] = point
+                            continue
+                    compact.append(point)
+                normalized = compact
+            return normalized
+
+        def route_for(points: list[tuple[float, float]]) -> dict[str, Any]:
+            normalized = normalize_route(points)
+            return {
+                "routing_mode": route["routing_mode"],
+                "ownership": route["ownership"],
+                "points": [list(point) for point in normalized[1:-1]],
+            }
+
+        def presentation_endpoint(reference: Mapping[str, Any]) -> dict[str, str]:
+            kind = str(reference.get("kind", "")).lower()
+            if kind == "terminal":
+                if str(reference.get("object_id")) != str(equipment_id):
+                    raise ValueError("Insertion terminal endpoint belongs to a different equipment identity.")
+                return {
+                    "kind": "equipment",
+                    "node_id": node_id,
+                    "equipment_id": str(equipment_id),
+                    "terminal_role": str(reference["terminal_role"]),
+                }
+            raise ValueError("Inserted equipment Simple Wire endpoints must be terminal references.")
+
+        input_presentation_endpoint = presentation_endpoint(input_endpoint)
+        output_presentation_endpoint = presentation_endpoint(output_endpoint)
+        properties = dict(old_connection.properties)
+        properties["connection_kind"] = "SIMPLE_WIRE"
+        if original_presentation_owner is None:
+            properties["presentation_owner"] = "projection"
+        # Preserve the original presentation/provenance contract. In
+        # particular, an engineer-owned route must never become projection
+        # owned merely because insertion changed the Core connectivity.
+        if original_projection_source is None:
+            properties.pop("projection_source", None)
+        else:
+            properties["projection_source"] = original_projection_source
+        if original_route_ownership == "engineer":
+            # Engineer-authored routing explicitly carries engineer ownership
+            # on both replacement companions, even if an older persisted
+            # document omitted the redundant route_owner property.
+            properties["route_owner"] = original_route_owner or "engineer"
+        elif original_route_owner is None:
+            properties.pop("route_owner", None)
+        else:
+            properties["route_owner"] = original_route_owner
+        properties["lifecycle_state"] = "BOUND"
+        properties["insertion_parent_connection_id"] = connection_id
+
+        if existing_node is not None:
+            # Start from the exact authored node metadata and change only the
+            # fields explicitly owned by this insertion: current Core binding,
+            # insertion provenance, position, and the explicitly supplied
+            # rotation. Ownership fields such as symbol/labels/manual geometry
+            # remain untouched.
+            node_properties = dict(existing_node.properties)
+            node_properties.update({
+                "lifecycle_state": "BOUND",
+                "element_type": equipment_type,
+                "rotation": float(orientation),
+                "insertion_parent_connection_id": connection_id,
+            })
+        else:
+            node_properties = {
+                "presentation_owner": "engineer",
+                "lifecycle_state": "BOUND",
+                "element_type": equipment_type,
+                "position_owner": "engineer",
+                "symbol_owner": "engineer",
+                "rotation": float(orientation),
+                "insertion_parent_connection_id": connection_id,
+            }
+        presentation = None
+        if existing_node is None and self._symbol_presentation_factory is not None:
+            presentation = self._symbol_presentation_factory(equipment_type)
+
+        def restore() -> None:
+            for connection_id_to_remove in (first_id, second_id):
+                if self.document.model.get_connection_optional(connection_id_to_remove) is not None:
+                    self.document.model.remove_connection(connection_id_to_remove)
+            if existing_node is None:
+                if self.document.model.get_node_optional(node_id) is not None:
+                    self.document.model.remove_node(node_id)
+            else:
+                node = self.document.model.get_node_optional(node_id)
+                if node is None:
+                    self._restore_node_snapshot(node_snapshot or {})
+                else:
+                    node.set_position(float(node_snapshot["x"]), float(node_snapshot["y"]))
+                    if node_snapshot.get("presentation") is None:
+                        node.clear_presentation()
+                    else:
+                        node.set_presentation(node_snapshot["presentation"])
+                    node.properties.clear()
+                    node.properties.update(dict(node_snapshot.get("properties", {})))
+                    node.equipment_id = node_snapshot.get("equipment_id")
+            if self.document.model.get_connection_optional(old_id) is None:
+                self._restore_connection_snapshot(snapshot)
+            if previous_document_modified:
+                self.document.mark_modified()
+            else:
+                self.document.mark_clean()
+
+        # Register the inverse before mutating the presentation so any failure
+        # during the multi-object replacement is rollback-safe as well.
+        transaction.record_undo(restore)
+
+        self.document.model.remove_connection(old_id)
+        if existing_node is None:
+            self.document.model.create_node(
+                node_id=node_id,
+                equipment_id=equipment_id,
+                x=position[0],
+                y=position[1],
+                presentation=presentation,
+                properties=node_properties,
+            )
+        else:
+            existing_node.set_position(position[0], position[1])
+            existing_node.properties.update(node_properties)
+        self.document.model.create_connection(
+            connection_id=first_id,
+            source_node_id=old_connection.source_node_id,
+            target_node_id=node_id,
+            source_endpoint=old_connection.source_endpoint.to_dict() if old_connection.source_endpoint is not None else None,
+            target_endpoint=input_presentation_endpoint,
+            route=route_for(first_polyline),
+            properties=dict(properties, core_connection_id=first_core_id),
+        )
+        self.document.model.create_connection(
+            connection_id=second_id,
+            source_node_id=node_id,
+            target_node_id=old_connection.target_node_id,
+            source_endpoint=output_presentation_endpoint,
+            target_endpoint=old_connection.target_endpoint.to_dict() if old_connection.target_endpoint is not None else None,
+            route=route_for(second_polyline),
+            properties=dict(properties, core_connection_id=second_core_id),
+        )
+        self.document.mark_modified()
+
     def reconcile_element_delete(
         self,
         *,
@@ -711,6 +1240,12 @@ class SLDService:
         connection_kind = p.get("connection_kind")
         if connection_kind is not None:
             properties["connection_kind"] = str(connection_kind)
+        core_connection_id = p.get("core_connection_id")
+        if core_connection_id is not None:
+            core_connection_id = str(core_connection_id).strip()
+            if not core_connection_id:
+                raise ValueError("core_connection_id must be a non-empty string when provided.")
+            properties["core_connection_id"] = core_connection_id
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
         if connection_kind is not None:

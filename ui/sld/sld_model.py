@@ -131,7 +131,16 @@ class SLDNode:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDNode":
-        """Deserialize an SLD node."""
+        """Deserialize a canonical SLD node without silently dropping fields."""
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD node payload must be a mapping.")
+        allowed = {"node_id", "equipment_id", "x", "y", "presentation", "properties"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError("Unknown canonical SLD node fields: " + ", ".join(unknown))
+        missing = sorted(allowed - set(data))
+        if missing:
+            raise ValueError("Missing canonical SLD node fields: " + ", ".join(missing))
         return cls(
             node_id=str(data["node_id"]),
             equipment_id=(
@@ -200,6 +209,15 @@ class SLDEndpoint:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDEndpoint":
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD endpoint payload must be a mapping.")
+        allowed = {"kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError("Unknown canonical SLD endpoint fields: " + ", ".join(unknown))
+        missing = sorted(allowed - set(data))
+        if missing:
+            raise ValueError("Missing canonical SLD endpoint fields: " + ", ".join(missing))
         return cls(
             kind=SLDEndpointKind(str(data["kind"])),
             node_id=str(data["node_id"]),
@@ -223,20 +241,41 @@ class SLDRoute:
             raise ValueError("unsupported SLD routing_mode")
         if self.ownership not in {"auto", "engineer"}:
             raise ValueError("route ownership must be 'auto' or 'engineer'")
-        normalized = tuple((float(x), float(y)) for x, y in self.points)
-        object.__setattr__(self, "points", normalized)
+        import math
+        normalized = []
+        for point in self.points:
+            if not isinstance(point, (tuple, list)) or len(point) != 2:
+                raise ValueError("route points must be two-dimensional coordinates")
+            x, y = point
+            if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+                raise ValueError("route coordinates must be numeric")
+            if not math.isfinite(float(x)) or not math.isfinite(float(y)):
+                raise ValueError("route coordinates must be finite")
+            normalized.append((float(x), float(y)))
+        object.__setattr__(self, "points", tuple(normalized))
 
     def to_dict(self) -> Dict[str, Any]:
         return {"routing_mode": self.routing_mode, "ownership": self.ownership, "points": [list(p) for p in self.points]}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any] | None) -> "SLDRoute":
-        if not data:
-            return cls()
+        if data is None:
+            raise ValueError("canonical SLD route must be an object")
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD route payload must be a mapping.")
+        allowed = {"routing_mode", "ownership", "points"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError("Unknown canonical SLD route fields: " + ", ".join(unknown))
+        missing = sorted(allowed - set(data))
+        if missing:
+            raise ValueError("Missing canonical SLD route fields: " + ", ".join(missing))
+        if not isinstance(data["points"], list):
+            raise TypeError("SLD route points must be an array.")
         return cls(
-            routing_mode=str(data.get("routing_mode", "orthogonal")),
-            ownership=str(data.get("ownership", "auto")),
-            points=tuple(tuple(point) for point in data.get("points", ())),
+            routing_mode=data["routing_mode"],
+            ownership=data["ownership"],
+            points=tuple(tuple(point) for point in data["points"]),
         )
 
 
@@ -302,6 +341,15 @@ class SLDConnection:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDConnection":
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD connection payload must be a mapping.")
+        allowed = {"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError("Unknown canonical SLD connection fields: " + ", ".join(unknown))
+        missing = sorted(allowed - set(data))
+        if missing:
+            raise ValueError("Missing canonical SLD connection fields: " + ", ".join(missing))
         return cls(
             connection_id=str(data["connection_id"]),
             source_node_id=str(data["source_node_id"]),
@@ -563,15 +611,26 @@ class SLDModel:
         cls,
         data: Mapping[str, Any],
     ) -> "SLDModel":
-        """Deserialize an SLD model."""
+        """Deserialize a canonical SLD model while preserving insertion order."""
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD model payload must be a mapping.")
+        allowed = {"nodes", "connections"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError("Unknown canonical SLD model fields: " + ", ".join(unknown))
+        missing = sorted(allowed - set(data))
+        if missing:
+            raise ValueError("Missing canonical SLD model fields: " + ", ".join(missing))
+        if not isinstance(data["nodes"], list) or not isinstance(data["connections"], list):
+            raise TypeError("SLD model nodes and connections must be arrays.")
         model = cls()
 
-        for node_data in data.get("nodes", []):
+        for node_data in data["nodes"]:
             model.add_node(
                 SLDNode.from_dict(node_data)
             )
 
-        for connection_data in data.get("connections", []):
+        for connection_data in data["connections"]:
             model.add_connection(
                 SLDConnection.from_dict(connection_data)
             )

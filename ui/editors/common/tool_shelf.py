@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Any
+import logging
 
-from ui.core.qt import QFormLayout, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt
+from ui.core.qt import QFormLayout, QFrame, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt, QSize
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
+
+_LOG = logging.getLogger(__name__)
 
 
 class ToolShelf(QWidget):
@@ -24,8 +27,9 @@ class ToolShelf(QWidget):
         activate: Callable[[str], object] | None = None,
         action_router: UIActionRouter | None = None,
         editor_type: str | None = None,
-        icon_provider: Callable[[str], QIcon | None] | None = None,
+        icon_provider: Callable[[ToolDefinition], QIcon | None] | None = None,
         active_tool_provider: Callable[[], str | None] | None = None,
+        compact_mode: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -34,11 +38,14 @@ class ToolShelf(QWidget):
         self._editor_type = editor_type
         self._icon_provider = icon_provider
         self._active_tool_provider = active_tool_provider
+        self._compact_mode = bool(compact_mode)
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(2, 2, 2, 2)
+        self._layout.setSpacing(2)
         self.setObjectName("GridForgeToolShelf")
+        self.setMinimumWidth(44 if self._compact_mode else 132)
         self.set_action_router(action_router)
         self.set_definitions(definitions)
 
@@ -88,17 +95,53 @@ class ToolShelf(QWidget):
             if widget is not None:
                 widget.deleteLater()
         self._buttons.clear()
+        previous_category = None
         for definition in self._definitions.values():
+            if previous_category is not None and definition.category != previous_category:
+                separator = QFrame(self)
+                separator.setFrameShape(QFrame.Shape.HLine)
+                separator.setFrameShadow(QFrame.Shadow.Plain)
+                separator.setObjectName("GridForgeToolShelfSeparator")
+                self._layout.addWidget(separator)
+            previous_category = definition.category
+
             button = QToolButton(self)
             button.setObjectName(f"GridForgeTool_{definition.tool_id}")
-            button.setToolTip(definition.description or definition.display_name)
-            button.setText(definition.display_name)
+            button.setToolTip(
+                f"{definition.display_name}"
+                + (f"  [{definition.shortcuts[0]}]" if definition.shortcuts else "")
+                + (f" — {definition.description}" if definition.description else "")
+            )
+            button.setStatusTip(button.toolTip())
+            button.setText("" if self._compact_mode else definition.display_name)
             button.setCheckable(True)
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            if definition.icon_id and self._icon_provider is not None:
-                icon = self._icon_provider(definition.icon_id)
-                if icon is not None:
+            button.setAutoRaise(True)
+            button.setIconSize(QSize(22, 22))
+            button.setToolButtonStyle(
+                QToolButton.ToolButtonStyle.ToolButtonIconOnly
+                if self._compact_mode
+                else QToolButton.ToolButtonStyle.ToolButtonTextBesideIcon
+            )
+            if self._icon_provider is not None:
+                try:
+                    icon = self._icon_provider(definition)
+                except (KeyError, TypeError, ValueError) as exc:
+                    _LOG.warning(
+                        "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s error=%s",
+                        definition.tool_id,
+                        definition.icon_id,
+                        self._editor_type or "unknown",
+                        exc,
+                    )
+                    icon = None
+                if icon is not None and not icon.isNull():
                     button.setIcon(icon)
+                elif self._editor_type == "sld":
+                    _LOG.warning(
+                        "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=sld",
+                        definition.tool_id,
+                        definition.icon_id,
+                    )
             button.clicked.connect(lambda _checked=False, tool_id=definition.tool_id: self._activate_tool(tool_id))
             self._layout.addWidget(button)
             self._buttons[definition.tool_id] = button
@@ -119,6 +162,18 @@ class ToolShelf(QWidget):
             # Button state is never authoritative; always reconcile from the
             # canonical ToolManager/Controller state after success or failure.
             self.refresh_runtime_state()
+
+    @property
+    def compact_mode(self) -> bool:
+        return self._compact_mode
+
+    def set_compact_mode(self, compact: bool) -> None:
+        compact = bool(compact)
+        if self._compact_mode == compact:
+            return
+        self._compact_mode = compact
+        self.setMinimumWidth(44 if compact else 132)
+        self._rebuild()
 
     def set_active_tool(self, tool_id: str | None) -> None:
         for current_id, button in self._buttons.items():
@@ -143,6 +198,7 @@ class ToolSettingsPanel(QWidget):
         tool_id = getattr(context, "active_tool", None) if context is not None else None
         settings = getattr(context, "tool_settings", None) if context is not None else None
         self._title.setText(f"Tool: {tool_id or 'None'}")
+        self.setVisible(bool(tool_id))
         if settings is None:
             return
         for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):

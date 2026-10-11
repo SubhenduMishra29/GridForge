@@ -8,6 +8,7 @@ from .protection_element import ProtectionElement, ProtectionElementState
 from .protection_system import ProtectionSystem
 from .protection_measurement_binding import ProtectionMeasurementBinding
 from .factory import ProtectionFactory
+from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
 from .project_configuration import ProtectionFunctionConfiguration, ProtectionProjectConfiguration
 from .function_catalog import (
@@ -20,6 +21,7 @@ from .function_catalog import (
 __all__ = [
     "ProtectionContext", "ProtectionDecision", "RelayInput", "RelayBase",
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
+    "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
     "ProtectionFunctionConfiguration", "ProtectionProjectConfiguration",
     "ProtectionFunctionSpecification", "ProtectionFunctionStatus",

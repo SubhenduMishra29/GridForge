@@ -16,6 +16,13 @@ MANIFEST_NAME = "manifest.json"
 PROJECT_NAME = "project.json"
 PACKAGE_VERSION = 1
 
+# Version layers are intentionally distinct ownership contracts.
+PROJECT_SCHEMA_VERSION = 3
+PRESENTATION_SCHEMA_VERSION = 1
+SLD_SCHEMA_VERSION = 2
+CORE_SERIALIZATION_VERSION = 1
+CONNECTIVITY_SERIALIZATION_VERSION = 2
+
 
 def normalize_package_path(path: str | Path) -> Path:
     """Normalize a project package path and require the canonical suffix."""
@@ -41,6 +48,11 @@ __all__ = [
     "MANIFEST_NAME",
     "PACKAGE_SUFFIX",
     "PACKAGE_VERSION",
+    "PROJECT_SCHEMA_VERSION",
+    "PRESENTATION_SCHEMA_VERSION",
+    "SLD_SCHEMA_VERSION",
+    "CORE_SERIALIZATION_VERSION",
+    "CONNECTIVITY_SERIALIZATION_VERSION",
     "PROJECT_NAME",
     "manifest_path",
     "normalize_package_path",

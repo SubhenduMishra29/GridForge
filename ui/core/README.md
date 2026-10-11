@@ -1669,3 +1669,13 @@ This separation is what allows GridForge to evolve from an ETAP-like graphical i
 **GridForge V2 UI Core**
 
 *Shared infrastructure. Explicit contracts. Deterministic composition. One authoritative engineering core.*
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+Shared UI infrastructure remains presentation-only. SnapSystem, SelectionManager, ToolManager, interaction managers, and preview state may identify user intent but may not mutate Core directly.
+
+The current insertion workflow is routed through the canonical command boundary. A wire insertion preview is transient; the released gesture creates InsertEquipmentIntoConnectionCommand, which is executed by Application.
+
+There must be one authoritative selection/tool/command boundary. This package must not recreate Core topology, transaction, persistence, or electrical connectivity stores.

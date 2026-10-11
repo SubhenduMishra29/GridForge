@@ -99,6 +99,17 @@ class CreationCommandPreparer:
             name for name, parameter in signature.parameters.items()
             if name not in {"self", "command_id", "correlation_id", "causation_id"}
         }
+        unknown_values = set(intent.values) - set(intent.parameter_mapping)
+        if unknown_values:
+            raise ValueError(
+                f"{intent.command_type}: unmapped engineering values: {sorted(unknown_values)!r}"
+            )
+        unknown_endpoints = set(intent.endpoints) - set(intent.endpoint_mapping)
+        if unknown_endpoints:
+            raise ValueError(
+                f"{intent.command_type}: unmapped endpoint values: {sorted(unknown_endpoints)!r}"
+            )
+
         payload: dict[str, Any] = {intent.id_field: intent.object_id}
         for parameter_id, command_field in intent.parameter_mapping.items():
             if parameter_id in intent.values and intent.values[parameter_id] is not None:

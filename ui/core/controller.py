@@ -97,6 +97,10 @@ class Controller(QObject):
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()
 
+    def get_tool_manager(self) -> Any | None:
+        """Return the authoritative ToolManager for interaction delegation."""
+        return self._tool_manager
+
     @property
     def tool_id(self) -> str | None:
         manager = self._tool_manager
@@ -112,9 +116,14 @@ class Controller(QObject):
         self,
         tool_id: str | None,
         *,
-        cancel_active_creation: bool = False,
+        cancel_active_creation: bool = True,
     ) -> None:
-        """Activate the canonical ToolManager tool."""
+        """Activate through the canonical lifecycle-aware UI path.
+
+        Normal UI activation ends only transient CreationContext state.
+        DraftNetwork and SLDDocument remain authoritative and untouched.
+        Strict programmatic callers may pass cancel_active_creation=False.
+        """
         self._ensure_active()
         manager = self._tool_manager
         if manager is None:

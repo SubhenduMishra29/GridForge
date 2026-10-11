@@ -28,6 +28,7 @@ ADD_CONTROL_INTERLOCK = "control.add_interlock"
 REMOVE_CONTROL_INTERLOCK = "control.remove_interlock"
 ADD_DYNAMIC_CONTROL_ASSOCIATION = "control.add_dynamic_association"
 REMOVE_DYNAMIC_CONTROL_ASSOCIATION = "control.remove_dynamic_association"
+SET_CONTROL_SIGNAL_MAPPING = "control.set_signal_mapping"
 
 
 def _envelope(command_type: str, payload: Mapping[str, Any], *, command_id: UUID | None,
@@ -186,9 +187,23 @@ class RemoveDynamicControlAssociation(Command):
     def __init__(self, *, association_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_envelope(REMOVE_DYNAMIC_CONTROL_ASSOCIATION, {"association_id": str(association_id)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
+
+class SetControlSignalMapping(Command):
+    """Replace project engineering-signal bindings as one undoable configuration command."""
+
+    def __init__(self, *, mapping: Mapping[str, Any], command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(mapping, Mapping):
+            raise TypeError("mapping must be a serialized ControlSignalMapping mapping.")
+        super().__init__(**_envelope(
+            SET_CONTROL_SIGNAL_MAPPING, {"mapping": dict(mapping)},
+            command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,
+        ))
+
 __all__ = [name for name in globals() if name.isupper() or name in {
     "AddControlComponent", "RemoveControlComponent", "ConnectControlSignals",
     "DisconnectControlSignals", "AddLogicDependency", "RemoveLogicDependency",
     "AddLadderRung", "RemoveLadderRung", "MoveLadderElement",
     "UpdateControlComponent", "SetLadderRungEnabled", "MoveLadderRung",
+    "SetControlSignalMapping",
 }]

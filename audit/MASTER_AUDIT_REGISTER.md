@@ -1,9 +1,9 @@
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation, transaction, SLD reconciliation, undo/redo and semantic-event ordering | CRITICAL | **STATICALLY VERIFIED — CLOSED** | Creation and update pre-commit reconciliation consume authoritative transaction-visible Core objects from ApplicationResult.value; CommandManager remains the sole command/transaction/history boundary; semantic publication remains post-commit | Prevents active-transaction SLD reconciliation from treating ReadModels as authoritative mutation state | One Command → one Transaction → Core + SLD pre-commit reconciliation → commit → history → semantic event → read projection | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Current effective authority (2026-09-30):**
-- Implementation: `madhuri196mishra-cpu/GridForge:main`
-- Audit/Register: `SubhenduMishra29/GridForge:main`
+**Current effective authority (reconciled 2026-10-10):**
+- Implementation and active audit/register target: `madhuri196mishra-cpu/GridForge:main`
+- `SubhenduMishra29/GridForge` is a reference/audit repository only when explicitly designated for a given historical cycle.
 - Historical/provenance only: `pandaraseswari03-collab/GridForge`
 
 Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
@@ -42,7 +42,7 @@ The findings in this remediation batch are synchronized to the latest static evi
 - GF-SLD-TERM-020, -021, -023 through -028, GF-SLD-SNAP-022, RCA-SLD-CONN-002, and GF-MASTER-0067 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-035, -036, -038, -039, and -040 — **STATICALLY VERIFIED — CORRECTED**.
 - GF-PROT-037 — **STATICALLY VERIFIED — BOUNDARY ADDED**.
-- GF-PROT-042 — **OPEN — INTEGRATION GAP**. The repository does not statically establish the authoritative CT/PT/CVT → MeasurementProvisioning → channel registration/collection → protection mapping → ProtectionRuntime.compose() consumer path.
+- GF-PROT-042 — **OPEN — INTEGRATION GAP**. Batch 74 adds declared per-function input contracts, Application/service/runtime validation against the active measurement registry, explicit ANSI 67 angle metadata validation, deterministic detached configuration fingerprints, atomic runtime composition, and pre-commit recomposition for configuration commands with transaction-recorded runtime restoration on rollback/undo. ANSI 21 remains fail-closed because zone-reach settings have no declared engineering unit; ANSI 50N/51N fail closed because the channel taxonomy cannot distinguish residual current from zero-sequence current, and ANSI 49 fails closed because CUSTOM does not establish temperature semantics or pickup units. No silent unit conversion or semantic inference is made. Batch 72/73 project/network/generation, GOOD-quality, timestamp/freshness, finite-value, exact channel-object and active-configuration guards remain. The complete protection-decision-to-action-to-command-to-authoritative-equipment-feedback path is still unproven; dispatch requires an explicit resolver and no physical target is inferred. Runtime verification was not performed.
 - GF-SLD-WF-TOOL-006 — **STATICALLY VERIFIED — CORRECTED**.
 
 For all corrected items, **RUNTIME VERIFICATION — DEFERRED / UNVERIFIED**.
@@ -1900,3 +1900,55 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 **Phase 3 batch closure:** not marked CLOSED. Static correction and affected-path re-audit are recorded; runtime verification remains a separate future activity.
 
 **Author:** Subhendu Mishra
+
+
+## 2026-10-10 — Complete SLD-to-Study/Control/Protection lifecycle re-audit
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge:main`  
+**Inspected baseline:** `5304c53541ddb889d533263762c40546899c17c0`  
+**Audit mode:** static source inspection; production source unchanged; pytest, CI, startup and GUI not run.  
+**Report:** `audit/SLD_TO_STUDY_CONTROL_PROTECTION_LIFECYCLE_REAUDIT_2026-10-10.md`
+
+| Finding | Domain | Severity | Status | Evidence / disposition |
+|---|---|---|---|---|
+| GF-MASTER-0116 | Control signal snapshot | HIGH | REMEDIATED — VERIFICATION DEFERRED | `ControlSignalResolution.__post_init__` recursively freezes external/interlock snapshots; runtime mutation verification remains deferred. |
+| GF-MASTER-0117 | Control feedback | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `ControlFeedback.metadata` is recursively detached and frozen by `__post_init__`; runtime mutation verification remains deferred. |
+| GF-MASTER-0118 | Protection prepared input | HIGH | REMEDIATED — VERIFICATION DEFERRED | `PreparedProtectionInput.settings` uses recursive detached freezing; relay evaluation and measurement integration remain runtime-unverified. |
+| GF-MASTER-0119 | Study request | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `StudyRequest.configuration` uses the recursive study snapshot freezer; typed-configuration compatibility remains runtime-unverified. |
+| GF-MASTER-0120 | SLD projection | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | Node and connection projection properties use recursive detached freezing; rendering/runtime snapshot verification remains deferred. |
+| GF-MASTER-0121 | Protection execution result | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `ProtectionExecutionResult` normalizes sequence fields to tuples and validates member types; downstream runtime compatibility remains deferred. |
+| GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Batch 72 source adds Application-owned evaluation-time gating, active project/generation checks, GOOD-only quality, explicit timestamp/stale_after requirements, finite-value rejection, and exact runtime channel-reference checks. Configured signal-contract compatibility and the complete protection-decision-to-action-to-command-to-feedback path remain unproven; runtime verification not performed. |
+
+**Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
+
+## 2026-10-10 — Batch 69 GF-PROT-042 protection measurement integration correction
+
+**Implementation repository:** `madhuri196mishra-cpu/GridForge:main`  
+**Finding:** `GF-PROT-042` — retained verbatim; no renumbering, merging, replacement, or closure.  
+**Status:** **OPEN — INTEGRATION GAP**  
+**Verification:** Static source inspection only. No tests, CI, startup, GUI, or runtime execution was performed.
+
+### Source evidence by lifecycle transition
+
+| Transition | Current source evidence | Result | Remaining proof |
+|---|---|---|---|
+| CT/PT/CVT physical equipment and terminal identity | `core/model/ct.py`, `core/model/pt.py`, `core/model/cvt.py`; historical Batch 28/29 terminal catalogue evidence | PARTIAL | Trace current creation/configuration commands and verify instrument ratio/acquisition settings survive commit and reopen. |
+| Channel definitions and provisioning | `core/application/services/measurement_channel_service.py` (`MeasurementChannelService.activate`, `_provision_definition`, `serialize_definitions`); `core/measurement/measurement_provisioning.py` (`MeasurementProvisioning.provision_channel`) | PARTIAL | Confirm the active composition root constructs this service and binds it into the project activation lifecycle for every open/new/switch/close path. |
+| Channel contract and sample validity | `core/measurement/measurement_channel.py` (`MeasurementChannel`, `validity`, `is_valid_at`, `diagnostics`); `core/protection/relay_input.py` (`validity`, `usable`, `status`) | PARTIAL | Protection runtime must evaluate validity at an explicit evaluation time and reject unavailable, invalid, stale, unknown-quality, and incompatible required inputs with source/channel diagnostics. |
+| Project persistence | `core/persistence/project_persistence.py` (`LoadedProject.measurement_definitions`; project `measurement.channels` serialization) | PARTIAL | Prove definitions are serialized from the active service, loaded/migrated, and activated as one rollback-capable project transition; sample values must not be persisted as configuration. |
+| Equipment/channel/protection association | `core/protection/protection_measurement_binding.py`; `core/protection/project_configuration.py` (`input_channel_ids`) | PARTIAL | The binding contract exists, but no complete current caller-to-consumer chain was established linking it to provisioned channel registration and the configuration consumed by runtime composition. |
+| Preparation | `core/protection/preparation.py` (`ProtectionPreparation.prepare`, `PreparedProtectionInput`) | PARTIAL | Preparation snapshots supplied channel values and quality/availability/timestamp, but the upstream resolver and fail-closed freshness/type validation are not proven end to end. |
+| Runtime composition and relay evaluation | `core/protection/runtime.py` (`ProtectionRuntime.compose`); `core/protection/relay_input.py`; `core/protection/protection_system.py` | PARTIAL | `compose` resolves configured channel IDs from a caller-supplied mapping and raises for a missing ID. The canonical caller supplying the active service's channel collection and explicit evaluation time remains unproven; invalid/stale required samples are not rejected by `compose` itself. |
+| Decision → Application command → equipment mutation | `core/application/protection_execution.py` (`ProtectionExecutionService.execute`); Application dispatcher/command boundary | PARTIAL | The service maps actionable protection decisions through an explicit resolver and dispatcher. Verify actual composition, command handler registration, target state mutation and failure propagation from the live protection cycle. |
+| Feedback/read-model reconciliation | `core/application/protection_execution.py`, Application result/read-service contracts | PARTIAL | No runtime evidence establishes that a successful command is distinguished from physical acknowledgement and that resulting equipment state is observed through the canonical read model. |
+
+### Correction disposition
+
+- Do not introduce a second measurement registry: `MeasurementChannelService` is the existing project-scoped channel collection candidate.
+- Do not treat `ProtectionMeasurementBinding` merely existing as proof that it is called.
+- Do not synthesize a sample, substitute a default value, or infer a CT/PT/CVT ratio or terminal role.
+- Missing-channel failure in `ProtectionRuntime.compose` is statically present. Staleness is time-relative in `MeasurementChannel.validity(current_time=...)`; runtime composition currently accepts only `channels` and does not itself validate sample quality/freshness.
+- No production code was changed in this pass because the complete active lifecycle/composition caller and required evaluation-time contract could not be established safely from the inspected source. This is a bounded correction hold, not a claim that no defect exists.
+- Runtime verification remains **DEFERRED / NOT RUN**.
+
+**Next correction target:** trace and wire the existing `Application.measurement_channel_service` into transactional project activation/rollback, then establish one Application-owned protection-cycle entry point that supplies its active channel mapping and explicit evaluation time to the existing `ProtectionRuntime` / `ProtectionPreparation` path. Only after that caller is proven should stale/quality/type fail-closed behavior and decision-to-read-model feedback be corrected and re-audited.

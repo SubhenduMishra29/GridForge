@@ -10,7 +10,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping
+
+
+def _freeze_feedback_value(value: Any) -> Any:
+    """Detach and freeze supported containers without coercing domain objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_feedback_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_feedback_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_feedback_value(item) for item in value)
+    return value
 
 
 class ControlFeedbackStatus(str, Enum):
@@ -39,7 +51,10 @@ class ControlFeedback:
     metadata: Mapping[str, Any] = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+        metadata = self.metadata or {}
+        if not isinstance(metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        object.__setattr__(self, "metadata", _freeze_feedback_value(metadata))
 
 
 __all__ = ["ControlFeedbackStatus", "ControlFeedback"]

@@ -31,6 +31,7 @@ class RevisionService:
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
+        "connectivity.create_junction", "connectivity.remove_junction",
         "network.commit_draft", "model.create_bus", "model.delete_bus", "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.delete_cable",
@@ -46,6 +47,7 @@ class RevisionService:
         "model.create_breaker", "model.delete_breaker",
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
+        "connectivity.insert_equipment_into_connection",
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "pt", "relay"})

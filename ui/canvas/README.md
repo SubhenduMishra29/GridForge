@@ -1408,3 +1408,11 @@ Therefore:
 One authoritative engineering model. One visual canvas. Many specialized visual and interaction services.
 
 <p align="center"><em>GridForge Canvas — visualize the electrical system, interact with it precisely, and never compromise engineering truth.</em></p>
+
+---
+
+## Current Architecture Addendum — 2026-10-07
+
+Canvas interaction is presentation and transient interaction state. A canvas may expose snap/insertion targets and previews, but semantic electrical mutation occurs only through Application commands.
+
+For SLD insertion, the canvas identifies the existing Simple Wire target and renders the transient equipment preview. On release, Application performs the transaction and the canvas is reconciled from canonical SLD projection state.

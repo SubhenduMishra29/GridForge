@@ -34,6 +34,7 @@ from core.network import Network
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
+from core.application.control_signal_mapping import ControlSignalMapping
 from core.protection.runtime import ProtectionRuntime
 from core.solver.dynamics import DAESolver, EventManager, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
@@ -44,6 +45,8 @@ from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
 from .services.simple_wire_service import SimpleWireConnectionCommandHandlers
+from .services.junction_service import JunctionCommandHandlers
+from .services.electrical_insertion_service import ElectricalInsertionService, ElectricalInsertionCommandHandlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 from .project import ProjectContext
@@ -105,6 +108,7 @@ def create_application(network: Any) -> Application:
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
         register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
+        register_handlers(handlers, JunctionCommandHandlers().handlers(), "junction topology")
         register_handlers(
             handlers,
             RelayCommandHandlers(
@@ -122,11 +126,29 @@ def create_application(network: Any) -> Application:
         )
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
-        register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
-        draft_provider = lambda: application.draft_network if application is not None else None
-        register_handlers(handlers, DraftCommandHandlers(draft_provider).handlers(), "draft")
-        register_handlers(handlers, {"network.commit_draft": CommitNetworkHandler(draft_provider)}, "aggregate network commit")
+        register_handlers(handlers, ControlCommandHandlers(
+            control_service,
+            signal_mapping_getter=lambda: application.control_signal_mapping,
+            signal_mapping_setter=lambda mapping: application.configure_control_signal_mapping(mapping),
+        ).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
+        insertion_service = ElectricalInsertionService(
+            command_executor=command_manager.execute_in_transaction,
+        )
+        command_manager.register_handler(
+            "connectivity.insert_equipment_into_connection",
+            ElectricalInsertionCommandHandlers(insertion_service).execute,
+        )
+        draft_provider = lambda: application.draft_network if application is not None else None
+        for command_type, handler in DraftCommandHandlers(draft_provider).handlers().items():
+            command_manager.register_handler(command_type, handler)
+        command_manager.register_handler(
+            "network.commit_draft",
+            CommitNetworkHandler(
+                draft_provider,
+                command_executor=command_manager.execute_in_transaction,
+            ),
+        )
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
     command_manager, read_service, validation_service = build_runtime(network)
@@ -184,11 +206,19 @@ def create_application(network: Any) -> Application:
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
-        previous_measurement = measurement_channel_service.serialize_definitions()
-        previous_measurement_project = measurement_channel_service.project_id
-        previous_measurement_generation = measurement_channel_service.activation_generation
+        # Retain the exact live service state. Serialized definitions omit
+        # authoritative sample state and reprovisioning would invalidate
+        # channel references already held by the prior ProtectionRuntime and
+        # RelayInput instances.
+        previous_measurement_state = measurement_channel_service.snapshot_state()
+        # Capture the exact pre-transition authority. Reconstructing a synthetic
+        # ProjectContext or consulting lifecycle.network during compensation can
+        # bind old channel definitions to the candidate network.
+        previous_lifecycle_context = application.project_lifecycle.context
+        previous_lifecycle_network = application.project_lifecycle.network
         previous_dynamic_models = dynamic_models.snapshot()
         previous_control_configuration = control_service.configuration
+        previous_control_signal_mapping = application.control_signal_mapping
         previous_control_generation = application.control_engine.activation_generation
         previous_control_active = application.control_engine.configuration is not None
         previous_draft = application.draft_network
@@ -202,11 +232,27 @@ def create_application(network: Any) -> Application:
                     activation_generation=previous_control_generation,
                 )
             control_service.activate(previous_control_configuration)
+            application.configure_control_signal_mapping(previous_control_signal_mapping)
+
+        def restore_project_state() -> None:
+            # Restore the exact registry and channel objects before restoring
+            # consumers that retain references to those objects.
+            measurement_channel_service.restore_state(previous_measurement_state)
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            application.protection_runtime = previous_protection_runtime
+            application.protection_presentation = previous_protection_presentation
+            application.set_draft_network(previous_draft)
+            dynamic_models.replace(previous_dynamic_models)
+            restore_control_runtime()
 
         try:
             if context is None:
                 control_service.activate(ControlConfiguration.empty("closed-project"))
                 application.control_engine.deactivate()
+                application.configure_control_signal_mapping(None)
                 measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
@@ -248,6 +294,9 @@ def create_application(network: Any) -> Application:
                     activation_generation=generation,
                 )
                 control_service.activate(control_configuration)
+                application.configure_control_signal_mapping(
+                    loaded.control_signal_mapping if loaded is not None else None
+                )
                 if loaded is None:
                     dynamic_models.replace(())
                 else:
@@ -266,45 +315,22 @@ def create_application(network: Any) -> Application:
                 application.protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
 
-        except Exception:
-            if previous_measurement_project is None:
-                measurement_channel_service.deactivate()
-            else:
-                measurement_channel_service.activate(
-                    ProjectContext(previous_measurement_project, "restored", None),
-                    application.project_lifecycle.network,
-                    previous_measurement,
-                    previous_measurement_generation,
-                )
-            if previous_configuration is None:
-                protection_configuration_service.deactivate()
-            else:
-                protection_configuration_service.activate(previous_configuration)
-            application.protection_runtime = previous_protection_runtime
-            application.protection_presentation = previous_protection_presentation
-            application.set_draft_network(previous_draft)
-            dynamic_models.replace(previous_dynamic_models)
-            restore_control_runtime()
+        except Exception as transition_error:
+            try:
+                restore_project_state()
+            except Exception as compensation_error:
+                raise ExceptionGroup(
+                    "Project activation failed and rollback compensation also failed; "
+                    "both failures are preserved.",
+                    [transition_error, compensation_error],
+                ) from None
             raise
 
         def rollback() -> None:
-            if previous_measurement_project is None:
-                measurement_channel_service.deactivate()
-            else:
-                measurement_channel_service.activate(
-                    ProjectContext(previous_measurement_project, "restored", None),
-                    application.project_lifecycle.network,
-                    previous_measurement,
-                    previous_measurement_generation,
-                )
-            if previous_configuration is None:
-                protection_configuration_service.deactivate()
-            else:
-                protection_configuration_service.activate(previous_configuration)
-            application.protection_runtime = previous_protection_runtime
-            application.protection_presentation = previous_protection_presentation
-            dynamic_models.replace(previous_dynamic_models)
-            restore_control_runtime()
+            # The lifecycle invokes this callback after a later activation
+            # stage fails. Restore the complete snapshot, not just protection
+            # and Control services; draft state is part of project identity.
+            restore_project_state()
 
         return rollback
 
@@ -335,13 +361,50 @@ def create_application(network: Any) -> Application:
             if control_configuration is not None:
                 if control_configuration.project_id != context.project_id: raise ValueError("Control configuration project_id does not match the candidate project.")
                 control_configuration.validate()
+            mapping = loaded.control_signal_mapping
+            if mapping is not None:
+                if control_configuration is None:
+                    control_configuration = ControlConfiguration.empty(context.project_id)
+                component_by_id = {
+                    record.component_id: record.component
+                    for record in control_configuration.program.engine.records()
+                }
+                action_ids = {item.control_id for item in control_configuration.action_bindings}
+                for binding in mapping.bindings:
+                    destination = binding.destination
+                    component = component_by_id.get(destination.component_id)
+                    if component is None:
+                        raise ValueError(
+                            f"Control signal mapping references missing component {destination.component_id!r}."
+                        )
+                    if destination.control_id not in action_ids:
+                        raise ValueError(
+                            f"Control signal mapping references missing action/control {destination.control_id!r}."
+                        )
+                    input_port = next(
+                        (item for item in component.input_definition() if item.name == destination.input_name),
+                        None,
+                    )
+                    if input_port is None:
+                        raise ValueError(
+                            f"Control signal mapping references missing input "
+                            f"{destination.component_id}.{destination.input_name}."
+                        )
+                    expected = binding.source.expected_type
+                    if expected is not None:
+                        accepted = expected if isinstance(expected, tuple) else (expected,)
+                        if input_port.value_type not in accepted:
+                            raise TypeError(
+                                f"Control signal mapping type constraint for {destination.component_id}."
+                                f"{destination.input_name} is incompatible with {input_port.value_type.__name__}."
+                            )
 
     def load_project(path):
         # Loading is side-effect free. Candidate dynamic/protection state is
         # installed only by the successful activation transaction.
         return persistence.load(path)
 
-    def save_project(context, active_network, presentation, path):
+    def save_project(context, active_network, presentation, path, presentation_collection=None):
         persistence.save(
             context,
             active_network,
@@ -351,9 +414,10 @@ def create_application(network: Any) -> Application:
             protection_configuration=protection_configuration_service.configuration,
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
+            control_signal_mapping=application.control_signal_mapping,
             draft_network=application.draft_network,
-            protection_presentation=(
-                application.protection_presentation.to_dict()
+            presentation_collection=presentation_collection,
+            protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
             ),        )
