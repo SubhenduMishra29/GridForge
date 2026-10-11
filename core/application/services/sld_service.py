@@ -476,24 +476,59 @@ class SLDService:
         properties.update(dict(presentation_properties))
 
         presentation = p.get("presentation")
-        if presentation is None and self._symbol_presentation_factory is not None:
+        if presentation is None and equipment_id is not None:
+            if self._symbol_presentation_factory is None:
+                raise ValueError(
+                    f"SLD equipment node {p['node_id']!r} has no symbol presentation "
+                    "and no symbol presentation factory is configured."
+                )
             if not isinstance(element_type, str) or not element_type.strip():
                 raise ValueError(
-                    "SLD node creation requires element_type when a default "
-                    "symbol presentation factory is configured."
+                    "SLD equipment node creation requires its canonical element_type "
+                    "when a default symbol presentation factory is configured."
                 )
             presentation = self._symbol_presentation_factory(element_type)
+        if presentation is not None and not isinstance(presentation, Mapping):
+            raise TypeError(
+                f"SLD symbol presentation for node {p['node_id']!r} must be a mapping "
+                "accepted by SymbolBase.from_dict()."
+            )
+        if presentation is not None:
+            # Copy the complete renderer-neutral representation without
+            # rewriting symbol identity, rotation, geometry, or properties.
+            presentation = dict(presentation)
 
-        self.document.model.create_node(
-            node_id=p["node_id"],
-            equipment_id=equipment_id,
-            x=float(p["x"]),
-            y=float(p["y"]),
-            presentation=presentation,
-            properties=properties,
-        )
+        node_id = p["node_id"]
+        # Reject identity collisions before registering compensation. In
+        # particular, never let a failed create roll back a pre-existing node.
+        if self.document.model.get_node_optional(node_id) is not None:
+            raise ValueError(f"SLD node identity collision: {node_id!r}.")
+
+        # Register compensation before entering model code. A malformed
+        # SymbolBase payload can raise while create_node is constructing the
+        # persistent presentation; rollback must still remove a partially
+        # inserted node. The inverse is deliberately idempotent because the
+        # model may have failed before insertion.
+        def undo_added_node() -> None:
+            if self.document.model.get_node_optional(node_id) is not None:
+                self.document.model.remove_node(node_id)
+                self.document.mark_modified()
+
+        transaction.record_undo(undo_added_node)
+        try:
+            self.document.model.create_node(
+                node_id=node_id,
+                equipment_id=equipment_id,
+                x=float(p["x"]),
+                y=float(p["y"]),
+                presentation=presentation,
+                properties=properties,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"Could not create SLD node {node_id!r} with its symbol presentation: {exc}"
+            ) from exc
         self.document.mark_modified()
-        transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
         return ApplicationResult.success_result(
             message="SLD node added.",
             metadata={"presentation_operation": "add_node", "node_id": p["node_id"]},
