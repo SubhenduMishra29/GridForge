@@ -567,7 +567,27 @@ class SnapSystem:
             "scene_pos",
         )
 
-        resolved_intent = None if intent is None else SnapIntent(str(intent).lower())
+        if intent is None:
+            resolved_intent = None
+        elif isinstance(intent, SnapIntent):
+            # Preserve enum identity; str(enum_member) is not its value.
+            resolved_intent = intent
+        elif isinstance(intent, str):
+            normalized_intent = intent.strip()
+            try:
+                # Accept either the declared enum value or its member name.
+                resolved_intent = SnapIntent(normalized_intent.lower())
+            except ValueError:
+                try:
+                    resolved_intent = SnapIntent[normalized_intent.upper()]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"Unsupported snap intent: {intent!r}."
+                    ) from exc
+        else:
+            raise TypeError(
+                "intent must be a SnapIntent, a supported string, or None."
+            )
         use_grid = self._resolve_bool_override(
             allow_grid,
             self.grid_enabled,
