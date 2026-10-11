@@ -93,12 +93,12 @@ class SLDDocumentTabs(QWidget):
                 document_id = str(document.document_id)
                 label = str(getattr(document, "name", "Untitled SLD"))
                 is_dirty = getattr(manager, "is_dirty", None)
-                if callable(is_dirty) and bool(is_dirty(document_id)):
+                if callable(is_dirty) and bool(is_dirty(document.document_id)):
                     label += " *"
                 index = self._tabs.addTab(label)
                 self._tabs.setTabData(index, document_id)
                 self._tabs.setTabToolTip(index, document_id)
-                if document_id == active_id:
+                if document.document_id == active_id:
                     active_index = index
 
             # Do not implicitly select the first document when the manager
