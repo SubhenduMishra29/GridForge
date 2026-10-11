@@ -187,10 +187,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         semantic_realization=presentation_bootstrap.semantic_realization,
         snap_system=canvas_preparation.snap_system,
     )
-    from ui.sld.sld_route_edit_controller import SLDRouteEditController
-    sld_canvas_render_system.bind_route_edit_controller(
-        SLDRouteEditController(sld_controller)
-    )
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
