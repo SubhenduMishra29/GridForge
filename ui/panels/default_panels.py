@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 from typing import Any
+
+from core.application.errors import ExecutionError
 
 from ui.projection.projection_state import EngineeringParameterState, ProjectionState
 from ui.creation.creation_context import CreationContext, CreationDraft
@@ -475,14 +478,42 @@ class PropertiesPanelWidget(QWidget):
             return
         try:
             result = commit()
+        except ExecutionError as exc:
+            # CommandManager retains the handler failure in ``cause`` and
+            # Python's ``__cause__``. Translate only the known empty-draft
+            # rejection; unrelated execution failures must remain visible.
+            cause = exc.cause or exc.__cause__
+            reason = str(cause).strip() if cause is not None else ""
+            normalized_reason = reason.lower()
+            is_empty_draft_rejection = (
+                exc.code == "COMMAND_EXECUTION_FAILED"
+                and isinstance(cause, ValueError)
+                and "empty" in normalized_reason
+                and ("draft" in normalized_reason or "network" in normalized_reason)
+            )
+            if not is_empty_draft_rejection:
+                logging.getLogger(__name__).exception(
+                    "Unexpected DraftNetwork commit execution failure",
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+                raise
+            if self._validation_label is not None:
+                self._validation_label.setText(
+                    reason or "Draft network is empty. Add equipment or connections before committing."
+                )
+                self._validation_label.setProperty("role", "validationError")
+            return
         except (RuntimeError, TypeError, ValueError) as exc:
+            # Keep direct pre-command boundary failures actionable.
             if self._validation_label is not None:
                 self._validation_label.setText(str(exc))
+                self._validation_label.setProperty("role", "validationError")
             return
         if self._validation_label is not None:
             self._validation_label.setText(
                 getattr(result, "message", "Commit Network submitted.")
             )
+            self._validation_label.setProperty("role", "validationSuccess")
         self._refresh_commit_network_action()
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
