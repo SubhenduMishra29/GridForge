@@ -318,17 +318,28 @@ class ModelPlacementTool(ToolBase):
             self._accepted_endpoint_snap = None
             return True
 
+        # The initial press already accepted and stored the placement position.
+        # Persist that position on release before attempting any second snap:
+        # release may occur over a non-snappable area, and a second snap must
+        # not be required to complete a valid position-first placement.
+        if self._placement_dragging and draft.placement_position is not None:
+            self._position = draft.placement_position
+            self._placement_dragging = False
+            self._show_preview(self._position)
+            return self.place_creation_draft()
+
         position = self._snap_position(event)
         if position is None:
             return False
         if draft.placement_position is None:
+            # Preserve support for release-only event adapters that do not
+            # deliver a preceding press callback.
             self._position = position
             draft.set_placement(position)
             self._preview_active = True
             self._show_preview(position)
             return self.place_creation_draft()
         self._position = draft.placement_position
-        self._placement_dragging = False
         self._show_preview(self._position)
         return True
 
