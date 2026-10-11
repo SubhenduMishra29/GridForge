@@ -20,7 +20,9 @@ class StudyEditor(QWidget):
         super().__init__(parent)
         header = EditorRegionFrame("Study Header", parent=self); header.set_widget(QLabel("Study Editor", header))
         canvas = EditorRegionFrame("Study Canvas", parent=self); canvas.set_widget(surface or QLabel("Study / Simulation results", self))
-        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "run", "cancel", "inspect", "fit", "diagnostics"), editor_type="study"), editor_type="study", parent=self))
+        shelf = EditorRegionFrame("Tool Shelf", parent=self)
+        shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "run", "cancel", "inspect", "fit", "diagnostics"), editor_type="study"), editor_type="study", parent=self)
+        shelf.set_widget(shelf_widget)
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
         settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Study Cases", self))
@@ -80,7 +82,10 @@ class StudyEditor(QWidget):
 
         self.setObjectName("StudyEditor")
         self._region_widgets = {"header": header, "explorer": explorer_region, "tool_shelf": shelf, "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region, "overlay": overlay_region, "diagnostics": diagnostics_region, "status": status_region}
-        self._tool_shelf = shelf
+        resolved_tool_shelf = shelf.contained_widget
+        if not isinstance(resolved_tool_shelf, ToolShelf):
+            raise TypeError("tool_shelf region must contain a ToolShelf instance.")
+        self._tool_shelf = resolved_tool_shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
         self._region_splitters = {"body": body, "left": left, "center": center, "sidebar": sidebar, "bottom": bottom}

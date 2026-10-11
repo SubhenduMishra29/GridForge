@@ -11,6 +11,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 from core.application.bootstrap import create_application
+from core.application.errors import ExecutionError
 from core.application.events import ProjectLoaded
 from core.application.services.sld_service import SLDService
 from core.network.network import Network
@@ -420,9 +421,32 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             activation_generation=generation,
             draft_network=draft.to_dict(),
         )
-        result = gridforge_application.execute(command)
+        try:
+            result = gridforge_application.execute(command)
+        except ExecutionError as exc:
+            # Expected Application execution failures are surfaced once at
+            # this UI boundary; retain structured and causal diagnostics.
+            diagnostic = f"{exc.code}: {exc.message}"
+            if exc.details:
+                diagnostic += f"\nDetails: {dict(exc.details)!r}"
+            if exc.cause is not None:
+                diagnostic += f"\nCause: {exc.cause}"
+            QMessageBox.critical(
+                window,
+                "Commit Network",
+                diagnostic,
+            )
+            return
         if not result.success:
-            raise RuntimeError(result.message)
+            # Some Application integrations return a failed result instead
+            # of raising the structured execution error. Handle that expected
+            # outcome here without converting it into an unrelated exception.
+            QMessageBox.critical(
+                window,
+                "Commit Network",
+                result.message or "The network commit failed without a diagnostic message.",
+            )
+            return
         _refresh_status()
 
     # Clipboard contains semantic Application read data plus the authored SLD

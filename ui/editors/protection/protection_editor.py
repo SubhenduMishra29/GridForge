@@ -32,7 +32,9 @@ class ProtectionEditor(QWidget):
         super().__init__(parent)
         header = EditorRegionFrame("Protection Header", parent=self); header.set_widget(QLabel("Protection Editor", header))
         canvas = EditorRegionFrame("Canvas", parent=self); canvas.set_widget(surface)
-        shelf = EditorRegionFrame("Tool Shelf", parent=self); shelf.set_widget(tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "connect_measurement", "inspect", "fit", "diagnostics"), editor_type="protection"), editor_type="protection", parent=self))
+        shelf = EditorRegionFrame("Tool Shelf", parent=self)
+        shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "connect_measurement", "inspect", "fit", "diagnostics"), editor_type="protection"), editor_type="protection", parent=self)
+        shelf.set_widget(shelf_widget)
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
         settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Protection Explorer", self))
@@ -92,7 +94,10 @@ class ProtectionEditor(QWidget):
 
         self.setObjectName("ProtectionEditor")
         self._region_widgets = {"header": header, "explorer": explorer_region, "tool_shelf": shelf, "tool_settings": settings, "canvas": canvas, "sidebar": inspector_region, "overlay": overlay_region, "diagnostics": diagnostics_region, "status": status_region}
-        self._tool_shelf = shelf
+        resolved_tool_shelf = shelf.contained_widget
+        if not isinstance(resolved_tool_shelf, ToolShelf):
+            raise TypeError("tool_shelf region must contain a ToolShelf instance.")
+        self._tool_shelf = resolved_tool_shelf
         self._tool_settings = tool_settings_widget
         self._editor_context = None
         self._region_splitters = {"body": body, "left": left, "center": center, "sidebar": sidebar, "bottom": bottom}

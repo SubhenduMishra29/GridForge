@@ -118,7 +118,8 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
             # Editor actions without dedicated equipment-symbol artwork use
             # the ToolIconAdapter's neutral interaction glyphs.
             "electrical-insertion", "connect_measurement", "inspect",
-            "diagnostics", "run", "cancel", "compare", "plot", "filter",
+            "diagnostics", "run", "run_study", "inspect_result",
+            "compare_results", "cancel", "compare", "plot", "filter",
             "export", "navigation", "navigate", "contact.no", "contact.nc",
             "coil", "set", "reset", "timer.ton", "timer.tof", "timer.tp",
             "latch", "and", "or", "not", "xor", "logic.interlock",
