@@ -185,6 +185,7 @@ class ToolShelf(QWidget):
         if self._editor_type:
             return f"tool.{self._editor_type}.{tool_id}"
         return f"tool.{tool_id}"
+
     def _activate_tool(self, tool_id: str) -> None:
         action_router = self._action_router
         action_id = self._action_id_for_tool(tool_id)
