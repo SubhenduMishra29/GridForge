@@ -73,8 +73,24 @@ class ToolShelf(QWidget):
         for definition in self._definitions.values():
             action_id = f"tool.{definition.tool_id}"
             button = self._buttons.get(definition.tool_id)
-            if button is not None and router is not None and router.has(action_id):
+            if button is None:
+                continue
+            if router is not None and router.has(action_id):
                 button.setEnabled(router.is_enabled(action_id))
+            elif self._activate is not None:
+                # Legacy callback remains a valid activation route when no
+                # canonical router action is registered for this tool.
+                button.setEnabled(True)
+            else:
+                # Never present an apparently actionable control without a
+                # route. In particular, standalone fallback shelves must not
+                # silently swallow clicks or create their own tool lifecycle.
+                button.setEnabled(False)
+                _LOG.warning(
+                    "TOOL_SHELF_TOOL_INACTIVE tool_id=%s editor=%s reason=no_activation_route",
+                    definition.tool_id,
+                    self._editor_type or "unknown",
+                )
 
     def set_definitions(self, definitions: Iterable[ToolDefinition]) -> None:
         values = tuple(definitions)
