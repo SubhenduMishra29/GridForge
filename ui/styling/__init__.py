@@ -15,6 +15,14 @@ The styling subsystem is presentation infrastructure only. It does not own
 application state, engineering state, Core models, network topology,
 controllers, commands, tools, selection, canvas behavior, renderers,
 plugins, or engineering calculations.
+
+Public API
+----------
+Theme and StyleManager provide application-level theme configuration.
+StyleTokens and the presentation helpers provide the canonical token and
+visual-state styling API. `palette_visual_pen` is the palette-specific
+contrast helper; `visual_pen` remains the canonical engineering/canvas
+pen helper.
 """
 
 from __future__ import annotations
@@ -26,6 +34,17 @@ from .style_manager import (
     StylesheetApplyError,
     StylesheetLoadError,
 )
+from .style_tokens import DEFAULT_STYLE_TOKENS, StyleTokens
+from .presentation_style import (
+    PresentationState,
+    VisualState,
+    palette_visual_pen,
+    resolve_style_tokens,
+    token_color,
+    visual_brush,
+    visual_font,
+    visual_pen,
+)
 
 __all__ = [
     "DEFAULT_THEME",
@@ -34,7 +53,14 @@ __all__ = [
     "StyleManagerError",
     "StylesheetApplyError",
     "StylesheetLoadError",
+    "DEFAULT_STYLE_TOKENS",
+    "StyleTokens",
+    "PresentationState",
+    "VisualState",
+    "resolve_style_tokens",
+    "token_color",
+    "visual_pen",
+    "palette_visual_pen",
+    "visual_brush",
+    "visual_font",
 ]
-
-from .style_tokens import DEFAULT_STYLE_TOKENS, StyleTokens
-from .presentation_style import VisualState, token_color, visual_brush, visual_font, visual_pen
