@@ -122,10 +122,13 @@ class ToolShelf(QWidget):
                 if self._compact_mode
                 else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
             )
+            icon = None
             if self._icon_provider is not None:
                 try:
                     icon = self._icon_provider(definition)
-                except (KeyError, TypeError, ValueError) as exc:
+                except Exception as exc:
+                    # A broken presentation provider must be visible in logs,
+                    # but must never leave a compact icon-only button blank.
                     _LOG.warning(
                         "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s error=%s",
                         definition.tool_id,
@@ -133,20 +136,33 @@ class ToolShelf(QWidget):
                         self._editor_type or "unknown",
                         exc,
                     )
-                    icon = None
-                if icon is not None and not icon.isNull():
-                    button.setIcon(icon)
-                elif self._editor_type == "sld":
-                    _LOG.warning(
-                        "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=sld",
-                        definition.tool_id,
-                        definition.icon_id,
-                    )
+            if icon is not None and not icon.isNull():
+                button.setIcon(icon)
+            else:
+                # A missing provider/icon is not permission to show an empty
+                # control. Use an ID-derived label, never an unrelated symbol.
+                glyph = self._fallback_glyph(definition)
+                button.setText(glyph if self._compact_mode else definition.display_name)
+                if self._compact_mode:
+                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+                _LOG.warning(
+                    "TOOL_ICON_FALLBACK_GLYPH tool_id=%s icon_id=%s editor=%s provider_available=%s",
+                    definition.tool_id,
+                    definition.icon_id,
+                    self._editor_type or "unknown",
+                    self._icon_provider is not None,
+                )
             button.clicked.connect(lambda _checked=False, tool_id=definition.tool_id: self._activate_tool(tool_id))
             self._layout.addWidget(button)
             self._buttons[definition.tool_id] = button
         self._layout.addStretch(1)
         self.refresh_runtime_state()
+
+    @staticmethod
+    def _fallback_glyph(definition: ToolDefinition) -> str:
+        """Return a legible, tool-specific fallback without inventing artwork."""
+        value = definition.tool_id.replace("_", " ").replace(".", " ").strip()
+        return value[:2].upper() if value else "?"
 
     def _activate_tool(self, tool_id: str) -> None:
         action_router = self._action_router
