@@ -63,6 +63,11 @@ class StyleTokens:
     # Keep the shared stroke token dark enough for line/circle-only symbols;
     # Bus uses its separate engineering_bus role and is intentionally unchanged.
     symbol_stroke: str = "#26313B"
+    # Palette-only strokes: the shelf is dark; canvas symbol colors stay unchanged.
+    palette_icon_stroke: str = "#E7ECF2"
+    palette_icon_hover: str = "#8AC4FF"
+    palette_icon_selected: str = "#FFFFFF"
+    palette_icon_disabled: str = "#7D8996"
     symbol_fill: str = "#222830"
     symbol_disabled: str = "#68737F"
     symbol_preview: str = "#A87BFF"
