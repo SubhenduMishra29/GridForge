@@ -95,7 +95,7 @@ class SLDEditor(QWidget):
             )
         shelf = tool_shelf or ToolShelf(
             definitions=contextual_tool_definitions(
-                ("select", "move", "pan", "wire", "bus", "transformer", "breaker", "disconnector", "generator", "load", "motor"),
+                ("select", "wire", "bus", "line", "cable", "transformer", "breaker", "disconnector", "generator", "load", "motor"),
                 editor_type="sld",
             ),
             editor_type="sld",
