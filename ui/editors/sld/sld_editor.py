@@ -93,6 +93,12 @@ class SLDEditor(QWidget):
                 "glyphs; inject the composition-root ToolIconAdapter.icon_for provider "
                 "to resolve canonical equipment symbols."
             )
+        # This standalone fallback is presentation-only: without a supplied
+        # canonical router or activation callback, ToolShelf intentionally
+        # disables every tool button rather than creating its own lifecycle.
+        # The application composition path supplies a routed shelf through
+        # ControlSurfaceHost; keep this fallback useful for layout/previews,
+        # not as an alternate activation entry point.
         shelf = tool_shelf or ToolShelf(
             definitions=contextual_tool_definitions(
                 ("select", "wire", "bus", "line", "cable", "transformer", "breaker", "disconnector", "generator", "load", "motor"),
