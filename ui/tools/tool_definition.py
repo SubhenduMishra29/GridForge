@@ -14,6 +14,11 @@ from typing import Mapping
 # Explicit, Qt-independent icon policy for tools that use interaction glyphs
 # rather than equipment-symbol artwork. contextual_tool_definitions derives
 # generic classification from these keys so the two policies cannot drift.
+def normalize_tool_id(tool_id: str) -> str:
+    """Normalize an ID for metadata lookup without changing runtime identity."""
+    return tool_id.strip().lower()
+
+
 GENERIC_TOOL_GLYPHS: Mapping[str, str] = {
     "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
     "snap": "⊙", "delete": "×", "zoom_in": "+", "zoom_out": "−", "fit": "□",
@@ -58,7 +63,10 @@ class ToolDefinition:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
-            object.__setattr__(self, name, value.strip())
+            # Validate using whitespace trimming, but retain the exact tool ID:
+            # ToolManager/runtime identity must not be rewritten for presentation.
+            if name == "display_name":
+                object.__setattr__(self, name, value.strip())
 
         for name in ("description", "category"):
             value = getattr(self, name)
@@ -124,8 +132,9 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
     definitions: list[ToolDefinition] = []
     seen: set[str] = set()
     for raw_id in tool_ids:
-        tool_id = str(raw_id).strip()
-        if not tool_id or tool_id in seen:
+        tool_id = str(raw_id)
+        lookup_id = normalize_tool_id(tool_id)
+        if not lookup_id or tool_id in seen:
             continue
         seen.add(tool_id)
         shortcut_map = {
@@ -137,14 +146,14 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
             ToolDefinition(
                 tool_id=tool_id,
                 display_name=tool_id.replace("_", " ").replace(".", " ").title(),
-                icon_id=None if tool_id in generic_tool_ids else tool_id,
+                icon_id=None if lookup_id in generic_tool_ids else tool_id,
                 editor_types=(editor_type,),
-                shortcuts=((shortcut_map[tool_id],) if tool_id in shortcut_map else ()),
-                category="navigation" if tool_id in {"select", "move", "pan", "zoom_in", "zoom_out", "fit"} else "engineering",
+                shortcuts=((shortcut_map[lookup_id],) if lookup_id in shortcut_map else ()),
+                category="navigation" if lookup_id in {"select", "move", "pan", "zoom_in", "zoom_out", "fit"} else "engineering",
                 metadata={"icon_kind": "tool"},
             )
         )
     return tuple(definitions)
 
 
-__all__ = ["ToolDefinition", "contextual_tool_definitions", "GENERIC_TOOL_GLYPHS"]
+__all__ = ["ToolDefinition", "contextual_tool_definitions", "GENERIC_TOOL_GLYPHS", "normalize_tool_id"]
