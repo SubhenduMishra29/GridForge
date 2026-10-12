@@ -10,7 +10,7 @@ import logging
 from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, QRectF, Qt
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
-from ui.tools.tool_definition import GENERIC_TOOL_GLYPHS, ToolDefinition
+from ui.tools.tool_definition import GENERIC_TOOL_GLYPHS, ToolDefinition, normalize_tool_id
 from ui.styling.presentation_style import VisualState, palette_visual_pen
 
 
@@ -77,7 +77,7 @@ class ToolIconAdapter:
             return None
 
     def _generic_icon(self, tool_id: str) -> QIcon | None:
-        glyph = GENERIC_TOOL_GLYPHS.get(str(tool_id).strip().lower())
+        glyph = GENERIC_TOOL_GLYPHS.get(normalize_tool_id(tool_id))
         if glyph is None:
             return None
         return self._text_icon(glyph)
