@@ -34,10 +34,36 @@ class PaletteSymbolAdapter:
     def icon_for(self, symbol_id: str) -> QIcon:
         definition = self._symbol_registry.require(symbol_id)
         icon = QIcon()
-        icon.addPixmap(self._render(definition, state="normal"), QIcon.Mode.Normal)
-        icon.addPixmap(self._render(definition, state="active"), QIcon.Mode.Active)
-        icon.addPixmap(self._render(definition, state="selected"), QIcon.Mode.Selected)
-        icon.addPixmap(self._render(definition, state="disabled"), QIcon.Mode.Disabled)
+        icon.addPixmap(
+            self._render(definition, state="normal"),
+            QIcon.Mode.Normal,
+            QIcon.State.Off,
+        )
+        icon.addPixmap(
+            self._render(definition, state="active"),
+            QIcon.Mode.Active,
+            QIcon.State.Off,
+        )
+        icon.addPixmap(
+            self._render(definition, state="selected"),
+            QIcon.Mode.Normal,
+            QIcon.State.On,
+        )
+        icon.addPixmap(
+            self._render(definition, state="selected"),
+            QIcon.Mode.Active,
+            QIcon.State.On,
+        )
+        icon.addPixmap(
+            self._render(definition, state="disabled"),
+            QIcon.Mode.Disabled,
+            QIcon.State.Off,
+        )
+        icon.addPixmap(
+            self._render(definition, state="disabled"),
+            QIcon.Mode.Disabled,
+            QIcon.State.On,
+        )
         return icon
 
     def _render(self, definition: SymbolDefinition, *, state: str) -> QPixmap:

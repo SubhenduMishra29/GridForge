@@ -141,7 +141,9 @@ class SLDEditor(QWidget):
         body.setStretchFactor(0, 0)
         body.setStretchFactor(1, 1)
         body.setStretchFactor(2, 0)
-        body.setSizes([52, 900, 0])
+        # 44 px compact shelf + 8 px region margins + 8 px allowance.
+        # Keep the canvas as the dominant region; only the tool column grows.
+        body.setSizes([60, 900, 0])
 
         diagnostics_region = EditorRegionFrame("Messages", parent=self)
         diagnostics_region.set_widget(diagnostics or QWidget(self))
@@ -246,7 +248,10 @@ class SLDEditor(QWidget):
         preferred = preferred or {}
         body = self._region_splitters["body"]
         if body.width() > 0:
-            shelf = max(44, preferred.get("tool_shelf", 52))
+            # EditorRegionFrame contributes 8 px horizontal margins around
+            # ToolShelf (minimum 44 px in compact mode). Keep those margins
+            # inside the initial allocation rather than clipping the shelf.
+            shelf = max(52, preferred.get("tool_shelf", 60))
             sidebar = preferred.get("sidebar", 280)
             sidebar = sidebar if self._region_widgets["sidebar"].isVisible() else 0
             body.setSizes([shelf, max(1, body.width() - shelf - sidebar), sidebar])

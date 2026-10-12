@@ -11,7 +11,7 @@ from ui.core.qt import QBrush, QColor, QIcon, QPainter, QPixmap, QRectF, Qt
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.tools.tool_definition import ToolDefinition
-from ui.styling.style_tokens import DEFAULT_STYLE_TOKENS
+from ui.styling.presentation_style import VisualState, resolve_style_tokens
 
 
 _LOG = logging.getLogger(__name__)
@@ -103,19 +103,45 @@ class ToolIconAdapter:
 
     @staticmethod
     def _text_icon(text: str) -> QIcon:
+        icon = QIcon()
+        states = (
+            (QIcon.Mode.Normal, QIcon.State.Off, VisualState.NORMAL),
+            (QIcon.Mode.Active, QIcon.State.Off, VisualState.HOVER),
+            (QIcon.Mode.Normal, QIcon.State.On, VisualState.SELECTED),
+            (QIcon.Mode.Active, QIcon.State.On, VisualState.SELECTED),
+            (QIcon.Mode.Disabled, QIcon.State.Off, VisualState.DISABLED),
+            (QIcon.Mode.Disabled, QIcon.State.On, VisualState.DISABLED),
+        )
+        for mode, icon_state, visual_state in states:
+            icon.addPixmap(
+                ToolIconAdapter._text_pixmap(text, visual_state),
+                mode,
+                icon_state,
+            )
+        return icon
+
+    @staticmethod
+    def _text_pixmap(text: str, state: VisualState) -> QPixmap:
         size = 64
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setPen(QColor(DEFAULT_STYLE_TOKENS.text_primary))
+            tokens = resolve_style_tokens()
+            foreground = {
+                VisualState.NORMAL: tokens.text_primary,
+                VisualState.HOVER: tokens.accent_active,
+                VisualState.SELECTED: tokens.selection_border,
+                VisualState.DISABLED: tokens.text_disabled,
+            }[state]
+            painter.setPen(QColor(foreground))
             painter.setBrush(QBrush())
             painter.drawRoundedRect(QRectF(3, 3, 58, 58), 8, 8)
             painter.drawText(QRectF(5, 5, 54, 54), Qt.AlignmentFlag.AlignCenter, text)
         finally:
             painter.end()
-        return QIcon(pixmap)
+        return pixmap
 
 
 __all__ = ["ToolIconAdapter"]
