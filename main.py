@@ -719,6 +719,15 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         definition.action_id: definition
         for definition in build_action_definitions(contextual_tool_definitions_all)
     }
+    def _activate_workspace_tool(activation, tool_id: str) -> object:
+        result = activation(tool_id)
+        if result is not False:
+            # Each runtime remains the activation owner; the shared host only
+            # projects the resulting active-tool state into its owning shelf
+            # and current editor context.
+            workspace_surface_host.refresh_tool_shelves()
+        return result
+
     canonical_handlers = {
         "select": lambda: controller.set_tool("select", cancel_active_creation=True),
         "move": _activate_select_for_editing,
@@ -770,11 +779,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 cancel_active_creation=True,
             )
         elif editor_type == "control":
-            handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
+            handler = lambda tool_id=tool_id: _activate_workspace_tool(control_workspace.activate_tool_id, tool_id)
         elif editor_type == "protection":
-            handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
+            handler = lambda tool_id=tool_id: _activate_workspace_tool(protection_workspace.activate_tool_id, tool_id)
         elif editor_type == "study":
-            handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
+            handler = lambda tool_id=tool_id: _activate_workspace_tool(study_tool_runtime.activate, tool_id)
         elif editor_type == "editor" and tool_manager.has_tool(tool_id):
             # Editor-agnostic legacy definitions are permitted only when the
             # canonical SLD runtime actually owns the requested tool.
