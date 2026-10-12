@@ -10,7 +10,7 @@ import logging
 from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, QRectF, Qt
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
-from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_definition import GENERIC_TOOL_GLYPHS, ToolDefinition
 from ui.styling.presentation_style import VisualState, palette_visual_pen
 
 
@@ -24,17 +24,6 @@ class ToolIconAdapter:
     is consulted only as a reusable presentation catalogue; it is never used
     as the tool lifecycle authority.
     """
-
-    _GENERIC_GLYPHS = {
-        "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
-        "snap": "⊙", "delete": "×",
-        "zoom_in": "+", "zoom_out": "−", "fit": "□",
-        "electrical-insertion": "EI", "connect_measurement": "CM",
-        "inspect": "I", "diagnostics": "!", "run": "▶", "cancel": "×",
-        "run_study": "▶", "inspect_result": "IR", "compare_results": "⇄",
-        "compare": "⇄", "plot": "∿", "filter": "▽", "export": "↓",
-        "navigation": "↔", "navigate": "↔",
-    }
 
     def __init__(self, symbol_registry: SymbolRegistry) -> None:
         if not isinstance(symbol_registry, SymbolRegistry):
@@ -88,7 +77,7 @@ class ToolIconAdapter:
             return None
 
     def _generic_icon(self, tool_id: str) -> QIcon | None:
-        glyph = self._GENERIC_GLYPHS.get(str(tool_id).strip().lower())
+        glyph = GENERIC_TOOL_GLYPHS.get(str(tool_id).strip().lower())
         if glyph is None:
             return None
         return self._text_icon(glyph)
