@@ -57,27 +57,25 @@ class ToolIconAdapter:
         if generic is not None:
             return generic
 
-        # An absent icon_id is an intentional metadata choice. Use a neutral
-        # text/glyph fallback rather than probing the equipment symbol registry
-        # or emitting a missing-symbol diagnostic for an optional icon.
         explicit = definition.icon_id
         if explicit is None:
+            _LOG.warning(
+                "TOOL_ICON_METADATA_MISSING tool_id=%s editor=%s; using neutral glyph",
+                definition.tool_id,
+                next(iter(definition.editor_types), "unknown"),
+            )
             return self._fallback_icon(definition.tool_id)
 
-        # An explicit icon_id must resolve canonically. Only equipment tools
-        # may reuse a symbol whose stable ID is the same as the tool ID.
+        # Resolve only the explicitly declared symbol. Never guess by tool ID:
+        # a typo or absent symbol must not silently display unrelated artwork.
         icon = self._symbol_icon(explicit)
         if icon is not None:
             return icon
-        if explicit != definition.tool_id:
-            canonical = self._symbol_icon(definition.tool_id)
-            if canonical is not None:
-                return canonical
 
         _LOG.warning(
-            "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s",
+            "TOOL_ICON_RESOLUTION_FAILED tool_id=%s icon_id=%s editor=%s; using neutral glyph",
             definition.tool_id,
-            definition.icon_id,
+            explicit,
             next(iter(definition.editor_types), "unknown"),
         )
         return self._fallback_icon(definition.tool_id)

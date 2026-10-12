@@ -8,11 +8,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
 from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
 from ui.editors.sld.sld_document_tabs import SLDDocumentTabs
+
+_LOG = logging.getLogger(__name__)
 
 
 class SLDEditor(QWidget):
@@ -33,6 +37,7 @@ class SLDEditor(QWidget):
         explorer: QWidget | None = None,
         status: QWidget | None = None,
         document_tabs: SLDDocumentTabs | None = None,
+        icon_provider=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -82,12 +87,19 @@ class SLDEditor(QWidget):
         header_content.setLayout(header_layout)
         header.set_widget(header_content)
 
+        if tool_shelf is None and icon_provider is None:
+            _LOG.warning(
+                "SLD_TOOL_SHELF_WITHOUT_ICON_PROVIDER: fallback shelf will use readable "
+                "glyphs; inject the composition-root ToolIconAdapter.icon_for provider "
+                "to resolve canonical equipment symbols."
+            )
         shelf = tool_shelf or ToolShelf(
             definitions=contextual_tool_definitions(
                 ("select", "move", "pan", "wire", "bus", "transformer", "breaker", "disconnector", "generator", "load", "motor"),
                 editor_type="sld",
             ),
             editor_type="sld",
+            icon_provider=icon_provider,
             parent=self,
         )
         shelf_region = EditorRegionFrame("Tools", parent=self)
