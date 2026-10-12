@@ -29,7 +29,6 @@ class ToolIconAdapter:
         "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
         "snap": "⊙", "delete": "×",
         "zoom_in": "+", "zoom_out": "−", "fit": "□",
-        "line": "╱", "cable": "≋",
         "electrical-insertion": "EI", "connect_measurement": "CM",
         "inspect": "I", "diagnostics": "!", "run": "▶", "cancel": "×",
         "run_study": "▶", "inspect_result": "IR", "compare_results": "⇄",
