@@ -89,9 +89,11 @@ class UIActionRouter:
         return handler
 
     def dispatch(self, action_id: str) -> Any:
-        if not self.is_enabled(action_id):
-            raise RuntimeError(f"UI action is currently disabled: {action_id!r}")
-        return self.require(action_id)()
+        self._ensure_active()
+        canonical = self._canonical_id(action_id)
+        if canonical not in self._handlers or not self.is_enabled(canonical):
+            raise RuntimeError(f"UI action is currently disabled or unroutable: {action_id!r}")
+        return self._handlers[canonical]()
 
     def set_enabled_provider(self, provider: Callable[[str], bool] | None) -> None:
         if provider is not None and not callable(provider):
@@ -107,12 +109,17 @@ class UIActionRouter:
             definition = self._definitions.get(canonical)
             return True if definition is None else definition.enabled
         try:
-            return bool(self._enabled_provider(action_id))
-        except (RuntimeError, TypeError, ValueError):
+            return bool(self._enabled_provider(canonical))
+        except (KeyError, RuntimeError, TypeError, ValueError):
             return False
 
     def has(self, action_id: str) -> bool:
-        return not self._disposed and isinstance(action_id, str) and self._canonical_id(action_id) in self._handlers
+        if self._disposed or not isinstance(action_id, str) or not action_id.strip():
+            return False
+        try:
+            return self._canonical_id(action_id) in self._handlers
+        except (RuntimeError, TypeError, ValueError):
+            return False
 
     def dispose(self) -> None:
         self._handlers.clear()
