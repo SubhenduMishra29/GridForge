@@ -12,7 +12,7 @@ from typing import Any
 from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, Qt, QRectF
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
-from ui.styling.presentation_style import VisualState, visual_font, visual_pen
+from ui.styling.presentation_style import VisualState, palette_visual_pen, visual_font
 
 
 class PaletteSymbolAdapter:
@@ -85,7 +85,7 @@ class PaletteSymbolAdapter:
             painter.setOpacity({"disabled": 0.38, "normal": 0.95, "active": 1.0, "selected": 1.0}[state])
 
             visual_state = {"disabled": VisualState.DISABLED, "normal": VisualState.NORMAL, "active": VisualState.ACTIVE, "selected": VisualState.SELECTED}[state]
-            painter.setPen(visual_pen("symbol", visual_state, width={"disabled": 1.0, "normal": 1.5, "active": 1.8, "selected": 2.2}[state]))
+            painter.setPen(palette_visual_pen(visual_state, width={"disabled": 1.0, "normal": 1.5, "active": 1.8, "selected": 2.2}[state]))
             painter.setBrush(QBrush())
 
             scale_x = (logical_width - 8.0) / definition.width
@@ -129,7 +129,7 @@ class PaletteSymbolAdapter:
         elif kind == "text":
             # Engineering labels are part of the canonical SymbolDefinition
             # and must remain visible in palette previews.
-            painter.setPen(visual_pen("symbol", visual_state, width=1.5))
+            painter.setPen(palette_visual_pen(visual_state, width=1.5))
             painter.setFont(visual_font("engineering"))
             painter.drawText(
                 QRectF(
