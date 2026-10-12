@@ -118,6 +118,29 @@ def visual_pen(
     return pen
 
 
+def palette_visual_pen(
+    state: VisualState = VisualState.NORMAL,
+    *,
+    width: float = 1.8,
+    tokens: StyleTokens | None = None,
+) -> QPen:
+    """Build palette-only icon strokes with contrast for dark tool shelves."""
+    state_token = {
+        VisualState.HOVER: "palette_icon_hover",
+        VisualState.ACTIVE: "palette_icon_hover",
+        VisualState.SELECTED: "palette_icon_selected",
+        VisualState.DISABLED: "palette_icon_disabled",
+    }.get(state, "palette_icon_stroke")
+    pen = QPen(token_color(state_token, tokens))
+    setter = getattr(pen, "setWidthF", None)
+    adjusted_width = float(width) + (0.7 if state == VisualState.SELECTED else 0.0)
+    if callable(setter):
+        setter(adjusted_width)
+    else:
+        pen.setWidth(int(round(adjusted_width)))
+    return pen
+
+
 def visual_brush(
     role: str,
     state: VisualState = VisualState.NORMAL,
@@ -155,4 +178,4 @@ def visual_font(
     return font
 
 
-__all__ = ["VisualState", "PresentationState", "resolve_style_tokens", "token_color", "visual_pen", "visual_brush", "visual_font"]
+__all__ = ["VisualState", "PresentationState", "resolve_style_tokens", "token_color", "visual_pen", "palette_visual_pen", "visual_brush", "visual_font"]
