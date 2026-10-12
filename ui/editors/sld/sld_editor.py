@@ -352,5 +352,3 @@ class SLDEditor(QWidget):
 
 
 __all__ = ["SLDEditor", "ToolDefinition"]
-
-__all__ = ["SLDEditor", "ToolDefinition"]
