@@ -71,7 +71,7 @@ class ToolShelf(QWidget):
         self.set_active_tool(tool_id)
         router = self._action_router
         for definition in self._definitions.values():
-            action_id = f"tool.{definition.tool_id}"
+            action_id = self._action_id_for_tool(definition.tool_id)
             button = self._buttons.get(definition.tool_id)
             if button is None:
                 continue
@@ -180,9 +180,14 @@ class ToolShelf(QWidget):
         value = definition.tool_id.replace("_", " ").replace(".", " ").strip()
         return value[:2].upper() if value else "?"
 
+    def _action_id_for_tool(self, tool_id: str) -> str:
+        """Resolve tool actions in the shelf editor namespace."""
+        if self._editor_type:
+            return f"tool.{self._editor_type}.{tool_id}"
+        return f"tool.{tool_id}"
     def _activate_tool(self, tool_id: str) -> None:
         action_router = self._action_router
-        action_id = f"tool.{tool_id}"
+        action_id = self._action_id_for_tool(tool_id)
         try:
             if action_router is not None and action_router.has(action_id):
                 action_router.dispatch(action_id)
