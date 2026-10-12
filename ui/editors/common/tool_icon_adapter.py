@@ -105,13 +105,19 @@ class ToolIconAdapter:
     def _text_icon(text: str) -> QIcon:
         icon = QIcon()
         states = (
-            (QIcon.Mode.Normal, VisualState.NORMAL),
-            (QIcon.Mode.Active, VisualState.HOVER),
-            (QIcon.Mode.Selected, VisualState.SELECTED),
-            (QIcon.Mode.Disabled, VisualState.DISABLED),
+            (QIcon.Mode.Normal, QIcon.State.Off, VisualState.NORMAL),
+            (QIcon.Mode.Active, QIcon.State.Off, VisualState.HOVER),
+            (QIcon.Mode.Normal, QIcon.State.On, VisualState.SELECTED),
+            (QIcon.Mode.Active, QIcon.State.On, VisualState.SELECTED),
+            (QIcon.Mode.Disabled, QIcon.State.Off, VisualState.DISABLED),
+            (QIcon.Mode.Disabled, QIcon.State.On, VisualState.DISABLED),
         )
-        for mode, state in states:
-            icon.addPixmap(ToolIconAdapter._text_pixmap(text, state), mode)
+        for mode, icon_state, visual_state in states:
+            icon.addPixmap(
+                ToolIconAdapter._text_pixmap(text, visual_state),
+                mode,
+                icon_state,
+            )
         return icon
 
     @staticmethod
