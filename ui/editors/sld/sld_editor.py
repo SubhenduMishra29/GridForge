@@ -263,7 +263,11 @@ class SLDEditor(QWidget):
             # EditorRegionFrame contributes 8 px horizontal margins around
             # ToolShelf (minimum 44 px in compact mode). Keep those margins
             # inside the initial allocation rather than clipping the shelf.
-            shelf = max(52, preferred.get("tool_shelf", 60))
+            left_column_visible = any(
+                self._region_widgets[region_id].isVisible()
+                for region_id in ("tool_shelf", "explorer")
+            )
+            shelf = max(52, preferred.get("tool_shelf", 60)) if left_column_visible else 0
             sidebar = preferred.get("sidebar", 280)
             sidebar = sidebar if self._region_widgets["sidebar"].isVisible() else 0
             body.setSizes([shelf, max(1, body.width() - shelf - sidebar), sidebar])
