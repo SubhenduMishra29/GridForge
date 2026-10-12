@@ -56,6 +56,7 @@ class SLDEditor(QWidget):
         ):
             button = QToolButton(header)
             button.setText(label)
+            button.setAccessibleName(f"Toggle {label} panel")
             button.setCheckable(True)
             button.setAutoRaise(True)
             button.setToolTip(f"Show/hide {label.lower()}.")
@@ -67,6 +68,7 @@ class SLDEditor(QWidget):
 
         self._restore_button = QToolButton(header)
         self._restore_button.setText("Restore")
+        self._restore_button.setAccessibleName("Restore SLD workspace panels")
         self._restore_button.setAutoRaise(True)
         self._restore_button.setToolTip("Restore the SLD workspace panels.")
         self._restore_button.clicked.connect(lambda: self.set_presentation_maximized(False))
@@ -110,7 +112,7 @@ class SLDEditor(QWidget):
         left.addWidget(shelf_region)
         left.setStretchFactor(0, 1)
         left.setStretchFactor(1, 0)
-        left.setSizes([0, 52])
+        left.setSizes([0, 220])
 
         center = QSplitter(Qt.Orientation.Vertical, self)
         center.setChildrenCollapsible(True)
@@ -118,7 +120,7 @@ class SLDEditor(QWidget):
         center.addWidget(canvas_region)
         center.setStretchFactor(0, 0)
         center.setStretchFactor(1, 1)
-        center.setSizes([0, 1])
+        center.setSizes([0, 600])
 
         sidebar = QSplitter(Qt.Orientation.Vertical, self)
         sidebar.setChildrenCollapsible(True)
@@ -139,7 +141,7 @@ class SLDEditor(QWidget):
         body.setStretchFactor(0, 0)
         body.setStretchFactor(1, 1)
         body.setStretchFactor(2, 0)
-        body.setSizes([52, 1, 0])
+        body.setSizes([52, 900, 0])
 
         diagnostics_region = EditorRegionFrame("Messages", parent=self)
         diagnostics_region.set_widget(diagnostics or QWidget(self))

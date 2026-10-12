@@ -658,3 +658,37 @@ QWidget#GridForgePanel_element_list QTableWidget { background: {{table_backgroun
 #SLDEditor QLabel {
     padding: 1px 4px;
 }
+
+/* Tool shelf controls use explicit scoped foregrounds so platform and
+   inherited widget palettes cannot turn labels/icons dark on blue states. */
+#GridForgeToolShelf QToolButton {
+    background: transparent;
+    color: {{text_primary}};
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px;
+    min-width: 30px;
+    min-height: 30px;
+}
+#GridForgeToolShelf QToolButton:hover {
+    background: {{hover_background}};
+    color: {{text_primary}};
+    border-color: {{accent_primary}};
+}
+#GridForgeToolShelf QToolButton:checked,
+#GridForgeToolShelf QToolButton:pressed,
+#GridForgeToolShelf QToolButton:checked:hover {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-color: {{selection_border}};
+}
+#GridForgeToolShelf QToolButton:focus {
+    color: {{text_primary}};
+    border: 1px solid {{accent_focus}};
+}
+#GridForgeToolShelf QToolButton:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+    border-color: {{separator}};
+}
+
