@@ -75,11 +75,14 @@ class ToolShelf(QWidget):
             button = self._buttons.get(definition.tool_id)
             if button is None:
                 continue
-            if router is not None and router.has(action_id):
-                button.setEnabled(router.is_enabled(action_id))
+            if router is not None:
+                # An installed router is authoritative: a missing canonical
+                # route must not fall through to a callback that bypasses
+                # editor ownership and enabled-state checks.
+                button.setEnabled(router.has(action_id) and router.is_enabled(action_id))
             elif self._activate is not None:
-                # Legacy callback remains a valid activation route when no
-                # canonical router action is registered for this tool.
+                # Standalone compatibility shelves may use a callback only
+                # when no canonical router was supplied.
                 button.setEnabled(True)
             else:
                 # Never present an apparently actionable control without a
@@ -190,11 +193,12 @@ class ToolShelf(QWidget):
         action_router = self._action_router
         action_id = self._action_id_for_tool(tool_id)
         try:
-            if action_router is not None and action_router.has(action_id):
+            if action_router is not None:
+                if not action_router.has(action_id):
+                    return
                 action_router.dispatch(action_id)
             elif self._activate is not None:
-                # Compatibility only: the normal GridForge runtime path is
-                # always ActionRouter → canonical tool handler.
+                # Compatibility only for standalone shelves without a router.
                 self._activate(tool_id)
         finally:
             # Button state is never authoritative; always reconcile from the
