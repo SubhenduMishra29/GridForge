@@ -113,7 +113,7 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
             "snap": "N", "delete": "Delete", "zoom_in": "Ctrl+=", "zoom_out": "Ctrl+-", "fit": "F",
         }
         generic_tool_ids = {
-            "select", "move", "pan", "wire", "bus", "snap",
+            "select", "move", "pan", "wire", "snap",
             "delete", "zoom_in", "zoom_out", "fit",
             # Editor actions without dedicated equipment-symbol artwork use
             # the ToolIconAdapter's neutral interaction glyphs.

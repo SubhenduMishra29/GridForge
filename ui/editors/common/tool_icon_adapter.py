@@ -27,7 +27,7 @@ class ToolIconAdapter:
 
     _GENERIC_GLYPHS = {
         "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
-        "bus": "▰", "snap": "⊙", "delete": "×",
+        "snap": "⊙", "delete": "×",
         "zoom_in": "+", "zoom_out": "−", "fit": "□",
         "line": "╱", "cable": "≋",
         "electrical-insertion": "EI", "connect_measurement": "CM",
