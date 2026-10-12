@@ -11,6 +11,26 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 
+# Explicit, Qt-independent icon policy for tools that use interaction glyphs
+# rather than equipment-symbol artwork. contextual_tool_definitions derives
+# generic classification from these keys so the two policies cannot drift.
+GENERIC_TOOL_GLYPHS: Mapping[str, str] = {
+    "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
+    "snap": "⊙", "delete": "×", "zoom_in": "+", "zoom_out": "−", "fit": "□",
+    "electrical-insertion": "EI", "connect_measurement": "CM",
+    "inspect": "I", "diagnostics": "!", "run": "▶", "run_study": "▶",
+    "inspect_result": "IR", "compare_results": "⇄", "cancel": "×",
+    "compare": "⇄", "plot": "∿", "filter": "▽", "export": "↓",
+    "navigation": "↔", "navigate": "↔", "contact.no": "NO",
+    "contact.nc": "NC", "coil": "C", "set": "S", "reset": "R",
+    "timer.ton": "TON", "timer.tof": "TOF", "timer.tp": "TP",
+    "latch": "L", "and": "&", "or": "≥1", "not": "¬", "xor": "⊕",
+    "logic.interlock": "LI", "control.interlock": "CI",
+    "signal.connect": "SC", "signal.disconnect": "SD",
+    "action_binding": "AB", "component.move": "CM", "component.remove": "CR",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """Immutable interaction-capability metadata.
@@ -112,20 +132,7 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
             "select": "S", "move": "M", "pan": "H", "wire": "W", "bus": "B",
             "snap": "N", "delete": "Delete", "zoom_in": "Ctrl+=", "zoom_out": "Ctrl+-", "fit": "F",
         }
-        generic_tool_ids = {
-            "select", "move", "pan", "wire", "snap",
-            "delete", "zoom_in", "zoom_out", "fit",
-            # Editor actions without dedicated equipment-symbol artwork use
-            # the ToolIconAdapter's neutral interaction glyphs.
-            "electrical-insertion", "connect_measurement", "inspect",
-            "diagnostics", "run", "run_study", "inspect_result",
-            "compare_results", "cancel", "compare", "plot", "filter",
-            "export", "navigation", "navigate", "contact.no", "contact.nc",
-            "coil", "set", "reset", "timer.ton", "timer.tof", "timer.tp",
-            "latch", "and", "or", "not", "xor", "logic.interlock",
-            "control.interlock", "signal.connect", "signal.disconnect",
-            "action_binding", "component.move", "component.remove",
-        }
+        generic_tool_ids = GENERIC_TOOL_GLYPHS.keys()
         definitions.append(
             ToolDefinition(
                 tool_id=tool_id,
@@ -140,4 +147,4 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
     return tuple(definitions)
 
 
-__all__ = ["ToolDefinition", "contextual_tool_definitions"]
+__all__ = ["ToolDefinition", "contextual_tool_definitions", "GENERIC_TOOL_GLYPHS"]
