@@ -33,34 +33,47 @@ _COMMON: tuple[ActionDefinition, ...] = (
 
 
 def build_action_definitions(tool_definitions: Iterable[ToolDefinition] = ()) -> tuple[ActionDefinition, ...]:
-    """Build one immutable action definition set from common actions plus canonical tools."""
+    """Build immutable action metadata, scoped to each declared editor.
+
+    A tool ID is only unique within its editor. Definitions that declare an
+    editor therefore receive one canonical "tool.<editor>.<tool_id>" action
+    per editor. Editor-agnostic definitions retain the legacy "tool.<id>"
+    form for compatibility.
+    """
     result: list[ActionDefinition] = list(_COMMON)
     seen = {item.action_id for item in result}
     for definition in tool_definitions:
         if not isinstance(definition, ToolDefinition):
             raise TypeError("tool_definitions must contain ToolDefinition objects.")
-        action_id = f"tool.{definition.tool_id}"
-        if action_id in seen:
-            continue
-        result.append(
-            ActionDefinition(
-                action_id=action_id,
-                title=definition.display_name,
-                description=definition.description or definition.display_name,
-                icon_id=definition.icon_id,
-                shortcut=definition.shortcuts[0] if definition.shortcuts else None,
-                category=definition.category or "engineering",
-                checkable=True,
-                scope=definition.editor_types[0] if definition.editor_types else "editor",
-                tool_id=definition.tool_id,
-                metadata={
-                    "tool_definition": definition.tool_id,
-                    "editor_types": tuple(definition.editor_types),
-                    "capabilities": tuple(definition.capabilities),
-                },
+        editor_scopes: tuple[str | None, ...] = tuple(definition.editor_types) or (None,)
+        for editor_type in editor_scopes:
+            action_id = (
+                f"tool.{editor_type}.{definition.tool_id}"
+                if editor_type is not None
+                else f"tool.{definition.tool_id}"
             )
-        )
-        seen.add(action_id)
+            if action_id in seen:
+                continue
+            result.append(
+                ActionDefinition(
+                    action_id=action_id,
+                    title=definition.display_name,
+                    description=definition.description or definition.display_name,
+                    icon_id=definition.icon_id,
+                    shortcut=definition.shortcuts[0] if definition.shortcuts else None,
+                    category=definition.category or "engineering",
+                    checkable=True,
+                    scope=editor_type or "editor",
+                    tool_id=definition.tool_id,
+                    metadata={
+                        "tool_definition": definition.tool_id,
+                        "editor_type": editor_type,
+                        "editor_types": (editor_type,) if editor_type is not None else (),
+                        "capabilities": tuple(definition.capabilities),
+                    },
+                )
+            )
+            seen.add(action_id)
     return tuple(result)
 
 

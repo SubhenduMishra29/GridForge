@@ -744,32 +744,57 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         else:
             action_router.set_definition(definition)
 
-    # Every registered engineering tool is exposed through the same action family.
-    # ToolManager remains the lifecycle authority; Controller only coordinates
-    # the explicit cancellation-enabled transition.
-    for definition in build_action_definitions(contextual_tool_definitions_all):
+    # Register one routed action per editor/tool pair. Runtime ownership is
+    # selected from the definition editor scope, never from a coincidentally
+    # matching tool ID in another editor registry.
+    _tool_definitions = tuple(
+        definition
+        for definition in build_action_definitions(contextual_tool_definitions_all)
+        if definition.action_id.startswith("tool.")
+    )
+    _tool_action_ids_by_id: dict[str, list[str]] = {}
+    for definition in _tool_definitions:
+        if definition.tool_id is not None:
+            _tool_action_ids_by_id.setdefault(definition.tool_id, []).append(definition.action_id)
+    for definition in _tool_definitions:
         action_id = definition.action_id
-        if not action_id.startswith("tool.") or action_router.has(action_id):
+        if action_router.has(action_id):
             continue
         tool_id = definition.tool_id
         if tool_id is None:
             continue
-        if tool_id in tool_manager.get_tool_ids():
+        editor_type = definition.metadata.get("editor_type") or definition.scope
+        if editor_type == "sld" and tool_manager.has_tool(tool_id):
+            handler = lambda tool_id=tool_id: controller.set_tool(
+                tool_id,
+                cancel_active_creation=True,
+            )
+        elif editor_type == "control":
+            handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
+        elif editor_type == "protection":
+            handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
+        elif editor_type == "study":
+            handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
+        elif editor_type == "editor" and tool_manager.has_tool(tool_id):
+            # Editor-agnostic legacy definitions are permitted only when the
+            # canonical SLD runtime actually owns the requested tool.
             handler = lambda tool_id=tool_id: controller.set_tool(
                 tool_id,
                 cancel_active_creation=True,
             )
         else:
-            editor_types = tuple(definition.metadata.get("editor_types", ()))
-            if "control" in editor_types:
-                handler = lambda tool_id=tool_id: control_workspace.activate_tool_id(tool_id)
-            elif "protection" in editor_types:
-                handler = lambda tool_id=tool_id: protection_workspace.activate_tool_id(tool_id)
-            elif "study" in editor_types:
-                handler = lambda tool_id=tool_id: study_tool_runtime.activate(tool_id)
-            else:
-                continue
+            # No concrete owner means no registered route; the shelf remains
+            # disabled under the fail-closed ToolShelf contract.
+            continue
         action_router.register_definition(definition, handler)
+
+    # Keep unscoped tool aliases only when the full catalogue proves the tool
+    # ID is unique. A colliding ID such as "select" has no ambiguous alias.
+    for tool_id, scoped_action_ids in _tool_action_ids_by_id.items():
+        if len(scoped_action_ids) == 1 and action_router.has(scoped_action_ids[0]):
+            alias = f"tool.{tool_id}"
+            if not action_router.has(alias):
+                action_router.register_alias(alias, scoped_action_ids[0])
 
     # Existing surface IDs are compatibility aliases only.
     for alias, canonical in {
@@ -843,9 +868,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 definition = action_router.definition(action_id)
             except (KeyError, RuntimeError, ValueError):
                 return False
-            if action_id == "tool.bus":
+            if definition.tool_id == "bus" and definition.scope == "sld":
                 return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
-            if action_id == "tool.wire":
+            if definition.tool_id == "wire" and definition.scope == "sld":
                 return project_active and discipline == "sld" and gridforge_application.supports(CREATE_SIMPLE_WIRE)
             if definition.tool_id is None:
                 return project_active
@@ -853,10 +878,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             if not allowed_editors:
                 allowed_editors = (definition.scope,) if definition.scope in {"sld", "control", "protection", "study"} else ()
             return project_active and (not allowed_editors or discipline in allowed_editors)
-        if action_id == "tool.bus":
-            return project_active and discipline == "sld" and gridforge_application.supports(CREATE_BUS)
-        if action_id == "tool.wire":
-            return project_active and discipline == "sld" and gridforge_application.supports(CREATE_SIMPLE_WIRE)
         if action_id in {"undo", "edit.undo"}:
             return project_active and bool(getattr(controller, "can_undo", lambda: False)())
         if action_id in {"redo", "edit.redo"}:
