@@ -747,10 +747,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     # Register one routed action per editor/tool pair. Runtime ownership is
     # selected from the definition editor scope, never from a coincidentally
     # matching tool ID in another editor registry.
-    _tool_actions_by_id: dict[str, list[str]] = {}
-    for definition in build_action_definitions(contextual_tool_definitions_all):
+    _tool_definitions = tuple(
+        definition
+        for definition in build_action_definitions(contextual_tool_definitions_all)
+        if definition.action_id.startswith("tool.")
+    )
+    _tool_action_ids_by_id: dict[str, list[str]] = {}
+    for definition in _tool_definitions:
+        if definition.tool_id is not None:
+            _tool_action_ids_by_id.setdefault(definition.tool_id, []).append(definition.action_id)
+    for definition in _tool_definitions:
         action_id = definition.action_id
-        if not action_id.startswith("tool.") or action_router.has(action_id):
+        if action_router.has(action_id):
             continue
         tool_id = definition.tool_id
         if tool_id is None:
@@ -779,13 +787,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             # disabled under the fail-closed ToolShelf contract.
             continue
         action_router.register_definition(definition, handler)
-        _tool_actions_by_id.setdefault(tool_id, []).append(action_id)
 
-    # Keep unscoped tool aliases only when the catalogue proves the tool ID is
-    # unique. A colliding ID such as "select" intentionally has no ambiguous
-    # "tool.select" alias.
-    for tool_id, scoped_action_ids in _tool_actions_by_id.items():
-        if len(scoped_action_ids) == 1:
+    # Keep unscoped tool aliases only when the full catalogue proves the tool
+    # ID is unique. A colliding ID such as "select" has no ambiguous alias.
+    for tool_id, scoped_action_ids in _tool_action_ids_by_id.items():
+        if len(scoped_action_ids) == 1 and action_router.has(scoped_action_ids[0]):
             alias = f"tool.{tool_id}"
             if not action_router.has(alias):
                 action_router.register_alias(alias, scoped_action_ids[0])
