@@ -101,6 +101,8 @@ class Document:
     def set_metadata(self, key: str, value: Any) -> None:
         if not key:
             raise ValueError("metadata key must not be empty")
+        if key in self._metadata and self._metadata[key] == value:
+            return
         self._metadata[key] = value
         self.mark_modified()
 

@@ -462,8 +462,10 @@ class ProjectWorkspaceApplicationAdapter:
                             pass
                     raise
             elif decision == "discard":
-                document.mark_clean()
-                self._lifecycle.documents.mark_clean(document_id)
+                # Discard authorizes removal; do not clear dirty state before
+                # the close transaction commits. If removal or activation fails,
+                # the still-open document must remain dirty.
+                pass
 
         if len(self._lifecycle.documents) <= 1:
             raise RuntimeError("The active project must retain at least one SLD document.")
