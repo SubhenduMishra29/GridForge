@@ -398,7 +398,7 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("Canonical project representation must be an object.")
         allowed = {
             "schema", "project", "network", "presentations", "dynamic_models",
-            "measurement", "control", "protection", "protection_presentation",
+            "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
             "draft_network",
         }
         unknown = sorted(set(project) - allowed)
