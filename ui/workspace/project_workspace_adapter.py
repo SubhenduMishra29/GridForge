@@ -258,10 +258,21 @@ class ProjectWorkspaceApplicationAdapter:
                     self._presentation_activation_bridge(previous_document)
 
             return rollback
-        except BaseException:
-            self._lifecycle.restore_last_state(snapshot)
+        except BaseException as primary:
+            # Lifecycle and bridge restoration are independent: failure in one
+            # must not prevent the other from recovering its own state.
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
+            if previous_document is not None and self._application.presentation is not previous_document:
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous_document))
+                )
             if self._presentation_activation_bridge is not None:
-                self._presentation_activation_bridge(previous_document)
+                recovery.append(
+                    ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous_document))
+                )
+            self._recover_independently(primary, tuple(recovery))
             raise
 
     @staticmethod
