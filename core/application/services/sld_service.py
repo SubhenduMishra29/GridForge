@@ -1350,7 +1350,7 @@ class SLDService:
             raise TypeError("properties must be a mapping")
         semantic_keys = {
             "equipment_id", "element_type", "terminal_ids", "terminal_connectivity",
-            "attributes", "labels", "projection_source", "lifecycle_state",
+            "attributes", "projection_source", "lifecycle_state",
         }
         if semantic_keys.intersection(properties):
             raise ValueError("SLD semantic binding fields are Application-owned and cannot be edited as presentation properties.")
