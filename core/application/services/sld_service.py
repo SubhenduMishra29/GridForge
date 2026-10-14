@@ -1235,6 +1235,24 @@ class SLDService:
         self.document.mark_modified()
 
         def restore() -> None:
+            # Refuse to overwrite identities that may have been created by an
+            # independent mutation after this removal. A failed restoration
+            # must surface through Transaction.rollback()/CommandManager.undo().
+            if self.document.model.get_node_optional(node_snapshot["node_id"]) is not None:
+                raise ValueError(
+                    f"Cannot restore removed SLD node; identity already exists: "
+                    f"{node_snapshot['node_id']!r}."
+                )
+            existing_connections = {
+                item["connection_id"]
+                for item in connection_snapshots
+                if self.document.model.get_connection_optional(item["connection_id"]) is not None
+            }
+            if existing_connections:
+                raise ValueError(
+                    "Cannot restore removed SLD node; connection identities already "
+                    f"exist: {sorted(existing_connections)!r}."
+                )
             self.document.model.create_node(
                 node_id=node_snapshot["node_id"],
                 equipment_id=node_snapshot.get("equipment_id"),
@@ -1253,6 +1271,7 @@ class SLDService:
                     route=snapshot.get("route"),
                     properties=snapshot.get("properties", {}),
                 )
+            self.document.mark_modified()
 
         transaction.record_undo(restore)
         return ApplicationResult.success_result(
@@ -1297,7 +1316,14 @@ class SLDService:
             properties=properties,
         )
         self.document.mark_modified()
-        transaction.record_undo(lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id))
+        def undo_added_connection() -> None:
+            # Undo only the identity created by this command. If it has already
+            # disappeared, treat compensation as an idempotent no-op.
+            if self.document.model.get_connection_optional(p["connection_id"]) is not None:
+                self.document.model.remove_connection(p["connection_id"])
+                self.document.mark_modified()
+
+        transaction.record_undo(undo_added_connection)
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
@@ -1324,7 +1350,12 @@ class SLDService:
         if "manual_geometry" in properties and "manual_geometry_owner" not in properties:
             node.properties["manual_geometry_owner"] = "engineer"
         self.document.mark_modified()
-        transaction.record_undo(lambda node=node, snapshot=previous: (node.properties.clear(), node.properties.update(snapshot)))
+        def restore_properties() -> None:
+            node.properties.clear()
+            node.properties.update(previous)
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_properties)
         return ApplicationResult.success_result(
             message="SLD node presentation properties updated.",
             metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
@@ -1345,7 +1376,13 @@ class SLDService:
         connection.properties["route_owner"] = "engineer"
         connection.properties.setdefault("presentation_owner", "projection" if connection.properties.get("projection_source") else "engineer")
         self.document.mark_modified()
-        transaction.record_undo(lambda connection=connection, route=previous, properties=previous_properties: (setattr(connection, "route", route), connection.properties.clear(), connection.properties.update(properties)))
+        def restore_route() -> None:
+            connection.route = previous
+            connection.properties.clear()
+            connection.properties.update(previous_properties)
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_route)
         return ApplicationResult.success_result(
             message="SLD connection route updated.",
             metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
@@ -1412,6 +1449,8 @@ class SLDService:
                 route=snapshot.get("route"),
                 properties=snapshot.get("properties", {}),
             )
+
+            self.document.mark_modified()
 
         transaction.record_undo(restore)
         return ApplicationResult.success_result(
