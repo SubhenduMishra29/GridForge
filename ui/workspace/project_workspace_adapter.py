@@ -361,6 +361,24 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Open project transition did not return a project context.")
         return context
 
+    @staticmethod
+    def _recover_independently(primary: BaseException, operations: tuple[tuple[str, Callable[[], None]], ...]) -> None:
+        """Attempt every independent recovery step and retain diagnostics on the primary error."""
+        failures: list[tuple[str, BaseException]] = []
+        for label, operation in operations:
+            try:
+                operation()
+            except BaseException as recovery_error:
+                failures.append((label, recovery_error))
+        if failures:
+            add_note = getattr(primary, "add_note", None)
+            if callable(add_note):
+                for label, recovery_error in failures:
+                    add_note(
+                        f"Recovery step {label!r} failed: "
+                        f"{type(recovery_error).__name__}: {recovery_error}"
+                    )
+
     def activate_document(self, document_id: str) -> ProjectWorkspaceState:
         """Atomically activate one canonical workspace document and presentation."""
         document = self._lifecycle.documents.require(document_id)
@@ -377,15 +395,19 @@ class ProjectWorkspaceApplicationAdapter:
                 self._presentation_activation_bridge(document)
             self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
-        except BaseException:
-            self._lifecycle.restore_last_state(snapshot)
+        except BaseException as primary:
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
             if previous is not None:
-                try:
-                    self._application.activate_presentation(previous)
-                    if self._presentation_activation_bridge is not None:
-                        self._presentation_activation_bridge(previous)
-                except BaseException:
-                    pass
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
+                )
+                if self._presentation_activation_bridge is not None:
+                    recovery.append(
+                        ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
+                    )
+            self._recover_independently(primary, tuple(recovery))
             raise
 
     def new_sld_document(self, name: str | None = None) -> SLDDocument:
