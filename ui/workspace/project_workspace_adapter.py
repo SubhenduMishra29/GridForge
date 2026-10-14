@@ -44,6 +44,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._handlers: list[WorkspaceUpdateHandler] = []
         self._presentation_activation_bridge: PresentationActivationBridge | None = None
         self._document_transition_guard: Callable[[], None] | None = None
+        self._save_as_path_provider: Callable[[], str | None] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
 
     @property
@@ -76,6 +77,12 @@ class ProjectWorkspaceApplicationAdapter:
         if not callable(guard):
             raise TypeError("guard must be callable.")
         self._document_transition_guard = guard
+
+    def configure_save_as_path_provider(self, provider: Callable[[], str | None]) -> None:
+        """Bind the existing UI Save As path-selection workflow for unsaved projects."""
+        if not callable(provider):
+            raise TypeError("provider must be callable.")
+        self._save_as_path_provider = provider
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
         if not callable(handler): raise TypeError("handler must be callable.")
@@ -485,10 +492,25 @@ class ProjectWorkspaceApplicationAdapter:
             if decision == "save":
                 previous_active = self._lifecycle.document
                 previous_snapshot = self._lifecycle.capture_transition_state()
+                context = self._application.project_lifecycle.context
+                save_path = getattr(context, "path", None) if context is not None else None
+                if save_path is None:
+                    if self._save_as_path_provider is None:
+                        raise RuntimeError(
+                            "Cannot close a dirty document without a project path; "
+                            "configure the existing Save As path-selection workflow."
+                        )
+                    save_path = self._save_as_path_provider()
+                    if save_path is None or not str(save_path).strip():
+                        # Save As was cancelled; do not close or clean the document.
+                        return self._lifecycle.state
                 try:
                     if previous_active is not document:
                         self.activate_document(document_id)
-                    self._application.save_project()
+                    if context is not None and getattr(context, "path", None) is not None:
+                        self._application.save_project()
+                    else:
+                        self._application.save_project_as(str(save_path))
                 except BaseException as primary:
                     recovery: list[tuple[str, Callable[[], None]]] = [
                         ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(previous_snapshot)),
