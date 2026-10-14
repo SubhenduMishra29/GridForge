@@ -1354,13 +1354,21 @@ class SLDService:
         }
         if semantic_keys.intersection(properties):
             raise ValueError("SLD semantic binding fields are Application-owned and cannot be edited as presentation properties.")
-        node.properties.update(dict(properties))
+        updated_properties = dict(previous)
+        updated_properties.update(dict(properties))
         if "labels" in properties and "labels_owner" not in properties:
-            node.properties["labels_owner"] = "engineer"
+            updated_properties["labels_owner"] = "engineer"
         if "visual_properties" in properties and "visual_properties_owner" not in properties:
-            node.properties["visual_properties_owner"] = "engineer"
+            updated_properties["visual_properties_owner"] = "engineer"
         if "manual_geometry" in properties and "manual_geometry_owner" not in properties:
-            node.properties["manual_geometry_owner"] = "engineer"
+            updated_properties["manual_geometry_owner"] = "engineer"
+        if updated_properties == previous:
+            return ApplicationResult.success_result(
+                message="SLD node presentation properties are unchanged.",
+                metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
+            )
+        node.properties.clear()
+        node.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_properties() -> None:
             node.properties.clear()
@@ -1384,9 +1392,17 @@ class SLDService:
         updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
         if updated.ownership != "engineer":
             updated = updated.__class__(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
+        updated_properties = dict(previous_properties)
+        updated_properties["route_owner"] = "engineer"
+        updated_properties.setdefault("presentation_owner", "projection" if updated_properties.get("projection_source") else "engineer")
+        if updated == previous and updated_properties == previous_properties:
+            return ApplicationResult.success_result(
+                message="SLD connection route is unchanged.",
+                metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
+            )
         connection.route = updated
-        connection.properties["route_owner"] = "engineer"
-        connection.properties.setdefault("presentation_owner", "projection" if connection.properties.get("projection_source") else "engineer")
+        connection.properties.clear()
+        connection.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_route() -> None:
             connection.route = previous
