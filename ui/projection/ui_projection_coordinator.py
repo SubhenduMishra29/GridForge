@@ -13,10 +13,13 @@ about panels, Qt, Core objects, or projection-specific transformation logic.
 from __future__ import annotations
 
 from collections import defaultdict
+import logging
 from collections.abc import Iterable
 from typing import Any
 
 from core.application.events import ApplicationEvent
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class UIProjectionCoordinator:
@@ -75,19 +78,39 @@ class UIProjectionCoordinator:
                     if marker in delivered:
                         continue
                     delivered.add(marker)
-                    projection.refresh(event)
+                    try:
+                        projection.refresh(event)
+                    except Exception:
+                        # Events describe committed Application facts. Isolate
+                        # presentation failures so sibling projections receive
+                        # the event and command outcomes remain truthful.
+                        _LOGGER.exception(
+                            "UI projection refresh failed: event_type=%s projection=%s",
+                            type(event).__name__,
+                            type(projection).__qualname__,
+                        )
 
     def dispose(self) -> None:
         """Dispose registered projections and release all routing state."""
         if self._disposed:
             return
+        failures: list[BaseException] = []
         for projection in tuple(self._projections):
             dispose = getattr(projection, "dispose", None)
             if callable(dispose):
-                dispose()
+                try:
+                    dispose()
+                except BaseException as exc:
+                    failures.append(exc)
+                    _LOGGER.exception(
+                        "UI projection disposal failed: projection=%s",
+                        type(projection).__qualname__,
+                    )
         self._routes.clear()
         self._projections.clear()
         self._disposed = True
+        if failures:
+            raise ExceptionGroup("One or more UI projections failed to dispose.", failures)
 
     def _ensure_active(self) -> None:
         if self._disposed:

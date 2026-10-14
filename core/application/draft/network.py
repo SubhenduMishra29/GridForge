@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -44,7 +45,13 @@ class DraftEndpointReference:
                 raise ValueError("Draft Bus endpoint requires attachment_id.")
             if self.terminal_role is not None or self.equipment_type is not None:
                 raise ValueError("Draft Bus endpoint cannot carry terminal identity.")
-            object.__setattr__(self, "attachment_id", self.attachment_id.strip())
+            attachment_id = self.attachment_id.strip()
+            if not re.fullmatch(r"attachment-(?:[0-8])", attachment_id):
+                raise ValueError(
+                    "Bus attachment_id must use canonical 'attachment-N' form "
+                    "with an index in the supported range 0..8."
+                )
+            object.__setattr__(self, "attachment_id", attachment_id)
 
     @classmethod
     def terminal(cls, *, draft_id: str, equipment_type: str, terminal_role: str, scope: str = "draft") -> "DraftEndpointReference":
@@ -234,17 +241,8 @@ class DraftNetwork:
                         f"{prefix}draft Bus endpoint {endpoint.object_id!r} "
                         "does not identify DraftEquipment(type='bus')."
                     )
-                try:
-                    attachment_index = int(endpoint.attachment_id.rsplit("-", 1)[1])
-                except (ValueError, IndexError) as exc:
-                    raise ValueError(
-                        f"{prefix}Bus attachment_id must use canonical 'attachment-N' form."
-                    ) from exc
-                if attachment_index < 0 or attachment_index >= 9:
-                    raise ValueError(
-                        f"{prefix}Bus attachment index {attachment_index} "
-                        "is outside the canonical attachment range."
-                    )
+                # DraftEndpointReference validates the full canonical
+                # identifier and the established 0..8 index range.
                 return
             if endpoint.scope == "core":
                 if network is None:
