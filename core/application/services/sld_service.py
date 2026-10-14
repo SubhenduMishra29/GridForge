@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -1344,7 +1345,7 @@ class SLDService:
     def _set_node_properties(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         node = self.document.model.get_node(p["node_id"])
-        previous = dict(node.properties)
+        previous = deepcopy(node.properties)
         properties = p["properties"]
         if not isinstance(properties, Mapping):
             raise TypeError("properties must be a mapping")
@@ -1354,17 +1355,25 @@ class SLDService:
         }
         if semantic_keys.intersection(properties):
             raise ValueError("SLD semantic binding fields are Application-owned and cannot be edited as presentation properties.")
-        node.properties.update(dict(properties))
+        updated_properties = deepcopy(previous)
+        updated_properties.update(deepcopy(dict(properties)))
         if "labels" in properties and "labels_owner" not in properties:
-            node.properties["labels_owner"] = "engineer"
+            updated_properties["labels_owner"] = "engineer"
         if "visual_properties" in properties and "visual_properties_owner" not in properties:
-            node.properties["visual_properties_owner"] = "engineer"
+            updated_properties["visual_properties_owner"] = "engineer"
         if "manual_geometry" in properties and "manual_geometry_owner" not in properties:
-            node.properties["manual_geometry_owner"] = "engineer"
+            updated_properties["manual_geometry_owner"] = "engineer"
+        if updated_properties == previous:
+            return ApplicationResult.success_result(
+                message="SLD node presentation properties are unchanged.",
+                metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
+            )
+        node.properties.clear()
+        node.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_properties() -> None:
             node.properties.clear()
-            node.properties.update(previous)
+            node.properties.update(deepcopy(previous))
             self.document.mark_modified()
 
         transaction.record_undo(restore_properties)
@@ -1380,18 +1389,26 @@ class SLDService:
         if owner not in (None, "engineer", "projection"):
             raise ValueError("SLD connection ownership is unknown; route edit is rejected.")
         previous = connection.route
-        previous_properties = dict(connection.properties)
+        previous_properties = deepcopy(connection.properties)
         updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
         if updated.ownership != "engineer":
             updated = updated.__class__(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
+        updated_properties = deepcopy(previous_properties)
+        updated_properties["route_owner"] = "engineer"
+        updated_properties.setdefault("presentation_owner", "projection" if updated_properties.get("projection_source") else "engineer")
+        if updated == previous and updated_properties == previous_properties:
+            return ApplicationResult.success_result(
+                message="SLD connection route is unchanged.",
+                metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
+            )
         connection.route = updated
-        connection.properties["route_owner"] = "engineer"
-        connection.properties.setdefault("presentation_owner", "projection" if connection.properties.get("projection_source") else "engineer")
+        connection.properties.clear()
+        connection.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_route() -> None:
             connection.route = previous
             connection.properties.clear()
-            connection.properties.update(previous_properties)
+            connection.properties.update(deepcopy(previous_properties))
             self.document.mark_modified()
 
         transaction.record_undo(restore_route)
