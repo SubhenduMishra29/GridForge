@@ -38,6 +38,7 @@ class Transaction:
     def __init__(self) -> None:
         self._state = TransactionState.OPEN
         self._undo_operations: list[UndoOperation] = []
+        self._rollback_finalizers: list[UndoOperation] = []
 
     @property
     def state(self) -> TransactionState:
@@ -70,6 +71,17 @@ class Transaction:
             raise TypeError("Undo operation must be callable.")
         self._undo_operations.append(operation)
 
+    def record_rollback_finalizer(self, operation: UndoOperation) -> None:
+        """Register state restoration that runs only after all inverses succeed.
+
+        Finalizers are excluded from committed undo history. They are intended
+        for restoring transaction-local bookkeeping after immediate rollback.
+        """
+        self._require_open("record_rollback_finalizer")
+        if not callable(operation):
+            raise TypeError("Rollback finalizer must be callable.")
+        self._rollback_finalizers.append(operation)
+
     def undo_journal(self) -> UndoJournal:
         """Return an immutable snapshot of registered inverse operations."""
         return tuple(self._undo_operations)
@@ -80,6 +92,7 @@ class Transaction:
         self._state = TransactionState.COMMITTING
         journal = tuple(self._undo_operations)
         self._undo_operations.clear()
+        self._rollback_finalizers.clear()
         self._state = TransactionState.COMMITTED
         return journal
 
@@ -103,6 +116,19 @@ class Transaction:
             except BaseException as exc:
                 if first_error is None:
                     first_error = exc
+
+        # Dirty-state and other transaction-local bookkeeping may be restored
+        # only when every content inverse succeeded. Otherwise retain the
+        # degraded/dirty signal rather than claiming exact restoration.
+        finalizers = tuple(reversed(self._rollback_finalizers))
+        self._rollback_finalizers.clear()
+        if first_error is None:
+            for operation in finalizers:
+                try:
+                    operation()
+                except BaseException as exc:
+                    if first_error is None:
+                        first_error = exc
 
         if first_error is None:
             self._state = TransactionState.ROLLED_BACK
