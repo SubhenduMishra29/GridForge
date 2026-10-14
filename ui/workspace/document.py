@@ -42,7 +42,7 @@ class Document:
         self._document_type = str(document_type)
         self._name = str(name)
         self._project_id = str(project_id) if project_id is not None else None
-        self._metadata = dict(metadata or {})
+        self._metadata = deepcopy(dict(metadata or {}))
         self._modified = False
         self._dirty_callback = None
 
