@@ -13,7 +13,10 @@ snap_system.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
+
+_LOGGER = logging.getLogger(__name__)
 
 from ui.creation.creation_context import CreationContext
 
@@ -363,12 +366,19 @@ class ToolManager:
 
     def _clear_interaction_tool(self) -> None:
         tool = self._interaction_tool
+        if tool is None:
+            return
+        try:
+            tool.deactivate()
+        except BaseException:
+            # Retain ownership because failed deactivation may leave the
+            # interaction tool active and must not make it untracked.
+            _LOGGER.exception(
+                "Failed to deactivate interaction tool %r; retaining ownership",
+                getattr(tool, "tool_id", type(tool).__qualname__),
+            )
+            raise
         self._interaction_tool = None
-        if tool is not None:
-            try:
-                tool.deactivate()
-            except Exception:
-                pass
 
     def _ensure_creation_session(self) -> None:
         """Ensure an active equipment tool has a canonical CreationDraft."""

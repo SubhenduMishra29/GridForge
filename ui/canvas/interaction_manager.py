@@ -5,7 +5,10 @@ Author: Subhendu Mishra
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
+
+_LOGGER = logging.getLogger(__name__)
 
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
 from ui.canvas.canvas_framework import CanvasInteractionState, CanvasStateMachine
@@ -120,12 +123,40 @@ class InteractionManager:
             if callable(has_source):
                 wire_has_source = bool(has_source())
 
+        previous_state = self._state_machine.state
         if method_name == "key_press" and self._is_escape(event):
             self._state_machine.cancel()
         elif method_name == "mouse_press":
             self._transition_for_press(tool_id, wire_has_source)
 
-        result = handler(event)
+        try:
+            result = handler(event)
+        except BaseException:
+            # Handler failure is not successful placement or connection.
+            # Recover from actual tool progress while preserving the primary
+            # exception and traceback.
+            try:
+                current_tool_id = str(getattr(manager, "active_tool_id", "") or "")
+                current_tool = getattr(manager, "active_tool", None)
+                if current_tool_id != tool_id or current_tool is not tool:
+                    self.synchronize_tool_state()
+                elif tool_id == "wire":
+                    has_source = getattr(current_tool, "has_source_endpoint", None)
+                    source_exists = bool(has_source()) if callable(has_source) else wire_has_source
+                    self._force_transition(
+                        CanvasInteractionState.WIRE_ROUTING
+                        if source_exists
+                        else CanvasInteractionState.WIRE_START
+                    )
+                else:
+                    self._force_transition(previous_state)
+            except BaseException:
+                _LOGGER.exception(
+                    "Interaction-state recovery failed after %s raised; preserving handler exception",
+                    method_name,
+                )
+            raise
+
         accepted = bool(result) if result is not None else True
         self._reconcile_outcome(method_name, tool_id, accepted, wire_has_source)
         return accepted
