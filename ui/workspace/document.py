@@ -13,6 +13,7 @@ It contains document identity, type, metadata and editable state only.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 
@@ -71,7 +72,8 @@ class Document:
 
     @property
     def metadata(self) -> Dict[str, Any]:
-        return self._metadata
+        """Return a detached metadata snapshot; edits must use set_metadata()."""
+        return deepcopy(self._metadata)
 
     @property
     def modified(self) -> bool:
@@ -96,14 +98,18 @@ class Document:
             callback(self.document_id, False)
 
     def get_metadata(self, key: str, default: Any = None) -> Any:
-        return self._metadata.get(key, default)
+        """Return detached metadata values so nested mutation cannot bypass dirty tracking."""
+        if key not in self._metadata:
+            return deepcopy(default)
+        return deepcopy(self._metadata[key])
 
     def set_metadata(self, key: str, value: Any) -> None:
         if not key:
             raise ValueError("metadata key must not be empty")
-        if key in self._metadata and self._metadata[key] == value:
+        detached_value = deepcopy(value)
+        if key in self._metadata and self._metadata[key] == detached_value:
             return
-        self._metadata[key] = value
+        self._metadata[key] = detached_value
         self.mark_modified()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -112,7 +118,7 @@ class Document:
             "project_id": self.project_id,
             "document_type": self.document_type,
             "name": self.name,
-            "metadata": dict(self.metadata),
+            "metadata": deepcopy(self._metadata),
             "modified": self.modified,
         }
 
