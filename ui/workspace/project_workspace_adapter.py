@@ -416,6 +416,7 @@ class ProjectWorkspaceApplicationAdapter:
         if project is None:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
+        snapshot = self._lifecycle.capture_transition_state()
         if self._document_transition_guard is not None:
             self._document_transition_guard()
         document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
@@ -435,16 +436,20 @@ class ProjectWorkspaceApplicationAdapter:
         ))
         try:
             self.activate_document(document.document_id)
-        except BaseException:
-            self._lifecycle.remove_document(document.document_id)
+        except BaseException as primary:
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("new-document removal", lambda: self._lifecycle.remove_document(document.document_id)),
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
             if previous is not None:
-                try:
-                    self._lifecycle.documents.activate(previous.document_id)
-                    self._application.activate_presentation(previous)
-                    if self._presentation_activation_bridge is not None:
-                        self._presentation_activation_bridge(previous)
-                except BaseException:
-                    pass
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
+                )
+                if self._presentation_activation_bridge is not None:
+                    recovery.append(
+                        ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
+                    )
+            self._recover_independently(primary, tuple(recovery))
             raise
         return document
 
@@ -473,15 +478,19 @@ class ProjectWorkspaceApplicationAdapter:
                     if previous_active is not document:
                         self.activate_document(document_id)
                     self._application.save_project()
-                except BaseException:
-                    self._lifecycle.restore_last_state(previous_snapshot)
+                except BaseException as primary:
+                    recovery: list[tuple[str, Callable[[], None]]] = [
+                        ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(previous_snapshot)),
+                    ]
                     if previous_active is not None:
-                        try:
-                            self._application.activate_presentation(previous_active)
-                            if self._presentation_activation_bridge is not None:
-                                self._presentation_activation_bridge(previous_active)
-                        except BaseException:
-                            pass
+                        recovery.append(
+                            ("Application presentation restoration", lambda: self._application.activate_presentation(previous_active))
+                        )
+                        if self._presentation_activation_bridge is not None:
+                            recovery.append(
+                                ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous_active))
+                            )
+                    self._recover_independently(primary, tuple(recovery))
                     raise
             elif decision == "discard":
                 # Discard authorizes removal; do not clear dirty state before
@@ -502,12 +511,19 @@ class ProjectWorkspaceApplicationAdapter:
                     self._presentation_activation_bridge(active)
             self._publish("close_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
-        except BaseException:
-            self._lifecycle.restore_last_state(snapshot)
+        except BaseException as primary:
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
             if previous is not None:
-                self._application.activate_presentation(previous)
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
+                )
                 if self._presentation_activation_bridge is not None:
-                    self._presentation_activation_bridge(previous)
+                    recovery.append(
+                        ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
+                    )
+            self._recover_independently(primary, tuple(recovery))
             raise
 
     def is_document_dirty(self, document_id: str) -> bool:
