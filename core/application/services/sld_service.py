@@ -395,6 +395,18 @@ class SLDService:
             "sld.set_connection_route": self._set_connection_route,
             "sld.set_node_properties": self._set_node_properties,
         }[command.command_type]
+        document = self.document
+        was_modified = bool(document.modified)
+
+        def restore_dirty_state() -> None:
+            if was_modified:
+                document.mark_modified()
+            else:
+                document.mark_clean()
+
+        # This finalizer belongs to immediate transaction rollback only. The
+        # committed inverse journal still marks the document dirty on undo.
+        transaction.record_rollback_finalizer(restore_dirty_state)
         return handler(command, transaction)
 
     def _set_node_position(self, command: Command, transaction: Transaction) -> ApplicationResult:
