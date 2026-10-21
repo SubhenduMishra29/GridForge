@@ -688,17 +688,30 @@ class Application:
             except ValueError as exc: raise ValueError(f"Unsupported project transition decision: {decision!r}") from exc
         raise TypeError("decision must be ProjectTransitionDecision, string, or None.")
 
-    def _prepare_project_transition(self, decision: ProjectTransitionDecision | str | None) -> bool:
-        if not self.is_dirty: return True
+    def _prepare_project_transition(
+        self,
+        decision: ProjectTransitionDecision | str | None,
+        *,
+        discard_before_transition: bool = True,
+    ) -> bool:
+        if not self.is_dirty:
+            return True
         normalized = self._coerce_transition_decision(decision)
         if normalized is None:
-            raise ProjectTransitionRequired("The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL.")
-        if normalized is ProjectTransitionDecision.CANCEL: return False
+            raise ProjectTransitionRequired(
+                "The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL."
+            )
+        if normalized is ProjectTransitionDecision.CANCEL:
+            return False
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
             return True
         if normalized is ProjectTransitionDecision.DISCARD:
-            self._run_project_transition(self.project_lifecycle.discard_project_changes)
+            # Replacement/close transitions discard by replacing the outgoing
+            # state transactionally. Reloading the persisted package first
+            # would mutate the outgoing project before the replacement commits.
+            if discard_before_transition:
+                self._run_project_transition(self.project_lifecycle.discard_project_changes)
             return True
         raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
 
@@ -738,7 +751,7 @@ class Application:
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None,
                     decision: ProjectTransitionDecision | str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
-        if not self._prepare_project_transition(decision):
+        if not self._prepare_project_transition(decision, discard_before_transition=False):
             current = self.project_lifecycle.context
             if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
@@ -755,7 +768,7 @@ class Application:
 
     def open_project(self, path: str, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
-        if not self._prepare_project_transition(decision):
+        if not self._prepare_project_transition(decision, discard_before_transition=False):
             current = self.project_lifecycle.context
             if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
@@ -789,7 +802,8 @@ class Application:
 
     def close_project(self, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
-        if not self._prepare_project_transition(decision): return self.project_lifecycle.context
+        if not self._prepare_project_transition(decision, discard_before_transition=False):
+            return self.project_lifecycle.context
         previous_generation = self.project_lifecycle.activation_generation
         context = self._run_project_transition(self.project_lifecycle.close_project)
         if context is not None:
