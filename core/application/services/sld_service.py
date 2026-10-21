@@ -1391,8 +1391,13 @@ class SLDService:
         node.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_properties() -> None:
-            node.properties.clear()
-            node.properties.update(deepcopy(previous))
+            # Resolve through the live document model at undo time. A later
+            # remove/restore cycle may have replaced the original node object;
+            # mutating the captured object would silently leave persisted state
+            # unchanged on the currently registered node.
+            target = self.document.model.get_node(p["node_id"])
+            target.properties.clear()
+            target.properties.update(deepcopy(previous))
             self.document.mark_modified()
 
         transaction.record_undo(restore_properties)
@@ -1425,9 +1430,13 @@ class SLDService:
         connection.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_route() -> None:
-            connection.route = previous
-            connection.properties.clear()
-            connection.properties.update(deepcopy(previous_properties))
+            # Undo may follow a remove/restore cycle that reconstructs the
+            # connection object. Restore the live model object by canonical ID,
+            # not the stale instance captured by the forward handler.
+            target = self.document.model.get_connection(p["connection_id"])
+            target.route = previous
+            target.properties.clear()
+            target.properties.update(deepcopy(previous_properties))
             self.document.mark_modified()
 
         transaction.record_undo(restore_route)
