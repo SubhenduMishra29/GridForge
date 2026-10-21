@@ -162,7 +162,7 @@ def create_application(network: Any) -> Application:
 
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
-    application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
+    application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration, activation_generation=1)
     application.protection_presentation = None
     application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
@@ -311,7 +311,7 @@ def create_application(network: Any) -> Application:
                     application.set_draft_network(DraftNetwork.empty(context.project_id, generation))
                 else:
                     application.set_draft_network(DraftNetwork.from_dict(loaded_draft.to_dict(), project_id=context.project_id, activation_generation=generation))
-                application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
+                application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration, activation_generation=generation)
                 application.protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
 
