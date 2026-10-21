@@ -310,7 +310,11 @@ class SLDEditor(QWidget):
         return all(splitter.width() > 0 and splitter.height() > 0 for splitter in required)
 
     def _realize_pending_initial_sizes(self) -> None:
-        if not self._initial_sizes_pending or not self._splitters_have_geometry():
+        # Qt can deliver early widget events during construction, before the
+        # initial-layout state is established.
+        if not getattr(self, "_initial_sizes_pending", False):
+            return
+        if not self._splitters_have_geometry():
             return
         # Clear before setSizes(), since Qt may synchronously deliver resize
         # events while splitter geometry is being recalculated.
