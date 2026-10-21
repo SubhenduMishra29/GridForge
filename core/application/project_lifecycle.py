@@ -318,14 +318,35 @@ class ProjectLifecycleService:
 
         self._saver(context, self._network, presentation_data, target, collection_data)
         if collection is not None:
-            for document in collection.documents:
-                mark_clean = getattr(document, "mark_clean", None)
+            # A save only establishes a clean baseline for the exact collection
+            # snapshot that was serialized. A document may have changed while
+            # the saver was writing; never clear that newer dirty state.
+            try:
+                current_collection = self._presentation_collection_snapshot_provider()
+            except Exception:
+                current_collection = None
+            if current_collection == collection:
+                for document in collection.documents:
+                    mark_clean = getattr(document, "mark_clean", None)
+                    if callable(mark_clean):
+                        mark_clean()
+        else:
+            # Preserve dirty state if the active presentation changed during
+            # persistence. Serialization is repeated only for the comparison;
+            # a comparison failure must not turn a completed file write into a
+            # reported save failure.
+            try:
+                current_presentation_data = (
+                    self._serialize_presentation(self._presentation)
+                    if self._presentation is not None and self._serialize_presentation is not None
+                    else None
+                )
+            except Exception:
+                current_presentation_data = None
+            if current_presentation_data == presentation_data:
+                mark_clean = getattr(self._presentation, "mark_clean", None)
                 if callable(mark_clean):
                     mark_clean()
-        else:
-            mark_clean = getattr(self._presentation, "mark_clean", None)
-            if callable(mark_clean):
-                mark_clean()
         if context.path != target:
             context = ProjectContext(project_id=context.project_id, name=context.name, path=target)
             self._context = context

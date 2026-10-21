@@ -550,7 +550,7 @@ class ProjectWorkspaceApplicationAdapter:
                             "Cannot close a dirty document without a project path; "
                             "configure the existing Save As path-selection workflow."
                         )
-                    save_path = self._save_as_path_provider()
+                    save_path = self._save_as_path_provider(context)
                     if save_path is None or not str(save_path).strip():
                         # Save As was cancelled; do not close or clean the document.
                         return self._lifecycle.state
