@@ -769,7 +769,33 @@ class ProtectionElement:
         # Execute protection function
         # -------------------------------------------------------------
 
+        installed_snapshots = []
         try:
+            metadata = context.metadata
+            all_snapshots = metadata.get("validated_measurement_snapshots_by_element")
+            if all_snapshots is not None:
+                element_snapshots = all_snapshots.get(self.id)
+                if not isinstance(element_snapshots, Mapping):
+                    raise RuntimeError(
+                        f"Application-validated measurement snapshots are missing for protection element '{self.id}'."
+                    )
+                relay_inputs = getattr(self.function, "inputs", {})
+                for input_name, relay_input in relay_inputs.items():
+                    snapshot = element_snapshots.get(input_name)
+                    if not isinstance(snapshot, Mapping):
+                        raise RuntimeError(
+                            f"Application-validated measurement snapshot is missing for element '{self.id}', input '{input_name}'."
+                        )
+                    if (
+                        snapshot.get("channel_id") != relay_input.channel_id
+                        or snapshot.get("channel_identity") != id(relay_input.channel)
+                    ):
+                        raise RuntimeError(
+                            f"Measurement binding changed after validation for element '{self.id}', input '{input_name}'."
+                        )
+                    relay_input._set_evaluation_snapshot(snapshot)
+                    installed_snapshots.append(relay_input)
+
             decision = evaluator(
                 context
             )
@@ -781,6 +807,10 @@ class ProtectionElement:
 
             # Previous successful decision remains untouched.
             raise
+
+        finally:
+            for relay_input in installed_snapshots:
+                relay_input._set_evaluation_snapshot(None)
 
         # -------------------------------------------------------------
         # Canonical decision contract
