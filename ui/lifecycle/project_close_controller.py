@@ -64,21 +64,22 @@ class ProjectCloseController:
                 # CANCEL is a completed UI decision, not an exception path.
                 return False
 
-            if normalized is ProjectTransitionDecision.SAVE and (
-                context is not None and context.path is None
-            ):
-                if self._save_as_path_provider is None:
-                    return False
-                path = self._save_as_path_provider(context)
-                if not path:
-                    # Save As cancellation is a transition cancellation:
-                    # keep the dirty project active and do not call close.
-                    return False
-                application.save_project_as(path)
+            if normalized is ProjectTransitionDecision.SAVE:
+                if context is not None and context.path is None:
+                    if self._save_as_path_provider is None:
+                        return False
+                    path = self._save_as_path_provider(context)
+                    if not path:
+                        # Save As cancellation leaves the outgoing project untouched.
+                        return False
+                    application.save_project_as(path)
+                else:
+                    # A workspace-only dirty document also requires a package save;
+                    # checking Application.is_dirty alone is insufficient.
+                    application.save_project()
 
-            # Named SAVE reaches Application.close_project() after persistence.
-            # For unnamed SAVE, save_project_as() above marks the project clean,
-            # so this close call does not attempt a second path-less save.
+            # The successful save above clears both Application and document dirty
+            # state. close_project therefore performs no second save.
             application.close_project(decision=normalized)
             return True
         except Exception:

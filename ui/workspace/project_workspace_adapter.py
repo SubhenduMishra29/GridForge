@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from core.application import Application
 from core.application.project import ProjectContext
-from core.application.project_transition import ProjectTransitionDecision
+from core.application.project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from core.application.project_presentation import ProjectPresentationCollection
 from ui.sld.sld_document import SLDDocument
 from .document import Document
@@ -44,7 +44,8 @@ class ProjectWorkspaceApplicationAdapter:
         self._handlers: list[WorkspaceUpdateHandler] = []
         self._presentation_activation_bridge: PresentationActivationBridge | None = None
         self._document_transition_guard: Callable[[], None] | None = None
-        self._save_as_path_provider: Callable[[], str | None] | None = None
+        self._save_as_path_provider: Callable[[object], str | None] | None = None
+        self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
 
     @property
@@ -78,11 +79,58 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("guard must be callable.")
         self._document_transition_guard = guard
 
-    def configure_save_as_path_provider(self, provider: Callable[[], str | None]) -> None:
+    def configure_save_as_path_provider(self, provider: Callable[[object], str | None]) -> None:
         """Bind the existing UI Save As path-selection workflow for unsaved projects."""
         if not callable(provider):
             raise TypeError("provider must be callable.")
         self._save_as_path_provider = provider
+
+    def configure_transition_decision_provider(
+        self,
+        provider: Callable[[object], ProjectTransitionDecision | str],
+    ) -> None:
+        """Bind the shared SAVE/DISCARD/CANCEL provider for project transitions."""
+        if not callable(provider):
+            raise TypeError("provider must be callable.")
+        self._transition_decision_provider = provider
+
+    def _resolve_transition_decision(
+        self,
+        decision: ProjectTransitionDecision | str | None,
+    ) -> ProjectTransitionDecision | str | None:
+        if not self.is_dirty or decision is not None:
+            return decision
+        if self._transition_decision_provider is None:
+            raise ProjectTransitionRequired(
+                "The project or workspace documents are dirty; a SAVE, DISCARD, or CANCEL decision is required."
+            )
+        return self._transition_decision_provider(self._application.project_lifecycle.context)
+
+    def _prepare_workspace_transition(
+        self,
+        decision: ProjectTransitionDecision | str | None,
+    ) -> ProjectTransitionDecision | str | None:
+        resolved = self._resolve_transition_decision(decision)
+        if not self.is_dirty or self._is_cancel(resolved):
+            return resolved
+        normalized = (
+            resolved if isinstance(resolved, ProjectTransitionDecision)
+            else ProjectTransitionDecision(str(resolved).strip().lower())
+        )
+        if normalized is ProjectTransitionDecision.SAVE:
+            context = self._application.project_lifecycle.context
+            if context is None:
+                raise RuntimeError("Cannot save a project transition without an active project.")
+            if context.path is None:
+                if self._save_as_path_provider is None:
+                    raise RuntimeError("Save As path selection is not configured for this project transition.")
+                path = self._save_as_path_provider(context)
+                if not path:
+                    return ProjectTransitionDecision.CANCEL
+                self._application.save_project_as(path)
+            else:
+                self._application.save_project()
+        return normalized
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
         if not callable(handler): raise TypeError("handler must be callable.")
@@ -335,7 +383,8 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
-        if self._application.is_dirty and self._is_cancel(decision):
+        decision = self._prepare_workspace_transition(decision)
+        if self._is_cancel(decision):
             current = self._application.project_lifecycle.context
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
@@ -361,7 +410,8 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
-        if self._application.is_dirty and self._is_cancel(decision):
+        decision = self._prepare_workspace_transition(decision)
+        if self._is_cancel(decision):
             current = self._application.project_lifecycle.context
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
@@ -562,6 +612,10 @@ class ProjectWorkspaceApplicationAdapter:
     def is_document_dirty(self, document_id: str) -> bool:
         return self._lifecycle.documents.is_dirty(document_id)
 
+    def save_project(self) -> ProjectContext:
+        """Persist the complete project package through Application."""
+        return self._application.save_project()
+
     def save_project_as(self, path: str) -> ProjectContext:
         """Persist through the Application facade using a UI-resolved Save As path."""
         if not isinstance(path, str) or not path.strip():
@@ -573,7 +627,8 @@ class ProjectWorkspaceApplicationAdapter:
         *,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext | None:
-        if self._application.is_dirty and self._is_cancel(decision):
+        decision = self._prepare_workspace_transition(decision)
+        if self._is_cancel(decision):
             return self._application.project_lifecycle.context
         return self._run_transition(
             operation="close",

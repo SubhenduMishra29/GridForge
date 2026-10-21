@@ -1106,6 +1106,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         from core.application.project_transition import ProjectTransitionDecision
         return ProjectTransitionDecision.CANCEL
 
+    project_workspace_adapter.configure_transition_decision_provider(project_transition_decision)
+    project_workspace_adapter.configure_save_as_path_provider(_choose_save_as_path)
     close_controller = ProjectCloseController(
         application=project_workspace_adapter,
         decision_provider=project_transition_decision,
