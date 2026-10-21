@@ -32,6 +32,7 @@ class ProtectionRuntime:
             raise ValueError("activation_generation must be a positive integer.")
         self._network = network
         self._configuration = configuration
+        self._project_id = str(configuration.project_id)
         self._activation_generation = activation_generation
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
@@ -45,7 +46,7 @@ class ProtectionRuntime:
     @property
     def project_id(self) -> str:
         """Project identity captured from the configuration at construction."""
-        return str(self._configuration.project_id)
+        return self._project_id
 
     @property
     def network(self) -> Network:
