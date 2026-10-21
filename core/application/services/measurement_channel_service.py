@@ -44,6 +44,11 @@ class MeasurementChannelService:
         return self._activation_generation
 
     @property
+    def network(self) -> Network | None:
+        """Network identity to which the active channel registry was provisioned."""
+        return self._network
+
+    @property
     def channels(self) -> Mapping[str, MeasurementChannel]:
         return dict(self._channels)
 
