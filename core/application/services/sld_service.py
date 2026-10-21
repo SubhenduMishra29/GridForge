@@ -413,16 +413,26 @@ class SLDService:
     def _set_node_position(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         node = self.document.model.get_node(p["node_id"])
-        previous = node.position
-        previous_properties = dict(node.properties)
-        self.document.set_node_position(p["node_id"], float(p["x"]), float(p["y"]))
-        node.properties["position_owner"] = "engineer"
+        previous = tuple(node.position)
+        previous_properties = deepcopy(node.properties)
+        updated = (float(p["x"]), float(p["y"]))
+        updated_properties = deepcopy(previous_properties)
+        updated_properties["position_owner"] = "engineer"
+        if tuple(float(value) for value in previous) == updated and updated_properties == previous_properties:
+            return ApplicationResult.success_result(
+                message="SLD node position is unchanged.",
+                metadata={"presentation_operation": "set_node_position", "node_id": p["node_id"]},
+            )
+        self.document.set_node_position(p["node_id"], *updated)
+        node.properties.clear()
+        node.properties.update(updated_properties)
+        self.document.mark_modified()
 
         def restore() -> None:
             target = self.document.model.get_node(p["node_id"])
             self.document.set_node_position(p["node_id"], *previous)
             target.properties.clear()
-            target.properties.update(previous_properties)
+            target.properties.update(deepcopy(previous_properties))
             self.document.mark_modified()
 
         transaction.record_undo(restore)
@@ -1307,6 +1317,9 @@ class SLDService:
         connection_kind = p.get("connection_kind")
         if connection_kind is not None:
             properties["connection_kind"] = str(connection_kind)
+        connection_id = p["connection_id"]
+        if self.document.model.get_connection_optional(connection_id) is not None:
+            raise ValueError(f"SLD connection identity collision: {connection_id!r}.")
         core_connection_id = p.get("core_connection_id")
         if core_connection_id is not None:
             core_connection_id = str(core_connection_id).strip()
@@ -1469,16 +1482,20 @@ class SLDService:
         self.document.mark_modified()
 
         def restore() -> None:
+            restored_id = snapshot["connection_id"]
+            if self.document.model.get_connection_optional(restored_id) is not None:
+                raise ValueError(
+                    f"Cannot restore removed SLD connection; identity already exists: {restored_id!r}."
+                )
             self.document.model.create_connection(
-                connection_id=snapshot["connection_id"],
+                connection_id=restored_id,
                 source_node_id=snapshot["source_node_id"],
                 target_node_id=snapshot["target_node_id"],
                 source_endpoint=snapshot.get("source_endpoint"),
                 target_endpoint=snapshot.get("target_endpoint"),
                 route=snapshot.get("route"),
-                properties=snapshot.get("properties", {}),
+                properties=deepcopy(snapshot.get("properties", {})),
             )
-
             self.document.mark_modified()
 
         transaction.record_undo(restore)
