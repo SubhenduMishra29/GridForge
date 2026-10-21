@@ -241,11 +241,17 @@ class SLDEditor(QWidget):
 
     def apply_editor_definition(self, definition: object) -> None:
         preferred: dict[str, int] = {}
-        layout_changed = not self._editor_definition_applied
+        first_application = not self._editor_definition_applied
+        old_preferred = self._region_preferred_sizes.copy()
+        affected: set[str] = {
+            "tool_shelf", "explorer", "sidebar", "overlay", "tool_settings"
+        } if first_application else set()
+
         for region in getattr(definition, "regions", ()) or ():
             region_id = getattr(region, "region_id", "")
             frame = self._region_widgets.get(region_id)
             visible = bool(getattr(region, "visible", True))
+            previous_definition_visibility = self._definition_visibility.get(region_id)
             self._definition_visibility[region_id] = visible
             if region_id not in self._region_user_overrides:
                 self._region_user_visibility[region_id] = visible
@@ -253,31 +259,39 @@ class SLDEditor(QWidget):
                 self._region_user_visibility[region_id] = True
             if frame is not None:
                 effective_visible = self._region_user_visibility.get(region_id, visible)
-                if region_id not in {"header", "canvas", "status"} and (not frame.isHidden()) != effective_visible:
-                    layout_changed = True
+                actual_visible = not frame.isHidden()
+                if region_id not in {"header", "canvas", "status"}:
+                    if actual_visible != (False if self._presentation_maximized else effective_visible):
+                        affected.add(region_id)
+                    frame.setVisible(
+                        False if self._presentation_maximized else effective_visible
+                    )
                 minimum = int(getattr(region, "minimum_size", 0) or 0)
                 if region_id in {"tool_shelf", "explorer", "sidebar"}:
                     frame.setMinimumWidth(minimum)
                 elif region_id in {"header", "canvas", "tool_settings", "overlay", "diagnostics", "status"}:
                     frame.setMinimumHeight(minimum)
-                if region_id not in {"header", "canvas", "status"}:
-                    frame.setVisible(
-                        False if self._presentation_maximized
-                        else self._region_user_visibility[region_id]
-                    )
+                if previous_definition_visibility is not None and previous_definition_visibility != visible:
+                    affected.add(region_id)
             value = getattr(region, "preferred_size", None)
             if value is not None:
                 preferred[region_id] = int(value)
 
-        if preferred != self._region_preferred_sizes:
-            layout_changed = True
+        changed_preferred = {
+            region_id for region_id, value in preferred.items()
+            if old_preferred.get(region_id) != value
+        }
+        affected.update(changed_preferred)
         self._region_preferred_sizes = preferred
         self._editor_definition_applied = True
-        # Activation may occur repeatedly while the engineer has dragged a
-        # splitter. Reapply canonical defaults only on first realization or
-        # when the effective definition actually changes.
-        if layout_changed:
-            self._apply_splitter_sizes(preferred)
+        # Initial realization initializes all splitters. Later definition changes
+        # touch only the splitter paths whose visibility/preferred size changed.
+        if affected:
+            self._apply_splitter_sizes(
+                {region_id: preferred[region_id] for region_id in changed_preferred if region_id in preferred},
+                affected=affected,
+                preferred_regions=changed_preferred | (affected if first_application else set()),
+            )
             self._initial_sizes_pending = not self._splitters_have_geometry()
         self._sync_panel_buttons()
 
@@ -300,8 +314,10 @@ class SLDEditor(QWidget):
         preferred: dict[str, int] | None = None,
         *,
         affected: set[str] | None = None,
+        preferred_regions: set[str] | None = None,
     ) -> None:
         preferred = preferred or {}
+        preferred_regions = set(preferred) if preferred_regions is None else preferred_regions
         all_regions = {"tool_shelf", "explorer", "sidebar", "overlay", "tool_settings"}
         affected = all_regions if affected is None else affected
         body = self._region_splitters["body"]
@@ -325,7 +341,7 @@ class SLDEditor(QWidget):
             # Use definition sizes for initial/changed definitions. Visibility
             # updates preserve live splitter proportions wherever possible.
             shelf = (
-                left_default if preferred
+                left_default if preferred_regions.intersection({"tool_shelf", "explorer"})
                 else current[0] if left_column_visible and len(current) > 0 and current[0] > 0
                 else left_default if left_column_visible else 0
             )
@@ -334,7 +350,7 @@ class SLDEditor(QWidget):
                 or not self._region_widgets["overlay"].isHidden()
             )
             sidebar = (
-                sidebar_default if preferred
+                sidebar_default if preferred_regions.intersection({"sidebar", "overlay"})
                 else current[2] if sidebar_visible and len(current) > 2 and current[2] > 0
                 else sidebar_default if sidebar_visible else 0
             )
@@ -351,7 +367,7 @@ class SLDEditor(QWidget):
                 "explorer", self._region_preferred_sizes.get("explorer", 220)
             )
             explorer = (
-                explorer_default if preferred
+                explorer_default if "explorer" in preferred_regions
                 else current[0] if explorer_visible and len(current) > 0 and current[0] > 0
                 else explorer_default if explorer_visible else 0
             )
@@ -365,7 +381,7 @@ class SLDEditor(QWidget):
                 "tool_settings", self._region_preferred_sizes.get("tool_settings", 42)
             )
             settings = (
-                settings_default if preferred
+                settings_default if "tool_settings" in preferred_regions
                 else current[0] if settings_visible and len(current) > 0 and current[0] > 0
                 else settings_default if settings_visible else 0
             )
@@ -379,7 +395,7 @@ class SLDEditor(QWidget):
             overlay_default = preferred.get(
                 "overlay", self._region_preferred_sizes.get("overlay", 120)
             )
-            if preferred:
+            if "overlay" in preferred_regions:
                 overlay_size = overlay_default if overlay_visible else 0
             elif overlay_visible and len(current) > 1 and current[1] > 0:
                 overlay_size = current[1]
@@ -387,7 +403,7 @@ class SLDEditor(QWidget):
                 overlay_size = overlay_default if overlay_visible else 0
             inspector_size = (
                 current[0]
-                if not preferred and inspector_visible and len(current) > 0 and current[0] > 0
+                if "sidebar" not in preferred_regions and inspector_visible and len(current) > 0 and current[0] > 0
                 else max(1, sidebar_splitter.height() - overlay_size - sidebar_splitter.handleWidth())
                 if inspector_visible else 0
             )
