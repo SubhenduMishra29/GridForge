@@ -17,16 +17,35 @@ from .configuration_fingerprint import canonical_configuration_value
 class ProtectionRuntime:
     """Compose project protection configuration against authoritative Core objects."""
 
-    def __init__(self, network: Network, configuration: ProtectionProjectConfiguration) -> None:
+    def __init__(
+        self,
+        network: Network,
+        configuration: ProtectionProjectConfiguration,
+        *,
+        activation_generation: int,
+    ) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
         if not isinstance(configuration, ProtectionProjectConfiguration):
             raise TypeError("configuration must be ProtectionProjectConfiguration.")
+        if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
         self._network = network
         self._configuration = configuration
+        self._activation_generation = activation_generation
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
         self._composed_configuration_snapshot: Any | None = None
+
+    @property
+    def activation_generation(self) -> int:
+        """Project lifecycle generation for which this runtime was composed."""
+        return self._activation_generation
+
+    @property
+    def project_id(self) -> str:
+        """Project identity captured from the configuration at construction."""
+        return str(self._configuration.project_id)
 
     @property
     def network(self) -> Network:
