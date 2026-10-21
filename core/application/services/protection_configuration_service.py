@@ -44,11 +44,28 @@ class ProtectionConfigurationService:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
 
-    def validate_configuration(self, configuration: ProtectionFunctionConfiguration) -> None:
-        """Validate one protection configuration against active Application state."""
-        self._validate_configuration(configuration)
+    def validate_configuration(
+        self,
+        configuration: ProtectionFunctionConfiguration,
+        *,
+        network: Network | None = None,
+        channels: Mapping[str, MeasurementChannel] | None = None,
+    ) -> None:
+        """Validate against active state or explicit candidate activation authorities.
 
-    def _validate_configuration(self, configuration: ProtectionFunctionConfiguration) -> None:
+        Candidate project activation runs before ProjectLifecycleService publishes
+        its new network pointer. Supplying the candidate authorities prevents
+        validation from accidentally consulting the previous project's providers.
+        """
+        self._validate_configuration(configuration, network=network, channels=channels)
+
+    def _validate_configuration(
+        self,
+        configuration: ProtectionFunctionConfiguration,
+        *,
+        network: Network | None = None,
+        channels: Mapping[str, MeasurementChannel] | None = None,
+    ) -> None:
         if not isinstance(configuration.settings, Mapping): raise TypeError("Protection configuration settings must be a mapping.")
         spec = get_protection_function(configuration.function_code)
         if spec.status is not ProtectionFunctionStatus.IMPLEMENTED or spec.implementation is None:
@@ -56,15 +73,17 @@ class ProtectionConfigurationService:
         ProtectionFactory._build_settings(spec.implementation, configuration.settings)
         for name, channel_id in configuration.input_channel_ids.items():
             if not isinstance(name, str) or not name.strip() or not isinstance(channel_id, str) or not channel_id.strip(): raise ValueError("Protection input channel names and IDs must be non-empty strings.")
-        if self._measurement_channel_provider is not None:
-            channels = self._measurement_channel_provider()
+        active_channels = channels
+        if active_channels is None and self._measurement_channel_provider is not None:
+            active_channels = self._measurement_channel_provider()
+        if active_channels is not None:
             for name, channel_id in configuration.input_channel_ids.items():
-                if channel_id not in channels:
+                if channel_id not in active_channels:
                     raise ResourceError(code="PROTECTION_CHANNEL_NOT_FOUND", message=f"Measurement channel not found for protection input {name}: {channel_id}", details={"channel_id": channel_id, "element_id": configuration.element_id, "input_name": name})
-                if not isinstance(channels[channel_id], MeasurementChannel):
+                if not isinstance(active_channels[channel_id], MeasurementChannel):
                     raise TypeError(f"Measurement channel provider returned an invalid channel for {channel_id}.")
             contract_diagnostics = validate_protection_input_contracts(
-                configuration, channels, require_all_bindings=False
+                configuration, active_channels, require_all_bindings=False
             )
             if contract_diagnostics:
                 raise DomainError(
@@ -72,10 +91,11 @@ class ProtectionConfigurationService:
                     message="Protection input binding violates its declared measurement contract.",
                     details={"element_id": configuration.element_id, "diagnostics": contract_diagnostics},
                 )
-        if self._network_provider is not None:
-            network = self._network_provider()
-            if network is None: raise RuntimeError("No active Network is available for protection configuration validation.")
-            try: network.get_by_id("relay", configuration.relay_id)
+        active_network = network
+        if active_network is None and self._network_provider is not None:
+            active_network = self._network_provider()
+        if active_network is not None:
+            try: active_network.get_by_id("relay", configuration.relay_id)
             except KeyError as exc:
                 raise ResourceError(code="PROTECTION_RELAY_NOT_FOUND", message=f"Relay not found for protection configuration: {configuration.relay_id}", details={"relay_id": configuration.relay_id, "element_id": configuration.element_id}) from exc
 

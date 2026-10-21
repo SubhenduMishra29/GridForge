@@ -17,16 +17,36 @@ from .configuration_fingerprint import canonical_configuration_value
 class ProtectionRuntime:
     """Compose project protection configuration against authoritative Core objects."""
 
-    def __init__(self, network: Network, configuration: ProtectionProjectConfiguration) -> None:
+    def __init__(
+        self,
+        network: Network,
+        configuration: ProtectionProjectConfiguration,
+        *,
+        activation_generation: int,
+    ) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
         if not isinstance(configuration, ProtectionProjectConfiguration):
             raise TypeError("configuration must be ProtectionProjectConfiguration.")
+        if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
         self._network = network
         self._configuration = configuration
+        self._project_id = str(configuration.project_id)
+        self._activation_generation = activation_generation
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
         self._composed_configuration_snapshot: Any | None = None
+
+    @property
+    def activation_generation(self) -> int:
+        """Project lifecycle generation for which this runtime was composed."""
+        return self._activation_generation
+
+    @property
+    def project_id(self) -> str:
+        """Project identity captured from the configuration at construction."""
+        return self._project_id
 
     @property
     def network(self) -> Network:
@@ -60,6 +80,16 @@ class ProtectionRuntime:
         """Rebuild runtime composition from project configuration and live channels."""
         if not isinstance(channels, Mapping):
             raise TypeError("channels must be a mapping of channel IDs to MeasurementChannel objects.")
+
+        # Invalidate the previously composed system before any validation or
+        # construction work. A failed recomposition must never leave an older
+        # system publicly evaluable under a changed configuration or channel
+        # mapping. Application transactions retain the previous runtime object
+        # separately and restore it through their existing undo/rollback path.
+        self._system = ProtectionSystem()
+        self._channels = {}
+        self._composed_configuration_snapshot = None
+
         contract_diagnostics = validate_protection_input_contracts(self._configuration, channels)
         if contract_diagnostics:
             raise ValueError("Protection input-contract validation failed before composition: " + " | ".join(contract_diagnostics))

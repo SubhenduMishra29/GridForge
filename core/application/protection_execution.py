@@ -117,9 +117,30 @@ class ProtectionExecutionService:
                 )
                 continue
 
+            if not isinstance(result, ApplicationResult):
+                diagnostics.append(
+                    "Protection action dispatcher returned an invalid result type for "
+                    f"'{control_decision.target_equipment_type}:"
+                    f"{control_decision.target_equipment_id}': "
+                    f"expected ApplicationResult, received {type(result).__name__}."
+                )
+                continue
+
+            # Preserve the actual dispatch outcome, but never treat an
+            # unsuccessful ApplicationResult as successful protection action
+            # feedback. The command/result remain available for audit, while
+            # the diagnostic makes the failed outcome explicit to the caller.
             control_decisions.append(control_decision)
             commands.append(command)
             results.append(result)
+            if not result.success:
+                diagnostics.append(
+                    "Protection action command returned an unsuccessful "
+                    f"ApplicationResult for "
+                    f"'{control_decision.target_equipment_type}:"
+                    f"{control_decision.target_equipment_id}': "
+                    f"{result.message or 'no failure message supplied'}"
+                )
 
         return ProtectionExecutionResult(
             decisions=decision_tuple,

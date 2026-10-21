@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
@@ -63,7 +64,7 @@ from .protection_execution import ProtectionExecutionResult, ProtectionExecution
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
-from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
+from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
 from .services.control_service import ControlApplicationService
@@ -371,6 +372,10 @@ class Application:
             raise RuntimeError("Active project protection runtime/configuration is not available.")
         if runtime.network is not lifecycle.network:
             raise RuntimeError("Protection runtime network is stale for the active project.")
+        if runtime.project_id != project.project_id:
+            raise RuntimeError("Protection runtime project identity is stale for the active project.")
+        if runtime.activation_generation != lifecycle.activation_generation:
+            raise RuntimeError("Protection runtime activation generation is stale for the active project.")
         active_configuration = configuration.configuration
         if active_configuration is None:
             raise RuntimeError("Active project protection configuration is unavailable.")
@@ -391,12 +396,15 @@ class Application:
             raise RuntimeError("Measurement channel registry belongs to a different project.")
         if service.activation_generation != lifecycle.activation_generation:
             raise RuntimeError("Measurement channel registry activation generation is stale.")
+        if service.network is not lifecycle.network:
+            raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
 
         channels = service.channels
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
         validated_sample_values: dict[tuple[str, str], tuple[Any, Any, float]] = {}
+        validated_measurement_snapshots: dict[tuple[str, str], Mapping[str, Any]] = {}
         diagnostics.extend(
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
@@ -416,6 +424,10 @@ class Application:
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
                     continue
+                # Read the sample sequence around the complete validation
+                # window. When a producer supplies a sequence, any change means
+                # the fields cannot be treated as one coherent measurement.
+                sample_sequence_before = getattr(channel, "sample_sequence", None)
                 timestamp = getattr(channel, "timestamp", None)
                 if timestamp is None:
                     diagnostics.append(f"{prefix}: sample timestamp is missing; freshness cannot be established.")
@@ -461,8 +473,13 @@ class Application:
                         "only GOOD quality is accepted by the protection evaluation policy."
                     )
                     continue
-                if not bool(getattr(channel, "available", False)):
+                available = bool(getattr(channel, "available", False))
+                usable = bool(getattr(channel, "is_usable", False))
+                if not available:
                     diagnostics.append(f"{prefix}: measurement channel is unavailable.")
+                    continue
+                if not usable:
+                    diagnostics.append(f"{prefix}: measurement channel is not usable.")
                     continue
                 if not finite_value:
                     diagnostics.append(f"{prefix}: engineering sample is non-finite.")
@@ -475,12 +492,37 @@ class Application:
                 if validity is not MeasurementValidity.VALID:
                     diagnostics.append(f"{prefix}: measurement validity is {getattr(validity, 'value', validity)!r}.")
                     continue
+                sample_sequence_after = getattr(channel, "sample_sequence", None)
+                sample_fields_stable = (
+                    getattr(channel, "engineering_value", None) == value
+                    and getattr(channel, "timestamp", None) == timestamp
+                    and getattr(channel, "quality", None) is quality
+                    and bool(getattr(channel, "available", False)) == available
+                    and bool(getattr(channel, "is_usable", False)) == usable
+                    and sample_sequence_before == sample_sequence_after
+                )
+                if not sample_fields_stable:
+                    diagnostics.append(
+                        f"{prefix}: measurement changed during validation; a coherent sample snapshot could not be established."
+                    )
+                    continue
                 # Runtime composition records the exact objects it bound into
                 # RelayInput instances. Compare by identity, not merely channel ID.
                 if runtime.channels.get(channel_id) is not channel:
                     diagnostics.append(f"{prefix}: protection runtime retains a stale channel object.")
                     continue
                 validated_sample_values[(element.element_id, input_name)] = (channel, value, timestamp)
+                validated_measurement_snapshots[(element.element_id, input_name)] = MappingProxyType({
+                    "channel_id": channel_id,
+                    "channel_identity": id(channel),
+                    "value": value,
+                    "timestamp": timestamp,
+                    "quality": quality,
+                    "available": available,
+                    "usable": usable,
+                    "validity": validity,
+                    "sample_sequence": sample_sequence_after,
+                })
 
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
@@ -560,6 +602,20 @@ class Application:
             "project_id": project.project_id,
             "activation_generation": lifecycle.activation_generation,
         })
+        # RelayInput bindings consume these immutable Application-validated
+        # samples for this cycle instead of rereading mutable channels while
+        # individual protection elements execute.
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {
+            element.element_id: MappingProxyType({})
+            for element in runtime.configuration.elements
+            if element.enabled
+        }
+        for (element_id, input_name), snapshot in validated_measurement_snapshots.items():
+            per_element = dict(snapshots_by_element.get(element_id, {}))
+            per_element[input_name] = snapshot
+            snapshots_by_element[element_id] = MappingProxyType(per_element)
+        context_metadata["validated_measurement_snapshots_by_element"] = MappingProxyType(snapshots_by_element)
+        context_metadata["validated_measurement_snapshot_authority"] = APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY
         # Only Application-created sealed snapshots authorize ANSI 67. Caller
         # metadata remains ordinary context and cannot supply phasors or provenance.
         for element in runtime.configuration.elements:
@@ -996,7 +1052,7 @@ class Application:
             if network is None:
                 raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
             previous_runtime = getattr(self, "protection_runtime", None)
-            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation)
             candidate_runtime.compose(channel_service.channels)
             self.protection_runtime = candidate_runtime
             transaction.record_undo(

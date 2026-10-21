@@ -200,6 +200,19 @@ class RelayInput:
         # --------------------------------------------------------------
 
         self._channel = channel
+        self._evaluation_snapshot: Mapping[str, Any] | None = None
+
+    def _set_evaluation_snapshot(self, snapshot: Mapping[str, Any] | None) -> None:
+        """Install a cycle-local immutable sample view for one evaluation."""
+        if snapshot is not None and not isinstance(snapshot, Mapping):
+            raise TypeError("evaluation snapshot must be a mapping or None.")
+        self._evaluation_snapshot = snapshot
+
+    def _sample_value(self, name: str, fallback: Any = None) -> Any:
+        snapshot = self._evaluation_snapshot
+        if snapshot is not None and name in snapshot:
+            return snapshot[name]
+        return fallback
 
     # ==================================================================
     # VALIDATION
@@ -373,11 +386,7 @@ class RelayInput:
         authoritative MeasurementChannel.
         """
 
-        return getattr(
-            self._channel,
-            "engineering_value",
-            None,
-        )
+        return self._sample_value("value", getattr(self._channel, "engineering_value", None))
 
     # ------------------------------------------------------------------
 
@@ -387,13 +396,7 @@ class RelayInput:
         Return the authoritative channel availability state.
         """
 
-        return bool(
-            getattr(
-                self._channel,
-                "available",
-                False,
-            )
-        )
+        return bool(self._sample_value("available", getattr(self._channel, "available", False)))
 
     # ------------------------------------------------------------------
 
@@ -403,13 +406,7 @@ class RelayInput:
         Return the authoritative channel usability state.
         """
 
-        return bool(
-            getattr(
-                self._channel,
-                "is_usable",
-                False,
-            )
-        )
+        return bool(self._sample_value("usable", getattr(self._channel, "is_usable", False)))
 
     # ------------------------------------------------------------------
 
@@ -424,6 +421,10 @@ class RelayInput:
         When unavailable, usability is used as the protection-facing
         fallback.
         """
+
+        if self._evaluation_snapshot is not None:
+            from core.measurement.measurement_channel import MeasurementValidity
+            return self._sample_value("validity") is MeasurementValidity.VALID
 
         value = getattr(
             self._channel,
@@ -450,11 +451,7 @@ class RelayInput:
         Return the authoritative measurement quality.
         """
 
-        return getattr(
-            self._channel,
-            "quality",
-            None,
-        )
+        return self._sample_value("quality", getattr(self._channel, "quality", None))
 
     # ==================================================================
     # SIGNAL INFORMATION
@@ -536,6 +533,9 @@ class RelayInput:
         If no such method exists, ``None`` is returned.
         """
 
+        if self._evaluation_snapshot is not None:
+            return self._sample_value("validity")
+
         method = getattr(
             self._channel,
             "validity",
@@ -572,6 +572,10 @@ class RelayInput:
         If an explicit ``is_valid_at`` method is unavailable, the
         current channel validity state is used.
         """
+
+        if self._evaluation_snapshot is not None:
+            from core.measurement.measurement_channel import MeasurementValidity
+            return self._sample_value("validity") is MeasurementValidity.VALID
 
         method = getattr(
             self._channel,
@@ -668,11 +672,7 @@ class RelayInput:
         Return the latest authoritative measurement timestamp.
         """
 
-        return getattr(
-            self._channel,
-            "timestamp",
-            None,
-        )
+        return self._sample_value("timestamp", getattr(self._channel, "timestamp", None))
 
     # ------------------------------------------------------------------
 
@@ -683,11 +683,7 @@ class RelayInput:
         available.
         """
 
-        return getattr(
-            self._channel,
-            "sample_sequence",
-            None,
-        )
+        return self._sample_value("sample_sequence", getattr(self._channel, "sample_sequence", None))
 
     # ==================================================================
     # METADATA
