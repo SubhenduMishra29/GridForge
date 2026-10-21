@@ -9,7 +9,7 @@
 
 ## Verdict
 
-**PARTIALLY COMPLETE — audit baseline and concrete audit-record integrity defects established; a full repository correction pass is not established.**
+**PARTIALLY COMPLETE — the audit baseline and CSV schema repair are complete; a full repository correction pass is not established.**
 
 This report intentionally does not claim that all 746 Python files or every Core/Application/UI/solver/Control/Protection/Dynamics integration was inspected. The repository tree contained 1,038 entries, including 746 `.py` files and 62 paths under `audit/`. The current audit-register representation has structural defects that must be repaired before it can safely serve as the reliable source for an exhaustive one-pass reconciliation.
 
@@ -34,26 +34,20 @@ The inspected SLD service contains document dirty-state notifications in multipl
 
 ## 2. Confirmed audit-record integrity defects
 
-### AUD-BASE-001 — CSV rows do not consistently conform to the declared 14-column schema
+### AUD-BASE-001 — CSV rows did not consistently conform to the declared 14-column schema
 
 **Severity:** HIGH  
 **Classification:** DOCUMENTATION/REGISTER INCONSISTENCY  
-**Status:** OPEN — REGISTER RECONSTRUCTION REQUIRED
+**Status:** CORRECTED — STATIC SCHEMA VALIDATION PASSED
 
-The header declares 14 fields, but a quote-aware CSV parse of the current `audit/MASTER_AUDIT_REGISTER.csv` yields 12 records with field counts other than 14, plus two blank records. Examples:
-- `GF-MASTER-0040` parses as 15 fields.
-- `GF-MASTER-0042` parses as 17 fields.
-- `GF-MASTER-0108` parses as 18 fields.
-- `GF-MASTER-0111` parses as 13 fields.
-- `GF-MASTER-0114` has 12 fields.
-- A later record begins with an empty master ID and has no severity.
-- A free-text reconciliation note appears as a separate CSV line after the `GF-MASTER-0112` row.
+The initial quote-aware parse found 10 malformed finding records and two blank records. Those records have now been reconstructed using the corresponding Markdown findings and historical reports, and the entire CSV has been re-serialized with standard field quoting. A fresh quote-aware parse confirms 169 non-empty records, exactly 14 fields per record, no blank IDs, and no duplicate IDs. Repaired IDs:
+- `GF-MASTER-0040`, `GF-MASTER-0042`, `GF-MASTER-0108`, `GF-MASTER-0111`, `GF-MASTER-0112`, `GF-MASTER-0114`, `B27-FINAL-001`, `B27-FINAL-002`, `B27-FINAL-007`, and `B27-FINAL-011`.
 
 The malformed records include unescaped commas and misplaced narrative text. A naïve line split also yields misleading statuses and severities, so the register cannot safely be counted or transformed without record-level reconstruction.
 
-**Impact:** Status totals, severity totals, finding IDs, affected-file columns and historical relationships cannot be trusted when computed by naïvely splitting lines or commas. A blind auto-rewrite risks losing evidence or moving content into the wrong finding.
+**Correction:** Preserved canonical finding IDs, legacy IDs, statuses, and runtime-deferred qualifiers. Reconstructed the malformed records against the Markdown register and the relevant historical reports; preserved impact/architecture notes and the local reconciliation note in the appropriate source-basis/history fields. Quoted fields containing commas or embedded line breaks.
 
-**Required correction:** Reconstruct each malformed row against the Markdown register, metadata and source-backed historical reports; preserve legacy IDs; quote every field containing commas, quotes or newlines; validate all rows with an RFC-4180-compatible parser; confirm unique non-empty canonical IDs and schema-consistent field counts before replacing the CSV.
+**Validation:** Quote-aware parse: 169 records; 14 fields per record; zero malformed-width rows; zero blank records; zero empty IDs; zero duplicate IDs. This is structural/static validation only; it does not certify every field's semantic accuracy.
 
 ### AUD-BASE-002 — Current authority statements conflict with current implementation authority
 
@@ -90,7 +84,7 @@ No speculative production-code change was made: the inspected snippets did not e
 | Gate | Status | Evidence / limitation |
 |---|---|---|
 | Current branch and commit baseline | PASS | Both repository refs resolve to the inspected SHA at baseline time. |
-| Audit-register schema integrity | FAIL | 12 malformed field-count records and two blank records were found in the CSV parse. |
+| Audit-register schema integrity | PASS — STATIC | 169 records; all rows have 14 fields; no blank rows, empty IDs or duplicate IDs. |
 | Repository authority reconciliation | FAIL | Historical row `B27-FINAL-010` conflicts with the current authority metadata. |
 | Matrix baseline metadata | PARTIAL | Stale baseline reference clarified; technical rows not all re-audited at current HEAD. |
 | Core/Application/UI architecture | NOT ESTABLISHED | No complete repository-wide consumer trace was performed. |
@@ -109,11 +103,10 @@ No production files were changed. No files were deleted, and no dependencies wer
 
 ## 6. Required next correction unit
 
-1. Reconstruct and validate the malformed CSV rows against the Markdown register, metadata and historical evidence.
-2. Reconcile `B27-FINAL-010` and any other current-authority references while preserving historical provenance.
-3. Establish canonical register IDs, schema-consistent row count, unique IDs and matching status/verification vocabulary.
-4. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
-5. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
-6. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
+1. Reconcile `B27-FINAL-010` and contradictory current-authority statements while preserving historical provenance.
+2. Review the repaired CSV against all Markdown rows and metadata vocabulary for semantic alignment; schema validation alone does not prove all content mappings.
+3. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
+4. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
+5. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
 
 **No tests, CI, application startup or GUI execution were run.**
