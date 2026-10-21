@@ -716,9 +716,9 @@ class Application:
             return False
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
-            if self._has_persistent_workspace_changes():
+            if self.is_dirty or self._has_persistent_workspace_changes():
                 raise RuntimeError(
-                    "Project save completed but workspace documents remain dirty; transition aborted."
+                    "Project save completed but persistent project or workspace content remains dirty; transition aborted."
                 )
             return True
         if normalized is ProjectTransitionDecision.DISCARD:
