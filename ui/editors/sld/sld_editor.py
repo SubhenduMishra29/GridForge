@@ -418,9 +418,9 @@ class SLDEditor(QWidget):
                 # isHidden() reports explicit visibility even when an ancestor
                 # editor is temporarily inactive.
                 rid: not self._region_widgets[rid].isHidden()
-                for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "diagnostics")
+                for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "overlay", "diagnostics")
             }
-            for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "diagnostics"):
+            for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "overlay", "diagnostics"):
                 self._region_widgets[rid].setVisible(False)
             self._restore_button.setVisible(True)
         else:
