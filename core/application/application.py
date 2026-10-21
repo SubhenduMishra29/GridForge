@@ -424,6 +424,10 @@ class Application:
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
                     continue
+                # Read the sample sequence around the complete validation
+                # window. When a producer supplies a sequence, any change means
+                # the fields cannot be treated as one coherent measurement.
+                sample_sequence_before = getattr(channel, "sample_sequence", None)
                 timestamp = getattr(channel, "timestamp", None)
                 if timestamp is None:
                     diagnostics.append(f"{prefix}: sample timestamp is missing; freshness cannot be established.")
@@ -483,6 +487,19 @@ class Application:
                 if validity is not MeasurementValidity.VALID:
                     diagnostics.append(f"{prefix}: measurement validity is {getattr(validity, 'value', validity)!r}.")
                     continue
+                sample_sequence_after = getattr(channel, "sample_sequence", None)
+                sample_fields_stable = (
+                    getattr(channel, "engineering_value", None) == value
+                    and getattr(channel, "timestamp", None) == timestamp
+                    and getattr(channel, "quality", None) is quality
+                    and bool(getattr(channel, "available", False))
+                    and sample_sequence_before == sample_sequence_after
+                )
+                if not sample_fields_stable:
+                    diagnostics.append(
+                        f"{prefix}: measurement changed during validation; a coherent sample snapshot could not be established."
+                    )
+                    continue
                 # Runtime composition records the exact objects it bound into
                 # RelayInput instances. Compare by identity, not merely channel ID.
                 if runtime.channels.get(channel_id) is not channel:
@@ -495,10 +512,10 @@ class Application:
                     "value": value,
                     "timestamp": timestamp,
                     "quality": quality,
-                    "available": bool(getattr(channel, "available", False)),
-                    "usable": bool(getattr(channel, "is_usable", False)),
+                    "available": True,
+                    "usable": True,
                     "validity": validity,
-                    "sample_sequence": getattr(channel, "sample_sequence", None),
+                    "sample_sequence": sample_sequence_after,
                 })
 
         directional_snapshots: dict[str, Any] = {}
