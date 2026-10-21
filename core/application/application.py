@@ -783,8 +783,11 @@ class Application:
         return context
 
     def save_project(self, path: str | None = None) -> ProjectContext:
+        # Persist only the revision captured before lifecycle serialization.
+        # If the live revision advances during the save, it remains dirty.
+        revision_snapshot = self._revision_service.revision
         context = self.project_lifecycle.save_project(path)
-        self._revision_service.mark_persisted()
+        self._revision_service.mark_persisted(revision_snapshot)
         self._event_bus.publish(ProjectSaved(metadata={
             "project_id": context.project_id, "path": str(context.path) if context.path else None,
             "activation_generation": self.project_lifecycle.activation_generation,
@@ -792,8 +795,9 @@ class Application:
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
+        revision_snapshot = self._revision_service.revision
         context = self.project_lifecycle.save_project_as(path)
-        self._revision_service.mark_persisted()
+        self._revision_service.mark_persisted(revision_snapshot)
         self._event_bus.publish(ProjectSaved(metadata={
             "project_id": context.project_id, "path": str(context.path) if context.path else None,
             "activation_generation": self.project_lifecycle.activation_generation,
