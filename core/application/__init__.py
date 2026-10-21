@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from .application import Application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
-from .control_dispatch import ControlCommandDispatcher, ControlCommandTranslator
+from .control_dispatch import (
+    ControlCommandDispatcher,
+    ControlCommandTranslator,
+    InvalidApplicationResultError,
+)
 from .control_execution import ControlExecutionResult, ControlExecutionService
 from .control_signal_mapping import (
     ControlSignalBinding,
@@ -21,7 +25,7 @@ from .control_signal_mapping import (
     ControlSignalResolutionError,
     ControlSignalSource,
 )
-from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
+from .protection_execution import ProtectionActionOutcome, ProtectionExecutionResult, ProtectionExecutionService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
@@ -47,6 +51,7 @@ __all__ = [
     "ControlExecutionService",
     "ControlCommandDispatcher",
     "ControlCommandTranslator",
+    "InvalidApplicationResultError",
     "ControlSignalSource",
     "ControlSignalDestination",
     "ControlSignalBinding",
@@ -54,6 +59,7 @@ __all__ = [
     "ControlSignalQuality",
     "ControlSignalResolution",
     "ControlSignalResolutionError",
+    "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
     "ProjectTransitionDecision",
