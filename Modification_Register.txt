@@ -1600,3 +1600,137 @@ Final verification boundary:
     IMPORT/COMPILE, pytest, Ruff, CI, GUI runtime, persistence runtime, and
     numerical validation remain DEFERRED.
 
+
+
+======================================================================
+2026-10-21 — GF-MASTER-0005 — ARCHITECTURE / AUDIT DOCUMENTATION RECONCILIATION
+======================================================================
+
+Finding:
+    GF-MASTER-0005 — Reconcile architecture and audit documentation with
+    current implementation and the frozen GridForge V2 architecture.
+
+Status:
+    OPEN — DOCUMENTATION CORRECTION PARTIAL; REPOSITORY-WIDE RE-AUDIT
+    AND INTEGRATION EVIDENCE REMAIN REQUIRED
+
+Scope / authoritative tracking:
+    Modification_Register.txt remains the master audit register.
+    README.md remains the architecture entry point.
+    No competing architecture document or new audit register was created.
+
+Current source evidence inspected (static source only):
+    core/application/command_manager.py
+        Describes command validation/handler resolution, transaction
+        execution, rollback on handler failure, committed undo journal,
+        and redo by re-executing the original command.
+
+    core/application/transaction.py
+        Defines transaction lifecycle, inverse-operation registration,
+        rollback/commit, and undo-journal handoff. It does not own Core,
+        UI, or Qt.
+
+    core/application/application.py
+        Provides the Application facade for commands, reads, events,
+        history, project lifecycle, and studies.
+
+    core/application/services/sld_service.py
+        Describes persistent SLD presentation mutation inside the
+        Application transaction supplied by CommandManager and explicitly
+        does not own history or undo/redo.
+
+    core/protection/runtime.py
+        Defines ProtectionRuntime.compose(channels) and composes project
+        protection configuration against a Core Network.
+
+    core/protection/preparation.py
+        Defines detached preparation structures including
+        PreparedProtectionInput and ProtectionPreparation.
+
+    ui/core/qt.py
+        Is documented as the single UI Qt import boundary and imports
+        PySide6 primitives. This file alone does not prove repository-wide
+        compliance by every UI module or absence of imports elsewhere.
+
+    core/measurement/README.md
+        States measurement is headless domain state and UI measurement
+        representations are projections.
+
+    core/control/README.md
+        States control semantics are headless and exposed through
+        Application workflows.
+
+    core/protection/README.md
+        Describes the protection subsystem and its intended measurement
+        and output relationships. Its architecture diagrams are not proof
+        that all production provisioning-to-runtime edges are connected.
+
+Documentation corrections committed:
+    README.md
+        Reframed the CT/PT/CVT -> measurement -> protection diagram as the
+        intended architectural flow, not end-to-end proof. Explicitly
+        records GF-PROT-042 as OPEN — INTEGRATION GAP pending a trace of the
+        current production call path.
+
+    ui/sld/README.md
+        Corrected wording that could imply the SLD model/state is
+        authoritative engineering truth. Clarifies that SLD is the
+        authoring/projection surface, Core owns electrical identities and
+        topology, and the Application/document lifecycle coordinates
+        persistent presentation state. Replaced the old SLD/Canvas diagram
+        with the Core -> Application -> persisted presentation ->
+        projection/snapshot -> render path, with an explicit evidence caveat.
+
+Contradictions / limitations:
+    1. The previous ui/sld/README.md described the SLD model and SLD state
+       as the central path into the Canvas without stating that Core owns
+       authoritative electrical identities/connectivity and Application
+       coordinates persistent presentation changes. This was misleading
+       beside the frozen V2 ownership rules. Corrected in documentation.
+
+    2. README.md showed CT/PT/CVT -> MeasurementChannel -> Protection
+       Function -> Decision -> Trip as a straight flow without stating
+       that this was an architectural target rather than proven production
+       composition. Current source contains ProtectionRuntime.compose()
+       and preparation types, but existence of these alone does not prove
+       the complete CT/PT/CVT provisioning -> channels -> prepared input ->
+       runtime consumer path. Corrected the claim boundary; GF-PROT-042
+       remains open.
+
+    3. The inspected CommandManager, Transaction, Application facade, and
+       SLDService source supports their documented ownership responsibilities.
+       This targeted inspection does not prove every command/event publisher,
+       undo/redo caller, or persistence consumer across the repository.
+
+    4. ui/core/qt.py identifies the intended Qt boundary. Repository-wide
+       import compliance has not been established by inspection of this file
+       alone and remains unverified here.
+
+Evidence gaps / remaining actions:
+    - Complete current-main documentation inventory and contradiction scan
+      across all subsystem README files, architecture notes, and historical
+      remediation records.
+    - Trace actual event publication and read-model consumers for the
+      relevant command/undo/redo workflows; do not infer publication from
+      event type declarations.
+    - Trace the full CT/PT/CVT provisioning-to-protection runtime production
+      call path and resolve GF-PROT-042 only with source-backed evidence.
+    - Audit all Qt imports and relevant project/document persistence consumers.
+    - Preserve historical finding wording/status unless its original evidence
+      and current status are independently established.
+    - Runtime, test, CI, startup, GUI, and workflow verification remain
+      deferred; no runtime claim is made by this documentation-only change.
+
+Verification boundary:
+    STATIC DOCUMENTATION / SOURCE INSPECTION ONLY.
+    No tests, CI, application startup, GUI execution, or runtime experiments
+    were performed.
+
+Disposition:
+    GF-MASTER-0005 remains OPEN. The targeted stale SLD/protection claims
+    above were corrected, but repository-wide documentation reconciliation
+    and material source-evidence gaps remain. Do not close this finding until
+    the remaining actions are completed and the final documentation diff is
+    reviewed.
+
+======================================================================
