@@ -449,6 +449,12 @@ class SLDService:
         node.set_presentation(p["presentation"])
         node.properties["symbol_owner"] = "engineer"
         node.properties.setdefault("presentation_owner", "projection" if node.properties.get("projection_source") else "engineer")
+        updated = None if node.presentation is None else node.presentation.to_dict()
+        if updated == previous and node.properties == previous_properties:
+            return ApplicationResult.success_result(
+                message="SLD node presentation is unchanged.",
+                metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
+            )
         self.document.mark_modified()
         def restore() -> None:
             target = self.document.model.get_node(p["node_id"])
