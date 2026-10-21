@@ -80,6 +80,16 @@ class ProtectionRuntime:
         """Rebuild runtime composition from project configuration and live channels."""
         if not isinstance(channels, Mapping):
             raise TypeError("channels must be a mapping of channel IDs to MeasurementChannel objects.")
+
+        # Invalidate the previously composed system before any validation or
+        # construction work. A failed recomposition must never leave an older
+        # system publicly evaluable under a changed configuration or channel
+        # mapping. Application transactions retain the previous runtime object
+        # separately and restore it through their existing undo/rollback path.
+        self._system = ProtectionSystem()
+        self._channels = {}
+        self._composed_configuration_snapshot = None
+
         contract_diagnostics = validate_protection_input_contracts(self._configuration, channels)
         if contract_diagnostics:
             raise ValueError("Protection input-contract validation failed before composition: " + " | ".join(contract_diagnostics))
