@@ -75,7 +75,7 @@ The matrix identified `f27ef42a39333f5fb35522e5839d23f58a427207` as its “curre
 - The project declares Python `>=3.12,<3.13`, NumPy, SciPy and PySide6 dependencies. Runtime/package behavior was not exercised.
 - The master register already distinguishes runtime-deferred findings in many rows. Those statuses must remain open for runtime proof; static inspection alone cannot close them.
 
-No production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The ten malformed CSV records were structurally reconstructed using the Markdown register and historical reports. Full semantic row-by-row reconciliation and authority-metadata reconciliation remain open.
+No production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The ten malformed CSV records were structurally reconstructed using the Markdown register and historical reports. Full semantic row-by-row reconciliation remains open; the CSV-to-Markdown ID coverage pass now finds all 169 canonical IDs represented.
 
 ## 4. Static acceptance status
 
@@ -84,6 +84,7 @@ No production-code change was made: the inspected snippets did not establish a s
 | Current branch and commit baseline | PASS | Both repository refs resolve to the inspected SHA at baseline time. |
 | Audit-register schema integrity | PASS — STATIC | 169 records; all rows have 14 fields; no blank rows, empty IDs or duplicate IDs. |
 | Repository authority reconciliation | PASS — DOCUMENTATION | `B27-FINAL-010` reclassified as historical/superseded; current authority wording reconciled in CSV, Markdown register and matrix. |
+| CSV-to-Markdown Master ID coverage | PASS — STATIC | All 169 CSV IDs occur in the Markdown register after adding the missing summaries for `GF-CTRL-CONSOLIDATED-20260926`, `GF-MASTER-0109`, and `GF-MASTER-0115`; this does not prove every field matches semantically. |
 | Matrix baseline metadata | PARTIAL | Stale baseline reference clarified; technical rows not all re-audited at current HEAD. |
 | Core/Application/UI architecture | NOT ESTABLISHED | No complete repository-wide consumer trace was performed. |
 | Qt import boundary | NOT ESTABLISHED | Not exhaustively checked across all Python files. |
@@ -96,7 +97,7 @@ No production-code change was made: the inspected snippets did not establish a s
 
 - `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — distinguishes historical baseline/authority snapshots from current repository authority.
 - `audit/MASTER_AUDIT_REGISTER.csv` — repairs ten malformed records and reclassifies `B27-FINAL-010` as a superseded historical authority snapshot.
-- `audit/MASTER_AUDIT_REGISTER.md` — reconciles current authority wording and labels the dated Batch 27 authority snapshot as superseded.
+- `audit/MASTER_AUDIT_REGISTER.md` — reconciles current authority wording, labels the dated Batch 27 authority snapshot as superseded, and adds canonical summaries for the three previously unreferenced CSV IDs.
 - `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records schema validation, authority reconciliation, remaining scope and limitations.
 
 No production files were changed. No files were deleted, and no dependencies were added. Unrelated repository content was left untouched.
