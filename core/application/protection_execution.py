@@ -59,8 +59,6 @@ class ProtectionPostconditionVerification:
             object.__setattr__(self, "status", PostconditionStatus(self.status))
         if not isinstance(self.diagnostic, str):
             raise TypeError("diagnostic must be a string.")
-        if self.postcondition_verification is not None and not isinstance(self.postcondition_verification, ProtectionPostconditionVerification):
-            raise TypeError("postcondition_verification must be ProtectionPostconditionVerification or None.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +88,8 @@ class ProtectionActionOutcome:
             raise ValueError("status must be a non-empty string.")
         if not isinstance(self.diagnostic, str):
             raise TypeError("diagnostic must be a string.")
+        if self.postcondition_verification is not None and not isinstance(self.postcondition_verification, ProtectionPostconditionVerification):
+            raise TypeError("postcondition_verification must be ProtectionPostconditionVerification or None.")
 
 
 @dataclass(frozen=True, slots=True)
