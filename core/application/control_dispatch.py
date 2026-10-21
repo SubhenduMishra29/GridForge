@@ -43,6 +43,10 @@ from core.application.results import ApplicationResult
 from core.control.decision import ControlActionType, ControlDecision, ControlTargetType
 
 
+class InvalidApplicationResultError(TypeError):
+    """The configured Application executor violated its result contract."""
+
+
 class ControlCommandTranslator:
     """Translate typed Control intent into existing Application commands."""
 
@@ -155,7 +159,7 @@ class ControlCommandDispatcher:
             raise TypeError("command must be a Command.")
         result = self._command_executor(command)
         if not isinstance(result, ApplicationResult):
-            raise TypeError(
+            raise InvalidApplicationResultError(
                 "Application command executor must return ApplicationResult; "
                 f"received {type(result).__name__}."
             )
@@ -166,4 +170,4 @@ class ControlCommandDispatcher:
         return self.execute_command(ControlCommandTranslator.to_command(decision))
 
 
-__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher"]
+__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher", "InvalidApplicationResultError"]
