@@ -63,6 +63,8 @@ from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
+    PostconditionStatus,
+    ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
 )
 from core.protection.context import ProtectionContext
@@ -693,13 +695,29 @@ class Application:
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
             return ProtectionExecutionResult(decisions=decisions)
-        def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> str:
-            """Read targeted equipment from Core after a successful Application command.
+        def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
+            """Verify the action-specific postcondition in the captured Core network.
 
-            This is an in-memory Core observation, not field-device acknowledgement.
-            Missing targets or unsupported state remain explicitly unknown.
+            The result is a Core-state observation, never field-device acknowledgement.
             """
             ensure_current_protection_provenance()
+            target_type = str(getattr(control_decision, "target_equipment_type", "")).strip().lower()
+            target_id = getattr(control_decision, "target_equipment_id", None)
+            action = str(getattr(getattr(control_decision, "action_type", None), "value", getattr(control_decision, "action_type", ""))).strip().lower()
+            command_id = str(command.command_id)
+
+            def verification(status: PostconditionStatus, expected: str | None, observed: str | None, diagnostic: str) -> ProtectionPostconditionVerification:
+                return ProtectionPostconditionVerification(
+                    command_id=command_id,
+                    target_equipment_type=target_type or "unknown",
+                    target_equipment_id=target_id if isinstance(target_id, str) and target_id else "unknown",
+                    action_type=action or "unknown",
+                    status=status,
+                    expected_state=expected,
+                    observed_state=observed,
+                    diagnostic=diagnostic,
+                )
+
             target_types = {
                 "breaker": "breaker",
                 "switch": "switch",
@@ -707,19 +725,63 @@ class Application:
                 "fuse": "fuse",
                 "motor": "motor",
             }
-            target_type = str(getattr(control_decision, "target_equipment_type", "")).strip().lower()
-            target_id = getattr(control_decision, "target_equipment_id", None)
             core_type = target_types.get(target_type)
-            if core_type is None or not isinstance(target_id, str) or not target_id:
-                return "unknown/unavailable: unsupported or missing equipment identity"
-            equipment = captured_network.get_by_id(core_type, target_id)
+            if core_type is None or not isinstance(target_id, str) or not target_id.strip():
+                return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, None, None, "unsupported or missing target identity")
+            contracts = {
+                ("breaker", "open"): ("closed", False),
+                ("breaker", "close"): ("closed", True),
+                # Breaker.trip() is a distinct command, but the current Breaker
+                # domain model exposes no trip-latched state beyond open/closed.
+                ("breaker", "trip"): (None, None),
+                ("breaker", "put_in_service"): ("in_service", True),
+                ("breaker", "take_out_of_service"): ("in_service", False),
+                ("switch", "open"): ("closed", False),
+                ("switch", "close"): ("closed", True),
+                ("switch", "put_in_service"): ("in_service", True),
+                ("switch", "take_out_of_service"): ("in_service", False),
+                ("disconnector", "open"): ("closed", False),
+                ("disconnector", "close"): ("closed", True),
+                ("disconnector", "put_in_service"): ("in_service", True),
+                ("disconnector", "take_out_of_service"): ("in_service", False),
+                ("fuse", "blow"): ("blown", True),
+                ("fuse", "trip"): ("blown", True),
+                ("fuse", "reset"): ("blown", False),
+                ("fuse", "put_in_service"): ("in_service", True),
+                ("fuse", "take_out_of_service"): ("in_service", False),
+                ("motor", "start"): ("running", True),
+                ("motor", "stop"): ("running", False),
+                ("motor", "put_in_service"): ("in_service", True),
+                ("motor", "take_out_of_service"): ("in_service", False),
+            }
+            contract = contracts.get((target_type, action))
+            if contract is None:
+                return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, None, None, "no action-specific Core postcondition contract is defined")
+            field_name, expected_value = contract
+            if field_name is None:
+                return verification(
+                    PostconditionStatus.UNAVAILABLE_UNSUPPORTED,
+                    "trip-specific state",
+                    None,
+                    "Breaker.trip() has no distinct trip-latched state in the current Breaker model; open state alone cannot prove trip-specific semantics",
+                )
+            try:
+                equipment = captured_network.get_by_id(core_type, target_id)
+            except (KeyError, ValueError):
+                equipment = None
             if equipment is None:
-                return f"unknown/unavailable: Core {core_type} {target_id!r} not found after command"
-            state_names = ("in_service", "enabled", "closed", "is_closed", "tripped", "picked_up", "blocked", "running", "started", "blown", "status")
-            observed = {name: getattr(equipment, name) for name in state_names if hasattr(equipment, name)}
-            if not observed:
-                return f"unknown/unavailable: Core {core_type} {target_id!r} exposes no supported state fields"
-            return f"core_readback:command={command.command_id}:target={core_type}:{target_id}:state={observed!r}"
+                return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, f"{field_name}={expected_value!r}", None, "target not found in the captured active Core network")
+            if not hasattr(equipment, field_name):
+                return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, f"{field_name}={expected_value!r}", None, f"target model does not expose authoritative field {field_name!r}")
+            observed_value = getattr(equipment, field_name)
+            if not isinstance(observed_value, bool):
+                return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, f"{field_name}={expected_value!r}", f"{field_name}={observed_value!r}", "authoritative postcondition field is not boolean")
+            observed_state = f"{field_name}={observed_value!r}"
+            expected_state = f"{field_name}={expected_value!r}"
+            ensure_current_protection_provenance()
+            if observed_value is expected_value:
+                return verification(PostconditionStatus.MATCHED, expected_state, observed_state, "authoritative Core state matches the action-specific postcondition")
+            return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
