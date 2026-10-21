@@ -395,6 +395,8 @@ class Application:
             raise RuntimeError("Measurement channel registry belongs to a different project.")
         if service.activation_generation != lifecycle.activation_generation:
             raise RuntimeError("Measurement channel registry activation generation is stale.")
+        if service.network is not lifecycle.network:
+            raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
 
         channels = service.channels
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
