@@ -541,6 +541,11 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        # Reject an impossible close before invoking Save/Save As. The active
+        # project must retain one SLD document, so a request that cannot commit
+        # must not produce persistence side effects or clear dirty state.
+        if len(self._lifecycle.documents) <= 1:
+            raise RuntimeError("The active project must retain at least one SLD document.")
         if self._document_transition_guard is not None:
             self._document_transition_guard()
         if self._lifecycle.documents.is_dirty(document_id):
@@ -586,8 +591,6 @@ class ProjectWorkspaceApplicationAdapter:
                 # the still-open document must remain dirty.
                 pass
 
-        if len(self._lifecycle.documents) <= 1:
-            raise RuntimeError("The active project must retain at least one SLD document.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         try:
