@@ -63,6 +63,7 @@ from .services.measurement_channel_service import MeasurementChannelService
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
+    ProtectionTargetUnavailableError,
     PostconditionStatus,
     ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
@@ -807,7 +808,9 @@ class Application:
             except (KeyError, ValueError):
                 target = None
             if target is None:
-                raise ValueError(f"Explicit protection action target {target_type}:{target_id} does not exist in the captured active Core network.")
+                raise ProtectionTargetUnavailableError(
+                    f"target {target_type}:{target_id} does not exist in the captured active Core network"
+                )
             return resolved
 
         execution = ProtectionExecutionService(
