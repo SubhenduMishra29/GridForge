@@ -59,6 +59,7 @@ __all__ = [
     "ControlSignalQuality",
     "ControlSignalResolution",
     "ControlSignalResolutionError",
+    "StaleProtectionExecutionError",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",

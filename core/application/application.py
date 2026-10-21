@@ -60,7 +60,11 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
-from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
+from .protection_execution import (
+    ProtectionExecutionResult,
+    ProtectionExecutionService,
+    StaleProtectionExecutionError,
+)
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
@@ -399,6 +403,50 @@ class Application:
         if service.network is not lifecycle.network:
             raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
 
+        # Capture authoritative identities for the complete evaluation-to-dispatch
+        # interval. The action resolver is application-supplied and may re-enter
+        # project activation; caller metadata is deliberately not provenance.
+        captured_project = project
+        captured_network = lifecycle.network
+        captured_generation = lifecycle.activation_generation
+        captured_runtime = runtime
+        captured_configuration_service = configuration
+        captured_configuration = active_configuration
+        captured_channel_service = service
+
+        def ensure_current_protection_provenance() -> None:
+            current_lifecycle = self.project_lifecycle
+            current_project = current_lifecycle.context
+            current_runtime = getattr(self, "protection_runtime", None)
+            current_configuration_service = getattr(self, "protection_configuration_service", None)
+            current_channels = self.measurement_channel_service
+            if (
+                current_lifecycle.state != "ACTIVE"
+                or not current_lifecycle.has_project
+                or current_project is not captured_project
+                or current_project is None
+                or current_project.project_id != captured_project.project_id
+                or current_lifecycle.network is not captured_network
+                or current_lifecycle.activation_generation != captured_generation
+                or current_runtime is not captured_runtime
+                or current_configuration_service is not captured_configuration_service
+                or current_configuration_service.configuration is not captured_configuration
+                or current_runtime is None
+                or current_runtime.network is not captured_network
+                or current_runtime.project_id != captured_project.project_id
+                or current_runtime.activation_generation != captured_generation
+                or current_runtime.configuration is not captured_configuration
+                or not current_runtime.configuration_matches_composition
+                or current_channels is not captured_channel_service
+                or current_channels.project_id != captured_project.project_id
+                or current_channels.activation_generation != captured_generation
+                or current_channels.network is not captured_network
+            ):
+                raise StaleProtectionExecutionError(
+                    "active project, network, activation generation, protection runtime/configuration, "
+                    "or measurement-channel authority changed after evaluation."
+                )
+
         channels = service.channels
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
@@ -633,6 +681,7 @@ class Application:
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
             action_resolver=action_resolver,
+            pre_dispatch_guard=ensure_current_protection_provenance,
         )
         return execution.execute(decisions)
 
