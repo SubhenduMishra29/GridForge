@@ -121,6 +121,7 @@ class Application:
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._revision_service = RevisionService()
@@ -403,6 +404,20 @@ class Application:
         if service.network is not lifecycle.network:
             raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
 
+        channels = service.channels
+
+        def runtime_uses_active_channel_objects(runtime_candidate: Any, active_channels: Mapping[str, Any]) -> bool:
+            runtime_channels = runtime_candidate.channels
+            return (
+                runtime_channels.keys() == active_channels.keys()
+                and all(runtime_channels[channel_id] is channel for channel_id, channel in active_channels.items())
+            )
+
+        if not runtime_uses_active_channel_objects(runtime, channels):
+            raise RuntimeError(
+                "Protection runtime channel objects are stale for the active measurement-channel registry."
+            )
+
         # Capture authoritative identities for the complete evaluation-to-dispatch
         # interval. The action resolver is application-supplied and may re-enter
         # project activation; caller metadata is deliberately not provenance.
@@ -441,13 +456,13 @@ class Application:
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
+                or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
                     "or measurement-channel authority changed after evaluation."
                 )
 
-        channels = service.channels
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
@@ -693,6 +708,15 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+        if self._measurement_lifecycle_service is not service and self._measurement_channel_service is not None:
+            measurement_service = self._measurement_channel_service
+
+            def activate_measurement_channels(context: ProjectContext | None, loaded: Any, network: Any, generation: int):
+                definitions = loaded.measurement_definitions if context is not None and loaded is not None else ()
+                return measurement_service.activate(context, network, definitions, generation)
+
+            service.compose_project_state_activator(activate_measurement_channels)
+            self._measurement_lifecycle_service = service
         if self._sld_service is not None:
             service.configure_presentation_activator(
                 lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)

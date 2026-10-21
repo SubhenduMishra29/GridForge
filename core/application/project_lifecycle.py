@@ -190,6 +190,40 @@ class ProjectLifecycleService:
             raise TypeError("validator must be callable.")
         self._project_state_validator = validator
 
+    def compose_project_state_activator(self, activator: ProjectStateActivator) -> None:
+        """Compose an Application-owned state activation before existing state consumers.
+
+        The new activator publishes its candidate authority first so existing
+        project-state composition (including ProtectionRuntime) consumes the
+        candidate registry. Compensation runs in reverse order. If the existing
+        activator fails before returning its rollback callback, this method
+        immediately compensates the newly activated authority.
+        """
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        previous = self._project_state_activator
+
+        def composed(context: ProjectContext | None, loaded: LoadedProject | None, network: Any, generation: int):
+            candidate_rollback = activator(context, loaded, network, generation)
+            try:
+                previous_rollback = previous(context, loaded, network, generation) if previous is not None else None
+            except BaseException:
+                if candidate_rollback is not None:
+                    candidate_rollback()
+                raise
+
+            def rollback() -> None:
+                try:
+                    if previous_rollback is not None:
+                        previous_rollback()
+                finally:
+                    if candidate_rollback is not None:
+                        candidate_rollback()
+
+            return rollback
+
+        self._project_state_activator = composed
+
     def configure_presentation_factory(self, factory: PresentationFactory) -> None:
         if not callable(factory):
             raise TypeError("factory must be callable.")
