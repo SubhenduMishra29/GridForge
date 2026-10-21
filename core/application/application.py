@@ -64,7 +64,7 @@ from .protection_execution import ProtectionExecutionResult, ProtectionExecution
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
-from core.protection.input_contracts import validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
+from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
 from .services.control_service import ControlApplicationService
@@ -615,6 +615,7 @@ class Application:
             per_element[input_name] = snapshot
             snapshots_by_element[element_id] = MappingProxyType(per_element)
         context_metadata["validated_measurement_snapshots_by_element"] = MappingProxyType(snapshots_by_element)
+        context_metadata["validated_measurement_snapshot_authority"] = APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY
         # Only Application-created sealed snapshots authorize ANSI 67. Caller
         # metadata remains ordinary context and cannot supply phasors or provenance.
         for element in runtime.configuration.elements:
