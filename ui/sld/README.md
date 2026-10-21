@@ -2,46 +2,61 @@
 
 ## Purpose
 
-The SLD subsystem is the first-class electrical-network visual workflow
-boundary of GridForge V2.
-
-The Single Line Diagram is not treated as a secondary visualization.
-It is the primary UI representation of the electrical network.
+The SLD subsystem is the first-class visual authoring and projection workflow
+for GridForge V2. It is the primary UI representation of the electrical
+network, but it is not the authoritative electrical model.
 
 ## Responsibilities
 
 The SLD subsystem provides the domain-level UI structure for:
 
-- SLD documents
-- electrical visual nodes
-- electrical visual connections
-- SLD state
-- SLD controller orchestration
-- selection identity
-- viewport-independent SLD state
+- SLD documents and persisted presentation state
+- visual nodes and visual connections
+- controller/tool coordination
+- selection and viewport-independent presentation state
+- projections of authoritative Core identities and connectivity
+
+Electrical equipment, terminal identity, connectivity, and topology remain
+owned by Core. Persistent SLD presentation state and its lifecycle are
+coordinated through the Application/document lifecycle; graphics are
+disposable realizations, not persistence authority.
 
 ## Architectural boundaries
 
 The SLD subsystem does not directly own:
 
+- authoritative electrical equipment or topology
 - Qt widgets
-- QGraphicsScene
-- QGraphicsView
-- painting
-- rendering
-- mouse event processing
-- concrete tools
-- electrical calculations
-- solver execution
+- QGraphicsScene or QGraphicsView
+- painting or rendering implementation
+- low-level mouse event processing
+- electrical calculations or solver execution
 
-Those responsibilities remain in the existing UI subsystems.
+Those responsibilities remain in Core, Application, or the corresponding UI
+infrastructure according to the frozen V2 boundaries.
 
 ## Relationship with Canvas
 
 ```text
-                 SLD
+Core engineering identities / connectivity
                   |
-        +---------+---------+
+          Application commands,
+       services, transactions, events
+                  |
+       Persisted SLD presentation state
+                  |
+          SLDCanvasProjection
+                  |
+       Immutable canvas snapshot
+                  |
+       SLDCanvasRenderSystem / Qt
+```
+
+The diagram describes the intended ownership path. A complete production
+relationship must be established from concrete callers and consumers; the
+existence of a class or interface alone is not end-to-end integration proof.
+
+---------+---------+
         |                   |
     SLD Model          SLD State
         |                   |
