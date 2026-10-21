@@ -292,22 +292,41 @@ class SLDEditor(QWidget):
                 affected=affected,
                 preferred_regions=changed_preferred | (affected if first_application else set()),
             )
-            self._initial_sizes_pending = not self._splitters_have_geometry()
+            if self._initial_sizes_pending:
+                self._initial_sizes_pending = not self._splitters_have_geometry()
         self._sync_panel_buttons()
 
     def _splitters_have_geometry(self) -> bool:
-        return all(
-            splitter.width() > 0 and splitter.height() > 0
-            for splitter in self._region_splitters.values()
-        )
+        # The outer body and the visible canvas/tool paths are required for the
+        # initial layout. A hidden sidebar/overlay may legitimately have no
+        # geometry and must not hold initialization pending forever.
+        required = [self._region_splitters["body"], self._region_splitters["left"],
+                    self._region_splitters["center"]]
+        if (
+            not self._region_widgets["sidebar"].isHidden()
+            or not self._region_widgets["overlay"].isHidden()
+        ):
+            required.append(self._region_splitters["sidebar"])
+        return all(splitter.width() > 0 and splitter.height() > 0 for splitter in required)
+
+    def _realize_pending_initial_sizes(self) -> None:
+        if not self._initial_sizes_pending or not self._splitters_have_geometry():
+            return
+        # Clear before setSizes(), since Qt may synchronously deliver resize
+        # events while splitter geometry is being recalculated.
+        self._initial_sizes_pending = False
+        self._apply_splitter_sizes(self._region_preferred_sizes)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        # Qt may activate the editor before its parent layout assigns geometry.
-        # Apply canonical initial sizes on the first usable show, not via a timer.
-        if self._initial_sizes_pending and self._splitters_have_geometry():
-            self._apply_splitter_sizes(self._region_preferred_sizes)
-            self._initial_sizes_pending = False
+        # The parent layout may assign usable geometry after showEvent.
+        self._realize_pending_initial_sizes()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Retry only while initial realization is pending; never reset a user's
+        # splitter positions after the first successful realization.
+        self._realize_pending_initial_sizes()
 
     def _apply_splitter_sizes(
         self,
