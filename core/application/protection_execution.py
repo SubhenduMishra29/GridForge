@@ -332,6 +332,35 @@ class ProtectionExecutionService:
                     # feedback could not be read. Preserve the command result
                     # and explicitly report that authoritative state is unknown.
                     core_state_observation = f"unknown/unavailable: readback failed ({type(exc).__name__}: {exc})"
+            # A successful ApplicationResult means the command was accepted by
+            # the Application boundary; it is not proof that the requested Core
+            # postcondition was achieved. Keep the public status aligned with the
+            # strongest typed observation actually obtained.
+            if result.success:
+                if postcondition_verification is None:
+                    status = "command_accepted"
+                    message = (
+                        "Application command succeeded; typed Core postcondition "
+                        "verification is unavailable."
+                    )
+                elif postcondition_verification.status is PostconditionStatus.MATCHED:
+                    status = "core_postcondition_matched"
+                    message = postcondition_verification.diagnostic
+                elif postcondition_verification.status is PostconditionStatus.MISMATCHED:
+                    status = "core_postcondition_mismatched"
+                    message = postcondition_verification.diagnostic or (
+                        "Application command succeeded but the authoritative Core "
+                        "postcondition does not match the requested action."
+                    )
+                    diagnostics.append(message)
+                else:
+                    status = "postcondition_unavailable_unsupported"
+                    message = postcondition_verification.diagnostic or (
+                        "Application command succeeded but the requested Core "
+                        "postcondition is unavailable or unsupported."
+                    )
+                    diagnostics.append(message)
+
             outcomes.append(ProtectionActionOutcome(
                 protection_decision, control_decision, command, result, status, message,
                 core_state_observation=core_state_observation,
