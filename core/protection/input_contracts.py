@@ -6,6 +6,9 @@ No unit conversion or physical-source inference is performed.
 """
 from __future__ import annotations
 
+# Opaque in-process marker for measurement snapshots created by Application.
+APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY = object()
+
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
