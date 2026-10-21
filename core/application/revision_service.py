@@ -120,16 +120,31 @@ class RevisionService:
         self._redo = list(redo)
         self._persisted_generation = generation
 
-    def mark_persisted(self) -> ProjectRevision:
-        """Mark the current project state as successfully persisted."""
+    def mark_persisted(self, snapshot: ProjectRevision | None = None) -> ProjectRevision:
+        """Record the revision represented by a successful persistence operation.
+
+        When a save captured an earlier revision, preserve that revision as the
+        persisted baseline instead of declaring a newer live revision clean.
+        Omitting snapshot retains the existing mark-current behavior for callers
+        that have no asynchronous or re-entrant persistence window.
+        """
+        if snapshot is not None and not isinstance(snapshot, ProjectRevision):
+            raise TypeError("snapshot must be a ProjectRevision or None.")
+        current = self._current
+        persisted = snapshot if snapshot is not None else current
         self._persisted_generation += 1
         self._current = ProjectRevision(
-            model_revision=self._current.model_revision,
-            topology_revision=self._current.topology_revision,
-            presentation_revision=self._current.presentation_revision,
+            model_revision=current.model_revision,
+            topology_revision=current.topology_revision,
+            presentation_revision=current.presentation_revision,
             persisted_revision=self._persisted_generation,
         )
-        self._persisted_state = self._current
+        self._persisted_state = ProjectRevision(
+            model_revision=persisted.model_revision,
+            topology_revision=persisted.topology_revision,
+            presentation_revision=persisted.presentation_revision,
+            persisted_revision=self._persisted_generation,
+        )
         return self._current
 
     @classmethod
