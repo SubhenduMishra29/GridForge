@@ -9,9 +9,9 @@
 
 ## Verdict
 
-**PARTIALLY COMPLETE — audit baseline and concrete audit-record integrity defects established; a full repository correction pass is not established.**
+**PARTIALLY COMPLETE — the audit baseline and CSV schema repair are complete; a full repository correction pass is not established.**
 
-This report intentionally does not claim that all 746 Python files or every Core/Application/UI/solver/Control/Protection/Dynamics integration was inspected. The repository tree contained 1,038 entries, including 746 `.py` files and 62 paths under `audit/`. The current audit-register representation has structural defects that must be repaired before it can safely serve as the reliable source for an exhaustive one-pass reconciliation.
+This report intentionally does not claim that all 746 Python files or every Core/Application/UI/solver/Control/Protection/Dynamics integration was inspected. The repository tree contained 1,038 entries, including 746 `.py` files and 62 paths under `audit/`. The CSV's structural defects are now corrected; full semantic reconciliation of every register field and a repository-wide source audit remain outstanding.
 
 ## 1. Baseline and inspected artifacts
 
@@ -34,38 +34,30 @@ The inspected SLD service contains document dirty-state notifications in multipl
 
 ## 2. Confirmed audit-record integrity defects
 
-### AUD-BASE-001 — CSV rows do not consistently conform to the declared 14-column schema
+### AUD-BASE-001 — CSV rows did not consistently conform to the declared 14-column schema
 
 **Severity:** HIGH  
 **Classification:** DOCUMENTATION/REGISTER INCONSISTENCY  
-**Status:** OPEN — REGISTER RECONSTRUCTION REQUIRED
+**Status:** CORRECTED — STATIC SCHEMA VALIDATION PASSED
 
-The header declares 14 fields, but a quote-aware CSV parse of the current `audit/MASTER_AUDIT_REGISTER.csv` yields 12 records with field counts other than 14, plus two blank records. Examples:
-- `GF-MASTER-0040` parses as 15 fields.
-- `GF-MASTER-0042` parses as 17 fields.
-- `GF-MASTER-0108` parses as 18 fields.
-- `GF-MASTER-0111` parses as 13 fields.
-- `GF-MASTER-0114` has 12 fields.
-- A later record begins with an empty master ID and has no severity.
-- A free-text reconciliation note appears as a separate CSV line after the `GF-MASTER-0112` row.
+The initial quote-aware parse found 10 malformed finding records and two blank records. Those records have now been reconstructed using the corresponding Markdown findings and historical reports, and the entire CSV has been re-serialized with standard field quoting. A fresh quote-aware parse confirms 169 non-empty records, exactly 14 fields per record, no blank IDs, and no duplicate IDs. Repaired IDs:
+- `GF-MASTER-0040`, `GF-MASTER-0042`, `GF-MASTER-0108`, `GF-MASTER-0111`, `GF-MASTER-0112`, `GF-MASTER-0114`, `B27-FINAL-001`, `B27-FINAL-002`, `B27-FINAL-007`, and `B27-FINAL-011`.
 
-The malformed records include unescaped commas and misplaced narrative text. A naïve line split also yields misleading statuses and severities, so the register cannot safely be counted or transformed without record-level reconstruction.
+The original defects included unescaped commas, shifted columns, missing source-basis fields, and misplaced narrative text. The corrected CSV must be read with a quote-aware parser; naïve line splitting remains unsafe for any CSV containing quoted commas or embedded line breaks.
 
-**Impact:** Status totals, severity totals, finding IDs, affected-file columns and historical relationships cannot be trusted when computed by naïvely splitting lines or commas. A blind auto-rewrite risks losing evidence or moving content into the wrong finding.
+**Correction:** Preserved canonical finding IDs, legacy IDs, statuses, and runtime-deferred qualifiers. Reconstructed the malformed records against the Markdown register and the relevant historical reports; preserved impact/architecture notes and the local reconciliation note in the appropriate source-basis/history fields. Quoted fields containing commas or embedded line breaks.
 
-**Required correction:** Reconstruct each malformed row against the Markdown register, metadata and source-backed historical reports; preserve legacy IDs; quote every field containing commas, quotes or newlines; validate all rows with an RFC-4180-compatible parser; confirm unique non-empty canonical IDs and schema-consistent field counts before replacing the CSV.
+**Validation:** Quote-aware parse: 169 records; 14 fields per record; zero malformed-width rows; zero blank records; zero empty IDs; zero duplicate IDs. This is structural/static validation only; it does not certify every field's semantic accuracy.
 
-### AUD-BASE-002 — Current authority statements conflict with current implementation authority
+### AUD-BASE-002 — Current authority statements conflicted with current implementation authority
 
 **Severity:** HIGH  
 **Classification:** DOCUMENTATION/REGISTER INCONSISTENCY  
-**Status:** OPEN — REGISTER RECONCILIATION REQUIRED
+**Status:** CORRECTED — STATIC DOCUMENTATION RECONCILIATION
 
-The CSV row `B27-FINAL-010` states that `SubhenduMishra29/GridForge:main` is the current canonical implementation/audit authority, while its own historical note says that this governance row was superseded by the 2026-10-02 authority reconciliation. The current task and the current architecture-matrix correction identify `madhuri196mishra-cpu/GridForge:main` as implementation authority. The current metadata document also names `madhuri196mishra-cpu/GridForge` as canonical authority.
+The CSV row `B27-FINAL-010` and dated Batch 27 Markdown/matrix entries retained authority statements that no longer matched the current authority. The CSV row is now `RECLASSIFIED`; its root-cause and historical-relationship fields explicitly identify the old authority as superseded. The current authority paragraph in `MASTER_AUDIT_REGISTER.md`, the Batch 27 summary row, and the matrix's dated 2026-09-28 heading now distinguish current authority from historical snapshots. The metadata's current authority header already named `madhuri196mishra-cpu/GridForge`; it was retained unchanged.
 
-**Impact:** Readers can mistake historical provenance for current authority.
-
-**Required correction:** Preserve `B27-FINAL-010` as historical evidence, explicitly classify it as superseded, and reconcile the CSV, Markdown register, metadata and matrix without erasing historical provenance.
+**Correction:** Current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`. `SubhenduMishra29/GridForge` remains reference/audit evidence only when explicitly designated for a historical cycle. Historical repository identities remain preserved as provenance.
 
 ### AUD-BASE-003 — Architecture matrix baseline is stale relative to the inspected branch
 
@@ -83,15 +75,15 @@ The matrix identified `f27ef42a39333f5fb35522e5839d23f58a427207` as its “curre
 - The project declares Python `>=3.12,<3.13`, NumPy, SciPy and PySide6 dependencies. Runtime/package behavior was not exercised.
 - The master register already distinguishes runtime-deferred findings in many rows. Those statuses must remain open for runtime proof; static inspection alone cannot close them.
 
-No speculative production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The register defects above are concrete, but reconstructing the corrupted rows requires cross-checking the entire register set before writing the canonical CSV.
+No production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The ten malformed CSV records were structurally reconstructed using the Markdown register and historical reports. Full semantic row-by-row reconciliation and authority-metadata reconciliation remain open.
 
 ## 4. Static acceptance status
 
 | Gate | Status | Evidence / limitation |
 |---|---|---|
 | Current branch and commit baseline | PASS | Both repository refs resolve to the inspected SHA at baseline time. |
-| Audit-register schema integrity | FAIL | 12 malformed field-count records and two blank records were found in the CSV parse. |
-| Repository authority reconciliation | FAIL | Historical row `B27-FINAL-010` conflicts with the current authority metadata. |
+| Audit-register schema integrity | PASS — STATIC | 169 records; all rows have 14 fields; no blank rows, empty IDs or duplicate IDs. |
+| Repository authority reconciliation | PASS — DOCUMENTATION | `B27-FINAL-010` reclassified as historical/superseded; current authority wording reconciled in CSV, Markdown register and matrix. |
 | Matrix baseline metadata | PARTIAL | Stale baseline reference clarified; technical rows not all re-audited at current HEAD. |
 | Core/Application/UI architecture | NOT ESTABLISHED | No complete repository-wide consumer trace was performed. |
 | Qt import boundary | NOT ESTABLISHED | Not exhaustively checked across all Python files. |
@@ -102,18 +94,18 @@ No speculative production-code change was made: the inspected snippets did not e
 
 ## 5. Changed files
 
-- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — now distinguishes the historical baseline from the current inspected HEAD.
-- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records the baseline, confirmed register-integrity defects, evidence scope, gate status and the work required before an exhaustive correction pass.
+- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — distinguishes historical baseline/authority snapshots from current repository authority.
+- `audit/MASTER_AUDIT_REGISTER.csv` — repairs ten malformed records and reclassifies `B27-FINAL-010` as a superseded historical authority snapshot.
+- `audit/MASTER_AUDIT_REGISTER.md` — reconciles current authority wording and labels the dated Batch 27 authority snapshot as superseded.
+- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records schema validation, authority reconciliation, remaining scope and limitations.
 
 No production files were changed. No files were deleted, and no dependencies were added. Unrelated repository content was left untouched.
 
 ## 6. Required next correction unit
 
-1. Reconstruct and validate the malformed CSV rows against the Markdown register, metadata and historical evidence.
-2. Reconcile `B27-FINAL-010` and any other current-authority references while preserving historical provenance.
-3. Establish canonical register IDs, schema-consistent row count, unique IDs and matching status/verification vocabulary.
-4. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
-5. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
-6. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
+1. Review the repaired CSV against all Markdown rows and metadata vocabulary for semantic alignment; schema validation alone does not prove all content mappings.
+2. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
+3. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
+4. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
 
 **No tests, CI, application startup or GUI execution were run.**
