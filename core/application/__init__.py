@@ -21,7 +21,7 @@ from .control_signal_mapping import (
     ControlSignalResolutionError,
     ControlSignalSource,
 )
-from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
+from .protection_execution import ProtectionActionOutcome, ProtectionExecutionResult, ProtectionExecutionService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
@@ -54,6 +54,7 @@ __all__ = [
     "ControlSignalQuality",
     "ControlSignalResolution",
     "ControlSignalResolutionError",
+    "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
     "ProjectTransitionDecision",
