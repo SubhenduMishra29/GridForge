@@ -1,6 +1,6 @@
 # GridForge V2 — Architecture Reconciliation Matrix
 
-Baseline: `main` — current effective re-audit HEAD `f27ef42a39333f5fb35522e5839d23f58a427207`
+Historical reconciliation baseline: `main` @ `f27ef42a39333f5fb35522e5839d23f58a427207` (preserved for provenance). Current repository audit baseline: `madhuri196mishra-cpu/GridForge:main` @ `7b96f94182a1c879253cf101326388d0ce20bce6` (inspected 2026-10-21; full repository re-audit not yet established).
 
 | Area | Frozen Requirement | Current Implementation Evidence | Status | Finding IDs | Root Cause |
 |---|---|---|---|---|---|
