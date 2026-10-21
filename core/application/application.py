@@ -404,6 +404,20 @@ class Application:
         if service.network is not lifecycle.network:
             raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
 
+        channels = service.channels
+
+        def runtime_uses_active_channel_objects(runtime_candidate: Any, active_channels: Mapping[str, Any]) -> bool:
+            runtime_channels = runtime_candidate.channels
+            return (
+                runtime_channels.keys() == active_channels.keys()
+                and all(runtime_channels[channel_id] is channel for channel_id, channel in active_channels.items())
+            )
+
+        if not runtime_uses_active_channel_objects(runtime, channels):
+            raise RuntimeError(
+                "Protection runtime channel objects are stale for the active measurement-channel registry."
+            )
+
         # Capture authoritative identities for the complete evaluation-to-dispatch
         # interval. The action resolver is application-supplied and may re-enter
         # project activation; caller metadata is deliberately not provenance.
@@ -442,13 +456,13 @@ class Application:
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
+                or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
                     "or measurement-channel authority changed after evaluation."
                 )
 
-        channels = service.channels
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
