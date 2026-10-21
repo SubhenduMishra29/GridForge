@@ -605,7 +605,11 @@ class Application:
         # RelayInput bindings consume these immutable Application-validated
         # samples for this cycle instead of rereading mutable channels while
         # individual protection elements execute.
-        snapshots_by_element: dict[str, Mapping[str, Any]] = {}
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {
+            element.element_id: MappingProxyType({})
+            for element in runtime.configuration.elements
+            if element.enabled
+        }
         for (element_id, input_name), snapshot in validated_measurement_snapshots.items():
             per_element = dict(snapshots_by_element.get(element_id, {}))
             per_element[input_name] = snapshot
