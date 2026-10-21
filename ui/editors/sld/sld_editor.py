@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from ui.core.qt import QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
+from ui.core.qt import QEvent, QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
 from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
@@ -216,6 +216,11 @@ class SLDEditor(QWidget):
         self._region_preferred_sizes: dict[str, int] = {}
         self._editor_definition_applied = False
         self._initial_sizes_pending = True
+        # Nested splitters can receive their first usable geometry after the
+        # parent editor's show/resize events. Observe their resize events so
+        # pending initialization always gets another geometry-ready attempt.
+        for splitter in self._region_splitters.values():
+            splitter.installEventFilter(self)
         self._presentation_maximized = False
         self._maximize_callback = None
 
@@ -331,6 +336,15 @@ class SLDEditor(QWidget):
         # Retry only while initial realization is pending; never reset a user's
         # splitter positions after the first successful realization.
         self._realize_pending_initial_sizes()
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            getattr(self, "_initial_sizes_pending", False)
+            and watched in getattr(self, "_region_splitters", {}).values()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._realize_pending_initial_sizes()
+        return super().eventFilter(watched, event)
 
     def _apply_splitter_sizes(
         self,
