@@ -22,6 +22,10 @@ from core.control.decision import ControlDecision
 from core.protection.decision import ProtectionDecision
 
 
+class StaleProtectionExecutionError(RuntimeError):
+    """Active project/configuration provenance changed before command dispatch."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionActionOutcome:
     """Correlated outcome for one protection decision; feedback is not inferred."""
@@ -98,13 +102,17 @@ class ProtectionExecutionService:
         dispatcher: ControlCommandDispatcher,
         *,
         action_resolver: Callable[[ProtectionDecision], ControlDecision | None],
+        pre_dispatch_guard: Callable[[], None] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
             raise TypeError("dispatcher must be a ControlCommandDispatcher.")
         if not callable(action_resolver):
             raise TypeError("action_resolver must be callable.")
         self._dispatcher = dispatcher
+        if pre_dispatch_guard is not None and not callable(pre_dispatch_guard):
+            raise TypeError("pre_dispatch_guard must be callable or None.")
         self._action_resolver = action_resolver
+        self._pre_dispatch_guard = pre_dispatch_guard
 
     @property
     def dispatcher(self) -> ControlCommandDispatcher:
@@ -155,6 +163,18 @@ class ProtectionExecutionService:
                 raise TypeError("action_resolver must return ControlDecision or None.")
 
             try:
+                if self._pre_dispatch_guard is not None:
+                    self._pre_dispatch_guard()
+            except StaleProtectionExecutionError as exc:
+                message = f"Protection action rejected before translation: {exc}"
+                diagnostics.append(message)
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, control_decision, None, None,
+                    "stale_provenance_rejected", message
+                ))
+                continue
+
+            try:
                 command = ControlCommandTranslator.to_command(control_decision)
             except (TypeError, ValueError) as exc:
                 message = (
@@ -170,7 +190,17 @@ class ProtectionExecutionService:
                 continue
 
             try:
+                if self._pre_dispatch_guard is not None:
+                    self._pre_dispatch_guard()
                 result = self._dispatcher.execute_command(command)
+            except StaleProtectionExecutionError as exc:
+                message = f"Protection command '{command.command_id}' rejected before dispatch: {exc}"
+                diagnostics.append(message)
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, control_decision, command, None,
+                    "stale_provenance_rejected", message
+                ))
+                continue
             except InvalidApplicationResultError as exc:
                 message = (
                     f"Invalid Application result for command '{command.command_id}': {exc}"
@@ -241,6 +271,7 @@ class ProtectionExecutionService:
 
 
 __all__ = [
+    "StaleProtectionExecutionError",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
