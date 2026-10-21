@@ -693,10 +693,39 @@ class Application:
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
             return ProtectionExecutionResult(decisions=decisions)
+        def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> str:
+            """Read targeted equipment from Core after a successful Application command.
+
+            This is an in-memory Core observation, not field-device acknowledgement.
+            Missing targets or unsupported state remain explicitly unknown.
+            """
+            ensure_current_protection_provenance()
+            target_types = {
+                "breaker": "breaker",
+                "switch": "switch",
+                "disconnector": "disconnector",
+                "fuse": "fuse",
+                "motor": "motor",
+            }
+            target_type = str(getattr(control_decision, "target_equipment_type", "")).strip().lower()
+            target_id = getattr(control_decision, "target_equipment_id", None)
+            core_type = target_types.get(target_type)
+            if core_type is None or not isinstance(target_id, str) or not target_id:
+                return "unknown/unavailable: unsupported or missing equipment identity"
+            equipment = captured_network.get_by_id(core_type, target_id)
+            if equipment is None:
+                return f"unknown/unavailable: Core {core_type} {target_id!r} not found after command"
+            state_names = ("in_service", "enabled", "closed", "is_closed", "tripped", "picked_up", "blocked", "running", "started", "blown", "status")
+            observed = {name: getattr(equipment, name) for name in state_names if hasattr(equipment, name)}
+            if not observed:
+                return f"unknown/unavailable: Core {core_type} {target_id!r} exposes no supported state fields"
+            return f"core_readback:{core_type}:{target_id}:{observed!r}"
+
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
             action_resolver=action_resolver,
             pre_dispatch_guard=ensure_current_protection_provenance,
+            state_observer=observe_protection_command_state,
         )
         return execution.execute(decisions)
 
