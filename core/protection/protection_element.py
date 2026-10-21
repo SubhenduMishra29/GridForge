@@ -266,6 +266,7 @@ from typing import Any, Mapping
 
 from .context import ProtectionContext
 from .decision import ProtectionDecision
+from .input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY
 
 
 # =====================================================================
@@ -774,6 +775,10 @@ class ProtectionElement:
             metadata = context.metadata
             all_snapshots = metadata.get("validated_measurement_snapshots_by_element")
             if all_snapshots is not None:
+                if metadata.get("validated_measurement_snapshot_authority") is not APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY:
+                    raise RuntimeError(
+                        "Protection measurement snapshots lack Application validation provenance."
+                    )
                 element_snapshots = all_snapshots.get(self.id)
                 if not isinstance(element_snapshots, Mapping):
                     raise RuntimeError(
