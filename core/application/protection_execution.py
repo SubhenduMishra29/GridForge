@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from core.application.command import Command
-from core.application.control_dispatch import ControlCommandDispatcher, ControlCommandTranslator
+from core.application.control_dispatch import (
+    ControlCommandDispatcher,
+    ControlCommandTranslator,
+    InvalidApplicationResultError,
+)
 from core.application.results import ApplicationResult
 from core.control.decision import ControlDecision
 from core.protection.decision import ProtectionDecision
@@ -167,6 +171,16 @@ class ProtectionExecutionService:
 
             try:
                 result = self._dispatcher.execute_command(command)
+            except InvalidApplicationResultError as exc:
+                message = (
+                    f"Invalid Application result for command '{command.command_id}': {exc}"
+                )
+                diagnostics.append(message)
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, control_decision, command, None,
+                    "invalid_application_result", message
+                ))
+                continue
             except Exception as exc:
                 # Dispatch may have crossed the commit boundary before an
                 # exception (for example, history publication failure). Do not
