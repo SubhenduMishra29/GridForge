@@ -27,6 +27,10 @@ class StaleProtectionExecutionError(RuntimeError):
     """Active project/configuration provenance changed before command dispatch."""
 
 
+class ProtectionTargetUnavailableError(ValueError):
+    """Explicit action target is absent from the active Core network."""
+
+
 class PostconditionStatus(str, Enum):
     MATCHED = "matched"
     MISMATCHED = "mismatched"
@@ -180,6 +184,13 @@ class ProtectionExecutionService:
 
             try:
                 control_decision = self._action_resolver(protection_decision)
+            except ProtectionTargetUnavailableError as exc:
+                message = f"Protection target unavailable for '{protection_decision.element_id}': {exc}"
+                diagnostics.append(message)
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, None, None, None, "target_unavailable", message
+                ))
+                continue
             except Exception as exc:
                 message = (
                     f"Protection action resolution failed for "
@@ -339,6 +350,7 @@ class ProtectionExecutionService:
 
 __all__ = [
     "StaleProtectionExecutionError",
+    "ProtectionTargetUnavailableError",
     "PostconditionStatus",
     "ProtectionPostconditionVerification",
     "ProtectionActionOutcome",
