@@ -121,6 +121,7 @@ class Application:
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._revision_service = RevisionService()
@@ -693,6 +694,15 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+        if self._measurement_lifecycle_service is not service and self._measurement_channel_service is not None:
+            measurement_service = self._measurement_channel_service
+
+            def activate_measurement_channels(context: ProjectContext | None, loaded: Any, network: Any, generation: int):
+                definitions = loaded.measurement_definitions if context is not None and loaded is not None else ()
+                return measurement_service.activate(context, network, definitions, generation)
+
+            service.compose_project_state_activator(activate_measurement_channels)
+            self._measurement_lifecycle_service = service
         if self._sld_service is not None:
             service.configure_presentation_activator(
                 lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation, context)
