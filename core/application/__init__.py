@@ -25,7 +25,15 @@ from .control_signal_mapping import (
     ControlSignalResolutionError,
     ControlSignalSource,
 )
-from .protection_execution import ProtectionActionOutcome, ProtectionExecutionResult, ProtectionExecutionService
+from .protection_execution import (
+    PostconditionStatus,
+    ProtectionActionOutcome,
+    ProtectionExecutionResult,
+    ProtectionExecutionService,
+    ProtectionPostconditionVerification,
+    ProtectionTargetUnavailableError,
+    StaleProtectionExecutionError,
+)
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
@@ -60,6 +68,9 @@ __all__ = [
     "ControlSignalResolution",
     "ControlSignalResolutionError",
     "StaleProtectionExecutionError",
+    "ProtectionTargetUnavailableError",
+    "PostconditionStatus",
+    "ProtectionPostconditionVerification",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
