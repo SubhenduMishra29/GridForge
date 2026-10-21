@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from .application import Application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
-from .control_dispatch import ControlCommandDispatcher, ControlCommandTranslator
+from .control_dispatch import (
+    ControlCommandDispatcher,
+    ControlCommandTranslator,
+    InvalidApplicationResultError,
+)
 from .control_execution import ControlExecutionResult, ControlExecutionService
 from .control_signal_mapping import (
     ControlSignalBinding,
@@ -47,6 +51,7 @@ __all__ = [
     "ControlExecutionService",
     "ControlCommandDispatcher",
     "ControlCommandTranslator",
+    "InvalidApplicationResultError",
     "ControlSignalSource",
     "ControlSignalDestination",
     "ControlSignalBinding",
