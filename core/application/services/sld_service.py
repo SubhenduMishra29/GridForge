@@ -1090,10 +1090,12 @@ class SLDService:
                     node.equipment_id = node_snapshot.get("equipment_id")
             if self.document.model.get_connection_optional(old_id) is None:
                 self._restore_connection_snapshot(snapshot)
-            if previous_document_modified:
-                self.document.mark_modified()
-            else:
-                self.document.mark_clean()
+            # This inverse is also retained in committed undo history.
+            # Restoring the pre-operation clean flag here would incorrectly
+            # make an undone, persisted document appear clean. Immediate
+            # transaction rollback restores the original dirty flag through
+            # apply_command's rollback finalizer after all inverses succeed.
+            self.document.mark_modified()
 
         # Register the inverse before mutating the presentation so any failure
         # during the multi-object replacement is rollback-safe as well.
