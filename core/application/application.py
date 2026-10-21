@@ -719,7 +719,7 @@ class Application:
             observed = {name: getattr(equipment, name) for name in state_names if hasattr(equipment, name)}
             if not observed:
                 return f"unknown/unavailable: Core {core_type} {target_id!r} exposes no supported state fields"
-            return f"core_readback:{core_type}:{target_id}:{observed!r}"
+            return f"core_readback:command={command.command_id}:target={core_type}:{target_id}:state={observed!r}"
 
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
