@@ -352,6 +352,15 @@ class SLDEditor(QWidget):
             self._region_user_overrides.add(region_id)
             self._region_user_visibility[region_id] = visible
         frame = self._region_widgets[region_id]
+        if self._presentation_maximized:
+            # Keep secondary regions hidden until restore. Explicit user choices
+            # made during maximization update the restore target, not the canvas
+            # presentation currently on screen.
+            if user and hasattr(self, "_restore_visibility"):
+                self._restore_visibility[region_id] = visible
+            frame.setVisible(False)
+            self._sync_panel_buttons()
+            return
         was_visible = not frame.isHidden()
         frame.setVisible(visible)
         # Repeated contextual refreshes must not reset a deliberate splitter drag.
