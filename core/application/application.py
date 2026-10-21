@@ -782,27 +782,51 @@ class Application:
         }))
         return context
 
-    def save_project(self, path: str | None = None) -> ProjectContext:
-        # Persist only the revision captured before lifecycle serialization.
-        # If the live revision advances during the save, it remains dirty.
+    def _save_project_scoped(self, path: str | None = None, *, save_as: bool = False) -> ProjectContext:
+        """Persist one captured project activation without contaminating a later activation.
+
+        The lifecycle saver is synchronous today, but serializers/savers may call
+        application code. Bind the revision baseline and success event to the
+        project activation that entered the save; an activation change makes the
+        comparison ambiguous and must never clean the newly active project.
+        """
+        lifecycle = self.project_lifecycle
+        starting_context = lifecycle.context
+        if starting_context is None:
+            raise RuntimeError("Cannot save without an active project.")
+        starting_project_id = starting_context.project_id
+        starting_generation = lifecycle.activation_generation
         revision_snapshot = self._revision_service.revision
-        context = self.project_lifecycle.save_project(path)
+
+        context = (
+            lifecycle.save_project_as(path) if save_as
+            else lifecycle.save_project(path)
+        )
+
+        if (
+            lifecycle.context is None
+            or lifecycle.context.project_id != starting_project_id
+            or lifecycle.activation_generation != starting_generation
+            or context.project_id != starting_project_id
+        ):
+            raise RuntimeError(
+                "Project activation changed during save; persisted revision baseline "
+                "and ProjectSaved event were not updated."
+            )
+
         self._revision_service.mark_persisted(revision_snapshot)
         self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id, "path": str(context.path) if context.path else None,
-            "activation_generation": self.project_lifecycle.activation_generation,
+            "project_id": starting_project_id,
+            "path": str(context.path) if context.path else None,
+            "activation_generation": starting_generation,
         }))
         return context
 
+    def save_project(self, path: str | None = None) -> ProjectContext:
+        return self._save_project_scoped(path)
+
     def save_project_as(self, path: str) -> ProjectContext:
-        revision_snapshot = self._revision_service.revision
-        context = self.project_lifecycle.save_project_as(path)
-        self._revision_service.mark_persisted(revision_snapshot)
-        self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id, "path": str(context.path) if context.path else None,
-            "activation_generation": self.project_lifecycle.activation_generation,
-        }))
-        return context
+        return self._save_project_scoped(path, save_as=True)
 
     def close_project(self, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
