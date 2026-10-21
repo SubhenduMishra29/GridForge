@@ -43,9 +43,9 @@ Historical reconciliation baseline: `main` @ `f27ef42a39333f5fb35522e5839d23f58a
 | Persistence engineering truth | Engineering units/bases preserved, ambiguity rejected | Migration audit documents explicit metadata/ambiguity rejection | UNVERIFIED | GF-MASTER-0032 |
 
 
-## 2026-09-28 — Current effective re-audit
+## 2026-09-28 — Historical effective re-audit (authority statement superseded 2026-10-02)
 
-The matrix above contains historical/status snapshots and is retained as audit chronology. The current implementation authority is `pandaraseswari03-collab/GridForge:main`. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
+The matrix above contains historical/status snapshots and is retained as audit chronology. Its authority statement naming `pandaraseswari03-collab/GridForge:main` is a historical snapshot superseded by the 2026-10-02 authority reconciliation. Current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`; `SubhenduMishra29/GridForge` is reference/audit evidence only when explicitly designated for a historical cycle. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
 
 
 ## 2026-09-28 — Superseding effective static re-audit
