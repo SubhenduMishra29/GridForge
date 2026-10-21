@@ -783,9 +783,36 @@ class Application:
                 return verification(PostconditionStatus.MATCHED, expected_state, observed_state, "authoritative Core state matches the action-specific postcondition")
             return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
+        def resolve_explicit_protection_action(decision: Any) -> Any | None:
+            """Validate caller-supplied action resolution against current Core authority.
+
+            This deliberately does not infer a target from relay identity or
+            presentation. Project configuration currently has no typed action
+            mapping contract, so an explicit caller resolver remains required.
+            """
+            ensure_current_protection_provenance()
+            resolved = action_resolver(decision)
+            ensure_current_protection_provenance()
+            if resolved is None:
+                return None
+            if not hasattr(resolved, "target_equipment_type") or not hasattr(resolved, "target_equipment_id") or not hasattr(resolved, "action_type"):
+                raise TypeError("Explicit protection action resolver must return a typed ControlDecision or None.")
+            target_type = str(resolved.target_equipment_type).strip().lower()
+            target_id = resolved.target_equipment_id
+            supported_target_types = {"breaker", "switch", "disconnector", "fuse", "motor"}
+            if target_type not in supported_target_types or not isinstance(target_id, str) or not target_id.strip():
+                raise ValueError("Explicit protection action has an unsupported target type or empty target identity.")
+            try:
+                target = captured_network.get_by_id(target_type, target_id)
+            except (KeyError, ValueError):
+                target = None
+            if target is None:
+                raise ValueError(f"Explicit protection action target {target_type}:{target_id} does not exist in the captured active Core network.")
+            return resolved
+
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
-            action_resolver=action_resolver,
+            action_resolver=resolve_explicit_protection_action,
             pre_dispatch_guard=ensure_current_protection_provenance,
             state_observer=observe_protection_command_state,
         )
