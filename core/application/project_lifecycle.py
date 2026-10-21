@@ -292,6 +292,8 @@ class ProjectLifecycleService:
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
         context = self._require_context()
+        starting_generation = self._activation_generation
+        starting_network = self._network
         if self._saver is None:
             raise RuntimeError("Project persistence saver is not configured.")
         target = self._normalize_path(path) if path is not None else context.path
@@ -325,7 +327,29 @@ class ProjectLifecycleService:
             # mutable values and the live presentation document.
             presentation_data = deepcopy(dict(presentation_data))
 
-        self._saver(context, self._network, presentation_data, target, collection_data)
+        # The saver receives detached payloads so it cannot mutate the captured
+        # serialized baseline through a shared nested mapping. The network and
+        # activation identity are separately guarded below.
+        self._saver(
+            context,
+            starting_network,
+            deepcopy(presentation_data),
+            target,
+            deepcopy(collection_data),
+        )
+        # A saver/serializer may call back into Application and activate another
+        # project synchronously. Never let this save clean documents or rewrite
+        # the path on that newly activated project.
+        if (
+            self._activation_generation != starting_generation
+            or self._network is not starting_network
+            or self._context is None
+            or self._context.project_id != context.project_id
+        ):
+            raise RuntimeError(
+                "Project activation changed during save; the saved snapshot was not "
+                "applied to the active project's baseline."
+            )
         if collection is not None:
             # A save only establishes a clean baseline for the exact collection
             # snapshot that was serialized. A document may have changed while
