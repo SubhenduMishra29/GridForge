@@ -116,6 +116,7 @@ class Application:
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
@@ -287,6 +288,16 @@ class Application:
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
         return self._project_lifecycle
+    def configure_workspace_dirty_provider(self, provider: Callable[[], bool]) -> None:
+        """Register the workspace's existing dirty projection for transition protection."""
+        if not callable(provider):
+            raise TypeError("provider must be callable.")
+        self._workspace_dirty_provider = provider
+
+    def _has_persistent_workspace_changes(self) -> bool:
+        provider = self._workspace_dirty_provider
+        return bool(provider is not None and provider())
+
     @property
     def revision(self) -> ProjectRevision: return self._revision_service.revision
     @property
@@ -694,7 +705,7 @@ class Application:
         *,
         discard_before_transition: bool = True,
     ) -> bool:
-        if not self.is_dirty:
+        if not self.is_dirty and not self._has_persistent_workspace_changes():
             return True
         normalized = self._coerce_transition_decision(decision)
         if normalized is None:
@@ -705,6 +716,10 @@ class Application:
             return False
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
+            if self._has_persistent_workspace_changes():
+                raise RuntimeError(
+                    "Project save completed but workspace documents remain dirty; transition aborted."
+                )
             return True
         if normalized is ProjectTransitionDecision.DISCARD:
             # Replacement/close transitions discard by replacing the outgoing
