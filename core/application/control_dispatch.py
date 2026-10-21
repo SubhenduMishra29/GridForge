@@ -149,9 +149,21 @@ class ControlCommandDispatcher:
     def command_manager(self) -> CommandManager:
         return self._command_manager
 
+    def execute_command(self, command: Command) -> ApplicationResult:
+        """Execute this exact validated command through the configured Application boundary."""
+        if not isinstance(command, Command):
+            raise TypeError("command must be a Command.")
+        result = self._command_executor(command)
+        if not isinstance(result, ApplicationResult):
+            raise TypeError(
+                "Application command executor must return ApplicationResult; "
+                f"received {type(result).__name__}."
+            )
+        return result
+
     def execute(self, decision: ControlDecision) -> ApplicationResult:
-        """Translate and execute one valid Control decision."""
-        return self._command_executor(ControlCommandTranslator.to_command(decision))
+        """Backward-compatible translation and execution of one Control decision."""
+        return self.execute_command(ControlCommandTranslator.to_command(decision))
 
 
 __all__ = ["ControlCommandTranslator", "ControlCommandDispatcher"]
