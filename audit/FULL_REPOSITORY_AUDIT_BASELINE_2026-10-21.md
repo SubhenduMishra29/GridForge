@@ -11,7 +11,7 @@
 
 **PARTIALLY COMPLETE — the audit baseline and CSV schema repair are complete; a full repository correction pass is not established.**
 
-This report intentionally does not claim that all 746 Python files or every Core/Application/UI/solver/Control/Protection/Dynamics integration was inspected. The repository tree contained 1,038 entries, including 746 `.py` files and 62 paths under `audit/`. The current audit-register representation has structural defects that must be repaired before it can safely serve as the reliable source for an exhaustive one-pass reconciliation.
+This report intentionally does not claim that all 746 Python files or every Core/Application/UI/solver/Control/Protection/Dynamics integration was inspected. The repository tree contained 1,038 entries, including 746 `.py` files and 62 paths under `audit/`. The CSV's structural defects are now corrected; full semantic reconciliation of every register field and a repository-wide source audit remain outstanding.
 
 ## 1. Baseline and inspected artifacts
 
@@ -43,7 +43,7 @@ The inspected SLD service contains document dirty-state notifications in multipl
 The initial quote-aware parse found 10 malformed finding records and two blank records. Those records have now been reconstructed using the corresponding Markdown findings and historical reports, and the entire CSV has been re-serialized with standard field quoting. A fresh quote-aware parse confirms 169 non-empty records, exactly 14 fields per record, no blank IDs, and no duplicate IDs. Repaired IDs:
 - `GF-MASTER-0040`, `GF-MASTER-0042`, `GF-MASTER-0108`, `GF-MASTER-0111`, `GF-MASTER-0112`, `GF-MASTER-0114`, `B27-FINAL-001`, `B27-FINAL-002`, `B27-FINAL-007`, and `B27-FINAL-011`.
 
-The malformed records include unescaped commas and misplaced narrative text. A naïve line split also yields misleading statuses and severities, so the register cannot safely be counted or transformed without record-level reconstruction.
+The original defects included unescaped commas, shifted columns, missing source-basis fields, and misplaced narrative text. The corrected CSV must be read with a quote-aware parser; naïve line splitting remains unsafe for any CSV containing quoted commas or embedded line breaks.
 
 **Correction:** Preserved canonical finding IDs, legacy IDs, statuses, and runtime-deferred qualifiers. Reconstructed the malformed records against the Markdown register and the relevant historical reports; preserved impact/architecture notes and the local reconciliation note in the appropriate source-basis/history fields. Quoted fields containing commas or embedded line breaks.
 
@@ -77,7 +77,7 @@ The matrix identified `f27ef42a39333f5fb35522e5839d23f58a427207` as its “curre
 - The project declares Python `>=3.12,<3.13`, NumPy, SciPy and PySide6 dependencies. Runtime/package behavior was not exercised.
 - The master register already distinguishes runtime-deferred findings in many rows. Those statuses must remain open for runtime proof; static inspection alone cannot close them.
 
-No speculative production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The register defects above are concrete, but reconstructing the corrupted rows requires cross-checking the entire register set before writing the canonical CSV.
+No production-code change was made: the inspected snippets did not establish a safe additional code correction with enough complete caller and consumer evidence. The ten malformed CSV records were structurally reconstructed using the Markdown register and historical reports. Full semantic row-by-row reconciliation and authority-metadata reconciliation remain open.
 
 ## 4. Static acceptance status
 
@@ -96,8 +96,9 @@ No speculative production-code change was made: the inspected snippets did not e
 
 ## 5. Changed files
 
-- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — now distinguishes the historical baseline from the current inspected HEAD.
-- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records the baseline, confirmed register-integrity defects, evidence scope, gate status and the work required before an exhaustive correction pass.
+- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — distinguishes the historical baseline from the current inspected HEAD.
+- `audit/MASTER_AUDIT_REGISTER.csv` — repairs ten malformed records, restores the declared 14-column schema, preserves IDs and deferred statuses, and removes two blank records.
+- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records the baseline, repaired schema evidence, remaining authority conflict, scope limits and next audit steps.
 
 No production files were changed. No files were deleted, and no dependencies were added. Unrelated repository content was left untouched.
 
