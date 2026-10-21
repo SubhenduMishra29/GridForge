@@ -103,6 +103,7 @@ class ProtectionExecutionService:
         *,
         action_resolver: Callable[[ProtectionDecision], ControlDecision | None],
         pre_dispatch_guard: Callable[[], None] | None = None,
+        state_observer: Callable[[ControlDecision, Command, ApplicationResult], str] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
             raise TypeError("dispatcher must be a ControlCommandDispatcher.")
@@ -113,6 +114,9 @@ class ProtectionExecutionService:
             raise TypeError("pre_dispatch_guard must be callable or None.")
         self._action_resolver = action_resolver
         self._pre_dispatch_guard = pre_dispatch_guard
+        if state_observer is not None and not callable(state_observer):
+            raise TypeError("state_observer must be callable or None.")
+        self._state_observer = state_observer
 
     @property
     def dispatcher(self) -> ControlCommandDispatcher:
@@ -256,8 +260,22 @@ class ProtectionExecutionService:
                     f"{result.message or 'no failure message supplied'}"
                 )
                 diagnostics.append(message)
+            core_state_observation = "unknown/unavailable"
+            if result.success and self._state_observer is not None:
+                try:
+                    observation = self._state_observer(control_decision, command, result)
+                    if isinstance(observation, str) and observation.strip():
+                        core_state_observation = observation
+                    else:
+                        core_state_observation = "unknown/unavailable: observer returned no authoritative observation"
+                except Exception as exc:
+                    # A committed command is not rolled back merely because
+                    # feedback could not be read. Preserve the command result
+                    # and explicitly report that authoritative state is unknown.
+                    core_state_observation = f"unknown/unavailable: readback failed ({type(exc).__name__}: {exc})"
             outcomes.append(ProtectionActionOutcome(
-                protection_decision, control_decision, command, result, status, message
+                protection_decision, control_decision, command, result, status, message,
+                core_state_observation=core_state_observation,
             ))
 
         return ProtectionExecutionResult(
