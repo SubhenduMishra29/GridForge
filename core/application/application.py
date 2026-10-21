@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
@@ -403,6 +404,7 @@ class Application:
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
         diagnostics: list[str] = []
         validated_sample_values: dict[tuple[str, str], tuple[Any, Any, float]] = {}
+        validated_measurement_snapshots: dict[tuple[str, str], Mapping[str, Any]] = {}
         diagnostics.extend(
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
@@ -487,6 +489,17 @@ class Application:
                     diagnostics.append(f"{prefix}: protection runtime retains a stale channel object.")
                     continue
                 validated_sample_values[(element.element_id, input_name)] = (channel, value, timestamp)
+                validated_measurement_snapshots[(element.element_id, input_name)] = MappingProxyType({
+                    "channel_id": channel_id,
+                    "channel_identity": id(channel),
+                    "value": value,
+                    "timestamp": timestamp,
+                    "quality": quality,
+                    "available": bool(getattr(channel, "available", False)),
+                    "usable": bool(getattr(channel, "is_usable", False)),
+                    "validity": validity,
+                    "sample_sequence": getattr(channel, "sample_sequence", None),
+                })
 
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
@@ -566,6 +579,15 @@ class Application:
             "project_id": project.project_id,
             "activation_generation": lifecycle.activation_generation,
         })
+        # RelayInput bindings consume these immutable Application-validated
+        # samples for this cycle instead of rereading mutable channels while
+        # individual protection elements execute.
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {}
+        for (element_id, input_name), snapshot in validated_measurement_snapshots.items():
+            per_element = dict(snapshots_by_element.get(element_id, {}))
+            per_element[input_name] = snapshot
+            snapshots_by_element[element_id] = MappingProxyType(per_element)
+        context_metadata["validated_measurement_snapshots_by_element"] = MappingProxyType(snapshots_by_element)
         # Only Application-created sealed snapshots authorize ANSI 67. Caller
         # metadata remains ordinary context and cannot supply phasors or provenance.
         for element in runtime.configuration.elements:
