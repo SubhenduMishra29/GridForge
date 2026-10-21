@@ -211,17 +211,20 @@ A first-class study domain organized under `core/solver/dynamics/`. Dynamic init
 <details>
 <summary><b>🛡️ Protection</b></summary>
 
+The following is the **intended architectural flow**, not a claim that every production integration edge has been end-to-end verified:
+
 ```mermaid
 flowchart LR
     P[Primary Electrical System] --> M[CT / PT / CVT]
     M --> MC[Measurement Channel]
-    MC --> PF[Protection Function]
+    MC --> PI[Prepared Protection Input]
+    PI --> PF[Protection Function / Runtime]
     PF --> PD[Protection Decision]
     PD --> TS[Trip Scheme]
-    TS --> ST[Application-Controlled<br/>State Transition]
+    TS --> ST[Application-Controlled State Transition]
 ```
 
-Protection decisions (`relay_id`, `function_code`, `function_id`, `decision`) remain **distinct from physical switching state**.
+Protection decisions (`relay_id`, `function_code`, `function_id`, `decision`) remain **distinct from physical switching state**. The CT/PT/CVT provisioning-to-measurement-to-protection-runtime composition remains an explicit integration-evidence requirement: `GF-PROT-042` is **OPEN — INTEGRATION GAP** until the current production call path is traced and verified. A class, protocol, or isolated helper alone does not establish end-to-end integration.
 
 </details>
 
