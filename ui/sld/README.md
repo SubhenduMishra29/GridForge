@@ -56,19 +56,6 @@ The diagram describes the intended ownership path. A complete production
 relationship must be established from concrete callers and consumers; the
 existence of a class or interface alone is not end-to-end integration proof.
 
----------+---------+
-        |                   |
-    SLD Model          SLD State
-        |                   |
-        +---------+---------+
-                  |
-             SLD Controller
-                  |
-              UI Canvas
-                  |
-        +---------+---------+
-        |         |         |
-      Scene     View     Render
 
 ---
 
