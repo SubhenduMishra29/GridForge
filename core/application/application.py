@@ -473,8 +473,13 @@ class Application:
                         "only GOOD quality is accepted by the protection evaluation policy."
                     )
                     continue
-                if not bool(getattr(channel, "available", False)):
+                available = bool(getattr(channel, "available", False))
+                usable = bool(getattr(channel, "is_usable", False))
+                if not available:
                     diagnostics.append(f"{prefix}: measurement channel is unavailable.")
+                    continue
+                if not usable:
+                    diagnostics.append(f"{prefix}: measurement channel is not usable.")
                     continue
                 if not finite_value:
                     diagnostics.append(f"{prefix}: engineering sample is non-finite.")
@@ -492,7 +497,8 @@ class Application:
                     getattr(channel, "engineering_value", None) == value
                     and getattr(channel, "timestamp", None) == timestamp
                     and getattr(channel, "quality", None) is quality
-                    and bool(getattr(channel, "available", False))
+                    and bool(getattr(channel, "available", False)) == available
+                    and bool(getattr(channel, "is_usable", False)) == usable
                     and sample_sequence_before == sample_sequence_after
                 )
                 if not sample_fields_stable:
@@ -512,8 +518,8 @@ class Application:
                     "value": value,
                     "timestamp": timestamp,
                     "quality": quality,
-                    "available": True,
-                    "usable": True,
+                    "available": available,
+                    "usable": usable,
                     "validity": validity,
                     "sample_sequence": sample_sequence_after,
                 })
