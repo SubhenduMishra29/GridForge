@@ -1931,6 +1931,7 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 | GF-MASTER-0119 | Study request | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `StudyRequest.configuration` uses the recursive study snapshot freezer; typed-configuration compatibility remains runtime-unverified. |
 | GF-MASTER-0120 | SLD projection | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | Node and connection projection properties use recursive detached freezing; rendering/runtime snapshot verification remains deferred. |
 | GF-MASTER-0121 | Protection execution result | MEDIUM | REMEDIATED — VERIFICATION DEFERRED | `ProtectionExecutionResult` normalizes sequence fields to tuples and validates member types; downstream runtime compatibility remains deferred. |
+| GF-MASTER-0122 | SLD workspace splitter sizing | HIGH | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Initial splitter sizing is deferred until usable geometry exists; editor and nested-splitter resize events retry realization, the pending flag clears before sizing, and hidden sidebar/overlay geometry is not an unconditional prerequisite. Static-only; Qt event ordering, visual layout and user-resize preservation remain unverified. |
 | GF-PROT-042 | Protection measurement integration | HIGH | OPEN — INTEGRATION GAP (RETAINED) | Batch 72 source adds Application-owned evaluation-time gating, active project/generation checks, GOOD-only quality, explicit timestamp/stale_after requirements, finite-value rejection, and exact runtime channel-reference checks. Configured signal-contract compatibility and the complete protection-decision-to-action-to-command-to-feedback path remain unproven; runtime verification not performed. |
 
 **Lifecycle conclusion:** source-level mechanisms exist across authoring, commit, persistence, studies, Control and Protection, but end-to-end lifecycle closure is not established. All new findings remain open; no runtime closure is claimed.
@@ -1966,3 +1967,36 @@ The current canonical implementation/audit authority is **`SubhenduMishra29/Grid
 - Runtime verification remains **DEFERRED / NOT RUN**.
 
 **Next correction target:** trace and wire the existing `Application.measurement_channel_service` into transactional project activation/rollback, then establish one Application-owned protection-cycle entry point that supplies its active channel mapping and explicit evaluation time to the existing `ProtectionRuntime` / `ProtectionPreparation` path. Only after that caller is proven should stale/quality/type fail-closed behavior and decision-to-read-model feedback be corrected and re-audited.
+
+## 2026-10-21 — UI Batch 1 deferred SLD splitter sizing reconciliation
+
+**Active implementation and register authority:** `madhuri196mishra-cpu/GridForge:main`.  
+**Latest observed implementation HEAD:** `cb0acd1783624ebec11adcf4617b2d238915a73b`.  
+**Finding:** `GF-MASTER-0122` — **REMEDIATED — RUNTIME VERIFICATION DEFERRED**.  
+**Scope:** static source and register reconciliation only. No tests, CI, application startup, GUI execution, or runtime experiments were performed.
+
+### Finding-ID mapping
+
+No existing canonical Master Register row specifically identifies deferred initial SLD splitter sizing. `GF-MASTER-0122` is the next available ID after `GF-MASTER-0121`. `GF-MASTER-0016` concerns broader workspace composition/lifecycle proof and `GF-MASTER-0042` concerns Control/Ladder presentation; neither is substituted for this defect. No historical identifier is renumbered or replaced.
+
+### Root cause and correction evidence
+
+In `ui/editors/sld/sld_editor.py`, pending initial sizing is retried on editor show/resize and on resize events received by registered nested splitters. `_realize_pending_initial_sizes()` checks pending state and geometry, then clears the pending flag before calling the sizing routine. Hidden sidebar/overlay geometry is not unconditionally required. Existing targeted splitter sizing and maximized/restore logic are retained.
+
+The `QEvent` dependency is imported through `ui.core.qt`, and `QEvent` is exported by that UI Qt boundary in `ui/core/qt.py`.
+
+**Affected files:** `ui/editors/sld/sld_editor.py`; `ui/core/qt.py`.
+
+### Implementation commit evidence
+
+- `e690895d5e7d5170ceb5f86504f003d727c4b472` — deferred initial sizing lifecycle.
+- `db58eabb5b016ef157f4ba5d1014b7e2b725e6e7` — construction-time guard.
+- `2e2d04d6ff1b9f9aae78caa47d63f35128172ea9` — expose `QEvent` through the UI Qt boundary.
+- `c8f69810fdd6c9599d01f063bf0be8b42b054b29` — retry deferred sizing on nested splitter resize.
+- `cb0acd1783624ebec11adcf4617b2d238915a73b` — latest observed implementation merge.
+
+### Verification boundary and remaining closure criteria
+
+Static inspection supports the pending-state checks, geometry guard, flag-clear ordering, editor show/resize retry path, nested-splitter event filter, Qt-boundary export, and retained targeted/maximize-restore sizing logic. This does not establish actual Qt event ordering or rendered visual results. Initial sizing after visibility, nested-splitter realization, preservation of user-adjusted positions, and maximize/restore behavior remain runtime verification criteria. UI Batch 1 is not declared fully closed until those criteria are verified separately.
+
+**Change boundary:** no production source changes were made for this register reconciliation.
