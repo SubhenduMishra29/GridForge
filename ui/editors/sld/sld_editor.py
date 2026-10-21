@@ -257,10 +257,13 @@ class SLDEditor(QWidget):
                 minimum = int(getattr(region, "minimum_size", 0) or 0)
                 if region_id in {"tool_shelf", "explorer", "sidebar"}:
                     frame.setMinimumWidth(minimum)
-                elif region_id in {"header", "tool_settings", "diagnostics", "status"}:
+                elif region_id in {"header", "canvas", "tool_settings", "overlay", "diagnostics", "status"}:
                     frame.setMinimumHeight(minimum)
                 if region_id not in {"header", "canvas", "status"}:
-                    frame.setVisible(self._region_user_visibility[region_id])
+                    frame.setVisible(
+                        False if self._presentation_maximized
+                        else self._region_user_visibility[region_id]
+                    )
             value = getattr(region, "preferred_size", None)
             if value is not None:
                 preferred[region_id] = int(value)
@@ -303,7 +306,10 @@ class SLDEditor(QWidget):
                 else current[0] if left_column_visible and len(current) > 0 and current[0] > 0
                 else left_default if left_column_visible else 0
             )
-            sidebar_visible = not self._region_widgets["sidebar"].isHidden()
+            sidebar_visible = (
+                not self._region_widgets["sidebar"].isHidden()
+                or not self._region_widgets["overlay"].isHidden()
+            )
             sidebar = (
                 sidebar_default if preferred
                 else current[2] if sidebar_visible and len(current) > 2 and current[2] > 0
@@ -342,6 +348,28 @@ class SLDEditor(QWidget):
             )
             center.setSizes([settings, max(1, center.height() - settings - center.handleWidth())])
 
+        sidebar_splitter = self._region_splitters["sidebar"]
+        if sidebar_splitter.height() > 0:
+            current = sidebar_splitter.sizes()
+            inspector_visible = not self._region_widgets["sidebar"].isHidden()
+            overlay_visible = not self._region_widgets["overlay"].isHidden()
+            overlay_default = preferred.get(
+                "overlay", self._region_preferred_sizes.get("overlay", 120)
+            )
+            if preferred:
+                overlay_size = overlay_default if overlay_visible else 0
+            elif overlay_visible and len(current) > 1 and current[1] > 0:
+                overlay_size = current[1]
+            else:
+                overlay_size = overlay_default if overlay_visible else 0
+            inspector_size = (
+                current[0]
+                if not preferred and inspector_visible and len(current) > 0 and current[0] > 0
+                else max(1, sidebar_splitter.height() - overlay_size - sidebar_splitter.handleWidth())
+                if inspector_visible else 0
+            )
+            sidebar_splitter.setSizes([inspector_size, overlay_size])
+
     def set_region_visible(self, region_id: str, visible: bool, *, user: bool = True) -> None:
         if region_id not in self._region_widgets:
             raise KeyError(f"Unknown SLD region: {region_id!r}")
@@ -378,7 +406,7 @@ class SLDEditor(QWidget):
 
     def _sync_panel_buttons(self) -> None:
         for region_id, button in self._panel_buttons.items():
-            button.setChecked(self._region_widgets[region_id].isVisible())
+            button.setChecked(not self._region_widgets[region_id].isHidden())
 
     def set_presentation_maximized(self, maximized: bool) -> None:
         maximized = bool(maximized)
