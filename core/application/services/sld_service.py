@@ -674,9 +674,25 @@ class SLDService:
         })
         self._set_node_lifecycle_state(node, "BOUND")
         node.equipment_id = equipment_id
-        transaction.record_undo(
-            lambda snapshot=previous: self._restore_node_snapshot(snapshot)
-        )
+        def restore_updated_node(snapshot=previous) -> None:
+            # This is an update of an existing node, so undo must restore that
+            # live identity in place. _restore_node_snapshot is for absent-node
+            # restoration and would collide with the node that still exists.
+            target = self.document.model.get_node_optional(snapshot["node_id"])
+            if target is None:
+                self._restore_node_snapshot(snapshot)
+                return
+            target.set_position(float(snapshot.get("x", 0.0)), float(snapshot.get("y", 0.0)))
+            if snapshot.get("presentation") is None:
+                target.clear_presentation()
+            else:
+                target.set_presentation(snapshot["presentation"])
+            target.properties.clear()
+            target.properties.update(deepcopy(dict(snapshot.get("properties", {}))))
+            target.equipment_id = snapshot.get("equipment_id")
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_updated_node)
         self.document.mark_modified()
 
     @classmethod
