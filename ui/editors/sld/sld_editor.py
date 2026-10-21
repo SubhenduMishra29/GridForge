@@ -288,15 +288,20 @@ class SLDEditor(QWidget):
             shelf_default = preferred.get(
                 "tool_shelf", self._region_preferred_sizes.get("tool_shelf", 52)
             )
+            explorer_default = preferred.get(
+                "explorer", self._region_preferred_sizes.get("explorer", 220)
+            )
             sidebar_default = preferred.get(
                 "sidebar", self._region_preferred_sizes.get("sidebar", 280)
             )
+            explorer_visible = not self._region_widgets["explorer"].isHidden()
+            left_default = max(shelf_default, explorer_default) if explorer_visible else shelf_default
             # Use definition sizes for initial/changed definitions. Visibility
             # updates preserve live splitter proportions wherever possible.
             shelf = (
-                shelf_default if preferred
+                left_default if preferred
                 else current[0] if left_column_visible and len(current) > 0 and current[0] > 0
-                else shelf_default if left_column_visible else 0
+                else left_default if left_column_visible else 0
             )
             sidebar_visible = not self._region_widgets["sidebar"].isHidden()
             sidebar = (
