@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 from uuid import uuid4
@@ -306,9 +307,14 @@ class ProjectLifecycleService:
             collection = self._presentation_collection_snapshot_provider()
             if not isinstance(collection, ProjectPresentationCollection):
                 raise TypeError("Presentation collection snapshot provider must return ProjectPresentationCollection.")
-            collection_data = self._presentation_collection_serializer(collection)
-            if not isinstance(collection_data, Mapping):
+            serialized_collection = self._presentation_collection_serializer(collection)
+            if not isinstance(serialized_collection, Mapping):
                 raise TypeError("Presentation collection serializer must return a mapping.")
+            # Detach the persisted baseline from serializer/document-owned mutable
+            # objects. ProjectPresentationCollection is frozen, but its documents
+            # are live mutable instances, so collection equality is not a content
+            # identity contract.
+            collection_data = deepcopy(dict(serialized_collection))
         elif self._presentation is not None:
             if self._serialize_presentation is None:
                 raise RuntimeError("A persistent presentation is active but no presentation serializer is configured.")
@@ -323,9 +329,19 @@ class ProjectLifecycleService:
             # the saver was writing; never clear that newer dirty state.
             try:
                 current_collection = self._presentation_collection_snapshot_provider()
+                if not isinstance(current_collection, ProjectPresentationCollection):
+                    raise TypeError(
+                        "Presentation collection snapshot provider must return ProjectPresentationCollection."
+                    )
+                current_data = self._presentation_collection_serializer(current_collection)
+                if not isinstance(current_data, Mapping):
+                    raise TypeError("Presentation collection serializer must return a mapping.")
+                current_data = deepcopy(dict(current_data))
             except Exception:
-                current_collection = None
-            if current_collection == collection:
+                # A failed/ambiguous comparison is not evidence that the live
+                # state matches the persisted snapshot. Keep every dirty flag.
+                current_data = None
+            if current_data is not None and current_data == collection_data:
                 for document in collection.documents:
                     mark_clean = getattr(document, "mark_clean", None)
                     if callable(mark_clean):
