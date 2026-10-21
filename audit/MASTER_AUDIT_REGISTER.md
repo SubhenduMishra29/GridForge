@@ -7,7 +7,7 @@
 - Historical/provenance only: `pandaraseswari03-collab/GridForge`
 
 Historical dated entries below may name `pandaraseswari03-collab/GridForge`; those references are retained for chronology/provenance and are not current authority.
-**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation authority for this correction cycle is `madhuri196mishra-cpu/GridForge:main`; current audit/register authority is `SubhenduMishra29/GridForge:main`. `pandaraseswari03-collab/GridForge` is historical/provenance only.
+**Repository provenance:** historical register entries may reference other repositories; those references are provenance only. Current implementation and active audit/register target for this correction cycle is `madhuri196mishra-cpu/GridForge:main`. `SubhenduMishra29/GridForge` is a reference/audit repository only when explicitly designated for a historical cycle; `pandaraseswari03-collab/GridForge` is historical/provenance only.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current canonical repository authority
@@ -1732,7 +1732,7 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 ## 2026-09-30 — Batch 27 Final Consolidated Correction + 2026-10-01 SLD Presentation Activation Re-audit
 
-**Current implementation/audit authority:** `pandaraseswari03-collab/GridForge:main`  
+**Historical implementation/audit authority snapshot (superseded 2026-10-02):** `pandaraseswari03-collab/GridForge:main`  
 **Verification mode:** static source inspection and correction only. Runtime/GUI/CI execution was not performed.
 
 | ID | Correction family | Status | Static evidence | Runtime |
@@ -1746,7 +1746,7 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 | B27-FINAL-007 | Protection Workspace | REMEDIATED — RUNTIME VERIFICATION DEFERRED | ProtectionGraphicsSurface is a real QGraphicsView/QGraphicsScene read-side scheme projection; Explorer and Inspector use canonical selection. | Deferred |
 | B27-FINAL-008 | Feedback System | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Validation, Application events and transient status remain separate; event messages preserve ApplicationEvent.occurred_at and object identity where available. | Deferred |
 | B27-FINAL-009 | Menu/Toolbar | REMEDIATED — RUNTIME VERIFICATION DEFERRED | Menu taxonomy is non-duplicated; UIActionRouter remains the canonical enabled-state path and the composition-root provider consumes EngineeringContext plus Application command registration for SLD tool capabilities. | Deferred |
-| B27-FINAL-010 | Authority Reconciliation | REMEDIATED — STATICALLY VERIFIED | Current implementation/audit authority is `pandaraseswari03-collab/GridForge:main`; historical repository identities remain provenance only. | Not required |
+| B27-FINAL-010 | Authority Reconciliation | RECLASSIFIED | Historical Batch 27 authority snapshot naming `pandaraseswari03-collab/GridForge:main` is superseded by the 2026-10-02 authority reconciliation; current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`; `SubhenduMishra29/GridForge` is reference/audit evidence only when explicitly designated for a historical cycle. | Not required |
 | B27-FINAL-011 | SLD Presentation Activation Bridge | STATICALLY VERIFIED | `EngineeringWorkspaceTabs.set_sld_document()` now presents/clears the canonical `SLDCanvasSurface`; `ProjectWorkspaceApplicationAdapter` invokes the UI bridge transactionally; `main.py` binds the bridge and no longer performs duplicate document-factory surface mutation; `CanvasPlugin` delegates to the canonical surface; `SLDSurface` is reduced to a compatibility adapter. | Deferred |
 
 **Batch report:** `audit/BATCH27_SLD_PRESENTATION_ACTIVATION_STATIC_REAUDIT_2026-10-01.md`

@@ -49,17 +49,15 @@ The original defects included unescaped commas, shifted columns, missing source-
 
 **Validation:** Quote-aware parse: 169 records; 14 fields per record; zero malformed-width rows; zero blank records; zero empty IDs; zero duplicate IDs. This is structural/static validation only; it does not certify every field's semantic accuracy.
 
-### AUD-BASE-002 — Current authority statements conflict with current implementation authority
+### AUD-BASE-002 — Current authority statements conflicted with current implementation authority
 
 **Severity:** HIGH  
 **Classification:** DOCUMENTATION/REGISTER INCONSISTENCY  
-**Status:** OPEN — REGISTER RECONCILIATION REQUIRED
+**Status:** CORRECTED — STATIC DOCUMENTATION RECONCILIATION
 
-The CSV row `B27-FINAL-010` states that `SubhenduMishra29/GridForge:main` is the current canonical implementation/audit authority, while its own historical note says that this governance row was superseded by the 2026-10-02 authority reconciliation. The current task and the current architecture-matrix correction identify `madhuri196mishra-cpu/GridForge:main` as implementation authority. The current metadata document also names `madhuri196mishra-cpu/GridForge` as canonical authority.
+The CSV row `B27-FINAL-010` and dated Batch 27 Markdown/matrix entries retained authority statements that no longer matched the current authority. The CSV row is now `RECLASSIFIED`; its root-cause and historical-relationship fields explicitly identify the old authority as superseded. The current authority paragraph in `MASTER_AUDIT_REGISTER.md`, the Batch 27 summary row, and the matrix's dated 2026-09-28 heading now distinguish current authority from historical snapshots. The metadata's current authority header already named `madhuri196mishra-cpu/GridForge`; it was retained unchanged.
 
-**Impact:** Readers can mistake historical provenance for current authority.
-
-**Required correction:** Preserve `B27-FINAL-010` as historical evidence, explicitly classify it as superseded, and reconcile the CSV, Markdown register, metadata and matrix without erasing historical provenance.
+**Correction:** Current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`. `SubhenduMishra29/GridForge` remains reference/audit evidence only when explicitly designated for a historical cycle. Historical repository identities remain preserved as provenance.
 
 ### AUD-BASE-003 — Architecture matrix baseline is stale relative to the inspected branch
 
@@ -85,7 +83,7 @@ No production-code change was made: the inspected snippets did not establish a s
 |---|---|---|
 | Current branch and commit baseline | PASS | Both repository refs resolve to the inspected SHA at baseline time. |
 | Audit-register schema integrity | PASS — STATIC | 169 records; all rows have 14 fields; no blank rows, empty IDs or duplicate IDs. |
-| Repository authority reconciliation | FAIL | Historical row `B27-FINAL-010` conflicts with the current authority metadata. |
+| Repository authority reconciliation | PASS — DOCUMENTATION | `B27-FINAL-010` reclassified as historical/superseded; current authority wording reconciled in CSV, Markdown register and matrix. |
 | Matrix baseline metadata | PARTIAL | Stale baseline reference clarified; technical rows not all re-audited at current HEAD. |
 | Core/Application/UI architecture | NOT ESTABLISHED | No complete repository-wide consumer trace was performed. |
 | Qt import boundary | NOT ESTABLISHED | Not exhaustively checked across all Python files. |
@@ -96,18 +94,18 @@ No production-code change was made: the inspected snippets did not establish a s
 
 ## 5. Changed files
 
-- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — distinguishes the historical baseline from the current inspected HEAD.
-- `audit/MASTER_AUDIT_REGISTER.csv` — repairs ten malformed records, restores the declared 14-column schema, preserves IDs and deferred statuses, and removes two blank records.
-- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records the baseline, repaired schema evidence, remaining authority conflict, scope limits and next audit steps.
+- `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — distinguishes historical baseline/authority snapshots from current repository authority.
+- `audit/MASTER_AUDIT_REGISTER.csv` — repairs ten malformed records and reclassifies `B27-FINAL-010` as a superseded historical authority snapshot.
+- `audit/MASTER_AUDIT_REGISTER.md` — reconciles current authority wording and labels the dated Batch 27 authority snapshot as superseded.
+- `audit/FULL_REPOSITORY_AUDIT_BASELINE_2026-10-21.md` — records schema validation, authority reconciliation, remaining scope and limitations.
 
 No production files were changed. No files were deleted, and no dependencies were added. Unrelated repository content was left untouched.
 
 ## 6. Required next correction unit
 
-1. Reconcile `B27-FINAL-010` and contradictory current-authority statements while preserving historical provenance.
-2. Review the repaired CSV against all Markdown rows and metadata vocabulary for semantic alignment; schema validation alone does not prove all content mappings.
-3. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
-4. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
-5. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
+1. Review the repaired CSV against all Markdown rows and metadata vocabulary for semantic alignment; schema validation alone does not prove all content mappings.
+2. Continue the dependency-aware source audit across Core, Application, SLD/UI, persistence, studies/solvers, Control, Protection, Dynamics, plugins and packaging.
+3. Implement only source defects confirmed against current consumers, then re-audit changed files and register each correction.
+4. Keep runtime-required findings deferred; do not infer runtime success from static inspection.
 
 **No tests, CI, application startup or GUI execution were run.**
