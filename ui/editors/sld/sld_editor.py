@@ -213,6 +213,8 @@ class SLDEditor(QWidget):
         self._region_user_visibility: dict[str, bool] = {}
         self._region_user_overrides: set[str] = set()
         self._definition_visibility: dict[str, bool] = {}
+        self._region_preferred_sizes: dict[str, int] = {}
+        self._editor_definition_applied = False
         self._presentation_maximized = False
         self._maximize_callback = None
 
@@ -238,6 +240,7 @@ class SLDEditor(QWidget):
 
     def apply_editor_definition(self, definition: object) -> None:
         preferred: dict[str, int] = {}
+        layout_changed = not self._editor_definition_applied
         for region in getattr(definition, "regions", ()) or ():
             region_id = getattr(region, "region_id", "")
             frame = self._region_widgets.get(region_id)
@@ -248,47 +251,124 @@ class SLDEditor(QWidget):
             if region_id in {"header", "canvas", "status"}:
                 self._region_user_visibility[region_id] = True
             if frame is not None:
+                effective_visible = self._region_user_visibility.get(region_id, visible)
+                if region_id not in {"header", "canvas", "status"} and (not frame.isHidden()) != effective_visible:
+                    layout_changed = True
                 minimum = int(getattr(region, "minimum_size", 0) or 0)
                 if region_id in {"tool_shelf", "explorer", "sidebar"}:
                     frame.setMinimumWidth(minimum)
-                elif region_id in {"header", "tool_settings", "diagnostics", "status"}:
+                elif region_id in {"header", "canvas", "tool_settings", "overlay", "diagnostics", "status"}:
                     frame.setMinimumHeight(minimum)
                 if region_id not in {"header", "canvas", "status"}:
-                    frame.setVisible(self._region_user_visibility[region_id])
+                    frame.setVisible(
+                        False if self._presentation_maximized
+                        else self._region_user_visibility[region_id]
+                    )
             value = getattr(region, "preferred_size", None)
             if value is not None:
                 preferred[region_id] = int(value)
 
-        self._apply_splitter_sizes(preferred)
+        if preferred != self._region_preferred_sizes:
+            layout_changed = True
+        self._region_preferred_sizes = preferred
+        self._editor_definition_applied = True
+        # Activation may occur repeatedly while the engineer has dragged a
+        # splitter. Reapply canonical defaults only on first realization or
+        # when the effective definition actually changes.
+        if layout_changed:
+            self._apply_splitter_sizes(preferred)
         self._sync_panel_buttons()
 
     def _apply_splitter_sizes(self, preferred: dict[str, int] | None = None) -> None:
         preferred = preferred or {}
         body = self._region_splitters["body"]
         if body.width() > 0:
-            # EditorRegionFrame contributes 8 px horizontal margins around
-            # ToolShelf (minimum 44 px in compact mode). Keep those margins
-            # inside the initial allocation rather than clipping the shelf.
+            current = body.sizes()
             left_column_visible = any(
-                self._region_widgets[region_id].isVisible()
+                not self._region_widgets[region_id].isHidden()
                 for region_id in ("tool_shelf", "explorer")
             )
-            shelf = max(52, preferred.get("tool_shelf", 60)) if left_column_visible else 0
-            sidebar = preferred.get("sidebar", 280)
-            sidebar = sidebar if self._region_widgets["sidebar"].isVisible() else 0
-            body.setSizes([shelf, max(1, body.width() - shelf - sidebar), sidebar])
+            shelf_default = preferred.get(
+                "tool_shelf", self._region_preferred_sizes.get("tool_shelf", 52)
+            )
+            explorer_default = preferred.get(
+                "explorer", self._region_preferred_sizes.get("explorer", 220)
+            )
+            sidebar_default = preferred.get(
+                "sidebar", self._region_preferred_sizes.get("sidebar", 280)
+            )
+            explorer_visible = not self._region_widgets["explorer"].isHidden()
+            left_default = max(shelf_default, explorer_default) if explorer_visible else shelf_default
+            # Use definition sizes for initial/changed definitions. Visibility
+            # updates preserve live splitter proportions wherever possible.
+            shelf = (
+                left_default if preferred
+                else current[0] if left_column_visible and len(current) > 0 and current[0] > 0
+                else left_default if left_column_visible else 0
+            )
+            sidebar_visible = (
+                not self._region_widgets["sidebar"].isHidden()
+                or not self._region_widgets["overlay"].isHidden()
+            )
+            sidebar = (
+                sidebar_default if preferred
+                else current[2] if sidebar_visible and len(current) > 2 and current[2] > 0
+                else sidebar_default if sidebar_visible else 0
+            )
+            handles = body.handleWidth() * max(0, body.count() - 1)
+            available = max(1, body.width() - handles)
+            center = max(1, available - shelf - sidebar)
+            body.setSizes([shelf, center, sidebar])
 
         left = self._region_splitters["left"]
         if left.height() > 0:
-            explorer = preferred.get("explorer", 220)
-            explorer = explorer if self._region_widgets["explorer"].isVisible() else 0
-            left.setSizes([explorer, max(1, left.height() - explorer)])
+            current = left.sizes()
+            explorer_visible = not self._region_widgets["explorer"].isHidden()
+            explorer_default = preferred.get(
+                "explorer", self._region_preferred_sizes.get("explorer", 220)
+            )
+            explorer = (
+                explorer_default if preferred
+                else current[0] if explorer_visible and len(current) > 0 and current[0] > 0
+                else explorer_default if explorer_visible else 0
+            )
+            left.setSizes([explorer, max(1, left.height() - explorer - left.handleWidth())])
 
         center = self._region_splitters["center"]
         if center.height() > 0:
-            settings = preferred.get("tool_settings", 42)
-            settings = settings if self._region_widgets["tool_settings"].isVisible() else 0
-            center.setSizes([settings, max(1, center.height() - settings)])
+            current = center.sizes()
+            settings_visible = not self._region_widgets["tool_settings"].isHidden()
+            settings_default = preferred.get(
+                "tool_settings", self._region_preferred_sizes.get("tool_settings", 42)
+            )
+            settings = (
+                settings_default if preferred
+                else current[0] if settings_visible and len(current) > 0 and current[0] > 0
+                else settings_default if settings_visible else 0
+            )
+            center.setSizes([settings, max(1, center.height() - settings - center.handleWidth())])
+
+        sidebar_splitter = self._region_splitters["sidebar"]
+        if sidebar_splitter.height() > 0:
+            current = sidebar_splitter.sizes()
+            inspector_visible = not self._region_widgets["sidebar"].isHidden()
+            overlay_visible = not self._region_widgets["overlay"].isHidden()
+            overlay_default = preferred.get(
+                "overlay", self._region_preferred_sizes.get("overlay", 120)
+            )
+            if preferred:
+                overlay_size = overlay_default if overlay_visible else 0
+            elif overlay_visible and len(current) > 1 and current[1] > 0:
+                overlay_size = current[1]
+            else:
+                overlay_size = overlay_default if overlay_visible else 0
+            inspector_size = (
+                current[0]
+                if not preferred and inspector_visible and len(current) > 0 and current[0] > 0
+                else max(1, sidebar_splitter.height() - overlay_size - sidebar_splitter.handleWidth())
+                if inspector_visible else 0
+            )
+            sidebar_splitter.setSizes([inspector_size, overlay_size])
 
     def set_region_visible(self, region_id: str, visible: bool, *, user: bool = True) -> None:
         if region_id not in self._region_widgets:
@@ -300,8 +380,20 @@ class SLDEditor(QWidget):
             self._region_user_overrides.add(region_id)
             self._region_user_visibility[region_id] = visible
         frame = self._region_widgets[region_id]
+        if self._presentation_maximized:
+            # Keep secondary regions hidden until restore. Explicit user choices
+            # made during maximization update the restore target, not the canvas
+            # presentation currently on screen.
+            if user and hasattr(self, "_restore_visibility"):
+                self._restore_visibility[region_id] = visible
+            frame.setVisible(False)
+            self._sync_panel_buttons()
+            return
+        was_visible = not frame.isHidden()
         frame.setVisible(visible)
-        self._apply_splitter_sizes()
+        # Repeated contextual refreshes must not reset a deliberate splitter drag.
+        if was_visible != visible:
+            self._apply_splitter_sizes()
         self._sync_panel_buttons()
 
     def update_contextual_regions(self) -> None:
@@ -314,7 +406,7 @@ class SLDEditor(QWidget):
 
     def _sync_panel_buttons(self) -> None:
         for region_id, button in self._panel_buttons.items():
-            button.setChecked(self._region_widgets[region_id].isVisible())
+            button.setChecked(not self._region_widgets[region_id].isHidden())
 
     def set_presentation_maximized(self, maximized: bool) -> None:
         maximized = bool(maximized)
@@ -323,10 +415,12 @@ class SLDEditor(QWidget):
         self._presentation_maximized = maximized
         if maximized:
             self._restore_visibility = {
-                rid: self._region_widgets[rid].isVisible()
-                for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "diagnostics")
+                # isHidden() reports explicit visibility even when an ancestor
+                # editor is temporarily inactive.
+                rid: not self._region_widgets[rid].isHidden()
+                for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "overlay", "diagnostics")
             }
-            for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "diagnostics"):
+            for rid in ("explorer", "tool_shelf", "tool_settings", "sidebar", "overlay", "diagnostics"):
                 self._region_widgets[rid].setVisible(False)
             self._restore_button.setVisible(True)
         else:
