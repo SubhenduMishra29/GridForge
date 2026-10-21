@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Callable, Iterable
 
 from core.application.command import Command
@@ -26,6 +27,44 @@ class StaleProtectionExecutionError(RuntimeError):
     """Active project/configuration provenance changed before command dispatch."""
 
 
+class ProtectionTargetUnavailableError(ValueError):
+    """Explicit action target is absent from the active Core network."""
+
+
+class PostconditionStatus(str, Enum):
+    MATCHED = "matched"
+    MISMATCHED = "mismatched"
+    UNAVAILABLE_UNSUPPORTED = "unavailable/unsupported"
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionPostconditionVerification:
+    """Typed Core-state postcondition correlated to one dispatched command.
+
+    This records an in-memory Core observation only; it is not physical-device
+    acknowledgement and does not cause retries or compensating operations.
+    """
+
+    command_id: str
+    target_equipment_type: str
+    target_equipment_id: str
+    action_type: str
+    status: PostconditionStatus
+    expected_state: str | None = None
+    observed_state: str | None = None
+    diagnostic: str = ""
+
+    def __post_init__(self) -> None:
+        for name in ("command_id", "target_equipment_type", "target_equipment_id", "action_type"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+        if not isinstance(self.status, PostconditionStatus):
+            object.__setattr__(self, "status", PostconditionStatus(self.status))
+        if not isinstance(self.diagnostic, str):
+            raise TypeError("diagnostic must be a string.")
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionActionOutcome:
     """Correlated outcome for one protection decision; feedback is not inferred."""
@@ -38,6 +77,7 @@ class ProtectionActionOutcome:
     diagnostic: str = ""
     core_state_observation: str = "unknown/unavailable"
     physical_acknowledgement: str = "unknown/unavailable"
+    postcondition_verification: ProtectionPostconditionVerification | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.protection_decision, ProtectionDecision):
@@ -52,6 +92,8 @@ class ProtectionActionOutcome:
             raise ValueError("status must be a non-empty string.")
         if not isinstance(self.diagnostic, str):
             raise TypeError("diagnostic must be a string.")
+        if self.postcondition_verification is not None and not isinstance(self.postcondition_verification, ProtectionPostconditionVerification):
+            raise TypeError("postcondition_verification must be ProtectionPostconditionVerification or None.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +145,7 @@ class ProtectionExecutionService:
         *,
         action_resolver: Callable[[ProtectionDecision], ControlDecision | None],
         pre_dispatch_guard: Callable[[], None] | None = None,
-        state_observer: Callable[[ControlDecision, Command, ApplicationResult], str] | None = None,
+        state_observer: Callable[[ControlDecision, Command, ApplicationResult], ProtectionPostconditionVerification | str] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
             raise TypeError("dispatcher must be a ControlCommandDispatcher.")
@@ -142,6 +184,13 @@ class ProtectionExecutionService:
 
             try:
                 control_decision = self._action_resolver(protection_decision)
+            except ProtectionTargetUnavailableError as exc:
+                message = f"Protection target unavailable for '{protection_decision.element_id}': {exc}"
+                diagnostics.append(message)
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, None, None, None, "target_unavailable", message
+                ))
+                continue
             except Exception as exc:
                 message = (
                     f"Protection action resolution failed for "
@@ -261,10 +310,20 @@ class ProtectionExecutionService:
                 )
                 diagnostics.append(message)
             core_state_observation = "unknown/unavailable"
+            postcondition_verification = None
             if result.success and self._state_observer is not None:
                 try:
                     observation = self._state_observer(control_decision, command, result)
-                    if isinstance(observation, str) and observation.strip():
+                    if isinstance(observation, ProtectionPostconditionVerification):
+                        postcondition_verification = observation
+                        core_state_observation = (
+                            f"{observation.status.value}: {observation.target_equipment_type}:"
+                            f"{observation.target_equipment_id}; expected={observation.expected_state!r}; "
+                            f"observed={observation.observed_state!r}; {observation.diagnostic}"
+                        ).rstrip("; ")
+                    elif isinstance(observation, str) and observation.strip():
+                        # Retain compatibility for externally supplied observers,
+                        # but string-only observations are not postcondition proof.
                         core_state_observation = observation
                     else:
                         core_state_observation = "unknown/unavailable: observer returned no authoritative observation"
@@ -276,6 +335,7 @@ class ProtectionExecutionService:
             outcomes.append(ProtectionActionOutcome(
                 protection_decision, control_decision, command, result, status, message,
                 core_state_observation=core_state_observation,
+                postcondition_verification=postcondition_verification,
             ))
 
         return ProtectionExecutionResult(
@@ -290,6 +350,9 @@ class ProtectionExecutionService:
 
 __all__ = [
     "StaleProtectionExecutionError",
+    "ProtectionTargetUnavailableError",
+    "PostconditionStatus",
+    "ProtectionPostconditionVerification",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
