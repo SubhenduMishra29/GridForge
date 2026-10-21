@@ -422,6 +422,10 @@ class RelayInput:
         fallback.
         """
 
+        if self._evaluation_snapshot is not None:
+            from core.measurement.measurement_channel import MeasurementValidity
+            return self._sample_value("validity") is MeasurementValidity.VALID
+
         value = getattr(
             self._channel,
             "is_valid",
@@ -529,6 +533,9 @@ class RelayInput:
         If no such method exists, ``None`` is returned.
         """
 
+        if self._evaluation_snapshot is not None:
+            return self._sample_value("validity")
+
         method = getattr(
             self._channel,
             "validity",
@@ -565,6 +572,10 @@ class RelayInput:
         If an explicit ``is_valid_at`` method is unavailable, the
         current channel validity state is used.
         """
+
+        if self._evaluation_snapshot is not None:
+            from core.measurement.measurement_channel import MeasurementValidity
+            return self._sample_value("validity") is MeasurementValidity.VALID
 
         method = getattr(
             self._channel,
