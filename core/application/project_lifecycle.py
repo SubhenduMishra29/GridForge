@@ -321,6 +321,9 @@ class ProjectLifecycleService:
             presentation_data = self._serialize_presentation(self._presentation)
             if not isinstance(presentation_data, Mapping):
                 raise TypeError("Presentation serializer must return a mapping.")
+            # Keep the exact serialized baseline detached from serializer-owned
+            # mutable values and the live presentation document.
+            presentation_data = deepcopy(dict(presentation_data))
 
         self._saver(context, self._network, presentation_data, target, collection_data)
         if collection is not None:

@@ -116,6 +116,7 @@ class Application:
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
@@ -287,6 +288,16 @@ class Application:
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
         return self._project_lifecycle
+    def configure_workspace_dirty_provider(self, provider: Callable[[], bool]) -> None:
+        """Register the workspace's existing dirty projection for transition protection."""
+        if not callable(provider):
+            raise TypeError("provider must be callable.")
+        self._workspace_dirty_provider = provider
+
+    def _has_persistent_workspace_changes(self) -> bool:
+        provider = self._workspace_dirty_provider
+        return bool(provider is not None and provider())
+
     @property
     def revision(self) -> ProjectRevision: return self._revision_service.revision
     @property
@@ -694,7 +705,7 @@ class Application:
         *,
         discard_before_transition: bool = True,
     ) -> bool:
-        if not self.is_dirty:
+        if not self.is_dirty and not self._has_persistent_workspace_changes():
             return True
         normalized = self._coerce_transition_decision(decision)
         if normalized is None:
@@ -705,6 +716,10 @@ class Application:
             return False
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
+            if self.is_dirty or self._has_persistent_workspace_changes():
+                raise RuntimeError(
+                    "Project save completed but persistent project or workspace content remains dirty; transition aborted."
+                )
             return True
         if normalized is ProjectTransitionDecision.DISCARD:
             # Replacement/close transitions discard by replacing the outgoing
@@ -782,27 +797,51 @@ class Application:
         }))
         return context
 
-    def save_project(self, path: str | None = None) -> ProjectContext:
-        # Persist only the revision captured before lifecycle serialization.
-        # If the live revision advances during the save, it remains dirty.
+    def _save_project_scoped(self, path: str | None = None, *, save_as: bool = False) -> ProjectContext:
+        """Persist one captured project activation without contaminating a later activation.
+
+        The lifecycle saver is synchronous today, but serializers/savers may call
+        application code. Bind the revision baseline and success event to the
+        project activation that entered the save; an activation change makes the
+        comparison ambiguous and must never clean the newly active project.
+        """
+        lifecycle = self.project_lifecycle
+        starting_context = lifecycle.context
+        if starting_context is None:
+            raise RuntimeError("Cannot save without an active project.")
+        starting_project_id = starting_context.project_id
+        starting_generation = lifecycle.activation_generation
         revision_snapshot = self._revision_service.revision
-        context = self.project_lifecycle.save_project(path)
+
+        context = (
+            lifecycle.save_project_as(path) if save_as
+            else lifecycle.save_project(path)
+        )
+
+        if (
+            lifecycle.context is None
+            or lifecycle.context.project_id != starting_project_id
+            or lifecycle.activation_generation != starting_generation
+            or context.project_id != starting_project_id
+        ):
+            raise RuntimeError(
+                "Project activation changed during save; persisted revision baseline "
+                "and ProjectSaved event were not updated."
+            )
+
         self._revision_service.mark_persisted(revision_snapshot)
         self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id, "path": str(context.path) if context.path else None,
-            "activation_generation": self.project_lifecycle.activation_generation,
+            "project_id": starting_project_id,
+            "path": str(context.path) if context.path else None,
+            "activation_generation": starting_generation,
         }))
         return context
 
+    def save_project(self, path: str | None = None) -> ProjectContext:
+        return self._save_project_scoped(path)
+
     def save_project_as(self, path: str) -> ProjectContext:
-        revision_snapshot = self._revision_service.revision
-        context = self.project_lifecycle.save_project_as(path)
-        self._revision_service.mark_persisted(revision_snapshot)
-        self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id, "path": str(context.path) if context.path else None,
-            "activation_generation": self.project_lifecycle.activation_generation,
-        }))
-        return context
+        return self._save_project_scoped(path, save_as=True)
 
     def close_project(self, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()

@@ -47,6 +47,9 @@ class ProjectWorkspaceApplicationAdapter:
         self._save_as_path_provider: Callable[[object], str | None] | None = None
         self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
+        self._application.configure_workspace_dirty_provider(
+            lambda: bool(self._lifecycle.documents.dirty_document_ids)
+        )
 
     @property
     def application(self) -> Application: return self._application
