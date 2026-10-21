@@ -956,7 +956,9 @@ execution, or integration/runtime verification was performed for this batch.
 **Branch:** `main`  
 **Verification mode:** static source re-audit only; no tests, CI, startup, GUI, or runtime execution.
 
-The supplied Control finding IDs are preserved here as one consolidated root-cause record because the current CSV register contains no `GF-CTRL-*` rows. They are not silently deleted, renamed, or individually declared closed.
+The supplied Control finding IDs are preserved here as one consolidated root-cause record. This dated entry originally stated that the CSV contained no `GF-CTRL-*` rows; the current CSV now carries the canonical consolidated row `GF-CTRL-CONSOLIDATED-20260926`, whose `Legacy IDs` field preserves the historical IDs below. Those legacy IDs are not separate current rows and are not individually declared closed.
+
+**Canonical CSV row:** `GF-CTRL-CONSOLIDATED-20260926` — `REMEDIATED — VERIFICATION DEFERRED`; full AVR/PSS physical excitation integration and complete controller-to-DAE runtime wiring remain deferred.
 
 **Historical Control IDs:** GF-CTRL-B-004, GF-CTRL-D-003, GF-CTRL-D-004, GF-CTRL-E-002, GF-CTRL-E-006, GF-CTRL-I-001, GF-CTRL-I-002, GF-CTRL-I-004, GF-CTRL-I-008, GF-CTRL-J-003, GF-CTRL-J-004, GF-CTRL-K-001, GF-CTRL-K-005, GF-CTRL-L-001, GF-CTRL-L-002, GF-CTRL-L-003, GF-CTRL-L-004, GF-CTRL-M-001, GF-CTRL-M-006, GF-CTRL-N-001, GF-CTRL-N-002, GF-CTRL-N-003, GF-CTRL-O-001, GF-CTRL-P-001, GF-CTRL-P-002, GF-CTRL-P-003, GF-CTRL-P-004, GF-CTRL-Q-002, GF-CTRL-Q-003, GF-CTRL-R-001, GF-CTRL-R-002, GF-CTRL-R-003, GF-CTRL-R-004
 
@@ -1649,7 +1651,17 @@ The requested runtime finding identifier **GF-MASTER-0073** is already occupied 
 
 **Runtime result:** **PENDING**. The available execution environment cannot execute the user's Windows/PySide6 desktop runtime, so no startup, palette-icon, or QPaintDevice runtime closure is claimed.
 
-**Secondary QPaintDevice result:** the prior warning is not independently declared resolved without runtime evidence. The affected painter boundary is now exception-safe; runtime confirmation remains pending.
+**Secondary QPaintDevice result:** the prior warning is not independently declared resolved without runtime evidence.
+
+### GF-MASTER-0109 — Cable endpoint snapping
+
+- **Legacy/reference ID:** `GF-RUNTIME-CABLE-ENDPOINT`
+- **Status:** **CORRECTED — RUNTIME RE-VERIFICATION REQUIRED**
+- **Finding:** CableTool could pass a non-object/grid snap into EndpointIdentityAdapter.
+- **Correction recorded in the canonical CSV:** CableTool now uses `SnapSystem.snap_endpoint()`, requiring an OBJECT snap with stable `object_id` before EndpointIdentityAdapter conversion.
+- **Correction reference:** 2026-09-29 runtime trace after palette startup correction.
+- **Affected files:** `ui/tools/cable_tool.py`; `ui/core/snap_system.py`; `ui/tools/endpoint_identity_adapter.py`.
+- **Verification required:** The runtime trace reproduced a `ValueError` from a grid/non-object snap. Do not close until endpoint-to-endpoint cable interaction is exercised successfully. Runtime re-verification remains pending. The affected painter boundary is now exception-safe; runtime confirmation remains pending.
 
 **Remaining dependencies:** Windows/PySide6 application startup, plugin initialization, equipment palette construction, representative icon generation, and downstream SLD workspace reachability.
 
@@ -1876,6 +1888,8 @@ Historical repository references remain preserved as **historical/provenance/ina
 |---|---|---|---|
 | `ui/editors/control/control_editor.py` — `ControlEditor` referenced `explorer` without a constructor dependency | **OPEN — source-level composition defect** | Added `explorer: QWidget | None = None`; existing fallback remains `QLabel("Control Explorer", self)` when no presentation widget is supplied. | **STATICALLY CORRECTED → RE-AUDIT REQUIRED** |
 | `ui/editors/protection/protection_editor.py` — `ProtectionEditor` referenced `explorer` without a constructor dependency | **OPEN — source-level composition defect** | Added `explorer: QWidget | None = None`; existing fallback remains `QLabel("Protection Explorer", self)` when no presentation widget is supplied. | **STATICALLY CORRECTED → RE-AUDIT REQUIRED** |
+
+**Canonical register finding:** `GF-MASTER-0115` — **CORRECTED — RE-AUDIT REQUIRED**. The constructor dependency correction is recorded above; the finding remains open for the required static re-audit. Runtime/GUI/test verification remains deferred.
 
 ### Composition re-audit
 
