@@ -674,9 +674,25 @@ class SLDService:
         })
         self._set_node_lifecycle_state(node, "BOUND")
         node.equipment_id = equipment_id
-        transaction.record_undo(
-            lambda snapshot=previous: self._restore_node_snapshot(snapshot)
-        )
+        def restore_updated_node(snapshot=previous) -> None:
+            # This is an update of an existing node, so undo must restore that
+            # live identity in place. _restore_node_snapshot is for absent-node
+            # restoration and would collide with the node that still exists.
+            target = self.document.model.get_node_optional(snapshot["node_id"])
+            if target is None:
+                self._restore_node_snapshot(snapshot)
+                return
+            target.set_position(float(snapshot.get("x", 0.0)), float(snapshot.get("y", 0.0)))
+            if snapshot.get("presentation") is None:
+                target.clear_presentation()
+            else:
+                target.set_presentation(snapshot["presentation"])
+            target.properties.clear()
+            target.properties.update(deepcopy(dict(snapshot.get("properties", {}))))
+            target.equipment_id = snapshot.get("equipment_id")
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_updated_node)
         self.document.mark_modified()
 
     @classmethod
@@ -1074,10 +1090,12 @@ class SLDService:
                     node.equipment_id = node_snapshot.get("equipment_id")
             if self.document.model.get_connection_optional(old_id) is None:
                 self._restore_connection_snapshot(snapshot)
-            if previous_document_modified:
-                self.document.mark_modified()
-            else:
-                self.document.mark_clean()
+            # This inverse is also retained in committed undo history.
+            # Restoring the pre-operation clean flag here would incorrectly
+            # make an undone, persisted document appear clean. Immediate
+            # transaction rollback restores the original dirty flag through
+            # apply_command's rollback finalizer after all inverses succeed.
+            self.document.mark_modified()
 
         # Register the inverse before mutating the presentation so any failure
         # during the multi-object replacement is rollback-safe as well.
@@ -1391,8 +1409,13 @@ class SLDService:
         node.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_properties() -> None:
-            node.properties.clear()
-            node.properties.update(deepcopy(previous))
+            # Resolve through the live document model at undo time. A later
+            # remove/restore cycle may have replaced the original node object;
+            # mutating the captured object would silently leave persisted state
+            # unchanged on the currently registered node.
+            target = self.document.model.get_node(p["node_id"])
+            target.properties.clear()
+            target.properties.update(deepcopy(previous))
             self.document.mark_modified()
 
         transaction.record_undo(restore_properties)
@@ -1425,9 +1448,13 @@ class SLDService:
         connection.properties.update(updated_properties)
         self.document.mark_modified()
         def restore_route() -> None:
-            connection.route = previous
-            connection.properties.clear()
-            connection.properties.update(deepcopy(previous_properties))
+            # Undo may follow a remove/restore cycle that reconstructs the
+            # connection object. Restore the live model object by canonical ID,
+            # not the stale instance captured by the forward handler.
+            target = self.document.model.get_connection(p["connection_id"])
+            target.route = previous
+            target.properties.clear()
+            target.properties.update(deepcopy(previous_properties))
             self.document.mark_modified()
 
         transaction.record_undo(restore_route)

@@ -216,15 +216,20 @@ class ProjectWorkspaceLifecycle:
         if self._project is None: raise RuntimeError("Cannot replace a document without an active project.")
         if document.project_id not in (None, self._project.project_id): raise ValueError("document belongs to a different project.")
         existing = self._documents.get(document.document_id)
-        if existing is None:
-            self._documents.register(document)
-        else:
-            self._documents.replace(document)
-        self._documents.activate(document.document_id)
-        views = self._views.views_for_document(document.document_id)
-        if views:
-            self._views.activate(views[0].view_id)
-        return self.state
+        snapshot = self._capture_transition_snapshot()
+        try:
+            if existing is None:
+                self._documents.register(document)
+            else:
+                self._documents.replace(document)
+            self._documents.activate(document.document_id)
+            views = self._views.views_for_document(document.document_id)
+            if views:
+                self._views.activate(views[0].view_id)
+            return self.state
+        except BaseException:
+            self._restore_transition_snapshot(snapshot)
+            raise
 
     def add_view(self, view: ViewRecord) -> ProjectWorkspaceState:
         if not isinstance(view, ViewRecord): raise TypeError("view must be a ViewRecord.")

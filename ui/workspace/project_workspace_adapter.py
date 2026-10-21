@@ -487,28 +487,34 @@ class ProjectWorkspaceApplicationAdapter:
         snapshot = self._lifecycle.capture_transition_state()
         if self._document_transition_guard is not None:
             self._document_transition_guard()
-        document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
-        document = self._lifecycle.create_document(
-            "sld",
-            name=document_name,
-            factory=lambda document_id, project_id, item_name: SLDDocument(
-                document_id=document_id,
-                project_id=project_id,
-                name=item_name,
-            ),
-        )
-        self._lifecycle.add_view(ViewRecord(
-            view_id=f"{document.document_id}:sld",
-            document_id=document.document_id,
-            view_type="sld",
-        ))
+        document: SLDDocument | None = None
         try:
+            document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
+            document = self._lifecycle.create_document(
+                "sld",
+                name=document_name,
+                factory=lambda document_id, project_id, item_name: SLDDocument(
+                    document_id=document_id,
+                    project_id=project_id,
+                    name=item_name,
+                ),
+            )
+            self._lifecycle.add_view(ViewRecord(
+                view_id=f"{document.document_id}:sld",
+                document_id=document.document_id,
+                view_type="sld",
+            ))
             self.activate_document(document.document_id)
+            return document
         except BaseException as primary:
-            recovery: list[tuple[str, Callable[[], None]]] = [
-                ("new-document removal", lambda: self._lifecycle.remove_document(document.document_id)),
-                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
-            ]
+            recovery: list[tuple[str, Callable[[], None]]] = []
+            if document is not None and self._lifecycle.documents.get(document.document_id) is not None:
+                recovery.append(
+                    ("new-document removal", lambda: self._lifecycle.remove_document(document.document_id))
+                )
+            recovery.append(
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot))
+            )
             if previous is not None:
                 recovery.append(
                     ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
@@ -519,7 +525,6 @@ class ProjectWorkspaceApplicationAdapter:
                     )
             self._recover_independently(primary, tuple(recovery))
             raise
-        return document
 
     def close_document(
         self,
@@ -536,6 +541,11 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        # Reject an impossible close before invoking Save/Save As. The active
+        # project must retain one SLD document, so a request that cannot commit
+        # must not produce persistence side effects or clear dirty state.
+        if len(self._lifecycle.documents) <= 1:
+            raise RuntimeError("The active project must retain at least one SLD document.")
         if self._document_transition_guard is not None:
             self._document_transition_guard()
         if self._lifecycle.documents.is_dirty(document_id):
@@ -581,8 +591,6 @@ class ProjectWorkspaceApplicationAdapter:
                 # the still-open document must remain dirty.
                 pass
 
-        if len(self._lifecycle.documents) <= 1:
-            raise RuntimeError("The active project must retain at least one SLD document.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         try:
