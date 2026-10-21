@@ -215,6 +215,7 @@ class SLDEditor(QWidget):
         self._definition_visibility: dict[str, bool] = {}
         self._region_preferred_sizes: dict[str, int] = {}
         self._editor_definition_applied = False
+        self._initial_sizes_pending = True
         self._presentation_maximized = False
         self._maximize_callback = None
 
@@ -277,12 +278,34 @@ class SLDEditor(QWidget):
         # when the effective definition actually changes.
         if layout_changed:
             self._apply_splitter_sizes(preferred)
+            self._initial_sizes_pending = not self._splitters_have_geometry()
         self._sync_panel_buttons()
 
-    def _apply_splitter_sizes(self, preferred: dict[str, int] | None = None) -> None:
+    def _splitters_have_geometry(self) -> bool:
+        return all(
+            splitter.width() > 0 and splitter.height() > 0
+            for splitter in self._region_splitters.values()
+        )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Qt may activate the editor before its parent layout assigns geometry.
+        # Apply canonical initial sizes on the first usable show, not via a timer.
+        if self._initial_sizes_pending and self._splitters_have_geometry():
+            self._apply_splitter_sizes(self._region_preferred_sizes)
+            self._initial_sizes_pending = False
+
+    def _apply_splitter_sizes(
+        self,
+        preferred: dict[str, int] | None = None,
+        *,
+        affected: set[str] | None = None,
+    ) -> None:
         preferred = preferred or {}
+        all_regions = {"tool_shelf", "explorer", "sidebar", "overlay", "tool_settings"}
+        affected = all_regions if affected is None else affected
         body = self._region_splitters["body"]
-        if body.width() > 0:
+        if body.width() > 0 and affected.intersection({"tool_shelf", "explorer", "sidebar", "overlay"}):
             current = body.sizes()
             left_column_visible = any(
                 not self._region_widgets[region_id].isHidden()
@@ -321,7 +344,7 @@ class SLDEditor(QWidget):
             body.setSizes([shelf, center, sidebar])
 
         left = self._region_splitters["left"]
-        if left.height() > 0:
+        if left.height() > 0 and "explorer" in affected:
             current = left.sizes()
             explorer_visible = not self._region_widgets["explorer"].isHidden()
             explorer_default = preferred.get(
@@ -335,7 +358,7 @@ class SLDEditor(QWidget):
             left.setSizes([explorer, max(1, left.height() - explorer - left.handleWidth())])
 
         center = self._region_splitters["center"]
-        if center.height() > 0:
+        if center.height() > 0 and "tool_settings" in affected:
             current = center.sizes()
             settings_visible = not self._region_widgets["tool_settings"].isHidden()
             settings_default = preferred.get(
@@ -349,7 +372,7 @@ class SLDEditor(QWidget):
             center.setSizes([settings, max(1, center.height() - settings - center.handleWidth())])
 
         sidebar_splitter = self._region_splitters["sidebar"]
-        if sidebar_splitter.height() > 0:
+        if sidebar_splitter.height() > 0 and affected.intersection({"sidebar", "overlay"}):
             current = sidebar_splitter.sizes()
             inspector_visible = not self._region_widgets["sidebar"].isHidden()
             overlay_visible = not self._region_widgets["overlay"].isHidden()
@@ -381,19 +404,17 @@ class SLDEditor(QWidget):
             self._region_user_visibility[region_id] = visible
         frame = self._region_widgets[region_id]
         if self._presentation_maximized:
-            # Keep secondary regions hidden until restore. Explicit user choices
-            # made during maximization update the restore target, not the canvas
-            # presentation currently on screen.
-            if user and hasattr(self, "_restore_visibility"):
+            # Option 2: allow choices while maximized, but keep panels hidden.
+            # Contextual automation cannot overwrite the user's pending restore state.
+            if user:
                 self._restore_visibility[region_id] = visible
-            frame.setVisible(False)
             self._sync_panel_buttons()
             return
         was_visible = not frame.isHidden()
         frame.setVisible(visible)
         # Repeated contextual refreshes must not reset a deliberate splitter drag.
         if was_visible != visible:
-            self._apply_splitter_sizes()
+            self._apply_splitter_sizes(affected={region_id})
         self._sync_panel_buttons()
 
     def update_contextual_regions(self) -> None:
@@ -406,7 +427,14 @@ class SLDEditor(QWidget):
 
     def _sync_panel_buttons(self) -> None:
         for region_id, button in self._panel_buttons.items():
-            button.setChecked(not self._region_widgets[region_id].isHidden())
+            visible = (
+                self._restore_visibility.get(region_id, False)
+                if self._presentation_maximized
+                else not self._region_widgets[region_id].isHidden()
+            )
+            button.blockSignals(True)
+            button.setChecked(visible)
+            button.blockSignals(False)
 
     def set_presentation_maximized(self, maximized: bool) -> None:
         maximized = bool(maximized)
@@ -427,7 +455,8 @@ class SLDEditor(QWidget):
             for rid, visible in getattr(self, "_restore_visibility", {}).items():
                 self._region_widgets[rid].setVisible(visible)
             self._restore_button.setVisible(False)
-        self._apply_splitter_sizes()
+        changed_regions = set(getattr(self, "_restore_visibility", {}))
+        self._apply_splitter_sizes(affected=changed_regions)
         self._sync_panel_buttons()
         if callable(self._maximize_callback):
             self._maximize_callback(maximized)
