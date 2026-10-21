@@ -206,11 +206,6 @@ def create_application(network: Any) -> Application:
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
-        # Retain the exact live service state. Serialized definitions omit
-        # authoritative sample state and reprovisioning would invalidate
-        # channel references already held by the prior ProtectionRuntime and
-        # RelayInput instances.
-        previous_measurement_state = measurement_channel_service.snapshot_state()
         # Capture the exact pre-transition authority. Reconstructing a synthetic
         # ProjectContext or consulting lifecycle.network during compensation can
         # bind old channel definitions to the candidate network.
@@ -235,9 +230,6 @@ def create_application(network: Any) -> Application:
             application.configure_control_signal_mapping(previous_control_signal_mapping)
 
         def restore_project_state() -> None:
-            # Restore the exact registry and channel objects before restoring
-            # consumers that retain references to those objects.
-            measurement_channel_service.restore_state(previous_measurement_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -253,15 +245,12 @@ def create_application(network: Any) -> Application:
                 control_service.activate(ControlConfiguration.empty("closed-project"))
                 application.control_engine.deactivate()
                 application.configure_control_signal_mapping(None)
-                measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
                 application.protection_presentation = None
                 dynamic_models.replace(())
                 application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
             else:
-                definitions = loaded.measurement_definitions if loaded is not None else ()
-                measurement_channel_service.activate(context, network, definitions, generation)
                 configuration = (
                     loaded.protection_configuration
                     if loaded is not None and loaded.protection_configuration is not None
