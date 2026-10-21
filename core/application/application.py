@@ -371,6 +371,10 @@ class Application:
             raise RuntimeError("Active project protection runtime/configuration is not available.")
         if runtime.network is not lifecycle.network:
             raise RuntimeError("Protection runtime network is stale for the active project.")
+        if runtime.project_id != project.project_id:
+            raise RuntimeError("Protection runtime project identity is stale for the active project.")
+        if runtime.activation_generation != lifecycle.activation_generation:
+            raise RuntimeError("Protection runtime activation generation is stale for the active project.")
         active_configuration = configuration.configuration
         if active_configuration is None:
             raise RuntimeError("Active project protection configuration is unavailable.")
@@ -996,7 +1000,7 @@ class Application:
             if network is None:
                 raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
             previous_runtime = getattr(self, "protection_runtime", None)
-            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation)
             candidate_runtime.compose(channel_service.channels)
             self.protection_runtime = candidate_runtime
             transaction.record_undo(
