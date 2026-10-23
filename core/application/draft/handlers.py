@@ -131,14 +131,69 @@ class CommitNetworkHandler:
             raise ValueError("Draft equipment requires non-empty type and draft identity.")
         return f"{equipment_type}-{draft_id}"
 
-    def _resolve_equipment_endpoints(self, item, core_ids):
+    @staticmethod
+    def _terminal_for_equipment(item, endpoint, semantic_name):
+        return (
+            endpoint.is_terminal
+            and endpoint.scope == "draft"
+            and endpoint.object_id == item.draft_id
+            and endpoint.equipment_type == str(item.equipment_type).strip().lower()
+            and endpoint.terminal_role == semantic_name
+        )
+
+    def _resolve_equipment_endpoints(self, item, core_ids, connections):
+        """Reconcile mapped creation endpoints against the authoritative draft graph.
+
+        DraftEquipment.endpoints is an explicit declaration, not a second topology
+        authority. Every mapped semantic endpoint must have exactly one DraftConnection;
+        any explicit declaration must agree with that connection's opposite endpoint.
+        """
+        unknown_declarations = set(item.endpoints) - set(item.endpoint_mapping)
+        if unknown_declarations:
+            raise ValueError(
+                f"{item.draft_id}: endpoint declarations are not mapped by the canonical "
+                f"creation contract: {sorted(unknown_declarations)!r}."
+            )
+
         resolved = {}
-        for semantic_name, endpoint in sorted(item.endpoints.items(), key=lambda pair: str(pair[0])):
-            if semantic_name not in item.endpoint_mapping:
+        for semantic_name in sorted(item.endpoint_mapping):
+            if semantic_name not in item.terminal_contract:
                 raise ValueError(
-                    f"{item.draft_id}: endpoint {semantic_name!r} is not present in the canonical endpoint mapping."
+                    f"{item.draft_id}: mapped endpoint {semantic_name!r} does not identify "
+                    "a canonical equipment terminal."
                 )
-            resolved[str(semantic_name)] = self._resolver._to_core_endpoint(endpoint, core_ids)
+
+            terminal_connections = []
+            for connection in connections:
+                source_matches = self._terminal_for_equipment(
+                    item, connection.source, semantic_name
+                )
+                target_matches = self._terminal_for_equipment(
+                    item, connection.target, semantic_name
+                )
+                if source_matches:
+                    terminal_connections.append((connection, connection.target))
+                if target_matches:
+                    terminal_connections.append((connection, connection.source))
+
+            if len(terminal_connections) != 1:
+                raise ValueError(
+                    f"{item.draft_id}: mapped endpoint {semantic_name!r} requires exactly "
+                    f"one DraftConnection; found {len(terminal_connections)}."
+                )
+
+            connection, graph_endpoint = terminal_connections[0]
+            declared_endpoint = item.endpoints.get(semantic_name)
+            if declared_endpoint is not None and declared_endpoint != graph_endpoint:
+                raise ValueError(
+                    f"{item.draft_id}: declared endpoint {semantic_name!r} conflicts "
+                    f"with DraftConnection {connection.connection_id!r}; the connection "
+                    "graph is authoritative."
+                )
+
+            resolved[semantic_name] = self._resolver._to_core_endpoint(
+                graph_endpoint, core_ids
+            )
         return resolved
 
     def __call__(self, command, context, transaction):
@@ -220,7 +275,7 @@ class CommitNetworkHandler:
                 parameter_mapping=dict(item.parameter_mapping),
                 endpoint_mapping=dict(item.endpoint_mapping),
                 values=values,
-                endpoints=self._resolve_equipment_endpoints(item, core_ids),
+                endpoints=self._resolve_equipment_endpoints(item, core_ids, snapshot.connections),
                 position=item.placement,
             )
             prepared = preparer.prepare(intent)
