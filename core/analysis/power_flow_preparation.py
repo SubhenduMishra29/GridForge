@@ -140,13 +140,30 @@ class PreparedPowerFlow:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
-        if self.project_id is not None and not str(self.project_id).strip():
-            raise ValueError("Prepared Power Flow project_id must be non-empty when supplied.")
+        if self.project_id is not None:
+            if not isinstance(self.project_id, str):
+                raise TypeError("Prepared Power Flow project_id must be a string when supplied.")
+            if not self.project_id.strip():
+                raise ValueError("Prepared Power Flow project_id must be non-empty when supplied.")
         if self.activation_generation is not None:
             if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int):
                 raise TypeError("Prepared Power Flow activation_generation must be an integer when supplied.")
             if self.activation_generation < 1:
                 raise ValueError("Prepared Power Flow activation_generation must be positive when supplied.")
+        if self.topology_revision is not None:
+            if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int):
+                raise TypeError("Prepared Power Flow topology_revision must be an integer when supplied.")
+            if self.topology_revision < 0:
+                raise ValueError("Prepared Power Flow topology_revision must be non-negative.")
+        ybus_revision = self.ybus.topology_revision
+        if (
+            self.topology_revision is not None
+            and ybus_revision is not None
+            and self.topology_revision != ybus_revision
+        ):
+            raise ValueError(
+                "Prepared Power Flow and YBus topology revisions must match when both are supplied."
+            )
 
     @property
     def bus_ids(self) -> tuple[str, ...]:
