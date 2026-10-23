@@ -48,6 +48,8 @@ class PowerFlowResultConverter:
         result: PowerFlowResult,
         bus_ids: Sequence[str],
         bus_voltage_bases: Mapping[str, float],
+        *,
+        expected_snapshot_id: str | None = None,
     ) -> EngineeringPowerFlowResult:
         """Convert PU voltage magnitudes using a detached bus/base snapshot."""
         if not isinstance(result, PowerFlowResult):
@@ -65,6 +67,11 @@ class PowerFlowResultConverter:
             )
         if result.snapshot_id is None:
             raise ValueError("Power Flow result must carry its originating input snapshot identity.")
+        if expected_snapshot_id is not None:
+            if not isinstance(expected_snapshot_id, str) or not expected_snapshot_id.strip():
+                raise ValueError("expected_snapshot_id must be a non-empty string when supplied.")
+            if result.snapshot_id != expected_snapshot_id.strip():
+                raise ValueError("Power Flow result snapshot identity does not match the expected prepared input snapshot.")
         if len(ids) != len(result.voltage_magnitudes):
             raise ValueError(
                 "Power Flow result voltage count must match the supplied bus IDs."
