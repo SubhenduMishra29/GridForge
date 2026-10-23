@@ -2928,3 +2928,42 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — POWER FLOW SNAPSHOT PROVENANCE CONSISTENCY
+======================================================================
+
+File corrected:
+    core/analysis/power_flow_preparation.py
+
+Batch audit scope:
+    Reviewed Power Flow prepared-snapshot identity and revision fields,
+    YBus revision propagation, and related Analysis/solver boundaries.
+
+Source evidence:
+    PreparedPowerFlow checked project_id only for blankness after coercion
+    to str, so a non-string value could be retained despite the declared
+    str | None contract. topology_revision had no local type/range
+    validation, and the snapshot did not reject conflicting non-null
+    topology revisions supplied by its YBus.
+
+Correction:
+    - Require supplied project_id to be a non-empty string.
+    - Require supplied topology_revision to be an integer (not bool) and
+      non-negative.
+    - Reject conflicting non-null PreparedPowerFlow and YBus revisions.
+    - Preserve optional provenance fields for compatibility with manually
+      assembled snapshots where provenance is absent.
+
+Disposition:
+    This enforces local provenance shape and detects revision mismatch when
+    both values are present. It does not establish project/generation
+    consistency against a live project, nor require YBus revision metadata
+    when it is absent.
+
+Verification boundary:
+    - Source and register re-fetched after the correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
