@@ -2737,3 +2737,35 @@ Verification boundary:
     - No tests or CI run. Runtime/concurrency behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — TRANSIENT-STABILITY CONFIGURATION METADATA IMMUTABILITY
+======================================================================
+
+File corrected:
+    core/analysis/transient_stability.py
+
+Source evidence:
+    TransientStabilityStudyConfiguration is a frozen dataclass, but its
+    metadata was only wrapped with MappingProxyType(dict(...)). Nested
+    dictionaries, lists, and sets supplied by a caller could still be
+    mutated after configuration construction.
+
+Correction:
+    - Added a Core-local recursive freezer for Mapping, list/tuple, and
+      set/frozenset metadata containers.
+    - Applied it during configuration initialization.
+    - Preserved non-container typed values rather than coercing arbitrary
+      objects into another representation.
+
+Disposition:
+    Built-in nested metadata containers are now recursively frozen.
+    This does not claim arbitrary custom objects stored in metadata are
+    themselves immutable.
+
+Verification boundary:
+    - Source was re-fetched and checked after the correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
