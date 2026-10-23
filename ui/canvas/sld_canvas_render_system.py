@@ -567,7 +567,19 @@ class SLDCanvasRenderSystem:
     def _node_signature(node: Any) -> str:
         presentation = getattr(node.presentation, "to_dict", lambda: None)()
         properties = tuple(sorted((str(key), repr(value)) for key, value in node.properties.items()))
-        return repr((node.node_id, node.equipment_id, node.x, node.y, presentation, properties))
+        read_model = node.read_model
+        read_model_signature = None if read_model is None else (
+            read_model.object_id,
+            read_model.element_type,
+            tuple(sorted((str(key), str(value)) for key, value in read_model.labels.items())),
+            tuple(read_model.connectivity_refs),
+            tuple(sorted((str(key), repr(value)) for key, value in read_model.attributes.items())),
+            repr(read_model.engineering_parameters),
+        )
+        return repr((
+            node.node_id, node.equipment_id, node.x, node.y,
+            presentation, properties, read_model_signature,
+        ))
 
     @staticmethod
     def _connection_signature(connection: Any, node_by_id: dict[str, Any] | None = None) -> str:
