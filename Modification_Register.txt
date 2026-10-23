@@ -2894,3 +2894,37 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — POWER FLOW SNAPSHOT GENERATION TYPE VALIDATION
+======================================================================
+
+File corrected:
+    core/analysis/power_flow_preparation.py
+
+Batch audit scope:
+    Reviewed the Power Flow configuration, preparation snapshot, analysis
+    orchestration, result conversion, and package export boundaries.
+
+Source evidence:
+    PreparedPowerFlow previously checked activation_generation by applying
+    int(value) for the positivity comparison, but retained the original
+    value. This could accept a positive fractional float such as 1.5 even
+    though the declared contract is int | None.
+
+Correction:
+    - Reject booleans and non-integer values with TypeError.
+    - Retain the positive-value check for integer generations.
+    - Leave topology identity values and result conversion unchanged.
+
+Disposition:
+    The activation-generation field now enforces its declared integer type
+    at snapshot construction. This batch review does not claim that every
+    Power Flow preparation, solver, or result-consumer contract is closed.
+
+Verification boundary:
+    - Source and register re-fetched after the correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
