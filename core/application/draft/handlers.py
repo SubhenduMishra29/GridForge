@@ -267,6 +267,8 @@ class CommitNetworkHandler:
                 values=values,
                 endpoints=self._resolve_equipment_endpoints(item, core_ids, snapshot.connections),
                 position=item.placement,
+                parameter_contract=item.parameter_contract,
+                conditional_requirements=item.conditional_requirements,
             )
             prepared = preparer.prepare(intent)
             prepared_commands.append(prepared)
