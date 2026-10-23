@@ -48,12 +48,14 @@ class CreationRequirements:
 
     @classmethod
     def from_definition(cls, definition: CreationDefinition) -> "CreationRequirements":
-        topology = tuple(item for item in definition.topology_requirements if item.required)
+        # Endpoint acquisition is a commit requirement unless a terminal is
+        # explicitly marked initial_endpoint_required. Equipment must remain
+        # placeable before it is wired into the draft network.
         terminals = tuple(item for item in definition.terminal_requirements if item.initial_endpoint_required)
-        endpoint_required = bool(topology or terminals)
+        endpoint_required = bool(terminals)
         multi_endpoint_required = (
-            len(topology) + len(terminals) > 1
-            or any(item.cardinality in {"pair", "multiple"} for item in (*topology, *terminals))
+            len(terminals) > 1
+            or any(item.cardinality in {"pair", "multiple"} for item in terminals)
         )
         return cls(
             configuration_required=definition.configuration_required,
@@ -168,9 +170,6 @@ class CreationDraft:
         errors: list[str] = []
         if self.definition.placement_required and self.placement_position is None:
             errors.append("Placement position is required.")
-        for requirement in self.definition.topology_requirements:
-            if requirement.required and self.endpoints.get(requirement.name) is None:
-                errors.append(f"Required topology endpoint {requirement.name!r} is missing.")
         self.validation_state["placement"] = tuple(errors)
         self.validation_state["endpoint"] = tuple(
             error for error in errors if "endpoint" in error.lower()
@@ -181,6 +180,12 @@ class CreationDraft:
         self.mark_validating()
         configuration_ok = self.validate_configuration()
         placement_ok = self.validate_placement()
+        topology_errors = tuple(
+            f"Required topology endpoint {item.name!r} is missing."
+            for item in self.definition.topology_requirements
+            if item.required and self.endpoints.get(item.name) is None
+        )
+        self.validation_state["topology"] = topology_errors
         self.validation_state["terminal"] = tuple(
             f"Required terminal {item.terminal_name!r} is not acquired."
             for item in self.definition.terminal_requirements
@@ -189,6 +194,7 @@ class CreationDraft:
         final = (
             tuple(self.validation_state.get("configuration", ()))
             + tuple(self.validation_state.get("placement", ()))
+            + tuple(self.validation_state.get("topology", ()))
             + tuple(self.validation_state.get("terminal", ()))
         )
         self.validation_state["final"] = final
