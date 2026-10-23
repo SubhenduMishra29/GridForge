@@ -1897,3 +1897,55 @@ Disposition:
     field-by-field save/load/rollback obligations are resolved.
 
 ======================================================================
+
+
+----------------------------------------------------------------------
+2026-10-23 — GF-MASTER-0005 — MEASUREMENT RESTORE CORRECTION TARGET REFINED
+----------------------------------------------------------------------
+
+Additional source trace:
+    core/application/services/measurement_channel_service.py
+        MeasurementChannelService.activate(context, network, definitions,
+        generation) already reconstructs channels, captures exact prior
+        authority, and returns a rollback callback. snapshot_state() and
+        restore_state() preserve project ID, activation generation, Network
+        identity, channel registry identity, and live sample state.
+        _provision_definition() resolves the source equipment and terminal
+        reference against the candidate project/network.
+    core/application/bootstrap.py
+        create_application() calls activate_project_state() from the
+        lifecycle's project_state_activator slot. Within that callback,
+        protection configuration validation, relay input binding, and
+        ProtectionRuntime.compose() currently consume
+        measurement_channel_service.channels. The inspected callback does not
+        invoke MeasurementChannelService.activate() with loaded definitions.
+        save_project() does serialize definitions from the active service.
+    core/application/project_lifecycle.py
+        _activate_candidate() invokes network activation before project-state
+        activation, and appends each returned rollback callback to a stack.
+        On failure, callbacks are invoked in reverse order before lifecycle
+        context/network/generation are restored.
+
+Implementation target clarified:
+    Invoke measurement_channel_service.activate(context, network,
+    loaded.measurement_definitions, generation) inside the project-state
+    activation transaction before reading candidate_channels and before any
+    protection validation, relay binding, or ProtectionRuntime.compose().
+    Register its returned rollback callback in the same compensation chain,
+    and ensure it runs if a later stage of activate_project_state() fails.
+    The existing activate_project_state() catches internal failures and
+    performs its own restoration before it returns a lifecycle rollback
+    callback, so integration must account for both failure-before-return and
+    later-stage failure; avoid a double-rollback design that masks the
+    original activation error.
+    For context=None, explicitly activate an empty definition set and preserve
+    the project-less service invariant. Preserve the current policy that absent
+    optional persisted definitions resolve to an empty sequence, unless source
+    migration policy establishes otherwise.
+
+Evidence boundary:
+    This refines the static implementation target from source inspection only.
+    No source code correction or runtime validation has been performed in this
+    audit authority repository. GF-MASTER-0005 remains OPEN.
+
+----------------------------------------------------------------------
