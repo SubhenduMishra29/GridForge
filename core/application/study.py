@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
+from threading import RLock
 from uuid import UUID, uuid4
 
 from .event_bus import ApplicationEventBus
@@ -197,6 +198,7 @@ class StudyService:
         self._handlers: dict[str, StudyHandler] = {}
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
+        self._lock = RLock()
 
     @property
     def registered_study_types(self) -> tuple[str, ...]:
@@ -226,9 +228,10 @@ class StudyService:
         if not callable(handler):
             raise TypeError("handler must be callable.")
         key = study_type.strip()
-        if key in self._handlers:
-            raise ValueError(f"Study type already registered: {key!r}")
-        self._handlers[key] = handler
+        with self._lock:
+            if key in self._handlers:
+                raise ValueError(f"Study type already registered: {key!r}")
+            self._handlers[key] = handler
 
     def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
         if not isinstance(request, StudyRequest):
@@ -239,15 +242,15 @@ class StudyService:
             raise ValueError("Study execution context does not match StudyRequest scope.")
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
-        handler = self._handlers.get(request.study_type)
-        if handler is None:
-            raise KeyError(f"No study handler registered for {request.study_type!r}.")
-
         key = (request.project_id, request.activation_generation, request.study_id)
-        if key in self._tokens:
-            raise ValueError(f"Study is already active: {request.study_id}")
         token = StudyCancellationToken()
-        self._tokens[key] = token
+        with self._lock:
+            handler = self._handlers.get(request.study_type)
+            if handler is None:
+                raise KeyError(f"No study handler registered for {request.study_type!r}.")
+            if key in self._tokens:
+                raise ValueError(f"Study is already active: {request.study_id}")
+            self._tokens[key] = token
 
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
@@ -262,6 +265,8 @@ class StudyService:
                     status="cancelled",
                     message="Study cancelled.",
                 )
+                with self._lock:
+                    with self._lock:
                 self._results[key] = result
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
                 return result
@@ -292,32 +297,38 @@ class StudyService:
             self._event_bus.publish(StudyFailed(metadata=self._event_metadata(request, status="failed", error=str(exc))))
             raise
         finally:
-            self._tokens.pop(key, None)
+            with self._lock:
+                self._tokens.pop(key, None)
 
     @property
     def has_active_studies(self) -> bool:
-        return bool(self._tokens)
+        with self._lock:
+            return bool(self._tokens)
 
     def ensure_no_active_studies(self) -> None:
-        if self._tokens:
-            scopes = ", ".join(
-                f"{project_id}:{generation}:{study_id}"
-                for project_id, generation, study_id in self._tokens
-            )
-            raise RuntimeError(f"Project transition blocked by active study scope(s): {scopes}")
+        with self._lock:
+            if self._tokens:
+                scopes = ", ".join(
+                    f"{project_id}:{generation}:{study_id}"
+                    for project_id, generation, study_id in self._tokens
+                )
+                raise RuntimeError(f"Project transition blocked by active study scope(s): {scopes}")
 
     def cancel(self, study_id: UUID, *, project_id: str, activation_generation: int) -> bool:
-        token = self._tokens.get((project_id, activation_generation, study_id))
-        if token is None:
-            return False
-        token.cancel()
-        return True
+        with self._lock:
+            token = self._tokens.get((project_id, activation_generation, study_id))
+            if token is None:
+                return False
+            token.cancel()
+            return True
 
     def get_result(self, study_id: UUID, *, project_id: str, activation_generation: int) -> StudyResult | None:
-        return self._results.get((project_id, activation_generation, study_id))
+        with self._lock:
+            return self._results.get((project_id, activation_generation, study_id))
 
     def results(self, *, project_id: str | None = None, activation_generation: int | None = None) -> tuple[StudyResult, ...]:
-        values = tuple(self._results.values())
+        with self._lock:
+            values = tuple(self._results.values())
         if project_id is None and activation_generation is None:
             return values
         return tuple(result for result in values if (project_id is None or result.project_id == project_id) and (activation_generation is None or result.activation_generation == activation_generation))
