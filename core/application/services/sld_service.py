@@ -44,6 +44,7 @@ class SLDService:
         "sld.remove_connection",
         "sld.set_connection_route",
         "sld.set_node_properties",
+        "sld.set_annotation_blocks",
     })
 
     def __init__(
@@ -395,6 +396,7 @@ class SLDService:
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
             "sld.set_connection_route": self._set_connection_route,
             "sld.set_node_properties": self._set_node_properties,
+            "sld.set_annotation_blocks": self._set_annotation_blocks,
         }[command.command_type]
         document = self.document
         was_modified = bool(document.modified)
@@ -1377,6 +1379,34 @@ class SLDService:
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _set_annotation_blocks(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Replace SLD annotation configuration atomically and retain undo history."""
+        payload = command.payload.get("annotation_blocks")
+        if not isinstance(payload, list) or any(not isinstance(item, Mapping) for item in payload):
+            raise TypeError("annotation_blocks must be a list of mappings")
+        previous = [block.to_dict() for block in self.document.annotation_blocks]
+        updated = [deepcopy(dict(item)) for item in payload]
+        if updated == previous:
+            return ApplicationResult.success_result(
+                message="SLD annotation blocks are unchanged.",
+                metadata={"presentation_operation": "set_annotation_blocks"},
+            )
+
+        # Register the inverse before mutation so validation failures remain
+        # transaction-safe. The document validates identity, fields and node
+        # references at the presentation boundary.
+        def restore_annotation_blocks() -> None:
+            self.document.replace_annotation_blocks(previous)
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_annotation_blocks)
+        self.document.replace_annotation_blocks(updated)
+        self.document.mark_modified()
+        return ApplicationResult.success_result(
+            message="SLD annotation blocks updated.",
+            metadata={"presentation_operation": "set_annotation_blocks"},
         )
 
     def _set_node_properties(self, command: Command, transaction: Transaction) -> ApplicationResult:
