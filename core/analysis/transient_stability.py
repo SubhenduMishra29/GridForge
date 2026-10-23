@@ -50,7 +50,7 @@ class TransientStabilityAnalysis:
 
     def __init__(self, solver: TransientStabilitySolver,
                  configuration: TransientStabilityStudyConfiguration,
-                 initial_state) -> None:
+                 initial_state, *, provenance: Mapping[str, Any] | None = None) -> None:
         if not isinstance(solver, TransientStabilitySolver):
             raise TypeError("solver must be TransientStabilitySolver.")
         if not isinstance(configuration, TransientStabilityStudyConfiguration):
@@ -58,6 +58,7 @@ class TransientStabilityAnalysis:
         self.solver = solver
         self.configuration = configuration
         self.initial_state = tuple(float(value) for value in initial_state)
+        self.provenance = MappingProxyType(dict(provenance or {}))
         self.result: TransientStabilityStudyResult | None = None
 
     def run(self) -> TransientStabilityStudyResult:
@@ -67,7 +68,10 @@ class TransientStabilityAnalysis:
         self.solver.dt = self.configuration.dt
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
         numerical = self.solver.run(record_initial=True)
-        self.result = numerical
+        # Keep project/snapshot identity attached to the immutable result rather
+        # than losing it at the solver/Analysis boundary.
+        from dataclasses import replace
+        self.result = replace(numerical, provenance=self.provenance)
         return self.result
 
 
