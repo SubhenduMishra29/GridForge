@@ -2112,3 +2112,79 @@ Disposition:
     or CI were run.
 
 ----------------------------------------------------------------------
+
+======================================================================
+BATCH — 2026-10-23 — GF-MASTER-0027..0029 / GF-MASTER-0034
+PROTECTION DECISION → APPLICATION COMMAND → CORE STATE / MEASUREMENT
+======================================================================
+
+Files inspected on current main:
+    core/protection/decision.py
+    core/protection/runtime.py
+    core/application/protection_execution.py
+    core/application/services/protection_output_service.py
+    core/application/services/protection_configuration_service.py
+    core/application/services/switching_model_service.py
+    core/application/bootstrap.py
+
+Confirmed decision and measurement contracts:
+    - ProtectionDecision is immutable and separates decision intent from
+      physical switching; actionable requires valid, unblocked trip_request.
+    - ProtectionRuntime composes project protection configuration against
+      Core objects and measurement channels.
+    - ProtectionConfigurationService validates configured input-channel IDs
+      against active channel definitions and declared input contracts.
+    - bind_measurement() updates persisted project association and Relay input
+      binding in one Application transaction with an undo callback.
+    - Measurement channel binding therefore has a concrete service boundary,
+      but this inspection does not prove that every production protection
+      function receives current, quality-qualified, timestamped measurements.
+
+Confirmed decision-to-command mechanisms:
+    - ProtectionExecutionService accepts ProtectionDecision values and uses
+      an injected Application-owned action_resolver to map an actionable
+      decision to ControlDecision.
+    - It translates ControlDecision to an Application Command and dispatches
+      through ControlCommandDispatcher, recording typed per-decision outcomes.
+    - It checks an optional pre-dispatch guard and supports typed Core
+      postcondition verification; command acceptance is distinguished from a
+      matched/mismatched/unavailable Core state observation.
+    - ProtectionOutputService.trip_from_decision() separately translates an
+      actionable decision and explicit breaker_id into TripBreakerCommand
+      through Application.execute().
+    - SwitchingModelService provides transaction-bound Core Breaker/Switch
+      mutation methods, including trip_breaker() and open/close operations.
+
+Unresolved integration evidence:
+    - The inspected bootstrap composition does not visibly instantiate and
+      wire ProtectionExecutionService with a production action_resolver,
+      pre-dispatch provenance guard and typed Core state observer.
+    - The separate ProtectionOutputService accepts breaker_id explicitly;
+      its inspected method does not itself establish a persisted typed
+      protection-function → target equipment/action mapping.
+    - The resolver contract is injected and can represent the correct
+      Application boundary, but source evidence reviewed here does not prove
+      authoritative persistence, lifecycle validation, or full consumer
+      wiring for those mappings.
+    - The inspected paths do not establish end-to-end preservation and
+      rejection semantics for measurement value, quality, timestamp and
+      activation/project provenance at the point of a protection trip.
+    - No inference is made that a command acceptance equals physical Core
+      state change; the typed postcondition contract explicitly distinguishes
+      them.
+
+Disposition:
+    GF-MASTER-0027 — OPEN — production decision-to-command wiring and
+        persisted action mapping not established.
+    GF-MASTER-0028 — OPEN — target/action authority and Core switching
+        consumer reconciliation not established.
+    GF-MASTER-0029 — OPEN — end-to-end measurement/protection provenance
+        and authorization semantics not established.
+    GF-MASTER-0034 — OPEN — measurement/protection integration coverage
+        remains incomplete.
+
+Verification boundary:
+    Static source/register reconciliation only. No production source changed.
+    No tests, CI, application startup, or GUI execution performed.
+
+======================================================================
