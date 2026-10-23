@@ -1829,3 +1829,71 @@ Disposition:
     readiness.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — GF-MASTER-0005 — MEASUREMENT DEFINITION RESTORE GAP
+======================================================================
+
+Status:
+    OPEN — SOURCE-IDENTIFIED PROJECT ACTIVATION / PERSISTENCE INTEGRATION GAP
+
+Evidence inspected on current main:
+    core/persistence/project_persistence.py
+    core/application/project_lifecycle.py
+    core/application/bootstrap.py
+    core/application/services/measurement_channel_service.py
+
+Evidence:
+    - ProjectPersistenceService.save() serializes measurement definitions as
+      project["measurement"]["channels"] from the measurement_definitions
+      argument.
+    - ProjectPersistenceService.load() reads those entries into
+      LoadedProject.measurement_definitions.
+    - Application bootstrap initializes MeasurementChannelService for the
+      initial project and uses its serialize_definitions() result when saving.
+    - In the inspected bootstrap project activation callback, protection
+      configuration is activated and candidate channels are read from
+      measurement_channel_service.channels, but no reference to
+      loaded.measurement_definitions appears in the activation path. The
+      loaded definitions therefore are not visibly restored into the active
+      MeasurementChannelService by this callback.
+    - Protection runtime composition and relay input binding consume the
+      service's active channels. Consequently, persisted measurement
+      definitions may not be available to the newly activated project after
+      opening or discarding changes. This is a source-level integration finding;
+      no runtime reproduction was performed.
+
+Required correction:
+    1. Add an explicit Application-owned, project-scoped activation operation
+       that restores LoadedProject.measurement_definitions into
+       MeasurementChannelService for the candidate context/network/generation.
+    2. Validate definition ownership and source equipment/terminal references
+       against the candidate network before protection runtime composition.
+    3. Include previous measurement-service state in activation compensation
+       so failed project activation restores the exact prior channels and
+       generation, not candidate state.
+    4. Ensure new/close-project transitions explicitly activate empty
+       definitions for the new lifecycle generation.
+    5. Trace the order: candidate network activation -> measurement definition
+       activation -> protection configuration validation / relay input binding
+       -> ProtectionRuntime composition -> lifecycle commit.
+    6. Confirm the save path serializes definitions from the same active
+       project/generation and that optional/missing persisted definitions have
+       an explicit backward-compatible policy.
+    7. Re-fetch changed source and review the final diff/hygiene after correction.
+
+Related documentation:
+    README.md now explicitly records this as an OPEN integration gap rather
+    than implying that loader reconstruction alone guarantees service restore.
+
+Acceptance boundary:
+    Static source inspection only. No tests, CI, startup, GUI execution, or
+    runtime persistence experiments were performed or required.
+
+Disposition:
+    Keep GF-MASTER-0005 OPEN. Do not claim persistence round-trip completeness
+    or V2 freeze readiness until this activation gap and the remaining
+    field-by-field save/load/rollback obligations are resolved.
+
+======================================================================
