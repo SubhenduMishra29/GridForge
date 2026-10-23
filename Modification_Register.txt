@@ -2243,3 +2243,66 @@ Verification boundary:
     No tests, CI, application startup, or GUI execution performed.
 
 ======================================================================
+
+======================================================================
+2026-10-23 — GF-MASTER-0031 / RCA-006-PERSIST-001
+GRIDFORGE PACKAGE ROUND-TRIP RE-AUDIT
+======================================================================
+
+Files inspected:
+    core/persistence/project_persistence.py
+    core/persistence/project_package.py
+    core/persistence/network_serializer.py
+    core/persistence/model_dto.py
+    core/application/services/measurement_channel_service.py
+    core/application/bootstrap.py
+    core/application/project_lifecycle.py
+
+Confirmed:
+    - The manifest is restricted to format and package_version metadata;
+      project identity/state is written to canonical project.json.
+    - project.json includes schema, project metadata, serialized Core
+      Network/connectivity, presentation collection, dynamic-model
+      associations, measurement channel definitions, and optional
+      protection, protection presentation, Control, Control signal mapping,
+      and draft network payloads.
+    - Loading checks package format/version, migrates and validates the
+      canonical project payload, reconstructs Network and presentation
+      collection, reconstructs dynamic-model associations, and returns
+      measurement definitions in LoadedProject.
+    - Network reconstruction restores model DTOs and references before
+      validating the reconstructed graph. Save writes into a temporary
+      package directory and swaps it into place with a backup/rollback path.
+    - MeasurementChannelService.serialize_definitions() intentionally
+      persists configuration only, excluding live measurement sample state.
+      Definitions include channel identity/type/name, source identity and
+      terminal reference, phase/unit, nominal value, scale and polarity.
+    - ProjectPersistenceService.load() returns measurement definitions, but
+      the inspected bootstrap project activation path does not call
+      measurement_channel_service.activate(context, network,
+      loaded.measurement_definitions, generation). The service is initialized
+      with an empty definition set, and project-state activation subsequently
+      validates protection input bindings against the current channel registry.
+      Therefore this source trace does not establish restoration of persisted
+      measurement channels on project load; it indicates a concrete integration
+      gap that can block relay/protection bindings referencing saved channels.
+    - Load validates measurement.channels as an array of mappings, while full
+      definition validation and source/terminal resolution occur in
+      MeasurementChannelService._provision_definition during activate().
+      Since the inspected load path does not invoke that provisioning step,
+      cross-reference validity is not proven by load-time validation alone.
+
+Disposition:
+    GF-MASTER-0031 remains OPEN — package format, canonical payload structure,
+    network reconstruction and save replacement mechanics are evidenced, but
+    full round-trip restoration is not established until the measurement
+    definition activation handoff and all persisted consumers are reconciled.
+    GF-MASTER-0005 remains OPEN; this finding aligns with its existing
+    measurement-definition restoration-gap addenda and is not a duplicate
+    closure.
+
+Verification boundary:
+    Static source inspection only; no production source changed.
+    No tests, CI, application startup, or GUI execution performed.
+
+======================================================================
