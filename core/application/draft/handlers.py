@@ -142,19 +142,14 @@ class CommitNetworkHandler:
         )
 
     def _resolve_equipment_endpoints(self, item, core_ids, connections):
-        """Reconcile mapped creation endpoints against the authoritative draft graph.
+        """Resolve only endpoint fields represented by actual draft connections.
 
-        DraftEquipment.endpoints is an explicit declaration, not a second topology
-        authority. Every mapped semantic endpoint must have exactly one DraftConnection;
-        any explicit declaration must agree with that connection's opposite endpoint.
+        Placement and property editing must remain possible before wiring. A creation
+        endpoint mapping describes how a connected terminal is passed to a Core create
+        command; it does not, by itself, make that terminal mandatory or connected.
+        DraftConnection is the sole topology authority. Equipment-specific completeness
+        is validated at commit by the canonical draft/Core contracts.
         """
-        unknown_declarations = set(item.endpoints) - set(item.endpoint_mapping)
-        if unknown_declarations:
-            raise ValueError(
-                f"{item.draft_id}: endpoint declarations are not mapped by the canonical "
-                f"creation contract: {sorted(unknown_declarations)!r}."
-            )
-
         resolved = {}
         for semantic_name in sorted(item.endpoint_mapping):
             if semantic_name not in item.terminal_contract:
@@ -165,32 +160,25 @@ class CommitNetworkHandler:
 
             terminal_connections = []
             for connection in connections:
-                source_matches = self._terminal_for_equipment(
-                    item, connection.source, semantic_name
-                )
-                target_matches = self._terminal_for_equipment(
-                    item, connection.target, semantic_name
-                )
-                if source_matches:
+                if self._terminal_for_equipment(item, connection.source, semantic_name):
                     terminal_connections.append((connection, connection.target))
-                if target_matches:
+                if self._terminal_for_equipment(item, connection.target, semantic_name):
                     terminal_connections.append((connection, connection.source))
 
-            if len(terminal_connections) != 1:
+            if len(terminal_connections) > 1:
                 raise ValueError(
-                    f"{item.draft_id}: mapped endpoint {semantic_name!r} requires exactly "
-                    f"one DraftConnection; found {len(terminal_connections)}."
+                    f"{item.draft_id}: terminal {semantic_name!r} has multiple "
+                    f"DraftConnections ({len(terminal_connections)}); resolve the "
+                    "connection conflict before commit."
                 )
 
-            connection, graph_endpoint = terminal_connections[0]
-            declared_endpoint = item.endpoints.get(semantic_name)
-            if declared_endpoint is not None and declared_endpoint != graph_endpoint:
-                raise ValueError(
-                    f"{item.draft_id}: declared endpoint {semantic_name!r} conflicts "
-                    f"with DraftConnection {connection.connection_id!r}; the connection "
-                    "graph is authoritative."
-                )
+            # An unwired terminal is allowed here. Do not promote
+            # DraftEquipment.endpoints into a parallel topology source; the draft
+            # connection graph is authoritative and a missing endpoint remains absent.
+            if not terminal_connections:
+                continue
 
+            _, graph_endpoint = terminal_connections[0]
             resolved[semantic_name] = self._resolver._to_core_endpoint(
                 graph_endpoint, core_ids
             )
