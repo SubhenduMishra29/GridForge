@@ -263,15 +263,11 @@ class DraftNetwork:
         equipment = self._equipment.get(endpoint.object_id)
         if equipment is None: raise ValueError(f"{prefix}unknown draft equipment {endpoint.object_id!r}.")
         if endpoint.terminal_role not in equipment.terminal_contract: raise ValueError(f"{prefix}unknown terminal role {endpoint.terminal_role!r} for {endpoint.object_id!r}.")
-        # DraftEquipment.endpoints stores an explicitly acquired external
-        # endpoint for this terminal role. It is not a second copy of the
-        # terminal's own DraftEndpointReference. DraftConnection remains the
-        # authoritative authoring topology; commit-time resolution reconciles
-        # any explicit declaration with that graph.
-        declared = equipment.endpoints.get(endpoint.terminal_role)
-        if declared is not None and declared.is_terminal and declared.scope == "draft":
-            if declared != endpoint:
-                raise ValueError(f"{prefix}terminal identity mapping is contradictory.")
+        # DraftEquipment.endpoints stores the declared *opposite* endpoint
+        # for this terminal role, so it must not be compared with this terminal
+        # reference. DraftConnection is the authoring topology authority;
+        # CommitNetworkHandler reconciles any declaration with the graph's
+        # opposite endpoint before preparing Core commands.
 
     def add_connection(self, connection: DraftConnection) -> None:
         if connection.connection_id in self._connections: raise ValueError(f"Draft connection already exists: {connection.connection_id}")
