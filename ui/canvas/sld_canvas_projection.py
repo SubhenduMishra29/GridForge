@@ -20,7 +20,7 @@ from typing import Any, Callable, Mapping
 from core.application.read_models import ElementReadModel
 
 from ui.equipment.symbol.symbol_base import SymbolBase
-from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
+from ui.sld.sld_model import SLDAnnotationBlock, SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
 from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 
 
@@ -65,11 +65,24 @@ class SLDCanvasConnection:
 
 
 @dataclass(frozen=True, slots=True)
+class SLDCanvasAnnotation:
+    """Resolved presentation text sourced only from an Application read model."""
+
+    block_id: str
+    node_id: str
+    x: float
+    y: float
+    text: str
+    visible: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SLDCanvasSnapshot:
     """Immutable canvas projection of one SLD document model."""
 
     nodes: tuple[SLDCanvasNode, ...]
     connections: tuple[SLDCanvasConnection, ...]
+    annotations: tuple[SLDCanvasAnnotation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,17 +108,65 @@ class SLDCanvasProjection:
             raise TypeError("read_model_provider must be callable or None.")
         self._read_model_provider = read_model_provider
 
-    def project(self, model: SLDModel) -> SLDCanvasSnapshot:
-        """Project SLD document structure without touching Core state."""
+    def project(
+        self,
+        model: SLDModel,
+        annotation_blocks: tuple[SLDAnnotationBlock, ...] | list[SLDAnnotationBlock] = (),
+    ) -> SLDCanvasSnapshot:
+        """Project SLD structure and resolve annotation values from Application read models."""
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel.")
-
         nodes = tuple(self._project_node(node) for node in model.nodes)
-        connections = tuple(
-            self._project_connection(connection)
-            for connection in model.connections
+        connections = tuple(self._project_connection(connection) for connection in model.connections)
+        nodes_by_id = {node.node_id: node for node in nodes}
+        annotations = tuple(self._project_annotation(block, nodes_by_id) for block in annotation_blocks)
+        return SLDCanvasSnapshot(nodes=nodes, connections=connections, annotations=annotations)
+
+    @staticmethod
+    def _project_annotation(
+        block: SLDAnnotationBlock,
+        nodes_by_id: Mapping[str, SLDCanvasNode],
+    ) -> SLDCanvasAnnotation:
+        if not isinstance(block, SLDAnnotationBlock):
+            raise TypeError("annotation_blocks must contain SLDAnnotationBlock values.")
+        node = nodes_by_id.get(block.node_id)
+        if node is None:
+            raise ValueError("Annotation block references an absent SLD node: " + block.node_id)
+        read_model = node.read_model
+        lines: list[str] = []
+        if read_model is not None:
+            for field in block.fields:
+                if field == "identity":
+                    value, label = read_model.object_id, "ID"
+                elif field == "type":
+                    value, label = read_model.element_type, "Type"
+                elif field.startswith("label:"):
+                    label = field[6:]
+                    value = read_model.labels.get(label)
+                elif field.startswith("attribute:"):
+                    label = field[10:]
+                    value = read_model.attributes.get(label)
+                elif field.startswith("parameter:"):
+                    label = field[10:]
+                    parameter = next(
+                        (item for item in read_model.engineering_parameters if item.parameter_id == label),
+                        None,
+                    )
+                    value = None if parameter is None else parameter.value
+                    if parameter is not None and parameter.unit and value is not None:
+                        value = f"{value} {parameter.unit}"
+                else:
+                    continue
+                if value is not None:
+                    lines.append(f"{label}: {value}")
+        return SLDCanvasAnnotation(
+            block_id=block.block_id,
+            node_id=block.node_id,
+            x=node.x + block.offset_x,
+            y=node.y + block.offset_y,
+            text="\n".join(lines),
+            visible=block.visible and bool(lines),
         )
-        return SLDCanvasSnapshot(nodes=nodes, connections=connections)
 
     def _project_node(self, node: SLDNode) -> SLDCanvasNode:
         read_model = None
@@ -164,6 +225,7 @@ class SLDCanvasProjection:
 __all__ = [
     "SLDCanvasNode",
     "SLDCanvasConnection",
+    "SLDCanvasAnnotation",
     "SLDCanvasSnapshot",
     "CompositeSLDCanvasSnapshot",
     "SLDCanvasProjection",
