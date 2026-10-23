@@ -167,7 +167,7 @@ class StudyResult:
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
         object.__setattr__(self, "message", str(self.message))
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_study_value(self.metadata))
 
 
 class StudyCancellationToken:
