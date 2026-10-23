@@ -258,7 +258,14 @@ def _definition(
         id_field=id_field,
         parameter_mapping=parameter_mapping,
         endpoint_mapping=endpoint_mapping or {},
-        topology_requirements=topology,
+        topology_requirements=(
+            topology
+            if topology
+            else tuple(
+                CreationTopologyRequirement(name, required=True)
+                for name in (endpoint_mapping or {})
+            )
+        ),
         terminal_requirements=_terminals(terminal_names, initial_endpoint_required=initial_endpoint_required),
         conditional_requirements=conditional,
         configuration_required=any(p.required_before_create for p in parameters),
