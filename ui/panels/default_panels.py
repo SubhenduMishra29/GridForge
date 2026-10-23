@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from uuid import uuid4
 import logging
 from typing import Any
 
@@ -331,6 +332,11 @@ class PropertiesPanelWidget(QWidget):
         root = QVBoxLayout(self)
         self._form_layout = QFormLayout()
         root.addLayout(self._form_layout)
+        self._annotation_layout = QFormLayout()
+        root.addWidget(QLabel("SLD Data Annotations", self))
+        root.addLayout(self._annotation_layout)
+        self._sld_controller: Any | None = None
+        self._sld_selection_ids: tuple[str, ...] = ()
         self._validation_label = QLabel("Select an element to inspect.", self)
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
@@ -361,6 +367,150 @@ class PropertiesPanelWidget(QWidget):
             if callable(state_connect):
                 state_connect(self._refresh_commit_network_action)
         self._refresh_commit_network_action()
+
+    def bind_sld_annotation_runtime(self, *, controller: Any, selection_manager: Any) -> None:
+        """Bind annotation editing to canonical SLD selection and Application commands."""
+        if controller is None or not callable(getattr(controller, "set_annotation_blocks", None)):
+            raise TypeError("controller must provide set_annotation_blocks().")
+        if selection_manager is None or not callable(getattr(selection_manager, "select_single", None)):
+            raise TypeError("selection_manager must be the canonical selection manager.")
+        self._sld_controller = controller
+        signal = getattr(selection_manager, "selection_changed", None)
+        connect = getattr(signal, "connect", None)
+        if not callable(connect):
+            raise TypeError("selection_manager must expose selection_changed.connect().")
+        connect(self._on_sld_selection_changed)
+        self._refresh_sld_annotation_controls()
+
+    def _on_sld_selection_changed(self, ids: Any) -> None:
+        self._sld_selection_ids = tuple(str(value) for value in (ids or ()))
+        self._refresh_sld_annotation_controls()
+
+    def _selected_sld_node(self) -> Any | None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return None
+        if len(self._sld_selection_ids) != 1:
+            return None
+        selected_id = self._sld_selection_ids[0]
+        node = document.model.get_node_optional(selected_id)
+        if node is not None:
+            return node
+        return document.model.get_node_by_equipment_id_optional(selected_id)
+
+    def _refresh_sld_annotation_controls(self) -> None:
+        layout = getattr(self, "_annotation_layout", None)
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        node = self._selected_sld_node()
+        if document is None or node is None:
+            layout.addRow(QLabel("Select one SLD node to configure its data annotation.", self))
+            return
+
+        blocks = [block.to_dict() for block in document.annotation_blocks if block.node_id == node.node_id]
+        if not blocks:
+            layout.addRow(QLabel(f"Node: {node.node_id} · no annotation block configured.", self))
+        for block in blocks:
+            block_id = str(block["block_id"])
+            layout.addRow(QLabel(f"Block: {block_id}", self))
+            fields_edit = QLineEdit(", ".join(block["fields"]), self)
+            visible_check = QCheckBox("Visible", self)
+            visible_check.setChecked(bool(block["visible"]))
+            offset_x = QDoubleSpinBox(self)
+            offset_y = QDoubleSpinBox(self)
+            for control, key in ((offset_x, "offset_x"), (offset_y, "offset_y")):
+                control.setRange(-1000000.0, 1000000.0)
+                control.setDecimals(2)
+                control.setValue(float(block[key]))
+            layout.addRow("Fields", fields_edit)
+            layout.addRow("Offset X", offset_x)
+            layout.addRow("Offset Y", offset_y)
+            layout.addRow(visible_check)
+            save_button = QPushButton("Apply Annotation Changes", self)
+            save_button.clicked.connect(
+                lambda _checked=False, bid=block_id, fields=fields_edit, visible=visible_check,
+                       ox=offset_x, oy=offset_y: self._save_sld_annotation(
+                           bid, fields.text(), visible.isChecked(), ox.value(), oy.value()
+                       )
+            )
+            remove_button = QPushButton("Remove Annotation", self)
+            remove_button.clicked.connect(
+                lambda _checked=False, bid=block_id: self._remove_sld_annotation(bid)
+            )
+            layout.addRow(save_button, remove_button)
+
+        add_button = QPushButton("Add Data Annotation Block", self)
+        add_button.clicked.connect(lambda _checked=False, nid=node.node_id: self._add_sld_annotation(nid))
+        layout.addRow(add_button)
+
+    def _save_sld_annotation(
+        self, block_id: str, fields_text: str, visible: bool, offset_x: float, offset_y: float
+    ) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return
+        fields = [value.strip() for value in fields_text.split(",") if value.strip()]
+        blocks = [block.to_dict() for block in document.annotation_blocks]
+        found = False
+        for block in blocks:
+            if block["block_id"] == block_id:
+                block.update(fields=fields, visible=visible, offset_x=offset_x, offset_y=offset_y)
+                found = True
+                break
+        if not found:
+            return
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation update rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _add_sld_annotation(self, node_id: str) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None or document.model.get_node_optional(node_id) is None:
+            return
+        blocks = [block.to_dict() for block in document.annotation_blocks]
+        blocks.append({
+            "block_id": "annotation-" + uuid4().hex,
+            "node_id": node_id,
+            "visible": True,
+            "fields": ["identity", "type"],
+            "offset_x": 70.0,
+            "offset_y": -20.0,
+        })
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation creation rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _remove_sld_annotation(self, block_id: str) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return
+        blocks = [block.to_dict() for block in document.annotation_blocks if block.block_id != block_id]
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation removal rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
 
     def configure_parameter(self, parameter_id: str, value: Any) -> Any:
         if self._engineering_editor is None:
