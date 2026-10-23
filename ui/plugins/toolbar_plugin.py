@@ -859,7 +859,12 @@ class ToolbarPlugin(QObject):
             self._clear_tool_presentation()
             return
 
-        self._validate_tool_id(tool_id)
+        # Equipment-specific placement tools are owned by ToolManager but are
+        # intentionally outside this compact Select/Bus/Wire toolbar. Do not
+        # let a valid active placement tool break toolbar presentation sync.
+        if tool_id not in self._tool_action_ids:
+            self._clear_tool_presentation()
+            return
 
         self._set_active_tool_presentation(
             tool_id
@@ -894,6 +899,13 @@ class ToolbarPlugin(QObject):
         router = self._context.action_router if self._context is not None else None
         if not isinstance(router, UIActionRouter):
             raise RuntimeError("ToolbarPlugin requires the canonical UIActionRouter.")
+        # QAction enabled state can lag a context transition. Recheck the
+        # canonical router before dispatch so a stale click cannot raise from
+        # a disabled edit action and then trigger a secondary sync exception.
+        if not router.is_enabled(action_id):
+            self._synchronize_tool_presentation()
+            self.refresh_enabled_states()
+            return
         try:
             router.dispatch(action_id)
         finally:
