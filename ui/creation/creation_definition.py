@@ -269,10 +269,6 @@ def _definition(
 
 
 def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]) -> CreationDefinition:
-    endpoint_pair = (
-        CreationTopologyRequirement("FROM", required=True),
-        CreationTopologyRequirement("TO", required=True),
-    )
     common_endpoints = {"FROM": "endpoint_from", "TO": "endpoint_to"}
     switching_endpoints = {"from": "endpoint_from", "to": "endpoint_to"}
 
@@ -340,7 +336,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_line", "line_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_line", "line_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "cable": _definition("cable", "cable", (
             _p("length_km", unit="km", required=True, minimum=0.0),
             _p("r1_ohm_per_km", unit="ohm/km", required=True),
@@ -352,7 +348,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_cable", "cable_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names),
+        ), "model.create_cable", "cable_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names),
         "transformer": _definition("transformer", "transformer", (
             _p("r", "Resistance", required=True),
             _p("x", "Reactance", required=True),
@@ -364,7 +360,7 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("tap", "Tap", default=1.0),
             _p("shift", "Phase shift", unit="deg", default=0.0),
             _p("name", "Name", "str", default=""),
-        ), "model.create_transformer", "transformer_id", topology=endpoint_pair, endpoint_mapping=common_endpoints, terminal_names=terminal_names,
+        ), "model.create_transformer", "transformer_id", endpoint_mapping=common_endpoints, terminal_names=terminal_names,
            conditional=(ConditionalParameterRequirement(
                "Transformer requires impedance_base_mva or rate_mva.",
                require_any=("impedance_base_mva", "rate_mva"),
