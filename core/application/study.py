@@ -202,7 +202,8 @@ class StudyService:
 
     @property
     def registered_study_types(self) -> tuple[str, ...]:
-        return tuple(self._handlers)
+        with self._lock:
+            return tuple(self._handlers)
 
     @staticmethod
     def _event_metadata(request: StudyRequest, *, status: str | None = None, error: str | None = None) -> dict[str, Any]:
@@ -266,8 +267,7 @@ class StudyService:
                     message="Study cancelled.",
                 )
                 with self._lock:
-                    with self._lock:
-                self._results[key] = result
+                    self._results[key] = result
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
                 return result
 
@@ -280,7 +280,8 @@ class StudyService:
                 status="completed",
                 value=value,
             )
-            self._results[key] = result
+            with self._lock:
+                self._results[key] = result
             self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
         except Exception as exc:
@@ -293,7 +294,8 @@ class StudyService:
                 status="failed",
                 message=str(exc),
             )
-            self._results[key] = result
+            with self._lock:
+                self._results[key] = result
             self._event_bus.publish(StudyFailed(metadata=self._event_metadata(request, status="failed", error=str(exc))))
             raise
         finally:
