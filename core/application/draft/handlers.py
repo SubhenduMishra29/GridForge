@@ -210,6 +210,7 @@ class CommitNetworkHandler:
             raise ValueError("CommitNetworkCommand draft_network payload is not canonical.")
 
         errors = snapshot.validate(getattr(context, "network", None))
+        errors += snapshot.validate_required_connections()
         if errors:
             raise ValueError("Draft validation failed: " + "; ".join(errors))
         if not snapshot.equipment and not snapshot.connections:
