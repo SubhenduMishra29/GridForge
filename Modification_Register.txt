@@ -2830,3 +2830,33 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — POWER FLOW NUMERICAL OPTIONS IMMUTABILITY
+======================================================================
+
+File corrected:
+    core/analysis/power_flow_configuration.py
+
+Source evidence:
+    PowerFlowStudyConfiguration is frozen, but numerical_options was
+    wrapped only in a top-level MappingProxyType. Nested option mappings,
+    lists, and sets could still be mutated after configuration creation.
+
+Correction:
+    - Added recursive freezing for built-in mappings, sequences, and sets.
+    - Applied the freezer after normalizing q_limit_policy.
+    - Left scalar and other non-container values unchanged.
+
+Disposition:
+    Nested built-in option containers are frozen at construction. Arbitrary
+    custom mutable objects used as option values are not guaranteed to be
+    immutable. This does not validate whether every solver consumer accepts
+    immutable nested option containers.
+
+Verification boundary:
+    - Implementation and register re-fetched after the correction.
+    - No tests or CI run; runtime and consumer compatibility remain unverified.
+
+======================================================================
