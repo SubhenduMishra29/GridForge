@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping
 
@@ -30,6 +30,7 @@ class TransientStabilityResult:
     terminal_voltages: tuple[Mapping[str, complex], ...] = ()
     electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
     events: tuple[EventExecution, ...] = ()
+    provenance: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
@@ -63,6 +64,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
         object.__setattr__(self, "events", tuple(self.events))
+        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @property
     def final_time(self) -> float:
