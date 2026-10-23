@@ -73,6 +73,7 @@ No direct PySide6/PyQt imports are permitted.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 from ui.styling.presentation_style import token_color
 from .grid_system import GridSystem
@@ -151,15 +152,28 @@ class GridScene(QGraphicsScene):
         grid = self._grid_system
         if not grid.visible:
             return
-        minor_pen = QPen(token_color("canvas_grid_minor"))
-        setter = getattr(minor_pen, "setWidthF", None)
-        if callable(setter):
-            setter(0.7)
-        painter.setPen(minor_pen)
-        if grid.minor_visible:
+        # Adapt grid density to the current scene-to-viewport scale. At far
+        # zoom levels, drawing thousands of sub-pixel lines adds work without
+        # improving legibility. Snapping continues to use the full-resolution
+        # GridSystem; this affects rendering only.
+        transform = painter.worldTransform()
+        scale = abs(float(transform.m11()))
+        if not scale or not math.isfinite(scale):
+            return
+
+        minor_pixel_spacing = grid.minor_spacing * scale
+        major_pixel_spacing = grid.major_spacing * scale
+
+        if grid.minor_visible and minor_pixel_spacing >= 8.0:
+            minor_pen = QPen(token_color("canvas_grid_minor"))
+            setter = getattr(minor_pen, "setWidthF", None)
+            if callable(setter):
+                setter(0.7)
+            painter.setPen(minor_pen)
             for x1, y1, x2, y2 in grid.get_lines(rect, major=False):
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-        if grid.major_visible:
+
+        if grid.major_visible and major_pixel_spacing >= 12.0:
             major_pen = QPen(token_color("canvas_grid_major"))
             setter = getattr(major_pen, "setWidthF", None)
             if callable(setter):
