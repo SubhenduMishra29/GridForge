@@ -2769,3 +2769,32 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — SHORT-CIRCUIT CONFIGURATION METADATA IMMUTABILITY
+======================================================================
+
+File corrected:
+    core/analysis/short_circuit_configuration.py
+
+Source evidence:
+    ShortCircuitStudyConfiguration is a frozen dataclass, but its metadata
+    was wrapped only at the outer level with MappingProxyType(dict(...)).
+    Nested built-in containers could therefore remain mutable after
+    configuration construction.
+
+Correction:
+    - Added a recursive freezer for mappings, lists/tuples, and sets.
+    - Applied it when normalizing configuration metadata.
+    - Preserved non-container typed values without arbitrary coercion.
+
+Disposition:
+    Nested built-in metadata containers are recursively frozen. Arbitrary
+    custom objects stored in metadata are not guaranteed to be immutable.
+
+Verification boundary:
+    - Source and register were re-fetched after the change.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
