@@ -1996,3 +1996,45 @@ Status:
     correction or tests/CI were performed in this audit step.
 
 ----------------------------------------------------------------------
+
+
+----------------------------------------------------------------------
+2026-10-23 — GF-MASTER-0024 — SHORT-CIRCUIT IDENTITY STATIC RE-AUDIT
+----------------------------------------------------------------------
+
+Files inspected on main:
+    core/analysis/short_circuit_preparation.py
+    core/analysis/short_circuit.py
+    core/solver/short_circuit/input.py
+    core/solver/short_circuit/sequence_snapshot.py
+    core/solver/short_circuit/short_circuit_solver.py
+
+Confirmed:
+    - ShortCircuitPreparation consumes a Network and canonical TopologySnapshot
+      and creates a detached ShortCircuitInput.
+    - The input carries project_id, activation_generation, and topology_revision
+      from the supplied TopologySnapshot, along with ordered bus IDs and fault
+      bus identity/index.
+    - SequenceNetworkSnapshot validates unique bus IDs and branch/source bus
+      index-to-ID consistency.
+    - ShortCircuitSolver accepts ShortCircuitInput and performs numerical
+      execution without a live Network reference.
+    - Preparation releases its Network and sequence-network references in a
+      finally block.
+
+Still unproven from this targeted static pass:
+    - Whether a supplied TopologySnapshot is proven to belong to the exact
+      Network instance and activation generation used by ShortCircuitPreparation.
+    - Whether an externally supplied SequenceNetwork is reconciled against the
+      same project/generation/topology revision before snapshot creation.
+    - Whether downstream result conversion preserves provenance and rejects
+      stale or mismatched identity where required by the study contract.
+    - Whether the production Application study path always supplies the active
+      network snapshot rather than relying on direct facade usage.
+
+Disposition:
+    GF-MASTER-0024 remains OPEN — RE-AUDIT REQUIRED. Snapshot identity fields
+    exist, but their presence alone does not establish cross-object provenance
+    validation. No production source was changed; no tests or CI were run.
+
+----------------------------------------------------------------------
