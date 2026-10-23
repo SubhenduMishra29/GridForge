@@ -2798,3 +2798,35 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — DYNAMIC-MODEL ASSOCIATION METADATA IMMUTABILITY
+======================================================================
+
+File corrected:
+    core/analysis/dynamic_model_association.py
+
+Source evidence:
+    DynamicMachineModelAssociation is a frozen dataclass, but metadata was
+    only protected by an outer MappingProxyType. Nested mappings, lists,
+    and sets supplied by the caller could still be changed after the
+    association was constructed.
+
+Correction:
+    - Added recursive freezing for mappings, sequences, and sets.
+    - Applied it when storing association metadata.
+    - Preserved non-container typed values without coercing arbitrary
+      objects.
+
+Disposition:
+    Built-in nested metadata containers are recursively frozen. Arbitrary
+    custom mutable objects stored as metadata values are not guaranteed
+    to be immutable. Serialization still exposes a shallow top-level
+    dict view; this correction does not claim deep serialization copying.
+
+Verification boundary:
+    - Source and register were re-fetched after the correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
