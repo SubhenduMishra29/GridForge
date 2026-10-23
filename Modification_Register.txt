@@ -2038,3 +2038,39 @@ Disposition:
     validation. No production source was changed; no tests or CI were run.
 
 ----------------------------------------------------------------------
+2026-10-23 — GF-MASTER-0025 — POWER-FLOW RESULT CONVERSION TRACE
+
+Files inspected on current main:
+    core/analysis/power_flow.py
+    core/analysis/power_flow_result_conversion.py
+    core/analysis/power_flow_preparation.py
+    core/application/bootstrap.py
+
+Confirmed:
+    - Application's power-flow study handler prepares through
+      StudyPreparationService.prepare_power_flow(), constructs
+      PowerFlowAnalysis.from_prepared(), solves, and returns
+      to_engineering_result().
+    - PowerFlowAnalysis requires the same PreparedPowerFlow snapshot for
+      engineering conversion; it supplies prepared bus IDs and detached
+      bus_voltage_bases to PowerFlowResultConverter.
+    - The converter checks voltage/angle vector lengths, unique non-empty bus
+      IDs, exact bus-base key coverage, finite positive bases and voltage
+      magnitudes, and finite angles.
+    - EngineeringPowerFlowResult preserves the numerical PowerFlowResult and
+      supplies immutable per-bus voltage PU/kV and angle rad/degree values.
+    - This inspected conversion path uses core.base.per_unit.PerUnitSystem
+      and does not need live Core model reads during conversion.
+
+Evidence boundary:
+    This establishes the Power Flow conversion path only. It does not prove
+    complete result conversion coverage for Short Circuit, transient stability,
+    or every Application study/result consumer, nor does it establish that
+    all downstream projections preserve the study provenance contract.
+
+Disposition:
+    GF-MASTER-0025 remains OPEN — broader study-result conversion coverage
+    and consumer reconciliation are still pending. No source code was changed;
+    no tests or CI were run.
+
+----------------------------------------------------------------------
