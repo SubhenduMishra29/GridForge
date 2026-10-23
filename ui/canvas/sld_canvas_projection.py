@@ -174,7 +174,7 @@ class SLDCanvasProjection:
             node_id=block.node_id,
             x=node.x + block.offset_x,
             y=node.y + block.offset_y,
-            text="\\n".join(lines),
+            text="\n".join(lines),
             visible=block.visible and bool(lines),
         )
 
