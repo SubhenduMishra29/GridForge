@@ -190,6 +190,11 @@ class ToolManager:
                     definition = self._definition_for_tool(tool_id)
                     if definition is not None:
                         self.creation_context.begin(definition)
+                        # Re-selecting the active equipment tool starts a new
+                        # creation session without changing the tool ID. Notify
+                        # observers so the Properties panel re-enters creation
+                        # mode and enables Place Draft Equipment.
+                        self._notify_controller_tool_change(tool_id, tool_id)
                 return self._active_tool
 
         previous_id = self._active_tool_id
