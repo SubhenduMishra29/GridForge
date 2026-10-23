@@ -14,6 +14,17 @@ from typing import Any, Mapping
 from core.solver.short_circuit.fault_types import FaultType
 
 
+def _freeze_metadata_value(value: Any) -> Any:
+    """Recursively freeze built-in metadata containers without coercing typed objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ShortCircuitStudyConfiguration:
     """Immutable study intent independent of live Core objects."""
@@ -34,7 +45,7 @@ class ShortCircuitStudyConfiguration:
         if any(not item.strip() for item in ids):
             raise ValueError("element_ids must contain only non-empty identifiers.")
         object.__setattr__(self, "element_ids", ids)
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
 
 __all__ = ["ShortCircuitStudyConfiguration"]
