@@ -793,7 +793,9 @@ class ToolbarPlugin(QObject):
         """Compatibility entry point that delegates to the canonical action route."""
         self._require_initialized()
         self._validate_tool_id(tool_id)
-        action_id = f"tool.{tool_id}"
+        action_id = self._tool_action_ids.get(tool_id)
+        if action_id is None:
+            raise KeyError(f"No toolbar action registered for tool {tool_id!r}.")
         router = self._context.action_router if self._context is not None else None
         if not isinstance(router, UIActionRouter):
             raise RuntimeError("ToolbarPlugin requires the canonical UIActionRouter.")
@@ -1178,9 +1180,9 @@ class ToolbarPlugin(QObject):
 def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
     """Return the canonical engineer-entry toolbar workflow."""
     return (
-        ToolbarActionSpec(action_id="tool.select", text="Select", tool_id="select", tooltip="Select and inspect objects.", checkable=True, checked=True),
-        ToolbarActionSpec(action_id="tool.bus", text="Bus", tool_id="bus", tooltip="Create a bus.", checkable=True),
-        ToolbarActionSpec(action_id="tool.wire", text="Wire", tool_id="wire", tooltip="Create a terminal-to-terminal connection.", checkable=True),
+        ToolbarActionSpec(action_id="tool.sld.select", text="Select", tool_id="select", tooltip="Select and inspect objects.", checkable=True, checked=True),
+        ToolbarActionSpec(action_id="tool.sld.bus", text="Bus", tool_id="bus", tooltip="Create a bus.", checkable=True),
+        ToolbarActionSpec(action_id="tool.sld.wire", text="Wire", tool_id="wire", tooltip="Create a terminal-to-terminal connection.", checkable=True),
         ToolbarActionSpec(action_id="edit.box_select", text="Box Select", tooltip="Select objects inside a rectangle.", separator_before=True),
         ToolbarActionSpec(action_id="edit.move", text="Move", tooltip="Move selected SLD objects through the Select tool."),
         ToolbarActionSpec(action_id="edit.drag_move", text="Drag Move", tooltip="Drag selected SLD objects through the Select tool."),
