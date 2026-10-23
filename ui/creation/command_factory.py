@@ -52,6 +52,7 @@ class CreationCommandFactory:
                 "datatype": item.datatype,
                 "unit": item.unit,
                 "required_before_create": item.required_before_create,
+                "default_value": item.default_value,
                 "choices": tuple(item.choices),
                 "minimum": item.minimum,
                 "maximum": item.maximum,
