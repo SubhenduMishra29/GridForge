@@ -2700,3 +2700,40 @@ Verification boundary:
     - No tests or CI run. Runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — STUDY SERVICE SHARED-STATE SYNCHRONIZATION
+======================================================================
+
+File corrected:
+    core/application/study.py
+
+Source evidence:
+    - StudyService may be called by an Application that executes studies
+      asynchronously. Handler registration, duplicate-active checks, token
+      registration/removal, cancellation lookup, and result registry access
+      previously accessed shared dictionaries without a common lock.
+    - The active-study duplicate check and token insertion were separate
+      unsynchronized operations, allowing concurrent callers to race.
+
+Correction:
+    - Added a service-owned RLock.
+    - Guarded handler registration/lookups, active token admission and
+      cleanup, cancellation lookup, active-study inspection, and result
+      registry writes/reads/snapshots with the lock.
+    - Numerical handlers and event publication execute outside the lock so
+      long-running work and synchronous subscribers do not hold the state
+      lock.
+
+Disposition:
+    - Shared registry access and duplicate-active admission are synchronized.
+    - This does not assert that all external project-transition workflows are
+      atomic with study admission; that requires caller-level coordination.
+
+Verification boundary:
+    - Final source was re-fetched from GitHub and inspected for the intended
+      lock scopes after correction.
+    - No tests or CI run. Runtime/concurrency behavior remains unverified.
+
+======================================================================
