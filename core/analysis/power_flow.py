@@ -102,6 +102,7 @@ class PowerFlowAnalysis:
             self._result,
             self.prepared.input.bus_ids,
             self.prepared.bus_voltage_bases,
+            expected_snapshot_id=self.prepared.input.snapshot_id,
         )
 
     @property
