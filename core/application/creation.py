@@ -201,6 +201,90 @@ class CreationCommandPreparer:
                 f"{intent.command_type}: unmapped endpoint values: {sorted(unknown_endpoints)!r}"
             )
 
+        # Validate destinations before constructing the payload: ordinary dict
+        # assignment would otherwise silently overwrite engineering values,
+        # endpoints, the object identity, or generated presentation coordinates.
+        parameter_targets: dict[str, list[str]] = {}
+        for parameter_id, command_field in intent.parameter_mapping.items():
+            if isinstance(command_field, str) and command_field.strip():
+                parameter_targets.setdefault(command_field, []).append(parameter_id)
+        duplicate_parameter_targets = {
+            field: sorted(keys)
+            for field, keys in parameter_targets.items()
+            if len(keys) > 1
+        }
+        if duplicate_parameter_targets:
+            details = "; ".join(
+                f"{field!r} <- {keys!r}"
+                for field, keys in sorted(duplicate_parameter_targets.items())
+            )
+            raise ValueError(
+                f"{intent.command_type}: multiple engineering parameters target the same "
+                f"command field: {details}"
+            )
+
+        endpoint_targets: dict[str, list[str]] = {}
+        for semantic_name, command_field in intent.endpoint_mapping.items():
+            if isinstance(command_field, str) and command_field.strip():
+                endpoint_targets.setdefault(command_field, []).append(semantic_name)
+        duplicate_endpoint_targets = {
+            field: sorted(keys)
+            for field, keys in endpoint_targets.items()
+            if len(keys) > 1
+        }
+        if duplicate_endpoint_targets:
+            details = "; ".join(
+                f"{field!r} <- {keys!r}"
+                for field, keys in sorted(duplicate_endpoint_targets.items())
+            )
+            raise ValueError(
+                f"{intent.command_type}: multiple endpoint roles target the same "
+                f"command field: {details}"
+            )
+
+        parameter_fields = set(parameter_targets)
+        endpoint_fields = set(endpoint_targets)
+        cross_collisions = parameter_fields & endpoint_fields
+        if cross_collisions:
+            details = "; ".join(
+                f"{field!r} (parameters={sorted(parameter_targets[field])!r}, "
+                f"endpoints={sorted(endpoint_targets[field])!r})"
+                for field in sorted(cross_collisions)
+            )
+            raise ValueError(
+                f"{intent.command_type}: engineering and endpoint mappings collide: {details}"
+            )
+
+        mapped_fields = parameter_fields | endpoint_fields
+        if intent.id_field in mapped_fields:
+            owners = []
+            if intent.id_field in parameter_targets:
+                owners.append(f"parameters={sorted(parameter_targets[intent.id_field])!r}")
+            if intent.id_field in endpoint_targets:
+                owners.append(f"endpoints={sorted(endpoint_targets[intent.id_field])!r}")
+            raise ValueError(
+                f"{intent.command_type}: mapped field {intent.id_field!r} collides with "
+                f"the object ID field ({', '.join(owners)})."
+            )
+
+        generated_position_fields = set()
+        if intent.position is not None:
+            generated_position_fields = {
+                field for field in ("presentation_x", "presentation_y", "x", "y")
+                if field in fields
+            }
+            position_collisions = mapped_fields & generated_position_fields
+            if position_collisions:
+                details = "; ".join(
+                    f"{field!r} (parameters={sorted(parameter_targets.get(field, []))!r}, "
+                    f"endpoints={sorted(endpoint_targets.get(field, []))!r})"
+                    for field in sorted(position_collisions)
+                )
+                raise ValueError(
+                    f"{intent.command_type}: explicit mappings collide with generated "
+                    f"position fields: {details}"
+                )
+
         payload: dict[str, Any] = {intent.id_field: intent.object_id}
         for parameter_id, command_field in intent.parameter_mapping.items():
             if parameter_id in values and values[parameter_id] is not None:
