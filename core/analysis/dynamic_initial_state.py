@@ -96,6 +96,8 @@ class DynamicInitialStatePreparation:
             raise ValueError("Power Flow result must identify its bus ordering before Dynamics initialization.")
         if power_flow_result.bus_ids != power_flow_input.bus_ids:
             raise ValueError("Power Flow result bus ordering must match the prepared Power Flow input.")
+        if power_flow_result.snapshot_id is None or power_flow_result.snapshot_id != power_flow_input.snapshot_id:
+            raise ValueError("Power Flow result must originate from the exact input snapshot used for Dynamics initialization.")
         bus_count = len(power_flow_input.bus_ids)
         if len(power_flow_result.voltage_magnitudes) != bus_count:
             raise ValueError("Power Flow result voltage dimensions do not match the prepared input.")
