@@ -92,8 +92,10 @@ class Controller(QObject):
     def _on_tool_manager_changed(self, tool_id: str | None, previous_tool_id: str | None) -> None:
         """Receive authoritative tool lifecycle changes from ToolManager."""
         self._ensure_active()
-        if tool_id == previous_tool_id:
-            return
+        # A same-ID notification is meaningful when ToolManager starts a
+        # fresh CreationDraft for the already-active equipment tool. The panel
+        # uses this signal to refresh its creation form; ordinary activation
+        # paths notify only when the active tool actually changes.
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()
 
