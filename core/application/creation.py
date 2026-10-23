@@ -94,8 +94,14 @@ def validate_creation_values(equipment_type, values, parameter_mapping, paramete
         raise ValueError(f"{equipment_type}: invalid or duplicate parameter contract identifiers.")
     unknown = set(values) - set(definitions)
     unmapped = set(values) - set(parameter_mapping)
-    if unknown or unmapped:
-        raise ValueError(f"{equipment_type}: unknown or unmapped engineering parameters: {sorted(unknown | unmapped)!r}")
+    missing_mappings = set(definitions) - set(parameter_mapping)
+    invalid_mappings = {key for key, target in parameter_mapping.items() if not isinstance(target, str) or not target.strip()}
+    if unknown or unmapped or missing_mappings or invalid_mappings:
+        raise ValueError(
+            f"{equipment_type}: invalid engineering contract mappings; "
+            f"unknown={sorted(unknown)!r}, unmapped_values={sorted(unmapped)!r}, "
+            f"missing_mappings={sorted(missing_mappings)!r}, invalid_targets={sorted(invalid_mappings)!r}"
+        )
     normalized = dict(values)
     errors = []
     for key, definition in definitions.items():
@@ -117,6 +123,9 @@ def validate_creation_values(equipment_type, values, parameter_mapping, paramete
         else:
             raw = value
         expected_unit = definition.get("unit")
+        if unit is not None and expected_unit is None:
+            errors.append(f"{key}: unit metadata is not defined by the canonical contract")
+            continue
         if unit is not None and expected_unit is not None and str(unit).strip() != str(expected_unit).strip():
             errors.append(f"{key}: unit must be {expected_unit!r}")
             continue
