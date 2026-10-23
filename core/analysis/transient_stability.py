@@ -14,6 +14,17 @@ from typing import Any, Mapping
 from core.solver.dynamics import TransientStabilityResult, TransientStabilitySolver
 
 
+def _freeze_metadata_value(value: Any) -> Any:
+    """Recursively freeze built-in metadata containers without changing typed objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class TransientStabilityStudyConfiguration:
     """Immutable transient-stability study configuration."""
@@ -36,7 +47,7 @@ class TransientStabilityStudyConfiguration:
         object.__setattr__(self, "start_time", start)
         object.__setattr__(self, "end_time", end)
         object.__setattr__(self, "dt", dt)
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
 
 # Compatibility alias: the solver's immutable TransientStabilityResult is
