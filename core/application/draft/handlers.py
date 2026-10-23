@@ -147,8 +147,9 @@ class CommitNetworkHandler:
         Placement and property editing must remain possible before wiring. A creation
         endpoint mapping describes how a connected terminal is passed to a Core create
         command; it does not, by itself, make that terminal mandatory or connected.
-        DraftConnection is the sole topology authority. Equipment-specific completeness
-        is validated at commit by the canonical draft/Core contracts.
+        DraftConnection is the sole topology authority. Required connection
+        cardinality must be defined by explicit equipment-specific commit rules;
+        it must not be inferred from endpoint mappings.
         """
         resolved = {}
         for semantic_name in sorted(item.endpoint_mapping):
