@@ -63,6 +63,8 @@ class PowerFlowResultConverter:
             raise ValueError(
                 "Power Flow result bus ordering must match the supplied bus IDs."
             )
+        if result.snapshot_id is None:
+            raise ValueError("Power Flow result must carry its originating input snapshot identity.")
         if len(ids) != len(result.voltage_magnitudes):
             raise ValueError(
                 "Power Flow result voltage count must match the supplied bus IDs."
