@@ -394,8 +394,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
+        # The explorer Region is intentionally hidden in the default SLD layout.
+        # Open it through the workspace host instead of trying to focus a hidden
+        # Region (WorkspaceRealizer correctly rejects invisible Regions).
         workspace_controller.activate(SLD_WORKSPACE_ID)
-        workspace_controller.realizer.focus_region("main-sld", "explorer")
+        workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
         workspace_controller.activate(STUDY_WORKSPACE_ID)
