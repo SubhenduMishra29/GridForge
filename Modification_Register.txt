@@ -2451,3 +2451,56 @@ Verification boundary:
     No tests, CI, startup, or GUI execution performed.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — GF-MASTER-0031 / GF-MASTER-0005 — IMPLEMENTATION CORRECTION
+MEASUREMENT CHANNEL PROJECT ACTIVATION RESTORE
+======================================================================
+
+Implementation change:
+    core/application/bootstrap.py
+
+Correction:
+    - Project-state activation now snapshots the active
+      MeasurementChannelService state before attempting a project transition.
+    - It activates the candidate project's persisted
+      loaded.measurement_definitions against the candidate ProjectContext,
+      Network and activation generation before validating protection channel
+      references and composing ProtectionRuntime.
+    - Closing a project activates an empty project-less channel registry.
+    - If project activation or a later composed activation stage fails, the
+      compensation callback restores the exact prior measurement registry
+      snapshot, including its prior project/network/generation association.
+    - This makes the existing LoadedProject.measurement_definitions handoff
+      operational rather than leaving the registry initialized with an empty
+      definition set on project open.
+
+Source verification:
+    - Re-fetched core/application/bootstrap.py after commit
+      5657582b8c6bc03cb2baeb63f6bfaf2460432ae0.
+    - Confirmed the measurement-state snapshot, candidate activation call,
+      and rollback restoration are present in the committed source.
+    - Confirmed ProjectPersistenceService.load() returns measurement_definitions
+      and MeasurementChannelService.activate() provisions each definition
+      against the supplied project/network context.
+
+Disposition:
+    - The specific missing measurement-definition activation handoff is
+      CORRECTED in source.
+    - GF-MASTER-0031 remains OPEN pending broader package round-trip and
+      persisted-consumer reconciliation; do not treat this targeted correction
+      as proof of complete persistence integrity.
+    - GF-MASTER-0005 remains OPEN because its wider architecture/audit
+      documentation reconciliation has additional unresolved items.
+    - GF-PROT-042 and GF-MASTER-0027..0029 / GF-MASTER-0034 remain OPEN until
+      the production protection trigger, typed function-to-target action
+      mapping, signal metadata enforcement and end-to-end activation path are
+      independently traced after this correction.
+
+Verification boundary:
+    Static source inspection and GitHub commit verification only.
+    No tests or CI were run, per instruction. Python syntax, imports, startup
+    and GUI behavior have not been runtime-verified in this pass.
+
+======================================================================
