@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from ui.equipment.symbol.symbol_base import SymbolBase
@@ -67,6 +68,8 @@ class SLDAnnotationBlock:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise TypeError(name + " must be numeric")
+            if not math.isfinite(float(value)):
+                raise ValueError(name + " must be finite")
         object.__setattr__(self, "fields", tuple(self.fields))
         object.__setattr__(self, "offset_x", float(self.offset_x))
         object.__setattr__(self, "offset_y", float(self.offset_y))
