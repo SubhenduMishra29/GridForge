@@ -387,8 +387,18 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
         fields = block["fields"]
         if not isinstance(fields, list) or not fields:
             raise SLDMigrationError("SLD " + context + " fields must be a non-empty array.")
+        seen_fields = set()
         for field in fields:
             _sld_string(field, "field", context)
+            if field not in {"identity", "type"} and not (
+                field.startswith("label:") and field[6:].strip()
+                or field.startswith("attribute:") and field[10:].strip()
+                or field.startswith("parameter:") and field[10:].strip()
+            ):
+                raise SLDMigrationError("Unsupported annotation field " + repr(field) + " in " + context + ".")
+            if field in seen_fields:
+                raise SLDMigrationError("Duplicate annotation field " + repr(field) + " in " + context + ".")
+            seen_fields.add(field)
         _sld_number(block["offset_x"], "offset_x", context)
         _sld_number(block["offset_y"], "offset_y", context)
     connection_ids = set()
