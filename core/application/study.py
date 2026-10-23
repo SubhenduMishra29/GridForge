@@ -248,9 +248,9 @@ class StudyService:
             raise ValueError(f"Study is already active: {request.study_id}")
         token = StudyCancellationToken()
         self._tokens[key] = token
-        self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
 
         try:
+            self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = handler(request, execution_context, token)
             if token.cancelled:
                 result = StudyResult(
