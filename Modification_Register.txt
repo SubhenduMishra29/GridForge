@@ -2372,3 +2372,82 @@ Verification boundary:
     No tests, CI, startup, or GUI execution performed.
 
 ======================================================================
+
+======================================================================
+2026-10-23 — GF-MASTER-0038..0040 / RCA-SLD-AUTH-001
+SLD TERMINAL SNAP / CONNECTION COMMAND / READ PROJECTION RECONCILIATION
+======================================================================
+
+Files inspected:
+    core/application/commands/connection_commands.py
+    core/application/services/electrical_connection_service.py
+    core/application/sld_command_handlers.py
+    core/application/services/sld_service.py
+    core/application/read_models.py
+    core/application/bootstrap.py
+    ui/connections/terminal_resolver.py
+    ui/connections/connection_validator.py
+    ui/core/snap_system.py
+    ui/sld/sld_controller.py
+    ui/sld/sld_read_adapter.py
+    ui/sld/sld_read_synchronizer.py
+    ui/sld/sld_projection.py
+    ui/events/sld_update_coordinator.py
+    ui/canvas/sld_canvas_projection.py
+
+Positive source evidence:
+    - Core terminal connectivity has immutable ConnectTerminalCommand,
+      DisconnectTerminalCommand and ReconnectTerminalCommand contracts.
+      ElectricalConnectionService resolves typed endpoint references,
+      attaches/detaches the Core terminal and records inverse endpoint state
+      in the supplied Application Transaction.
+    - SLDController submits persistent SLD presentation changes through
+      Application.execute(). Simple-wire removal takes a dedicated
+      delete_selected_simple_wire path rather than treating a visual line
+      as authoritative Core topology.
+    - SLDService explicitly distinguishes persistent presentation connections
+      from authoritative Core connectivity and contains audit/reconciliation
+      logic mapping SIMPLE_WIRE presentation companions to Core connection IDs.
+    - Application read models include immutable SimpleWireReadModel and
+      NetworkReadModel values. SLDReadAdapter consumes read models without
+      Core object access; SLDReadSynchronizer refreshes ephemeral projections
+      and reports missing, duplicate, orphaned and unmatched simple-wire
+      companions.
+    - SLDUpdateCoordinator routes element lifecycle, topology/network,
+      project lifecycle, protection and presentation events into the
+      appropriate read synchronizer and canvas refresh. It reuses the
+      synchronizer-owned projection manager rather than creating a second
+      projection authority.
+    - SnapSystem is a UI spatial candidate/snap service and restricts
+      registered candidates to canonical SLD/draft presentation items.
+      TerminalResolver and ConnectionValidator document logical terminal
+      lookup/validation responsibilities, not Core topology ownership.
+
+Outstanding reconciliation:
+    - This source pass does not establish the complete production UI gesture
+      path from a snapped terminal pair through EndpointIdentityAdapter /
+      EndpointReference creation to Application.execute(ConnectTerminalCommand).
+      A UI-level logical connection and a persistent SLD presentation
+      connection must not be assumed to create Core connectivity.
+    - Snap candidate correctness, endpoint-role compatibility, and the
+      relationship between snap output and typed Core endpoint references
+      were not exhaustively traced across every placement/connection tool.
+    - Event coordinator logic is present, but end-to-end registration,
+      command-to-event emission and active-canvas consumption are not proven
+      for every connect/disconnect/reconnect and simple-wire lifecycle.
+    - Existing reconciliation diagnostics detect projection mismatches; this
+      inspection does not prove all mismatch conditions are surfaced to users
+      or that repair is always transactional and deterministic.
+
+Disposition:
+    GF-MASTER-0038..0040 / RCA-SLD-AUTH-001 remain OPEN — canonical command,
+    Core transaction, read-model and projection components are present, but
+    complete production gesture-to-Core connectivity and event-to-visible-
+    projection coverage remains unverified. Do not close based on component
+    existence alone.
+
+Verification boundary:
+    Static source inspection only. No production source changed.
+    No tests, CI, startup, or GUI execution performed.
+
+======================================================================
