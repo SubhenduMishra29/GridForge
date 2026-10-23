@@ -95,9 +95,42 @@ class ProtectionConfigurationService:
         if active_network is None and self._network_provider is not None:
             active_network = self._network_provider()
         if active_network is not None:
-            try: active_network.get_by_id("relay", configuration.relay_id)
+            try:
+                active_network.get_by_id("relay", configuration.relay_id)
             except KeyError as exc:
                 raise ResourceError(code="PROTECTION_RELAY_NOT_FOUND", message=f"Relay not found for protection configuration: {configuration.relay_id}", details={"relay_id": configuration.relay_id, "element_id": configuration.element_id}) from exc
+            if configuration.action_target_type is not None:
+                try:
+                    target = active_network.get_by_id(
+                        configuration.action_target_type,
+                        configuration.action_target_id,
+                    )
+                except (KeyError, ValueError) as exc:
+                    raise ResourceError(
+                        code="PROTECTION_ACTION_TARGET_NOT_FOUND",
+                        message=(
+                            "Protection action target not found: "
+                            f"{configuration.action_target_type}:{configuration.action_target_id}"
+                        ),
+                        details={
+                            "element_id": configuration.element_id,
+                            "target_type": configuration.action_target_type,
+                            "target_id": configuration.action_target_id,
+                        },
+                    ) from exc
+                if target is None:
+                    raise ResourceError(
+                        code="PROTECTION_ACTION_TARGET_NOT_FOUND",
+                        message=(
+                            "Protection action target not found: "
+                            f"{configuration.action_target_type}:{configuration.action_target_id}"
+                        ),
+                        details={
+                            "element_id": configuration.element_id,
+                            "target_type": configuration.action_target_type,
+                            "target_id": configuration.action_target_id,
+                        },
+                    )
 
     def create_configuration(self, *, configuration: ProtectionFunctionConfiguration, transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
         self._require_transaction(transaction)
@@ -163,6 +196,9 @@ class ProtectionConfigurationService:
             priority=configuration.priority,
             name=configuration.name,
             metadata=configuration.metadata,
+            action_target_type=configuration.action_target_type,
+            action_target_id=configuration.action_target_id,
+            action_type=configuration.action_type,
         )
         self._validate_configuration(next_configuration)
         relay.bind_input(normalized_input, channel)
@@ -218,6 +254,9 @@ class ProtectionConfigurationService:
             priority=configuration.priority,
             name=configuration.name,
             metadata=configuration.metadata,
+            action_target_type=configuration.action_target_type,
+            action_target_id=configuration.action_target_id,
+            action_type=configuration.action_type,
         )
         self._validate_configuration(next_configuration)
         relay.unbind_input(normalized_input)

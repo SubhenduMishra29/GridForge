@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from core.control.context import ControlExecutionContext
+from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
 
@@ -695,7 +696,29 @@ class Application:
         context = ProtectionContext(time=evaluation_time, metadata=context_metadata)
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
-            return ProtectionExecutionResult(decisions=decisions)
+            def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
+                """Resolve only an explicit project-persisted function-to-target mapping."""
+                try:
+                    mapping = active_configuration.get(str(decision.element_id))
+                except KeyError:
+                    return None
+                if (
+                    mapping.action_target_type is None
+                    or mapping.action_target_id is None
+                    or mapping.action_type is None
+                ):
+                    return None
+                return ControlDecision(
+                    control_id=f"protection:{mapping.element_id}",
+                    action_type=ControlActionType(mapping.action_type),
+                    target_equipment_id=mapping.action_target_id,
+                    target_equipment_type=mapping.action_target_type,
+                    reason=decision.reason or f"Protection function {mapping.function_code} requested action.",
+                    simulation_time=evaluation_time,
+                    triggered_by=mapping.element_id,
+                )
+            action_resolver = resolve_persisted_protection_action
+
         def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
             """Verify the action-specific postcondition in the captured Core network.
 
@@ -785,11 +808,10 @@ class Application:
             return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
         def resolve_explicit_protection_action(decision: Any) -> Any | None:
-            """Validate caller-supplied action resolution against current Core authority.
+            """Validate explicit or persisted action resolution against Core authority.
 
-            This deliberately does not infer a target from relay identity or
-            presentation. Project configuration currently has no typed action
-            mapping contract, so an explicit caller resolver remains required.
+            Persisted mappings are resolved by protection-function identity;
+            targets are never inferred from relay identity or presentation.
             """
             ensure_current_protection_provenance()
             resolved = action_resolver(decision)

@@ -21,6 +21,9 @@ class ProtectionFunctionConfiguration:
     priority: int = 0
     name: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    action_target_type: str | None = None
+    action_target_id: str | None = None
+    action_type: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("element_id", "relay_id", "function_code"):
@@ -29,6 +32,21 @@ class ProtectionFunctionConfiguration:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value.strip())
         object.__setattr__(self, "function_code", self.function_code.upper())
+        mapping_values = (self.action_target_type, self.action_target_id, self.action_type)
+        if any(value is not None for value in mapping_values) and any(
+            not isinstance(value, str) or not value.strip() for value in mapping_values
+        ):
+            raise ValueError("Protection action mapping requires target type, target ID, and action type together.")
+        if all(value is not None for value in mapping_values):
+            target_type = self.action_target_type.strip().lower()
+            action_type = self.action_type.strip().lower()
+            if target_type not in {"breaker", "switch", "disconnector", "fuse", "motor"}:
+                raise ValueError(f"Unsupported protection action target type: {target_type!r}.")
+            if action_type not in {"trip", "open", "close", "start", "stop", "blow", "reset", "put_in_service", "take_out_of_service"}:
+                raise ValueError(f"Unsupported protection action type: {action_type!r}.")
+            object.__setattr__(self, "action_target_type", target_type)
+            object.__setattr__(self, "action_target_id", self.action_target_id.strip())
+            object.__setattr__(self, "action_type", action_type)
         if isinstance(self.priority, bool) or not isinstance(self.priority, int):
             raise TypeError("priority must be an integer.")
         object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
@@ -47,6 +65,9 @@ class ProtectionFunctionConfiguration:
             "priority": self.priority,
             "name": self.name,
             "metadata": dict(self.metadata),
+            "action_target_type": self.action_target_type,
+            "action_target_id": self.action_target_id,
+            "action_type": self.action_type,
         }
 
     @classmethod
@@ -57,6 +78,9 @@ class ProtectionFunctionConfiguration:
             input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=bool(data.get("enabled", True)),
             blocked=bool(data.get("blocked", False)), priority=int(data.get("priority", 0)),
             name=str(data.get("name", "")), metadata=dict(data.get("metadata") or {}),
+            action_target_type=data.get("action_target_type"),
+            action_target_id=data.get("action_target_id"),
+            action_type=data.get("action_type"),
         )
 
 
