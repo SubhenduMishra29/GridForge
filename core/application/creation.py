@@ -138,16 +138,29 @@ def validate_creation_values(equipment_type, values, parameter_mapping, paramete
                 if definition.get("minimum") is not None and n < float(definition["minimum"]): raise ValueError(f"must be >= {definition['minimum']}")
                 if definition.get("maximum") is not None and n > float(definition["maximum"]): raise ValueError(f"must be <= {definition['maximum']}")
             elif datatype in {"int", "integer"}:
-                if isinstance(raw, bool) or int(raw) != raw: raise TypeError("must be an integer")
-                n = int(raw)
-                if definition.get("minimum") is not None and n < float(definition["minimum"]): raise ValueError(f"must be >= {definition['minimum']}")
-                if definition.get("maximum") is not None and n > float(definition["maximum"]): raise ValueError(f"must be <= {definition['maximum']}")
+                if isinstance(raw, bool):
+                    raise TypeError("must be an integer, not boolean")
+                numeric = float(raw)
+                if not math.isfinite(numeric):
+                    raise ValueError("must be finite")
+                if not numeric.is_integer():
+                    raise TypeError("must be an integer")
+                n = int(numeric)
+                if definition.get("minimum") is not None and n < float(definition["minimum"]):
+                    raise ValueError(f"must be >= {definition['minimum']}")
+                if definition.get("maximum") is not None and n > float(definition["maximum"]):
+                    raise ValueError(f"must be <= {definition['maximum']}")
             elif datatype in {"bool", "boolean"}:
-                if not isinstance(raw, bool): raise TypeError("must be boolean")
+                if not isinstance(raw, bool):
+                    raise TypeError("must be boolean")
             elif datatype == "enum":
-                if str(raw) not in tuple(str(v) for v in definition.get("choices", ())): raise ValueError(f"must be one of {tuple(definition.get('choices', ()))!r}")
+                if str(raw) not in tuple(str(v) for v in definition.get("choices", ())):
+                    raise ValueError(f"must be one of {tuple(definition.get('choices', ()))!r}")
             elif datatype in {"str", "string"}:
-                if not isinstance(raw, str): raise TypeError("must be text")
+                if not isinstance(raw, str):
+                    raise TypeError("must be text")
+            else:
+                raise ValueError(f"unsupported datatype {datatype!r}")
             canonical = n if datatype in {"float", "number", "int", "integer"} else raw
             rules = dict(definition.get("validation", {}))
             if rules.get("non_empty") and isinstance(canonical, str) and not canonical.strip(): raise ValueError("must not be empty")
