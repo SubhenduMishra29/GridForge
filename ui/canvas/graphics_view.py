@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, Qt, Signal
+from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, Qt, Signal
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -76,6 +76,17 @@ class GraphicsView(QGraphicsView):
         self.setScene(self._scene)
         self.setObjectName("SLDCanvasView")
         self.setBackgroundBrush(QBrush(token_color("canvas_background")))
+        # Electrical symbols and connection routes are vector geometry. Enable
+        # predictable edge/text quality while keeping the view's update policy
+        # incremental for interactive edits.
+        self.setRenderHints(
+            self.renderHints()
+            | QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.TextAntialiasing
+        )
+        self.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate
+        )
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
