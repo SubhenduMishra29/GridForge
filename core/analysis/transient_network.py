@@ -103,6 +103,8 @@ class PreparedTransientStability:
             raise ValueError("Transient stability requires Power Flow result bus identities.")
         if power_flow_result.bus_ids != prepared_power_flow.bus_ids:
             raise ValueError("Power Flow result bus ordering must match the prepared Power Flow snapshot.")
+        if power_flow_result.snapshot_id is None or power_flow_result.snapshot_id != prepared_power_flow.input.snapshot_id:
+            raise ValueError("Power Flow result must originate from the exact prepared snapshot used for transient stability.")
         bus_count = len(prepared_power_flow.bus_ids)
         if len(power_flow_result.voltage_magnitudes) != bus_count or len(power_flow_result.voltage_angles) != bus_count:
             raise ValueError("Power Flow result dimensions must match the prepared Power Flow snapshot.")
