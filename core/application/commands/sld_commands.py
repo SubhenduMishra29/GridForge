@@ -19,6 +19,7 @@ ADD_SLD_CONNECTION = "sld.add_connection"
 REMOVE_SLD_CONNECTION = "sld.remove_connection"
 SET_SLD_CONNECTION_ROUTE = "sld.set_connection_route"
 SET_SLD_NODE_PROPERTIES = "sld.set_node_properties"
+SET_SLD_ANNOTATION_BLOCKS = "sld.set_annotation_blocks"
 
 
 class SetSLDNodePositionCommand(Command):
@@ -147,6 +148,23 @@ class SetSLDNodePropertiesCommand(Command):
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
+class SetSLDAnnotationBlocksCommand(Command):
+    """Replace the annotation-block collection through the Application transaction."""
+
+    def __init__(self, *, annotation_blocks: list[dict],
+                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None) -> None:
+        if not isinstance(annotation_blocks, list) or any(not isinstance(item, dict) for item in annotation_blocks):
+            raise TypeError("annotation_blocks must be a list of dictionaries")
+        super().__init__(
+            command_type=SET_SLD_ANNOTATION_BLOCKS,
+            payload={"annotation_blocks": [dict(item) for item in annotation_blocks]},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class SetSLDConnectionRouteCommand(Command):
     def __init__(self, *, connection_id: str, route: dict,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
@@ -167,7 +185,7 @@ class RemoveSLDConnectionCommand(Command):
 
 __all__ = [
     "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
-    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES",
+    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS",
     "SetSLDNodePositionCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
-    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand",
+    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand",
 ]
