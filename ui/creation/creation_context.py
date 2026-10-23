@@ -180,12 +180,10 @@ class CreationDraft:
         self.mark_validating()
         configuration_ok = self.validate_configuration()
         placement_ok = self.validate_placement()
-        topology_errors = tuple(
-            f"Required topology endpoint {item.name!r} is missing."
-            for item in self.definition.topology_requirements
-            if item.required and self.endpoints.get(item.name) is None
-        )
-        self.validation_state["topology"] = topology_errors
+        # Wiring lives in the Application DraftNetwork connection graph. Do not
+        # validate topology against this per-item UI context, whose endpoint
+        # declarations are not the authoritative graph.
+        self.validation_state["topology"] = ()
         self.validation_state["terminal"] = tuple(
             f"Required terminal {item.terminal_name!r} is not acquired."
             for item in self.definition.terminal_requirements
@@ -194,7 +192,6 @@ class CreationDraft:
         final = (
             tuple(self.validation_state.get("configuration", ()))
             + tuple(self.validation_state.get("placement", ()))
-            + tuple(self.validation_state.get("topology", ()))
             + tuple(self.validation_state.get("terminal", ()))
         )
         self.validation_state["final"] = final
