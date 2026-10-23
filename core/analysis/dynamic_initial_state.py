@@ -92,8 +92,17 @@ class DynamicInitialStatePreparation:
             raise TypeError("machine must be DynamicMachineModelDefinition.")
         if not power_flow_result.success:
             raise ValueError("Power Flow must be successfully solved before Dynamics initialization.")
-        if len(power_flow_result.voltage_magnitudes) != len(power_flow_input.bus_ids):
-            raise ValueError("Power Flow result and input bus dimensions do not match.")
+        if not power_flow_result.bus_ids:
+            raise ValueError("Power Flow result must identify its bus ordering before Dynamics initialization.")
+        if power_flow_result.bus_ids != power_flow_input.bus_ids:
+            raise ValueError("Power Flow result bus ordering must match the prepared Power Flow input.")
+        bus_count = len(power_flow_input.bus_ids)
+        if len(power_flow_result.voltage_magnitudes) != bus_count:
+            raise ValueError("Power Flow result voltage dimensions do not match the prepared input.")
+        if len(power_flow_result.voltage_angles) != bus_count:
+            raise ValueError("Power Flow result angle dimensions do not match the prepared input.")
+        if len(power_flow_input.p_spec) != bus_count or len(power_flow_input.q_spec) != bus_count:
+            raise ValueError("Power Flow input power dimensions do not match its bus ordering.")
         try:
             bus_index = power_flow_input.bus_ids.index(machine.bus_id)
         except ValueError as exc:
@@ -103,6 +112,10 @@ class DynamicInitialStatePreparation:
 
         magnitude = float(power_flow_result.voltage_magnitudes[bus_index])
         angle = float(power_flow_result.voltage_angles[bus_index])
+        if not math.isfinite(magnitude) or magnitude <= 0.0:
+            raise ValueError(f"Power Flow voltage magnitude for Bus '{machine.bus_id}' must be finite and positive.")
+        if not math.isfinite(angle):
+            raise ValueError(f"Power Flow voltage angle for Bus '{machine.bus_id}' must be finite.")
         terminal_voltage = cmath.rect(magnitude, angle)
         electrical_power = complex(
             power_flow_input.p_spec[bus_index],
