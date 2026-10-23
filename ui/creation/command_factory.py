@@ -63,6 +63,7 @@ class CreationCommandFactory:
                 "require_any": tuple(item.require_any),
                 "require_all": tuple(item.require_all),
             } for item in draft.definition.conditional_requirements),
+            equipment_type=draft.equipment_type,
         )
 
 
