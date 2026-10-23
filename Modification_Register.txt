@@ -2967,3 +2967,38 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — POWER FLOW RESULT BUS-IDENTITY CHECK
+======================================================================
+
+File corrected:
+    core/analysis/power_flow_result_conversion.py
+
+Batch audit scope:
+    Traced numerical Power Flow result bus identity into engineering
+    result conversion.
+
+Source evidence:
+    PowerFlowResult can carry bus_ids, but the converter previously checked
+    only the number of voltage magnitudes and angles against caller-supplied
+    bus IDs. A same-length result from a different bus ordering could
+    therefore be converted and associated with the wrong bus labels.
+
+Correction:
+    - When PowerFlowResult.bus_ids is populated, require exact identity and
+      ordering equality with the bus_ids supplied to the converter.
+    - Preserve compatibility with legacy results whose bus_ids are empty;
+      those results still rely on the caller's detached ordering contract.
+
+Disposition:
+    Prevents a known bus-order mismatch when numerical result identity is
+    available. It does not attach project/generation/topology provenance to
+    PowerFlowResult, nor does it verify active-project freshness.
+
+Verification boundary:
+    - Source and register re-fetched after correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
