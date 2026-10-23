@@ -78,6 +78,13 @@ class PowerFlowAnalysis:
     ) -> "PowerFlowAnalysis":
         """Prepare a Network once, then construct analysis from its detached snapshot."""
         prepared = PowerFlowPreparation.prepare(network, power_flow_configuration)
+        if options is None:
+            from core.solver.power_flow.solver_options import SolverOptions
+
+            options = SolverOptions(
+                tolerance=power_flow_configuration.tolerance,
+                max_iterations=power_flow_configuration.max_iterations,
+            )
         return cls.from_prepared(prepared, options)
 
     def solve(self) -> PowerFlowResult:
