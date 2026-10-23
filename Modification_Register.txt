@@ -2306,3 +2306,69 @@ Verification boundary:
     No tests, CI, application startup, or GUI execution performed.
 
 ======================================================================
+
+======================================================================
+2026-10-23 — GF-MASTER-0037 / RCA-003
+DIRECT MUTATION / COMMAND TRANSACTION / HISTORY RECONCILIATION
+======================================================================
+
+Files inspected:
+    core/application/application.py
+    core/application/command_manager.py
+    core/application/transaction.py
+    core/application/command_handlers.py
+    core/application/services/model_service.py
+    core/application/services/switching_model_service.py
+    core/application/services/measurement_model_service.py
+    core/application/services/electrical_connection_service.py
+    core/application/services/sld_service.py
+    core/application/commands/draft_commands.py
+    core/application/project_lifecycle.py
+
+Positive source evidence:
+    - Application.execute(), undo(), and redo() delegate to the canonical
+      CommandManager; public command execution is not a second history engine.
+    - CommandManager._execute_command() validates and resolves a handler,
+      creates one Transaction, executes the handler, validates the result,
+      invokes the coordinated pre-commit hook, commits, and records history.
+      Pre-commit failures roll back. If post-commit history recording fails,
+      the manager marks itself degraded rather than incorrectly rolling back
+      already committed Core state.
+    - Transaction owns an undo journal and immediate rollback operations.
+      Domain services receive an active Transaction and record inverse
+      operations for model creation/update/deletion and terminal connections.
+      SLDService documents that it mutates presentation only within the
+      supplied Application transaction and records undo operations.
+    - ModelCommandHandlers route model operations to domain services with
+      the transaction supplied by CommandManager. ElectricalConnectionService
+      similarly requires a Command and Transaction.
+    - Draft commit is represented by CommitNetworkCommand, consistent with a
+      command boundary for promotion of draft state into Core Network.
+    - Application.set_draft_network() and
+      configure_control_signal_mapping() are direct setters. The latter's
+      source documentation reserves it for composition and transactional
+      project activation/rollback; these are privileged lifecycle/composition
+      paths, not evidence by themselves of a user-facing command bypass.
+
+Unresolved:
+    - This inspection sampled representative model, switching, measurement,
+      terminal-connectivity, SLD and draft paths. It did not establish
+      repository-wide absence of direct Core mutations from every UI,
+      controller, tool, plugin, legacy/deleted module, or public service entry.
+    - Public Application facade/service exposure and all alternate or legacy
+      call sites still require a complete call-site classification before
+      the architectural invariant can be declared closed.
+    - Therefore no unsupported claim is made that every mutation path is
+      command-mediated or that every state-changing operation participates
+      in command history and dirty/revision tracking.
+
+Disposition:
+    GF-MASTER-0037 / RCA-003 remains OPEN — partial positive confirmation of
+    the canonical command/transaction/history mechanism; exhaustive direct-
+    mutation exclusion and caller-path reconciliation remain outstanding.
+
+Verification boundary:
+    Static source inspection only. No production source changed.
+    No tests, CI, startup, or GUI execution performed.
+
+======================================================================
