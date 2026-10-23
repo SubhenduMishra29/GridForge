@@ -662,3 +662,20 @@ The goal is not merely to make the software *function* — it is to make every e
 <p align="center">
   <sub>⚡ GridForge V2 — Architectural Baseline Document · Author: Subhendu Mishra</sub>
 </p>
+
+
+---
+
+## Project Lifecycle and Persistence Contract
+
+This section is part of the single frozen V2 architecture. It consolidates existing ownership rules and does not introduce a parallel architecture.
+
+- **Lifecycle authority:** `ProjectLifecycleService` coordinates new, open, save, discard, and close transitions. A candidate is validated before activation; configured presentation, network, read-only post-network audit, and project-state activation callbacks are coordinated as one transition.
+- **Activation and compensation:** the lifecycle publishes the candidate context, network, activation generation, and active state only after the activation sequence completes. If activation fails, registered compensations run in reverse order. If any compensation fails, the lifecycle enters `ROLLBACK_FAILED` and rejects subsequent transitions until recovery.
+- **Project-scoped state:** services must validate candidate project identity and activation provenance. A matching Python type is not sufficient evidence that runtime/configuration state belongs to the active project.
+- **Package contract:** `.gridforge` is the canonical project package. `manifest.json` carries package-format/version metadata; `project.json` carries canonical project data. Package, project schema, presentation schema, SLD schema, Core serialization, and connectivity serialization versions remain explicit contracts.
+- **Persistence ownership:** persistence migrates and validates canonical payloads and reconstructs network, presentation collection, dynamic models, measurement definitions, control/protection configuration, control-signal mapping, draft network, and protection presentation where supplied. Application lifecycle activates loaded state; UI widgets and graphics items are never persistence authorities.
+- **Save consistency:** the lifecycle captures the active project/network/generation and detached serialized presentation data. If the active project changes while saving, the saved snapshot is not applied as the new active project's baseline. Presentation documents are marked clean only when their current serialized content still matches the captured saved snapshot.
+- **Projection contract:** UI projections refresh from Application read services and semantic events. The existence of an event route or projection class does not prove every live equipment-placement, draft, property-editor, or workspace update works end to end.
+
+**Evidence boundary:** this is a source-inspection contract, not a runtime-verification claim. Full field-by-field save/load round-trip, every activation rollback combination, all UI refresh paths, and production protection triggering remain separate evidence obligations. `GF-PROT-042` remains OPEN until its production trigger/time contract and persisted typed protection-function-to-target action mapping are demonstrated.
