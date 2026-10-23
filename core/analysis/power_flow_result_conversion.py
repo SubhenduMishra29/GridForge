@@ -54,6 +54,10 @@ class PowerFlowResultConverter:
             raise TypeError("result must be a PowerFlowResult instance.")
 
         ids = tuple(bus_ids)
+        if result.bus_ids and result.bus_ids != ids:
+            raise ValueError(
+                "Power Flow result bus ordering must match the supplied bus IDs."
+            )
         if len(ids) != len(result.voltage_magnitudes):
             raise ValueError(
                 "Power Flow result voltage count must match the supplied bus IDs."
