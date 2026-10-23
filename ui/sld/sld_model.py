@@ -37,6 +37,72 @@ from ui.equipment.symbol.symbol_base import SymbolBase
 
 
 # ============================================================
+# SLD Data Annotation Block
+# ============================================================
+
+
+@dataclass(frozen=True, slots=True)
+class SLDAnnotationBlock:
+    """Presentation-only data block bound to a node and Application read data."""
+
+    block_id: str
+    node_id: str
+    fields: Tuple[str, ...]
+    visible: bool = True
+    offset_x: float = 70.0
+    offset_y: float = -20.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.block_id, str) or not self.block_id.strip():
+            raise ValueError("block_id must be a non-empty string")
+        if not isinstance(self.node_id, str) or not self.node_id.strip():
+            raise ValueError("node_id must be a non-empty string")
+        if not isinstance(self.fields, (tuple, list)) or not self.fields:
+            raise ValueError("annotation fields must be a non-empty sequence")
+        if any(not isinstance(field, str) or not field.strip() for field in self.fields):
+            raise ValueError("annotation fields must contain non-empty strings")
+        if not isinstance(self.visible, bool):
+            raise TypeError("visible must be boolean")
+        for name in ("offset_x", "offset_y"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(name + " must be numeric")
+        object.__setattr__(self, "fields", tuple(self.fields))
+        object.__setattr__(self, "offset_x", float(self.offset_x))
+        object.__setattr__(self, "offset_y", float(self.offset_y))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "block_id": self.block_id,
+            "node_id": self.node_id,
+            "visible": self.visible,
+            "fields": list(self.fields),
+            "offset_x": self.offset_x,
+            "offset_y": self.offset_y,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SLDAnnotationBlock":
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD annotation block payload must be a mapping")
+        allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y"}
+        unknown = sorted(set(data) - allowed)
+        missing = sorted(allowed - set(data))
+        if unknown:
+            raise ValueError("Unknown SLD annotation block fields: " + ", ".join(unknown))
+        if missing:
+            raise ValueError("Missing SLD annotation block fields: " + ", ".join(missing))
+        return cls(
+            block_id=data["block_id"],
+            node_id=data["node_id"],
+            visible=data["visible"],
+            fields=tuple(data["fields"]) if isinstance(data["fields"], (tuple, list)) else data["fields"],
+            offset_x=data["offset_x"],
+            offset_y=data["offset_y"],
+        )
+
+
+# ============================================================
 # SLD Node
 # ============================================================
 
