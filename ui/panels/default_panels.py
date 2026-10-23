@@ -399,6 +399,23 @@ class PropertiesPanelWidget(QWidget):
             return node
         return document.model.get_node_by_equipment_id_optional(selected_id)
 
+    def refresh_sld_annotation_controls(self) -> None:
+        """Refresh annotation controls after canonical document/selection changes."""
+        self._refresh_sld_annotation_controls()
+
+    def clear_sld_annotation_controls(self) -> None:
+        """Clear document-specific annotation controls when no SLD document is active."""
+        self._sld_selection_ids = ()
+        layout = getattr(self, "_annotation_layout", None)
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        layout.addRow(QLabel("No active SLD document.", self))
+
     def _refresh_sld_annotation_controls(self) -> None:
         layout = getattr(self, "_annotation_layout", None)
         if layout is None:
