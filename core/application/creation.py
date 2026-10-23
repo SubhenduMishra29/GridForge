@@ -55,6 +55,121 @@ _CREATE_COMMANDS = {
     "model.create_relay": CreateRelayCommand,
 }
 
+
+def _freeze_contract_value(value: Any) -> Any:
+    """Recursively freeze plain contract data at the Application boundary."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze_contract_value(item) for key, item in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_contract_value(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_contract_value(item) for item in value)
+    return value
+
+
+def _plain_contract_value(value: Any) -> Any:
+    """Normalize immutable contract containers for structural equality checks."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain_contract_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return tuple(_plain_contract_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_plain_contract_value(item) for item in value)
+    return value
+
+
+class CreationContractRegistry:
+    """Application-owned snapshot of trusted creation contracts injected at composition."""
+
+    def __init__(self) -> None:
+        self._contracts: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
+
+    @property
+    def configured(self) -> bool:
+        return bool(self._contracts)
+
+    def configure(self, contracts: Mapping[str, Mapping[str, Any]]) -> None:
+        if not isinstance(contracts, Mapping) or not contracts:
+            raise ValueError("At least one canonical creation contract is required.")
+        normalized: dict[str, Mapping[str, Any]] = {}
+        for raw_type, raw_contract in contracts.items():
+            if not isinstance(raw_contract, Mapping):
+                raise TypeError(f"Creation contract for {raw_type!r} must be a mapping.")
+            equipment_type = str(raw_contract.get("equipment_type", raw_type)).strip().lower()
+            if not equipment_type or equipment_type != str(raw_type).strip().lower():
+                raise ValueError(f"Creation contract key does not match equipment type {raw_type!r}.")
+            command_type = str(raw_contract.get("command_type", "")).strip()
+            id_field = str(raw_contract.get("id_field", "")).strip()
+            if command_type not in _CREATE_COMMANDS:
+                raise ValueError(f"{equipment_type}: unsupported canonical creation command {command_type!r}.")
+            if not id_field:
+                raise ValueError(f"{equipment_type}: canonical ID field is missing.")
+            command_signature = inspect.signature(_CREATE_COMMANDS[command_type])
+            command_fields = {
+                name for name, parameter in command_signature.parameters.items()
+                if name not in {"self", "command_id", "correlation_id", "causation_id"}
+            }
+            if id_field not in command_fields:
+                raise ValueError(f"{equipment_type}: ID field {id_field!r} is absent from {command_type!r}.")
+
+            terminal_contract = tuple(str(role).strip() for role in raw_contract.get("terminal_contract", ()))
+            if any(not role for role in terminal_contract) or len(set(terminal_contract)) != len(terminal_contract):
+                raise ValueError(f"{equipment_type}: terminal contract contains blank or duplicate roles.")
+            parameter_mapping = dict(raw_contract.get("parameter_mapping", {}))
+            endpoint_mapping = dict(raw_contract.get("endpoint_mapping", {}))
+            parameter_contract = tuple(_freeze_contract_value(item) for item in raw_contract.get("parameter_contract", ()))
+            conditional_requirements = tuple(_freeze_contract_value(item) for item in raw_contract.get("conditional_requirements", ()))
+            parameter_ids = tuple(str(item.get("parameter_id", "")).strip() for item in parameter_contract)
+            if any(not key for key in parameter_ids) or len(set(parameter_ids)) != len(parameter_ids):
+                raise ValueError(f"{equipment_type}: canonical parameter IDs are blank or duplicated.")
+            if set(parameter_mapping) != set(parameter_ids):
+                raise ValueError(f"{equipment_type}: canonical parameter mapping must cover exactly the declared parameter IDs.")
+            for parameter_id, target in parameter_mapping.items():
+                if not isinstance(target, str) or target not in command_fields:
+                    raise ValueError(f"{equipment_type}: parameter {parameter_id!r} maps to invalid command field {target!r}.")
+            for role, target in endpoint_mapping.items():
+                if role not in terminal_contract or not isinstance(target, str) or target not in command_fields:
+                    raise ValueError(f"{equipment_type}: endpoint mapping {role!r} -> {target!r} is not canonical.")
+            required_terminals = tuple(str(role).strip() for role in raw_contract.get("required_connection_terminals", ()))
+            if any(not role for role in required_terminals) or len(set(required_terminals)) != len(required_terminals):
+                raise ValueError(f"{equipment_type}: required connection terminal list is invalid.")
+            if not set(required_terminals).issubset(set(terminal_contract)):
+                raise ValueError(f"{equipment_type}: required connection terminals exceed the terminal contract.")
+            known_parameters = set(parameter_ids)
+            for rule in conditional_requirements:
+                if not isinstance(rule, Mapping):
+                    raise TypeError(f"{equipment_type}: conditional requirements must be mappings.")
+                referenced = (*tuple(rule.get("require_any", ())), *tuple(rule.get("require_all", ())))
+                if not set(referenced).issubset(known_parameters):
+                    raise ValueError(f"{equipment_type}: conditional requirement references an unknown parameter.")
+            normalized[equipment_type] = MappingProxyType({
+                "equipment_type": equipment_type,
+                "terminal_contract": terminal_contract,
+                "command_type": command_type,
+                "id_field": id_field,
+                "parameter_mapping": _freeze_contract_value(parameter_mapping),
+                "endpoint_mapping": _freeze_contract_value(endpoint_mapping),
+                "required_connection_terminals": required_terminals,
+                "parameter_contract": parameter_contract,
+                "conditional_requirements": conditional_requirements,
+            })
+        frozen = MappingProxyType(normalized)
+        if self._contracts and _plain_contract_value(self._contracts) != _plain_contract_value(frozen):
+            raise RuntimeError("Canonical creation contracts are already configured and cannot be replaced.")
+        self._contracts = frozen
+
+    def resolve(self, equipment_type: str) -> Mapping[str, Any]:
+        if not self._contracts:
+            raise RuntimeError("Canonical creation contracts are not configured in the Application composition path.")
+        key = str(equipment_type).strip().lower()
+        try:
+            return self._contracts[key]
+        except KeyError as exc:
+            raise ValueError(f"No canonical creation contract is registered for equipment type {key!r}.") from exc
+
+    def snapshot(self) -> Mapping[str, Mapping[str, Any]]:
+        return self._contracts
+
 @dataclass(frozen=True, slots=True)
 class CreationCommitIntent:
     """Immutable UI intent; it contains data, not an Application command."""
@@ -68,11 +183,13 @@ class CreationCommitIntent:
     position: tuple[float, float] | None = None
     parameter_contract: tuple[Mapping[str, Any], ...] = ()
     conditional_requirements: tuple[Mapping[str, Any], ...] = ()
+    equipment_type: str = ""
 
     def __post_init__(self) -> None:
         if not all(isinstance(v, str) and v.strip() for v in (self.command_type, self.id_field, self.object_id)):
             raise ValueError("CreationCommitIntent requires non-empty command type, ID field, and object ID.")
         object.__setattr__(self, "command_type", self.command_type.strip())
+        object.__setattr__(self, "equipment_type", str(self.equipment_type).strip().lower())
         object.__setattr__(self, "id_field", self.id_field.strip())
         object.__setattr__(self, "object_id", self.object_id.strip())
         object.__setattr__(self, "parameter_mapping", MappingProxyType(dict(self.parameter_mapping)))
@@ -83,6 +200,71 @@ class CreationCommitIntent:
         object.__setattr__(self, "conditional_requirements", tuple(MappingProxyType(dict(x)) for x in self.conditional_requirements))
         if self.position is not None:
             object.__setattr__(self, "position", (float(self.position[0]), float(self.position[1])))
+
+
+def validate_creation_contract_metadata(
+    *,
+    equipment_type: str,
+    command_type: str,
+    id_field: str,
+    parameter_mapping: Mapping[str, str],
+    endpoint_mapping: Mapping[str, str],
+    terminal_contract: tuple[str, ...],
+    required_connection_terminals: tuple[str, ...],
+    parameter_contract: tuple[Mapping[str, Any], ...],
+    conditional_requirements: tuple[Mapping[str, Any], ...],
+    canonical_contract: Mapping[str, Any],
+) -> None:
+    """Reject draft/intent metadata that differs from the trusted composition snapshot."""
+    actual = {
+        "equipment_type": str(equipment_type).strip().lower(),
+        "command_type": str(command_type).strip(),
+        "id_field": str(id_field).strip(),
+        "parameter_mapping": parameter_mapping,
+        "endpoint_mapping": endpoint_mapping,
+        "terminal_contract": terminal_contract,
+        "required_connection_terminals": required_connection_terminals,
+        "parameter_contract": parameter_contract,
+        "conditional_requirements": conditional_requirements,
+    }
+    for field, value in actual.items():
+        expected = canonical_contract[field]
+        if _plain_contract_value(value) != _plain_contract_value(expected):
+            raise ValueError(
+                f"{actual['equipment_type']}: draft creation metadata for {field!r} "
+                "does not match the trusted canonical Application contract."
+            )
+
+
+def canonicalize_creation_intent(intent: "CreationCommitIntent", canonical_contract: Mapping[str, Any]) -> "CreationCommitIntent":
+    """Build an intent using trusted contract fields, never draft-supplied schema metadata."""
+    if not intent.equipment_type:
+        raise ValueError("Creation intent must identify its equipment_type for canonical contract resolution.")
+    validate_creation_contract_metadata(
+        equipment_type=intent.equipment_type,
+        command_type=intent.command_type,
+        id_field=intent.id_field,
+        parameter_mapping=intent.parameter_mapping,
+        endpoint_mapping=intent.endpoint_mapping,
+        terminal_contract=tuple(canonical_contract["terminal_contract"]),
+        required_connection_terminals=tuple(canonical_contract["required_connection_terminals"]),
+        parameter_contract=intent.parameter_contract,
+        conditional_requirements=intent.conditional_requirements,
+        canonical_contract=canonical_contract,
+    )
+    return CreationCommitIntent(
+        command_type=canonical_contract["command_type"],
+        id_field=canonical_contract["id_field"],
+        object_id=intent.object_id,
+        parameter_mapping=canonical_contract["parameter_mapping"],
+        endpoint_mapping=canonical_contract["endpoint_mapping"],
+        values=intent.values,
+        endpoints=intent.endpoints,
+        position=intent.position,
+        parameter_contract=canonical_contract["parameter_contract"],
+        conditional_requirements=canonical_contract["conditional_requirements"],
+        equipment_type=canonical_contract["equipment_type"],
+    )
 
 
 def validate_creation_values(equipment_type, values, parameter_mapping, parameter_contract, conditional_requirements=()):
@@ -193,9 +375,11 @@ class CreationCommandPreparer:
             raise ValueError(f"Unsupported creation command type: {command_type!r}") from exc
 
     @classmethod
-    def prepare(cls, intent: CreationCommitIntent) -> Command:
+    def prepare(cls, intent: CreationCommitIntent, *, canonical_contract: Mapping[str, Any] | None = None) -> Command:
         if not isinstance(intent, CreationCommitIntent):
             raise TypeError("intent must be a CreationCommitIntent.")
+        if canonical_contract is not None:
+            intent = canonicalize_creation_intent(intent, canonical_contract)
         values = validate_creation_values(intent.command_type, intent.values, intent.parameter_mapping, intent.parameter_contract, intent.conditional_requirements)
         command_class = cls.command_class(intent.command_type)
         signature = inspect.signature(command_class)
