@@ -153,12 +153,17 @@ class SLDGraphicsItemFactory:
 
     @staticmethod
     def _read_model_for_node(node: SLDCanvasNode, equipment_type: str) -> ElementReadModel:
-        """Build a presentation snapshot only from the projected SLD node.
+        """Use the current Application snapshot, with a legacy presentation fallback.
 
-        The graphics factory is deliberately downstream of the Application
-        read/projection boundary. It must never query Application/Core state to
-        decide whether an already-projected SLD node is renderable.
+        Canonical read data is injected by SLDCanvasProjection through the
+        presentation projection manager. The graphics factory never queries
+        Application/Core state itself.
         """
+        if node.read_model is not None:
+            if node.equipment_id and node.read_model.object_id != node.equipment_id:
+                raise ValueError("Projected Application read-model identity does not match the SLD node.")
+            return node.read_model
+
         equipment_id = node.equipment_id or str(
             node.properties.get("equipment_id") or node.node_id
         )

@@ -226,6 +226,10 @@ class CanvasComposer:
         selection_manager = SelectionManager()
         grid_system = GridSystem()
         scene = GridScene()
+        # The visible grid and all snap/coordinate services must share one
+        # geometry authority. A second scene-owned GridSystem lets the drawn
+        # grid drift from the grid used for placement and connection snapping.
+        scene.set_grid_system(grid_system)
         snap_system = SnapSystem(
             controller=controller,
             grid_system=grid_system,

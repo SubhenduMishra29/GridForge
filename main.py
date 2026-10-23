@@ -181,7 +181,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         application=gridforge_application,
     )
     resources["sld_controller"] = sld_controller
-    sld_canvas_projection = SLDCanvasProjection()
+    sld_canvas_projection = SLDCanvasProjection(
+        read_model_provider=sld_projection_manager.read_model,
+    )
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_preparation.scene,
         item_factory=presentation_bootstrap.sld_graphics_item_factory,
