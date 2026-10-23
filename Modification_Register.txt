@@ -2534,3 +2534,37 @@ Verification boundary:
     - No tests or CI run. No runtime, import, startup or GUI verification.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — GF-MASTER-0026 TARGETED SHORT-CIRCUIT PROVENANCE CORRECTION
+======================================================================
+
+File corrected:
+    core/solver/short_circuit/short_circuit_solver.py
+
+Source evidence:
+    - ShortCircuitPreparation already transfers project_id,
+      activation_generation and topology_revision from the canonical
+      TopologySnapshot into ShortCircuitInput.
+    - ShortCircuitSolver previously omitted those three fields when building
+      ShortCircuitResult.provenance, breaking identity continuity between
+      the prepared snapshot and the detached numerical result.
+
+Correction:
+    - Result provenance now carries project_id, activation_generation and
+      topology_revision directly from ShortCircuitInput.
+    - Missing values remain None; the solver does not fabricate identity
+      metadata for detached inputs that did not supply it.
+
+Disposition:
+    - The specific provenance propagation gap is corrected in source.
+    - GF-MASTER-0026 remains OPEN until result serialization, projections,
+      reporting consumers and the active production execution path are traced
+      to confirm these fields survive end-to-end.
+
+Verification boundary:
+    - Source patch committed and GitHub re-fetch verification pending.
+    - No tests or CI run, per instruction. No runtime or import verification.
+
+======================================================================
