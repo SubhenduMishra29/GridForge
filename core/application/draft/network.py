@@ -117,6 +117,7 @@ class DraftEquipment:
     id_field: str = ""
     parameter_mapping: Mapping[str, str] = field(default_factory=dict)
     endpoint_mapping: Mapping[str, str] = field(default_factory=dict)
+    required_connection_terminals: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
@@ -128,6 +129,14 @@ class DraftEquipment:
         object.__setattr__(self, "validation_state", MappingProxyType(dict(self.validation_state)))
         object.__setattr__(self, "parameter_mapping", MappingProxyType(dict(self.parameter_mapping)))
         object.__setattr__(self, "endpoint_mapping", MappingProxyType(dict(self.endpoint_mapping)))
+        required_terminals = tuple(str(role).strip() for role in self.required_connection_terminals)
+        if any(not role for role in required_terminals):
+            raise ValueError("Required connection terminal names must be non-empty.")
+        if len(set(required_terminals)) != len(required_terminals):
+            raise ValueError("Required connection terminal names must be unique.")
+        if not set(required_terminals).issubset(set(self.terminal_contract)):
+            raise ValueError("Required connection terminals must belong to the canonical terminal contract.")
+        object.__setattr__(self, "required_connection_terminals", required_terminals)
 
     def to_dict(self) -> dict[str, Any]:
         return {"draft_id": self.draft_id, "equipment_type": self.equipment_type, "display_name": self.display_name,
@@ -136,7 +145,8 @@ class DraftEquipment:
                 "placement": None if self.placement is None else list(self.placement),
                 "presentation": deepcopy(dict(self.presentation)), "validation_state": deepcopy(dict(self.validation_state)),
                 "command_type": self.command_type, "id_field": self.id_field,
-                "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping)}
+                "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping),
+                "required_connection_terminals": list(self.required_connection_terminals)}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -146,7 +156,8 @@ class DraftEquipment:
                     {k: DraftEndpointReference.from_value(v) for k, v in dict(data.get("endpoints", {})).items()},
                     None if placement is None else (float(placement[0]), float(placement[1])), dict(data.get("presentation", {})),
                     dict(data.get("validation_state", {})), str(data["command_type"]), str(data["id_field"]),
-                    dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})))
+                    dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})),
+                    tuple(str(x) for x in data.get("required_connection_terminals", ())))
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +224,7 @@ class DraftNetwork:
         current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
-        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping")}
+        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals")}
         values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
