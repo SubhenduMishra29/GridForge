@@ -238,7 +238,8 @@ class ModelPlacementTool(ToolBase):
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
         """Return the first missing explicitly required initial endpoint role."""
-        # Topology requirements are validated from DraftConnection at commit;\n        # placement must not force the engineer to wire equipment immediately.\n        for requirement in draft.definition.terminal_requirements:
+        # Topology requirements are validated from DraftConnection at commit;
+        # placement must not force the engineer to wire equipment immediately.\n        for requirement in draft.definition.terminal_requirements:
             if requirement.initial_endpoint_required and draft.endpoints.get(requirement.terminal_name) is None:
                 return requirement.terminal_name
         return None
