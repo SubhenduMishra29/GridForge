@@ -2668,3 +2668,35 @@ Verification boundary:
     - No tests or CI run. Runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — STUDY START EVENT LIFECYCLE CLEANUP CORRECTION
+======================================================================
+
+File corrected:
+    core/application/study.py
+
+Source evidence:
+    - StudyService.execute() inserted the active cancellation token into
+      _tokens and published StudyStarted before entering its try/finally.
+    - ApplicationEventBus dispatch is synchronous and invokes subscribers
+      directly; a subscriber exception could therefore escape before the
+      lifecycle cleanup block and leave the study permanently marked active.
+
+Correction:
+    - StudyStarted publication now occurs inside the existing try block.
+      Subscriber failures follow the existing failed-study handling path,
+      and the finally block removes the active token.
+
+Disposition:
+    - The active-token leak caused by a StudyStarted subscriber exception
+      before lifecycle protection is corrected.
+    - Event subscriber exception policy and failures during terminal-event
+      publication remain broader event-bus concerns and are not claimed fixed.
+
+Verification boundary:
+    - Source patch committed; GitHub re-fetch verification pending.
+    - No tests or CI run. Runtime behavior remains unverified.
+
+======================================================================
