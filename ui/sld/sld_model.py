@@ -62,6 +62,15 @@ class SLDAnnotationBlock:
             raise ValueError("annotation fields must be a non-empty sequence")
         if any(not isinstance(field, str) or not field.strip() for field in self.fields):
             raise ValueError("annotation fields must contain non-empty strings")
+        if len(set(self.fields)) != len(self.fields):
+            raise ValueError("annotation fields must be unique")
+        for field in self.fields:
+            if field not in {"identity", "type"} and not (
+                field.startswith("label:") and field[6:].strip()
+                or field.startswith("attribute:") and field[10:].strip()
+                or field.startswith("parameter:") and field[10:].strip()
+            ):
+                raise ValueError("unsupported annotation field: " + field)
         if not isinstance(self.visible, bool):
             raise TypeError("visible must be boolean")
         for name in ("offset_x", "offset_y"):
