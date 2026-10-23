@@ -309,6 +309,33 @@ class DraftNetwork:
         self.validation_state = {"errors": tuple(errors), "valid": not errors}
         return tuple(errors)
 
+    def validate_required_connections(self) -> tuple[str, ...]:
+        """Validate explicitly required terminal connectivity at commit time."""
+        errors: list[str] = []
+        for item in self._equipment.values():
+            for role in item.required_connection_terminals:
+                matches = 0
+                for connection in self._connections.values():
+                    for endpoint in (connection.source, connection.target):
+                        if (
+                            endpoint.is_terminal
+                            and endpoint.scope == "draft"
+                            and endpoint.object_id == item.draft_id
+                            and endpoint.equipment_type == item.equipment_type.strip().lower()
+                            and endpoint.terminal_role == role
+                        ):
+                            matches += 1
+                if matches == 0:
+                    errors.append(
+                        f"{item.draft_id}: required terminal {role!r} is not connected."
+                    )
+                elif matches > 1:
+                    errors.append(
+                        f"{item.draft_id}: required terminal {role!r} has "
+                        f"{matches} connections; exactly one is allowed."
+                    )
+        return tuple(errors)
+
     def clear_after_commit(self) -> None: self._equipment.clear(); self._connections.clear(); self.validation_state = {}
     def restore_snapshot(self, snapshot: Mapping[str, Any]) -> None:
         restored = DraftNetwork.from_dict(snapshot, project_id=self.project_id, activation_generation=self.activation_generation)
