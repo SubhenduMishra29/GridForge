@@ -161,7 +161,7 @@ class SLDCanvasProjection:
                     )
                     value = None if parameter is None else parameter.value
                     label = key
-                    if parameter is not None and parameter.unit:
+                    if parameter is not None and parameter.unit and value is not None:
                         value = f"{value} {parameter.unit}"
                 else:
                     # Unknown field namespaces are not evaluated as expressions.
