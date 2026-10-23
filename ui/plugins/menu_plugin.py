@@ -164,9 +164,9 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.equipment_browser", "Equipment Browser", None, True),
         )),
         MenuSpec("sld", "SLD", (
-            a("tool.select", "Select"),
-            a("tool.bus", "Place Bus"),
-            a("tool.wire", "Wire"),
+            a("tool.sld.select", "Select"),
+            a("tool.sld.bus", "Place Bus"),
+            a("tool.sld.wire", "Wire"),
             a("network.commit_draft", "Commit Draft", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("study", "Study", (
