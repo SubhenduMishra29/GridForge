@@ -19,7 +19,7 @@ from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
 
 from .command import Command
-from .creation import CreationCommitIntent, CreationCommandPreparer
+from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
@@ -128,6 +128,7 @@ class Application:
         self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
+        self._creation_contract_registry = CreationContractRegistry()
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -158,6 +159,15 @@ class Application:
 
     def set_draft_network(self, draft_network: Any | None) -> None:
         self._draft_network = draft_network
+
+    @property
+    def creation_contract_registry(self) -> CreationContractRegistry:
+        """Return the Application-owned registry of trusted creation contracts."""
+        return self._creation_contract_registry
+
+    def configure_creation_contracts(self, contracts: Mapping[str, Mapping[str, Any]]) -> None:
+        """Inject validated catalogue contracts at the composition boundary."""
+        self._creation_contract_registry.configure(contracts)
 
     @property
     def event_bus(self) -> ApplicationEventBus: return self._event_bus
@@ -1702,8 +1712,11 @@ class Application:
         return result
 
     def prepare_creation_command(self, intent: CreationCommitIntent) -> Command:
-        """Translate immutable UI creation intent into the canonical Application command."""
-        return CreationCommandPreparer.prepare(intent)
+        """Translate intent using the trusted Application creation contract."""
+        if not isinstance(intent, CreationCommitIntent):
+            raise TypeError("intent must be a CreationCommitIntent.")
+        canonical_contract = self._creation_contract_registry.resolve(intent.equipment_type)
+        return CreationCommandPreparer.prepare(intent, canonical_contract=canonical_contract)
 
     def prepare_engineering_update(self, intent: Any) -> Command:
         """Translate typed engineering intent into the authoritative update command."""
