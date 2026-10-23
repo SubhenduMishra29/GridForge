@@ -142,8 +142,11 @@ class PreparedPowerFlow:
         object.__setattr__(self, "shunts", tuple(self.shunts))
         if self.project_id is not None and not str(self.project_id).strip():
             raise ValueError("Prepared Power Flow project_id must be non-empty when supplied.")
-        if self.activation_generation is not None and (isinstance(self.activation_generation, bool) or int(self.activation_generation) < 1):
-            raise ValueError("Prepared Power Flow activation_generation must be positive when supplied.")
+        if self.activation_generation is not None:
+            if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int):
+                raise TypeError("Prepared Power Flow activation_generation must be an integer when supplied.")
+            if self.activation_generation < 1:
+                raise ValueError("Prepared Power Flow activation_generation must be positive when supplied.")
 
     @property
     def bus_ids(self) -> tuple[str, ...]:
