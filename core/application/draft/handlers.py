@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from core.model import EndpointReference, EquipmentType
-from ..creation import CreationCommitIntent, CreationCommandPreparer
+from ..creation import CreationCommitIntent, CreationCommandPreparer, validate_creation_contract_metadata
 from ..results import ApplicationResult
 from ..services.simple_wire_service import SimpleWireConnectionService
 from .network import DraftConnection, DraftNetwork
@@ -115,11 +115,14 @@ class DraftConnectivityResolver:
 
 
 class CommitNetworkHandler:
-    def __init__(self, draft_provider, command_executor):
+    def __init__(self, draft_provider, command_executor, creation_contract_provider=None):
         if not callable(command_executor):
             raise TypeError("command_executor must be callable.")
+        if creation_contract_provider is not None and not callable(creation_contract_provider):
+            raise TypeError("creation_contract_provider must be callable or None.")
         self._draft_provider = draft_provider
         self._command_executor = command_executor
+        self._creation_contract_provider = creation_contract_provider
         self._resolver = DraftConnectivityResolver()
 
     @staticmethod
@@ -208,15 +211,37 @@ class CommitNetworkHandler:
         )
         if snapshot.to_dict() != draft_payload:
             raise ValueError("CommitNetworkCommand draft_network payload is not canonical.")
+        if not snapshot.equipment and not snapshot.connections:
+            raise ValueError(
+                "DraftNetwork commit is empty; add equipment or connections before committing."
+            )
+
+        registry = self._creation_contract_provider() if self._creation_contract_provider is not None else None
+        if registry is None:
+            raise RuntimeError(
+                "Canonical creation contracts are not configured in the Application composition path."
+            )
+        canonical_contracts = {}
+        for item in snapshot.equipment:
+            canonical_contract = registry.resolve(item.equipment_type)
+            validate_creation_contract_metadata(
+                equipment_type=item.equipment_type,
+                command_type=item.command_type,
+                id_field=item.id_field,
+                parameter_mapping=item.parameter_mapping,
+                endpoint_mapping=item.endpoint_mapping,
+                terminal_contract=item.terminal_contract,
+                required_connection_terminals=item.required_connection_terminals,
+                parameter_contract=item.parameter_contract,
+                conditional_requirements=item.conditional_requirements,
+                canonical_contract=canonical_contract,
+            )
+            canonical_contracts[item.draft_id] = canonical_contract
 
         errors = snapshot.validate(getattr(context, "network", None))
         errors += snapshot.validate_required_connections()
         if errors:
             raise ValueError("Draft validation failed: " + "; ".join(errors))
-        if not snapshot.equipment and not snapshot.connections:
-            raise ValueError(
-                "DraftNetwork commit is empty; add equipment or connections before committing."
-            )
 
         network = getattr(context, "network", None)
         if network is None:
@@ -258,19 +283,21 @@ class CommitNetworkHandler:
                         values[parameter_id] = item.display_name
                         break
 
+            canonical_contract = canonical_contracts[item.draft_id]
             intent = CreationCommitIntent(
-                command_type=item.command_type,
-                id_field=item.id_field,
+                command_type=canonical_contract["command_type"],
+                id_field=canonical_contract["id_field"],
                 object_id=core_ids[item.draft_id],
-                parameter_mapping=dict(item.parameter_mapping),
-                endpoint_mapping=dict(item.endpoint_mapping),
+                parameter_mapping=canonical_contract["parameter_mapping"],
+                endpoint_mapping=canonical_contract["endpoint_mapping"],
                 values=values,
                 endpoints=self._resolve_equipment_endpoints(item, core_ids, snapshot.connections),
                 position=item.placement,
-                parameter_contract=item.parameter_contract,
-                conditional_requirements=item.conditional_requirements,
+                parameter_contract=canonical_contract["parameter_contract"],
+                conditional_requirements=canonical_contract["conditional_requirements"],
+                equipment_type=canonical_contract["equipment_type"],
             )
-            prepared = preparer.prepare(intent)
+            prepared = preparer.prepare(intent, canonical_contract=canonical_contract)
             prepared_commands.append(prepared)
             x, y = item.placement if item.placement is not None else (None, None)
             created_elements.append({
