@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+import math
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -65,6 +66,8 @@ class CreationCommitIntent:
     values: Mapping[str, Any]
     endpoints: Mapping[str, Any]
     position: tuple[float, float] | None = None
+    parameter_contract: tuple[Mapping[str, Any], ...] = ()
+    conditional_requirements: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not all(isinstance(v, str) and v.strip() for v in (self.command_type, self.id_field, self.object_id)):
@@ -76,8 +79,82 @@ class CreationCommitIntent:
         object.__setattr__(self, "endpoint_mapping", MappingProxyType(dict(self.endpoint_mapping)))
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
         object.__setattr__(self, "endpoints", MappingProxyType(dict(self.endpoints)))
+        object.__setattr__(self, "parameter_contract", tuple(MappingProxyType(dict(x)) for x in self.parameter_contract))
+        object.__setattr__(self, "conditional_requirements", tuple(MappingProxyType(dict(x)) for x in self.conditional_requirements))
         if self.position is not None:
             object.__setattr__(self, "position", (float(self.position[0]), float(self.position[1])))
+
+
+def validate_creation_values(equipment_type, values, parameter_mapping, parameter_contract, conditional_requirements=()):
+    """Validate draft engineering values using a serialized, framework-neutral contract."""
+    if not parameter_contract:
+        raise ValueError(f"{equipment_type}: canonical engineering parameter contract is missing.")
+    definitions = {str(x.get("parameter_id", "")): x for x in parameter_contract}
+    if "" in definitions or len(definitions) != len(parameter_contract):
+        raise ValueError(f"{equipment_type}: invalid or duplicate parameter contract identifiers.")
+    unknown = set(values) - set(definitions)
+    unmapped = set(values) - set(parameter_mapping)
+    if unknown or unmapped:
+        raise ValueError(f"{equipment_type}: unknown or unmapped engineering parameters: {sorted(unknown | unmapped)!r}")
+    normalized = dict(values)
+    errors = []
+    for key, definition in definitions.items():
+        value = normalized.get(key)
+        if value is None:
+            if definition.get("required_before_create", False):
+                errors.append(f"{key}: required value is missing")
+            continue
+        unit = None
+        if isinstance(value, Mapping):
+            unit = value.get("unit")
+            if "value" not in value:
+                errors.append(f"{key}: value mapping must contain 'value'")
+                continue
+            raw = value["value"]
+        else:
+            raw = value
+        expected_unit = definition.get("unit")
+        if unit is not None and expected_unit is not None and str(unit).strip() != str(expected_unit).strip():
+            errors.append(f"{key}: unit must be {expected_unit!r}")
+            continue
+        datatype = str(definition.get("datatype", "str")).lower()
+        try:
+            if datatype in {"float", "number"}:
+                if isinstance(raw, bool): raise TypeError("must be numeric, not boolean")
+                n = float(raw)
+                if not math.isfinite(n): raise ValueError("must be finite")
+                if definition.get("minimum") is not None and n < float(definition["minimum"]): raise ValueError(f"must be >= {definition['minimum']}")
+                if definition.get("maximum") is not None and n > float(definition["maximum"]): raise ValueError(f"must be <= {definition['maximum']}")
+            elif datatype in {"int", "integer"}:
+                if isinstance(raw, bool) or int(raw) != raw: raise TypeError("must be an integer")
+                n = int(raw)
+                if definition.get("minimum") is not None and n < float(definition["minimum"]): raise ValueError(f"must be >= {definition['minimum']}")
+                if definition.get("maximum") is not None and n > float(definition["maximum"]): raise ValueError(f"must be <= {definition['maximum']}")
+            elif datatype in {"bool", "boolean"}:
+                if not isinstance(raw, bool): raise TypeError("must be boolean")
+            elif datatype == "enum":
+                if str(raw) not in tuple(str(v) for v in definition.get("choices", ())): raise ValueError(f"must be one of {tuple(definition.get('choices', ()))!r}")
+            elif datatype in {"str", "string"}:
+                if not isinstance(raw, str): raise TypeError("must be text")
+            rules = dict(definition.get("validation", {}))
+            if rules.get("non_empty") and isinstance(raw, str) and not raw.strip(): raise ValueError("must not be empty")
+            if rules.get("nonzero") and raw == 0: raise ValueError("must be non-zero")
+            if "allowed_values" in rules and raw not in tuple(rules["allowed_values"]): raise ValueError(f"must be one of {tuple(rules['allowed_values'])!r}")
+            normalized[key] = raw
+        except (TypeError, ValueError, OverflowError) as exc:
+            errors.append(f"{key}: {exc}")
+    for rule in conditional_requirements:
+        any_keys = tuple(rule.get("require_any", ()))
+        all_keys = tuple(rule.get("require_all", ()))
+        label = str(rule.get("label") or "Conditional parameter requirement is not satisfied")
+        for key in (*any_keys, *all_keys):
+            if key not in definitions: errors.append(f"conditional rule references unknown parameter {key!r}")
+        if any_keys and not any(normalized.get(key) is not None for key in any_keys): errors.append(label)
+        if all_keys and not all(normalized.get(key) is not None for key in all_keys): errors.append(label)
+    if errors:
+        raise ValueError(f"{equipment_type} engineering validation failed: " + "; ".join(errors))
+    return normalized
+
 
 class CreationCommandPreparer:
     """Single Application boundary that constructs immutable create commands."""
@@ -93,13 +170,14 @@ class CreationCommandPreparer:
     def prepare(cls, intent: CreationCommitIntent) -> Command:
         if not isinstance(intent, CreationCommitIntent):
             raise TypeError("intent must be a CreationCommitIntent.")
+        values = validate_creation_values(intent.command_type, intent.values, intent.parameter_mapping, intent.parameter_contract, intent.conditional_requirements)
         command_class = cls.command_class(intent.command_type)
         signature = inspect.signature(command_class)
         fields = {
             name for name, parameter in signature.parameters.items()
             if name not in {"self", "command_id", "correlation_id", "causation_id"}
         }
-        unknown_values = set(intent.values) - set(intent.parameter_mapping)
+        unknown_values = set(values) - set(intent.parameter_mapping)
         if unknown_values:
             raise ValueError(
                 f"{intent.command_type}: unmapped engineering values: {sorted(unknown_values)!r}"
@@ -112,8 +190,8 @@ class CreationCommandPreparer:
 
         payload: dict[str, Any] = {intent.id_field: intent.object_id}
         for parameter_id, command_field in intent.parameter_mapping.items():
-            if parameter_id in intent.values and intent.values[parameter_id] is not None:
-                payload[command_field] = intent.values[parameter_id]
+            if parameter_id in values and values[parameter_id] is not None:
+                payload[command_field] = values[parameter_id]
         for semantic_name, command_field in intent.endpoint_mapping.items():
             endpoint = intent.endpoints.get(semantic_name)
             if endpoint is not None:
