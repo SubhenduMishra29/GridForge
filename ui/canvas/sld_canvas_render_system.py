@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem
+from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem, Qt
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
@@ -452,6 +452,9 @@ class SLDCanvasRenderSystem:
             if render_id in self._items:
                 self._remove_realized(render_id)
             item = QGraphicsTextItem(annotation.text)
+            # Data labels are display-only; they must not intercept selection,
+            # connection, or placement gestures intended for underlying SLD items.
+            item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
             item.setVisible(bool(annotation.visible))
             item.setZValue(5.0)
