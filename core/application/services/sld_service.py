@@ -1280,7 +1280,14 @@ class SLDService:
             for connection in self.document.model.connections
             if connection.source_node_id == node_id or connection.target_node_id == node_id
         )
+        annotation_snapshot = [
+            block.to_dict() for block in self.document.annotation_blocks
+        ]
+        remaining_annotations = [
+            item for item in annotation_snapshot if item.get("node_id") != node_id
+        ]
         self.document.model.remove_node(node_id)
+        self.document.replace_annotation_blocks(remaining_annotations)
         self.document.mark_modified()
 
         def restore() -> None:
@@ -1320,6 +1327,7 @@ class SLDService:
                     route=snapshot.get("route"),
                     properties=snapshot.get("properties", {}),
                 )
+            self.document.replace_annotation_blocks(annotation_snapshot)
             self.document.mark_modified()
 
         transaction.record_undo(restore)
