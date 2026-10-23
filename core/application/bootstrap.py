@@ -208,6 +208,7 @@ def create_application(network: Any) -> Application:
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
         """Install project-scoped protection/dynamic runtime state transactionally."""
         previous_configuration = protection_configuration_service.configuration
+        previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
         # Capture the exact pre-transition authority. Reconstructing a synthetic
@@ -234,6 +235,7 @@ def create_application(network: Any) -> Application:
             application.configure_control_signal_mapping(previous_control_signal_mapping)
 
         def restore_project_state() -> None:
+            measurement_channel_service.restore_state(previous_measurement_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -245,6 +247,16 @@ def create_application(network: Any) -> Application:
             restore_control_runtime()
 
         try:
+            # Rebuild the candidate project's measurement registry before
+            # validating protection bindings or composing ProtectionRuntime.
+            # The loaded definitions are configuration only; activation binds
+            # them to this candidate Network and project generation.
+            measurement_channel_service.activate(
+                context,
+                network,
+                loaded.measurement_definitions if context is not None and loaded is not None else (),
+                generation=generation,
+            )
             if context is None:
                 control_service.activate(ControlConfiguration.empty("closed-project"))
                 application.control_engine.deactivate()
