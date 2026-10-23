@@ -17,7 +17,7 @@ from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
 
 from .semantic_presentation_realization import SemanticPresentationRealization
-from .sld_canvas_projection import SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
+from .sld_canvas_projection import SLDCanvasSnapshot, SLDCanvasAnnotation, CompositeSLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
 from .draft_sld_projection import DraftSLDCanvasSnapshot, DraftSLDCanvasNode, DraftSLDCanvasConnection
 from .draft_presentation_factory import DraftPresentationFactory
@@ -244,6 +244,7 @@ class SLDCanvasRenderSystem:
 
         desired_ids = {node.node_id for node in committed.nodes}
         desired_ids.update(connection.connection_id for connection in committed.connections)
+        desired_ids.update(self._annotation_render_id(annotation.block_id) for annotation in committed.annotations)
         desired_ids.update(self._draft_render_id(node.draft_id) for node in draft.nodes)
         desired_ids.update(self._draft_render_id(connection.connection_id) for connection in draft.connections)
         for item_id in tuple(self._items):
@@ -440,6 +441,34 @@ class SLDCanvasRenderSystem:
                     "DRAFT_CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}",
                 )
+
+        # Data blocks are transient graphics, derived only from projected
+        # Application read-model values and persisted SLD presentation config.
+        for annotation in committed.annotations:
+            render_id = self._annotation_render_id(annotation.block_id)
+            signature = self._annotation_signature(annotation)
+            if self._render_signatures.get(render_id) == signature and render_id in self._items:
+                continue
+            if render_id in self._items:
+                self._remove_realized(render_id)
+            item = QGraphicsTextItem(annotation.text)
+            item.setPos(float(annotation.x), float(annotation.y))
+            item.setVisible(bool(annotation.visible))
+            item.setZValue(5.0)
+            self._scene.addItem(item)
+            self._items[render_id] = (item,)
+            self._render_signatures[render_id] = signature
+
+    @staticmethod
+    def _annotation_render_id(block_id: str) -> str:
+        return f"annotation:{block_id}"
+
+    @staticmethod
+    def _annotation_signature(annotation: SLDCanvasAnnotation) -> str:
+        return repr((
+            annotation.block_id, annotation.node_id, annotation.x, annotation.y,
+            annotation.text, annotation.visible,
+        ))
 
     @staticmethod
     def _draft_render_id(identity: str) -> str:
