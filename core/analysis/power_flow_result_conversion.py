@@ -53,8 +53,13 @@ class PowerFlowResultConverter:
         if not isinstance(result, PowerFlowResult):
             raise TypeError("result must be a PowerFlowResult instance.")
 
+        if not result.success:
+            raise ValueError("An unsuccessful Power Flow result cannot be converted to engineering quantities.")
+
         ids = tuple(bus_ids)
-        if result.bus_ids and result.bus_ids != ids:
+        if not result.bus_ids:
+            raise ValueError("Power Flow result must identify its bus ordering before engineering conversion.")
+        if result.bus_ids != ids:
             raise ValueError(
                 "Power Flow result bus ordering must match the supplied bus IDs."
             )
