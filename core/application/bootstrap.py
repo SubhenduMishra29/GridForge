@@ -513,7 +513,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         analysis = ShortCircuitAnalysis.from_prepared(prepared)
-        return analysis.run()
+        result = analysis.run()
+        if token.cancelled:
+            return None
+        return result
 
     def configure_transient_events(request: StudyRequest, event_manager: EventManager, event_state: TransientEventState) -> None:
         for event in request.configuration.get("events", ()):
