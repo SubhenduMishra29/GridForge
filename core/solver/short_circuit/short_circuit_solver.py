@@ -261,6 +261,13 @@ class ShortCircuitSolver:
             "source_ids": tuple(source_contributions.keys()),
             "equipment_ids": tuple(equipment_currents.keys()),
             "branch_ids": tuple(branch_currents.keys()),
+            # Preserve the identity of the immutable Core snapshot through the
+            # numerical result boundary. None is retained when a caller creates
+            # detached input without project activation metadata; the solver
+            # must not fabricate provenance it did not receive.
+            "project_id": self.input.project_id,
+            "activation_generation": self.input.activation_generation,
+            "topology_revision": self.input.topology_revision,
         }
         values = dict(values)
         values.update({
