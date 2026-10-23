@@ -355,9 +355,15 @@ class SymbolBase:
                 "data must be a mapping."
             )
 
+        # Resolve the fallback explicitly; dict.get evaluates its default eagerly.
+        symbol_id = data.get("symbol_id")
+        definition_id = data.get("definition_id")
+        if definition_id is None:
+            definition_id = symbol_id
+
         return cls(
-            symbol_id=data["symbol_id"],
-            definition_id=data.get("definition_id", data["symbol_id"]),
+            symbol_id=symbol_id,
+            definition_id=definition_id,
             scale=data.get(
                 "scale",
                 1.0,
