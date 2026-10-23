@@ -1949,3 +1949,50 @@ Evidence boundary:
     audit authority repository. GF-MASTER-0005 remains OPEN.
 
 ----------------------------------------------------------------------
+
+
+----------------------------------------------------------------------
+2026-10-23 — GF-AUD-019 — TRANSIENT-STABILITY COUPLING RE-AUDIT UPDATE
+----------------------------------------------------------------------
+
+Source fetched from current main:
+    core/analysis/transient_network.py
+        PreparedTransientStability.from_power_flow() derives a detached
+        network snapshot from PreparedPowerFlow, including bus IDs, branches,
+        transformers, shunts, equipment states, and topology revision.
+        TransientNetworkSolver solves the passive Y-bus plus machine Norton
+        injections and returns bus-voltage mappings.
+    core/analysis/transient_runtime.py
+        TransientNetworkRuntime.solve(state, time) obtains the current
+        detached view from TransientEventState and delegates to
+        TransientNetworkSolver.
+    core/application/bootstrap.py
+        run_transient_stability() prepares the study input, builds
+        MultiMachineSystem, TransientEventState and TransientNetworkRuntime,
+        then passes network_runtime.solve as the network callback to
+        DAESolver. TransientStabilitySolver coordinates the configured DAE
+        solver. This is an explicit study-owned coupling path; the earlier
+        statement that canonical network coupling was not established must
+        not be read as evidence that no coupling adapter exists.
+
+Remaining audit questions (static source only):
+    - Establish the intended authority boundary for the detached network
+      snapshot and whether the study execution contract requires explicit
+      project ID, activation generation and source revision checks before
+      execution and/or during long-running execution.
+    - Confirm event-state changes (fault application/clearing and equipment
+      state changes) are reflected in each algebraic solve via detached_view().
+    - Confirm snapshot contents and YBus construction preserve the intended
+      electrical model contract and that no live UI/presentation state enters
+      the numerical solver.
+    - Reconcile this source with tests as source artifacts only if needed;
+      do not run tests or CI unless explicitly requested.
+
+Status:
+    GF-AUD-019 remains OPEN — RE-AUDIT / ARCHITECTURAL COUPLING CONTRACT
+    REQUIRED. Current source proves an explicit detached study-owned adapter,
+    so any correction prompt must target a demonstrated remaining contract
+    gap, not a presumed missing network-solver connection. No source code
+    correction or tests/CI were performed in this audit step.
+
+----------------------------------------------------------------------
