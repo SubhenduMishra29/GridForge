@@ -97,6 +97,17 @@ class PreparedTransientStability:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+        if not power_flow_result.success:
+            raise ValueError("Transient stability requires a successful Power Flow operating point.")
+        if not power_flow_result.bus_ids:
+            raise ValueError("Transient stability requires Power Flow result bus identities.")
+        if power_flow_result.bus_ids != prepared_power_flow.bus_ids:
+            raise ValueError("Power Flow result bus ordering must match the prepared Power Flow snapshot.")
+        bus_count = len(prepared_power_flow.bus_ids)
+        if len(power_flow_result.voltage_magnitudes) != bus_count or len(power_flow_result.voltage_angles) != bus_count:
+            raise ValueError("Power Flow result dimensions must match the prepared Power Flow snapshot.")
+        if any(value <= 0.0 for value in power_flow_result.voltage_magnitudes):
+            raise ValueError("Power Flow voltage magnitudes must be positive for transient initialization.")
 
         definitions: list[DynamicMachineModelDefinition] = []
         for association in dynamic_models.all():
