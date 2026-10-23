@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
+
+from core.application.read_models import ElementReadModel
 
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
@@ -43,6 +45,7 @@ class SLDCanvasNode:
     y: float
     properties: Mapping[str, Any]
     presentation: SymbolBase | None = None
+    read_model: ElementReadModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +85,15 @@ class CompositeSLDCanvasSnapshot:
 
 
 class SLDCanvasProjection:
-    """Create renderer-neutral canvas input from an SLDModel."""
+    """Create renderer-neutral canvas input from an SLDModel and current read projections."""
+
+    def __init__(
+        self,
+        read_model_provider: Callable[[str], ElementReadModel | None] | None = None,
+    ) -> None:
+        if read_model_provider is not None and not callable(read_model_provider):
+            raise TypeError("read_model_provider must be callable or None.")
+        self._read_model_provider = read_model_provider
 
     def project(self, model: SLDModel) -> SLDCanvasSnapshot:
         """Project SLD document structure without touching Core state."""
@@ -96,8 +107,19 @@ class SLDCanvasProjection:
         )
         return SLDCanvasSnapshot(nodes=nodes, connections=connections)
 
-    @staticmethod
-    def _project_node(node: SLDNode) -> SLDCanvasNode:
+    def _project_node(self, node: SLDNode) -> SLDCanvasNode:
+        read_model = None
+        if self._read_model_provider is not None and node.equipment_id:
+            read_model = self._read_model_provider(node.equipment_id)
+            if read_model is not None:
+                if not isinstance(read_model, ElementReadModel):
+                    raise TypeError(
+                        f"Read-model provider returned an unsupported value for {node.equipment_id!r}."
+                    )
+                if read_model.object_id != node.equipment_id:
+                    raise ValueError(
+                        f"Read-model provider identity mismatch for {node.equipment_id!r}."
+                    )
         return SLDCanvasNode(
             node_id=node.node_id,
             equipment_id=node.equipment_id,
@@ -109,6 +131,7 @@ class SLDCanvasProjection:
                 else SymbolBase.from_dict(node.presentation.to_dict())
             ),
             properties=_freeze_projection_value(node.properties),
+            read_model=read_model,
         )
 
     @staticmethod
