@@ -163,6 +163,9 @@ class ProtectionConfigurationService:
             priority=configuration.priority,
             name=configuration.name,
             metadata=configuration.metadata,
+            action_target_type=configuration.action_target_type,
+            action_target_id=configuration.action_target_id,
+            action_type=configuration.action_type,
         )
         self._validate_configuration(next_configuration)
         relay.bind_input(normalized_input, channel)
@@ -218,6 +221,9 @@ class ProtectionConfigurationService:
             priority=configuration.priority,
             name=configuration.name,
             metadata=configuration.metadata,
+            action_target_type=configuration.action_target_type,
+            action_target_id=configuration.action_target_id,
+            action_type=configuration.action_type,
         )
         self._validate_configuration(next_configuration)
         relay.unbind_input(normalized_input)
