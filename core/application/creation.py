@@ -100,6 +100,9 @@ def validate_creation_values(equipment_type, values, parameter_mapping, paramete
     errors = []
     for key, definition in definitions.items():
         value = normalized.get(key)
+        if value is None and definition.get("default_value") is not None:
+            value = definition["default_value"]
+            normalized[key] = value
         if value is None:
             if definition.get("required_before_create", False):
                 errors.append(f"{key}: required value is missing")
