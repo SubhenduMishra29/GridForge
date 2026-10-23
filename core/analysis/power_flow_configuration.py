@@ -18,6 +18,17 @@ from typing import Any, Mapping
 from core.solver.power_flow.input import PowerFlowBusType
 
 
+def _freeze_option_value(value: Any) -> Any:
+    """Recursively freeze built-in containers used in solver options."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_option_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_option_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_option_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class PowerFlowStudyConfiguration:
     """Immutable engineering definition for one Power Flow study.
@@ -97,7 +108,7 @@ class PowerFlowStudyConfiguration:
         if q_limit_policy != "hold_pq":
             raise ValueError("q_limit_policy currently supports only the explicit 'hold_pq' policy.")
         options["q_limit_policy"] = q_limit_policy
-        object.__setattr__(self, "numerical_options", MappingProxyType(options))
+        object.__setattr__(self, "numerical_options", _freeze_option_value(options))
 
     @classmethod
     def from_mapping(
