@@ -2606,3 +2606,35 @@ Verification boundary:
     - No tests or CI run. No runtime or import verification.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — SHORT-CIRCUIT STUDY CANCELLATION BOUNDARY CORRECTION
+======================================================================
+
+File corrected:
+    core/application/bootstrap.py
+
+Source evidence:
+    - The production short_circuit study handler checked cancellation before
+      preparation and after preparation, but returned analysis.run() directly.
+    - A cancellation arriving during numerical execution therefore was not
+      checked at the handler's final result-publication boundary.
+
+Correction:
+    - The handler now stores the solver result, checks the cancellation token
+      again, and returns None rather than publishing the result when cancelled.
+    - This matches the surrounding study-handler cancellation boundary pattern.
+    - This is cooperative post-execution cancellation; it does not interrupt
+      the numerical solver while it is running.
+
+Disposition:
+    - The missing post-execution cancellation check is corrected.
+    - No claim is made that ShortCircuitSolver supports mid-calculation
+      interruption.
+
+Verification boundary:
+    - Source patch committed; GitHub re-fetch verification pending.
+    - No tests or CI run. Runtime behavior remains unverified.
+
+======================================================================
