@@ -2860,3 +2860,37 @@ Verification boundary:
     - No tests or CI run; runtime and consumer compatibility remain unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — POWER FLOW STUDY CONVERGENCE SETTINGS HANDOFF
+======================================================================
+
+File corrected:
+    core/analysis/power_flow.py
+
+Source evidence:
+    PowerFlowAnalysis.from_network accepted PowerFlowStudyConfiguration,
+    whose tolerance and max_iterations define study-side convergence
+    settings. When the caller omitted explicit solver options, the method
+    delegated to from_prepared with None; the constructor then created
+    default SolverOptions, silently ignoring the configuration's
+    max_iterations value and relying on a separate default for tolerance.
+
+Correction:
+    - When options are not explicitly supplied to from_network, construct
+      SolverOptions from the configuration's tolerance and max_iterations.
+    - Preserve explicitly supplied options as caller overrides.
+    - Keep prepared-snapshot and numerical solver boundaries unchanged.
+
+Disposition:
+    This corrects the direct from_network default-options handoff. It does
+    not make a PreparedPowerFlow snapshot carry solver settings; callers
+    using from_prepared still need to supply options explicitly if they
+    require settings from an external study configuration.
+
+Verification boundary:
+    - Implementation and register re-fetched after correction.
+    - No tests or CI run; runtime behavior remains unverified.
+
+======================================================================
