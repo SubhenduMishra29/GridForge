@@ -559,7 +559,17 @@ def create_application(network: Any) -> Application:
         configure_transient_events(request, event_manager, event_state)
         dae_solver = DAESolver(machine_system, network_runtime.solve, prepared.mechanical_powers, integrator=Integrator("RK4"))
         solver = TransientStabilitySolver(dae_solver, start_time=configuration.start_time, end_time=configuration.end_time, dt=configuration.dt, event_manager=event_manager)
-        analysis = TransientStabilityAnalysis(solver, configuration, prepared.initial_state)
+        analysis = TransientStabilityAnalysis(
+            solver,
+            configuration,
+            prepared.initial_state,
+            provenance={
+                "project_id": prepared.project_id,
+                "activation_generation": prepared.activation_generation,
+                "source_revision": prepared.source_revision,
+                "topology_revision": prepared.network.topology_revision,
+            },
+        )
         result = analysis.run()
         if token.cancelled:
             return None
