@@ -2074,3 +2074,41 @@ Disposition:
     no tests or CI were run.
 
 ----------------------------------------------------------------------
+
+2026-10-23 — GF-MASTER-0026 — SHORT-CIRCUIT RESULT / PROVENANCE TRACE
+
+Files inspected on current main:
+    core/analysis/short_circuit.py
+    core/solver/short_circuit/input.py
+    core/solver/short_circuit/result.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/application/bootstrap.py
+
+Confirmed:
+    - The Application short-circuit handler prepares a detached input through
+      StudyPreparationService.prepare_short_circuit(), constructs
+      ShortCircuitAnalysis.from_prepared(), and returns analysis.run().
+    - ShortCircuitInput includes optional project_id,
+      activation_generation and topology_revision provenance fields, plus
+      fault-bus identity and bus IDs.
+    - ShortCircuitSolver constructs a typed ShortCircuitResult directly;
+      no separate engineering-result converter is used on this path.
+    - ShortCircuitResult freezes values, current mappings, contribution
+      records and provenance; it exposes typed fault currents, sequence and
+      phase currents, source/equipment/branch contributions and status.
+    - The solver-generated provenance currently records input-contract name,
+      fault bus ID, bus IDs, sequence-snapshot presence and contribution IDs.
+      The inspected provenance mapping does not propagate the input's
+      project_id, activation_generation or topology_revision fields.
+    - ShortCircuitAnalysis.summary() returns the typed result directly once
+      run; no downstream conversion/consumer boundary was established by
+      these inspected files.
+
+Disposition:
+    GF-MASTER-0026 remains OPEN — result provenance propagation and full
+    downstream consumer reconciliation are not established. Do not infer
+    that the optional identity fields are always populated merely because
+    they exist on ShortCircuitInput. No source code was changed; no tests
+    or CI were run.
+
+----------------------------------------------------------------------
