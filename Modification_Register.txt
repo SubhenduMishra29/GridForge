@@ -2188,3 +2188,58 @@ Verification boundary:
     No tests, CI, application startup, or GUI execution performed.
 
 ======================================================================
+
+======================================================================
+BATCH — 2026-10-23 — GF-MASTER-0030 / GF-MASTER-0033
+DYNAMICS CAPABILITY MATRIX / MODEL ASSOCIATION PERSISTENCE
+======================================================================
+
+Files inspected on current main:
+    core/analysis/dynamic_model_association.py
+    core/analysis/dynamic_initial_state.py
+    core/application/bootstrap.py
+    core/analysis/transient_stability.py
+    core/analysis/transient_runtime.py
+    core/solver/dynamics/machine_models.py
+    core/solver/dynamics/multimachine.py
+    core/solver/dynamics/transient_stability.py
+    plugins/dynamics/base.py
+    plugins/dynamics/machines/synchronous_machine_4th.py
+
+Confirmed:
+    - DynamicMachineModelAssociation is immutable, stores machine_id,
+      bus_id, model_type, typed ClassicalMachineParameters, project_id and
+      activation_generation; it serializes and reconstructs its association
+      data.
+    - DynamicMachineModelRegistry rejects mixed project IDs or activation
+      generations and gives deterministic sorted association enumeration.
+    - Bootstrap reconstructs the registry from loaded project associations,
+      validates project identity and requires positive persisted activation
+      generation before project snapshot composition.
+    - The production transient-stability handler consumes the active
+      project snapshot's dynamic-model associations through
+      StudyPreparationService.prepare_transient_stability(), then builds a
+      MultiMachineSystem and detached transient network runtime.
+    - The inspected solver-side classical model is a second-order
+      synchronous-machine model. A separate plugin module implements a
+      fourth-order synchronous-machine model with its own states/equations.
+      Their coexistence is evidence of multiple model implementations, not
+      proof that the production preparation/registry dispatches both.
+    - The persisted association's model_type is stored and validated as a
+      non-empty string in the inspected association type. The inspected
+      production execution path does not establish model_type-based factory
+      dispatch to the fourth-order plugin.
+
+Disposition:
+    GF-MASTER-0030 remains OPEN — implemented/deferred capability matrix,
+    model_type dispatch, and production consumer coverage require further
+    reconciliation.
+    GF-MASTER-0033 remains STATICALLY VERIFIED for association serialization,
+    reconstruction and project/generation scoping only; this does not imply
+    that all dynamic model implementations are wired into execution.
+
+Verification boundary:
+    Static source inspection only. No production source changed.
+    No tests, CI, application startup, or GUI execution performed.
+
+======================================================================
