@@ -946,12 +946,22 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
+        properties_panel = panels_plugin.get_panel("properties")
         if isinstance(document, SLDDocument):
             sld_controller.reconcile_presentation()
             engineering_context.update(document_id=document.document_id)
             workspace_surface_host.set_sld_document(document)
             workspace_surface_host.refresh_sld_document_tabs()
             synchronize_canvas()
+            refresh_annotations = getattr(properties_panel, "refresh_sld_annotation_controls", None)
+            if callable(refresh_annotations):
+                refresh_annotations()
+        else:
+            # A non-SLD/empty workspace transition must not leave controls for
+            # the previously active SLD document visible in the Properties panel.
+            clear_annotations = getattr(properties_panel, "clear_sld_annotation_controls", None)
+            if callable(clear_annotations):
+                clear_annotations()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
 
@@ -1065,6 +1075,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
     properties_panel.bind_sld_annotation_runtime(controller=sld_controller, selection_manager=canvas_composition.selection_manager)
     workspace_controller.activate_default()
+    # Initial workspace activation may not publish a ProjectWorkspaceChanged
+    # event; explicitly synchronize the annotation inspector after binding.
+    active_sld_document = project_workspace_lifecycle.documents.active_document
+    if isinstance(active_sld_document, SLDDocument):
+        properties_panel.refresh_sld_annotation_controls()
+    else:
+        properties_panel.clear_sld_annotation_controls()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas, draft_projection=canvas_composition.draft_sld_projection)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
