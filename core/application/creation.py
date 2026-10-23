@@ -136,11 +136,12 @@ def validate_creation_values(equipment_type, values, parameter_mapping, paramete
                 if str(raw) not in tuple(str(v) for v in definition.get("choices", ())): raise ValueError(f"must be one of {tuple(definition.get('choices', ()))!r}")
             elif datatype in {"str", "string"}:
                 if not isinstance(raw, str): raise TypeError("must be text")
+            canonical = n if datatype in {"float", "number", "int", "integer"} else raw
             rules = dict(definition.get("validation", {}))
-            if rules.get("non_empty") and isinstance(raw, str) and not raw.strip(): raise ValueError("must not be empty")
-            if rules.get("nonzero") and raw == 0: raise ValueError("must be non-zero")
-            if "allowed_values" in rules and raw not in tuple(rules["allowed_values"]): raise ValueError(f"must be one of {tuple(rules['allowed_values'])!r}")
-            normalized[key] = raw
+            if rules.get("non_empty") and isinstance(canonical, str) and not canonical.strip(): raise ValueError("must not be empty")
+            if rules.get("nonzero") and canonical == 0: raise ValueError("must be non-zero")
+            if "allowed_values" in rules and canonical not in tuple(rules["allowed_values"]): raise ValueError(f"must be one of {tuple(rules['allowed_values'])!r}")
+            normalized[key] = canonical
         except (TypeError, ValueError, OverflowError) as exc:
             errors.append(f"{key}: {exc}")
     for rule in conditional_requirements:
