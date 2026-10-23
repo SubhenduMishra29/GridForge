@@ -375,11 +375,12 @@ class CreationCommandPreparer:
             raise ValueError(f"Unsupported creation command type: {command_type!r}") from exc
 
     @classmethod
-    def prepare(cls, intent: CreationCommitIntent, *, canonical_contract: Mapping[str, Any] | None = None) -> Command:
+    def prepare(cls, intent: CreationCommitIntent, *, canonical_contract: Mapping[str, Any]) -> Command:
         if not isinstance(intent, CreationCommitIntent):
             raise TypeError("intent must be a CreationCommitIntent.")
-        if canonical_contract is not None:
-            intent = canonicalize_creation_intent(intent, canonical_contract)
+        if not isinstance(canonical_contract, Mapping):
+            raise TypeError("canonical_contract must be a trusted Application contract mapping.")
+        intent = canonicalize_creation_intent(intent, canonical_contract)
         values = validate_creation_values(intent.command_type, intent.values, intent.parameter_mapping, intent.parameter_contract, intent.conditional_requirements)
         command_class = cls.command_class(intent.command_type)
         signature = inspect.signature(command_class)
