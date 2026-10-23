@@ -1734,3 +1734,98 @@ Disposition:
     reviewed.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — GF-MASTER-0005 — PROJECT LIFECYCLE / PERSISTENCE SOURCE TRACE
+======================================================================
+
+Finding:
+    GF-MASTER-0005 — Architecture and audit-documentation reconciliation.
+
+Status:
+    OPEN — TARGETED LIFECYCLE CONTRACT DOCUMENTED; FULL ROUND-TRIP AND
+    REPOSITORY-WIDE RE-AUDIT STILL REQUIRED
+
+Current source inspected on SubhenduMishra29/GridForge main:
+    core/application/project_lifecycle.py
+    core/application/bootstrap.py
+    core/persistence/project_persistence.py
+    README.md
+
+Source-backed findings:
+    1. ProjectLifecycleService._activate_candidate() validates the candidate,
+       retains prior context/network/presentation/generation/state, then
+       coordinates presentation-collection activation, presentation
+       activation, network activation, read-only post-network audit, and
+       project-state activation.
+
+    2. Lifecycle context, network, activation generation, and ACTIVE/NO_PROJECT
+       state are committed after the activation callback sequence succeeds.
+       On activation failure, registered rollback callbacks execute in reverse
+       order. If one or more callbacks fail, lifecycle state becomes
+       ROLLBACK_FAILED and subsequent transitions are rejected pending recovery.
+       This is a source-level contract; all failure permutations were not
+       executed.
+
+    3. ProjectLifecycleService.save_project() captures the starting
+       activation generation and network, detaches serialized presentation
+       payloads, and checks that the active project/network/generation did not
+       change during persistence. It only marks presentation documents clean
+       when current serialized data equals the saved snapshot; failed or
+       ambiguous comparisons preserve dirty state.
+
+    4. ProjectPersistenceService.load() reconstructs canonical project state
+       including dynamic model associations, measurement channel definitions,
+       draft network, control configuration, control-signal mapping,
+       protection configuration, protection presentation, network, and
+       presentation/presentation collection where supplied. Missing optional
+       configuration payloads may be replaced by explicit empty/default state
+       according to the loader's code.
+
+    5. ProjectPersistenceService declares separate package, project schema,
+       presentation, SLD, Core serialization, and connectivity serialization
+       version constants. The package contract is .gridforge with manifest.json
+       metadata and project.json canonical project payload.
+
+    6. Bootstrap's activate_project_state() captures project-scoped protection,
+       dynamic-model, control, signal-mapping, and draft state for compensation.
+       The complete callback and serializer/deserializer comparison is not
+       claimed to have been exhaustively audited in this pass.
+
+Documentation update:
+    README.md now contains a consolidated Project Lifecycle and Persistence
+    Contract section within the existing architecture entry point. No new
+    architecture document or register was created. The section explicitly
+    distinguishes source inspection from runtime verification and retains
+    GF-PROT-042 as OPEN.
+
+Still open:
+    - Complete field-by-field comparison of every save payload field against
+      load reconstruction and activation, including presentation collection,
+      measurement definitions/channels, dynamic models, control configuration,
+      control-signal mapping, protection configuration/presentation, and draft
+      network.
+    - Inspect the full bootstrap activation/rollback callback and ensure every
+      persisted field is restored to the correct project/generation.
+    - Complete repository-wide architecture/documentation contradiction scan.
+    - Audit repository-wide Qt import boundary compliance and affected
+      __init__.py consistency.
+    - Trace actual event publication/read-model consumers across command,
+      undo, and redo workflows.
+    - Keep GF-PROT-042 OPEN until production trigger/time contract and persisted
+      typed protection-function-to-target action mapping are evidenced.
+    - Existing UI placement, projection, icon, property editor, draft commit,
+      and startup findings remain separate and are not closed by documentation.
+
+Acceptance boundary:
+    Static source inspection and documentation change only. No tests, CI,
+    application startup, GUI execution, or runtime persistence experiments
+    were performed or required.
+
+Disposition:
+    GF-MASTER-0005 remains OPEN. This addendum records the latest trace and
+    the remaining bounded evidence obligations; it does not claim V2 freeze
+    readiness.
+
+======================================================================
