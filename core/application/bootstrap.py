@@ -147,6 +147,10 @@ def create_application(network: Any) -> Application:
             CommitNetworkHandler(
                 draft_provider,
                 command_executor=command_manager.execute_in_transaction,
+                creation_contract_provider=(
+                    lambda: application.creation_contract_registry
+                    if application is not None else None
+                ),
             ),
         )
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)

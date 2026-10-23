@@ -117,6 +117,9 @@ class DraftEquipment:
     id_field: str = ""
     parameter_mapping: Mapping[str, str] = field(default_factory=dict)
     endpoint_mapping: Mapping[str, str] = field(default_factory=dict)
+    required_connection_terminals: tuple[str, ...] = ()
+    parameter_contract: tuple[Mapping[str, Any], ...] = ()
+    conditional_requirements: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
@@ -128,6 +131,16 @@ class DraftEquipment:
         object.__setattr__(self, "validation_state", MappingProxyType(dict(self.validation_state)))
         object.__setattr__(self, "parameter_mapping", MappingProxyType(dict(self.parameter_mapping)))
         object.__setattr__(self, "endpoint_mapping", MappingProxyType(dict(self.endpoint_mapping)))
+        required_terminals = tuple(str(role).strip() for role in self.required_connection_terminals)
+        if any(not role for role in required_terminals):
+            raise ValueError("Required connection terminal names must be non-empty.")
+        if len(set(required_terminals)) != len(required_terminals):
+            raise ValueError("Required connection terminal names must be unique.")
+        if not set(required_terminals).issubset(set(self.terminal_contract)):
+            raise ValueError("Required connection terminals must belong to the canonical terminal contract.")
+        object.__setattr__(self, "required_connection_terminals", required_terminals)
+        object.__setattr__(self, "parameter_contract", tuple(MappingProxyType(dict(x)) for x in self.parameter_contract))
+        object.__setattr__(self, "conditional_requirements", tuple(MappingProxyType(dict(x)) for x in self.conditional_requirements))
 
     def to_dict(self) -> dict[str, Any]:
         return {"draft_id": self.draft_id, "equipment_type": self.equipment_type, "display_name": self.display_name,
@@ -136,7 +149,11 @@ class DraftEquipment:
                 "placement": None if self.placement is None else list(self.placement),
                 "presentation": deepcopy(dict(self.presentation)), "validation_state": deepcopy(dict(self.validation_state)),
                 "command_type": self.command_type, "id_field": self.id_field,
-                "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping)}
+                "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping),
+                "required_connection_terminals": list(self.required_connection_terminals),
+                **({"parameter_contract": [dict(x) for x in self.parameter_contract],
+                    "conditional_requirements": [dict(x) for x in self.conditional_requirements]}
+                   if self.parameter_contract else {})}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -146,7 +163,10 @@ class DraftEquipment:
                     {k: DraftEndpointReference.from_value(v) for k, v in dict(data.get("endpoints", {})).items()},
                     None if placement is None else (float(placement[0]), float(placement[1])), dict(data.get("presentation", {})),
                     dict(data.get("validation_state", {})), str(data["command_type"]), str(data["id_field"]),
-                    dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})))
+                    dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})),
+                    tuple(str(x) for x in data.get("required_connection_terminals", ())),
+                    tuple(dict(x) for x in data.get("parameter_contract", ())),
+                    tuple(dict(x) for x in data.get("conditional_requirements", ())))
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +233,7 @@ class DraftNetwork:
         current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
-        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping")}
+        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals")}
         values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
@@ -263,15 +283,11 @@ class DraftNetwork:
         equipment = self._equipment.get(endpoint.object_id)
         if equipment is None: raise ValueError(f"{prefix}unknown draft equipment {endpoint.object_id!r}.")
         if endpoint.terminal_role not in equipment.terminal_contract: raise ValueError(f"{prefix}unknown terminal role {endpoint.terminal_role!r} for {endpoint.object_id!r}.")
-        # DraftEquipment.endpoints stores an explicitly acquired external
-        # endpoint for this terminal role. It is not a second copy of the
-        # terminal's own DraftEndpointReference. DraftConnection remains the
-        # authoritative authoring topology; commit-time resolution reconciles
-        # any explicit declaration with that graph.
-        declared = equipment.endpoints.get(endpoint.terminal_role)
-        if declared is not None and declared.is_terminal and declared.scope == "draft":
-            if declared != endpoint:
-                raise ValueError(f"{prefix}terminal identity mapping is contradictory.")
+        # DraftEquipment.endpoints stores the declared *opposite* endpoint
+        # for this terminal role, so it must not be compared with this terminal
+        # reference. DraftConnection is the authoring topology authority;
+        # CommitNetworkHandler reconciles any declaration with the graph's
+        # opposite endpoint before preparing Core commands.
 
     def add_connection(self, connection: DraftConnection) -> None:
         if connection.connection_id in self._connections: raise ValueError(f"Draft connection already exists: {connection.connection_id}")
@@ -289,14 +305,8 @@ class DraftNetwork:
         for item in self._equipment.values():
             if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
             if len(set(item.terminal_contract)) != len(item.terminal_contract): errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
-            for role, endpoint in item.endpoints.items():
-                if role not in item.terminal_contract:
-                    errors.append(f"{item.draft_id}: endpoint role {role!r} is not canonical.")
-                    continue
-                try:
-                    self._validate_endpoint(endpoint, network=network)
-                except (KeyError, TypeError, ValueError) as exc:
-                    errors.append(f"{item.draft_id}:{role}: {exc}")
+            # DraftEquipment.endpoints is legacy acquisition metadata, not
+            # topology. Only DraftConnection endpoints are validated as wiring.
         for item in self._connections.values():
             try:
                 self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
@@ -306,6 +316,33 @@ class DraftNetwork:
             seen_pairs.add(pair)
             if item.source == item.target: errors.append(f"{item.connection_id}: self-connection is invalid.")
         self.validation_state = {"errors": tuple(errors), "valid": not errors}
+        return tuple(errors)
+
+    def validate_required_connections(self) -> tuple[str, ...]:
+        """Validate explicitly required terminal connectivity at commit time."""
+        errors: list[str] = []
+        for item in self._equipment.values():
+            for role in item.required_connection_terminals:
+                matches = 0
+                for connection in self._connections.values():
+                    for endpoint in (connection.source, connection.target):
+                        if (
+                            endpoint.is_terminal
+                            and endpoint.scope == "draft"
+                            and endpoint.object_id == item.draft_id
+                            and endpoint.equipment_type == item.equipment_type.strip().lower()
+                            and endpoint.terminal_role == role
+                        ):
+                            matches += 1
+                if matches == 0:
+                    errors.append(
+                        f"{item.draft_id}: required terminal {role!r} is not connected."
+                    )
+                elif matches > 1:
+                    errors.append(
+                        f"{item.draft_id}: required terminal {role!r} has "
+                        f"{matches} connections; exactly one is allowed."
+                    )
         return tuple(errors)
 
     def clear_after_commit(self) -> None: self._equipment.clear(); self._connections.clear(); self.validation_state = {}

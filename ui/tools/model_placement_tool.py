@@ -177,6 +177,28 @@ class ModelPlacementTool(ToolBase):
                 "id_field": draft.definition.id_field,
                 "parameter_mapping": dict(draft.definition.parameter_mapping),
                 "endpoint_mapping": dict(draft.definition.endpoint_mapping),
+                "required_connection_terminals": tuple(
+                    requirement.name
+                    for requirement in draft.definition.topology_requirements
+                    if requirement.required
+                ),
+                "parameter_contract": tuple({
+                    "parameter_id": item.parameter_id,
+                    "display_name": item.display_name,
+                    "datatype": item.datatype,
+                    "unit": item.unit,
+                    "required_before_create": item.required_before_create,
+                    "default_value": item.default_value,
+                    "choices": tuple(item.choices),
+                    "minimum": item.minimum,
+                    "maximum": item.maximum,
+                    "validation": dict(item.validation),
+                } for item in draft.definition.parameter_definitions),
+                "conditional_requirements": tuple({
+                    "label": item.label,
+                    "require_any": tuple(item.require_any),
+                    "require_all": tuple(item.require_all),
+                } for item in draft.definition.conditional_requirements),
             }
             command = AddDraftEquipmentCommand(equipment=equipment)
             result = self.execute_command(command)
@@ -233,9 +255,8 @@ class ModelPlacementTool(ToolBase):
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
         """Return the first missing explicitly required initial endpoint role."""
-        for requirement in draft.definition.topology_requirements:
-            if requirement.required and draft.endpoints.get(requirement.name) is None:
-                return requirement.name
+        # Topology requirements are validated from DraftConnection at commit;
+        # placement must not force the engineer to wire equipment immediately.
         for requirement in draft.definition.terminal_requirements:
             if requirement.initial_endpoint_required and draft.endpoints.get(requirement.terminal_name) is None:
                 return requirement.terminal_name

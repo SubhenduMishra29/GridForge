@@ -163,6 +163,53 @@ class PresentationBootstrap:
         if creation_errors:
             raise ValueError("Creation contract mismatch: " + " ".join(creation_errors))
 
+        # The validated catalogue is the single schema source. Pass a plain,
+        # framework-neutral snapshot into Application; commit handlers resolve
+        # from that trusted snapshot, never from mutable DraftEquipment metadata.
+        contracts = {}
+        for equipment in self.equipment_registry.catalogue():
+            definition = equipment.creation_definition
+            if definition is None:
+                raise ValueError(
+                    f"{equipment.equipment_type}: canonical CreationDefinition is missing."
+                )
+            contracts[definition.equipment_type] = {
+                "equipment_type": definition.equipment_type,
+                "terminal_contract": tuple(equipment.terminal_names),
+                "command_type": definition.command_type,
+                "id_field": definition.id_field,
+                "parameter_mapping": dict(definition.parameter_mapping),
+                "endpoint_mapping": dict(definition.endpoint_mapping),
+                "required_connection_terminals": tuple(
+                    requirement.name
+                    for requirement in definition.topology_requirements
+                    if requirement.required
+                ),
+                "parameter_contract": tuple({
+                    "parameter_id": item.parameter_id,
+                    "display_name": item.display_name,
+                    "datatype": item.datatype,
+                    "unit": item.unit,
+                    "required_before_create": item.required_before_create,
+                    "default_value": item.default_value,
+                    "choices": tuple(item.choices),
+                    "minimum": item.minimum,
+                    "maximum": item.maximum,
+                    "validation": dict(item.validation),
+                } for item in definition.parameter_definitions),
+                "conditional_requirements": tuple({
+                    "label": item.label,
+                    "require_any": tuple(item.require_any),
+                    "require_all": tuple(item.require_all),
+                } for item in definition.conditional_requirements),
+            }
+        configure_creation_contracts = getattr(application, "configure_creation_contracts", None)
+        if not callable(configure_creation_contracts):
+            raise TypeError(
+                "Application must expose configure_creation_contracts() before presentation composition."
+            )
+        configure_creation_contracts(contracts)
+
     def _synchronize_application_boundary(self) -> None:
         if self.sld_read_synchronizer is None:
             return
