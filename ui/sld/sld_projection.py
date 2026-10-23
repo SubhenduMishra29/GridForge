@@ -22,6 +22,11 @@ class SLDProjection(Projection):
         self.update_from_read_model(read_model)
 
     @property
+    def read_model(self) -> ElementReadModel:
+        """Return the latest immutable Application read snapshot for this projection."""
+        return self._read_model
+
+    @property
     def element_type(self) -> str:
         return self._element_type
 
@@ -46,6 +51,7 @@ class SLDProjection(Projection):
         if read_model.object_id != self.object_id:
             raise ValueError("SLD projection cannot change object identity")
 
+        self._read_model = read_model
         labels = tuple(
             str(value)
             for _, value in sorted(read_model.labels.items())
