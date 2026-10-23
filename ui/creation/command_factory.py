@@ -70,11 +70,23 @@ def verify_creation_contracts(definitions: Any) -> tuple[str, ...]:
                     errors.append(f"{definition.equipment_type}: parameter {parameter_id!r} maps to missing command field {command_field!r}")
             terminal_names = {item.terminal_name for item in definition.terminal_requirements}
             topology_names = {item.name for item in definition.topology_requirements}
+            required_endpoint_names = {
+                item.name for item in definition.topology_requirements if item.required
+            } | {
+                item.terminal_name
+                for item in definition.terminal_requirements
+                if item.initial_endpoint_required
+            }
             for semantic_name, command_field in definition.endpoint_mapping.items():
                 if semantic_name not in terminal_names and semantic_name not in topology_names:
                     errors.append(f"{definition.equipment_type}: endpoint mapping uses unknown semantic name {semantic_name!r}")
                 if command_field not in command_fields:
                     errors.append(f"{definition.equipment_type}: endpoint {semantic_name!r} maps to missing command field {command_field!r}")
+                if semantic_name not in required_endpoint_names:
+                    errors.append(
+                        f"{definition.equipment_type}: endpoint mapping {semantic_name!r} "
+                        "has no required commit-time acquisition rule"
+                    )
             canonical_terminals = set(getattr(equipment_definition, "terminal_names", ()))
             for requirement in definition.terminal_requirements:
                 if requirement.terminal_name not in canonical_terminals:
