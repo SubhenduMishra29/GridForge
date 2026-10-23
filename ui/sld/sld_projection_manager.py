@@ -87,6 +87,11 @@ class SLDProjectionManager:
         """Alias for projection lookup used by presentation clients."""
         return self.projection(object_id)
 
+    def read_model(self, object_id: str):
+        """Resolve the latest immutable Application read snapshot for one projected object."""
+        projection = self.projection(object_id)
+        return None if projection is None else projection.read_model
+
     def reconcile_network(self, active_ids: set[str] | frozenset[str]) -> tuple[str, ...]:
         """Remove only stale projections owned by the network domain."""
         if not isinstance(active_ids, (set, frozenset)):
