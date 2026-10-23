@@ -2568,3 +2568,41 @@ Verification boundary:
     - No tests or CI run, per instruction. No runtime or import verification.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — GF-AUD-019 / TRANSIENT RESULT PROVENANCE HANDOFF CORRECTION
+======================================================================
+
+Files corrected:
+    core/solver/dynamics/transient_stability.py
+    core/analysis/transient_stability.py
+    core/application/bootstrap.py
+
+Source evidence:
+    - StudyPreparationService prepares a detached transient bundle carrying
+      project_id, activation_generation, source_revision and a detached network
+      with topology_revision.
+    - The production bootstrap handler passed only solver/configuration/state
+      to TransientStabilityAnalysis.
+    - TransientStabilityResult contained numerical samples and events but no
+      field for the identity of the prepared project/snapshot.
+
+Correction:
+    - TransientStabilityResult now accepts immutable provenance metadata.
+    - TransientStabilityAnalysis attaches supplied provenance to the canonical
+      solver result without introducing a second result type.
+    - The production bootstrap handler supplies project_id,
+      activation_generation, source_revision and topology_revision from the
+      prepared transient bundle.
+
+Disposition:
+    - The specific prepared-bundle-to-result provenance handoff is corrected.
+    - GF-AUD-019 remains OPEN pending review of event-state provenance,
+      runtime/YBus boundaries, result serialization and downstream consumers.
+
+Verification boundary:
+    - Source commits were accepted; GitHub re-fetch verification pending.
+    - No tests or CI run. No runtime or import verification.
+
+======================================================================
