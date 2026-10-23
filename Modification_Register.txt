@@ -2504,3 +2504,33 @@ Verification boundary:
     and GUI behavior have not been runtime-verified in this pass.
 
 ======================================================================
+
+======================================================================
+2026-10-23 — SLD SYMBOL DESERIALIZATION DEFENSIVE CORRECTION
+======================================================================
+
+File corrected:
+    ui/equipment/symbol/symbol_base.py
+
+Correction:
+    - SymbolBase.from_dict() no longer passes data["symbol_id"] as an inline
+      dict.get() default for definition_id. Python evaluates that default
+      expression eagerly even when definition_id is present.
+    - The fallback is now resolved explicitly, then the existing constructor
+      performs canonical identity validation. This removes an avoidable
+      KeyError path for mappings that contain definition_id but omit symbol_id;
+      such payloads still fail constructor validation for the missing symbol_id,
+      rather than failing while evaluating an unrelated fallback expression.
+
+Disposition:
+    - This is a narrow deserialization robustness correction only. It does not
+      establish that the reported SLD create_node crash is fully resolved;
+      the actual failing payload/call path still requires evidence-based tracing.
+    - Related SLD rendering, symbol registry resolution and GUI startup findings
+      remain OPEN until their production paths are traced and corrected.
+
+Verification boundary:
+    - Committed source re-fetch and anchor verification only.
+    - No tests or CI run. No runtime, import, startup or GUI verification.
+
+======================================================================
