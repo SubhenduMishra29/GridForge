@@ -400,7 +400,11 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("P1_P2", "P2_P1")),
         ), "model.create_current_transformer", "transformer_id",
-           endpoint_mapping={"P1": "p1_endpoint", "P2": "p2_endpoint", "S1": "s1_endpoint", "S2": "s2_endpoint"},
+           # Primary terminals participate in the electrical DraftConnection
+           # graph. Secondary terminals are measurement/protection interfaces
+           # and are associated through measurement channels, not required to
+           # be simple-wire endpoints during equipment creation.
+           endpoint_mapping={"P1": "p1_endpoint", "P2": "p2_endpoint"},
            terminal_names=terminal_names),
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
             _p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
@@ -409,7 +413,10 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("burden_va", unit="VA", minimum=0.0),
             _p("phase_displacement_deg", unit="deg"),
         ), "model.create_potential_transformer", "pt_id",
-           endpoint_mapping={"primary_a": "primary_a", "primary_b": "primary_b", "secondary_a": "secondary_a", "secondary_b": "secondary_b"},
+           # Primary terminals belong to electrical topology. Secondary
+           # terminals feed measurement channels and are not required to be
+           # DraftConnection endpoints at equipment-creation commit.
+           endpoint_mapping={"primary_a": "primary_a", "primary_b": "primary_b"},
            terminal_names=terminal_names),
         "cvt": _definition("cvt", "cvt", (
             _p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
@@ -419,7 +426,10 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED")),
         ), "model.create_capacitive_voltage_transformer", "transformer_id",
-           endpoint_mapping={"H1": "h1_endpoint", "H2": "h2_endpoint", "X1": "x1_endpoint", "X2": "x2_endpoint"},
+           # H1/H2 are the electrical primary-side endpoints. X1/X2 are
+           # measurement-side terminals and are associated through the
+           # measurement-channel boundary rather than required Simple Wires.
+           endpoint_mapping={"H1": "h1_endpoint", "H2": "h2_endpoint"},
            terminal_names=terminal_names),
         "relay": _definition("relay", "relay", (
             _p("relay_type", "Relay type", "str", required=True),
