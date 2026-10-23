@@ -46,6 +46,22 @@ class CreationCommandFactory:
             values=draft.snapshot_values(),
             endpoints=acquired,
             position=position if position is not None else draft.placement_position,
+            parameter_contract=tuple({
+                "parameter_id": item.parameter_id,
+                "display_name": item.display_name,
+                "datatype": item.datatype,
+                "unit": item.unit,
+                "required_before_create": item.required_before_create,
+                "choices": tuple(item.choices),
+                "minimum": item.minimum,
+                "maximum": item.maximum,
+                "validation": dict(item.validation),
+            } for item in draft.definition.parameter_definitions),
+            conditional_requirements=tuple({
+                "label": item.label,
+                "require_any": tuple(item.require_any),
+                "require_all": tuple(item.require_all),
+            } for item in draft.definition.conditional_requirements),
         )
 
 
