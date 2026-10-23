@@ -118,6 +118,8 @@ class DraftEquipment:
     parameter_mapping: Mapping[str, str] = field(default_factory=dict)
     endpoint_mapping: Mapping[str, str] = field(default_factory=dict)
     required_connection_terminals: tuple[str, ...] = ()
+    parameter_contract: tuple[Mapping[str, Any], ...] = ()
+    conditional_requirements: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
@@ -137,6 +139,8 @@ class DraftEquipment:
         if not set(required_terminals).issubset(set(self.terminal_contract)):
             raise ValueError("Required connection terminals must belong to the canonical terminal contract.")
         object.__setattr__(self, "required_connection_terminals", required_terminals)
+        object.__setattr__(self, "parameter_contract", tuple(MappingProxyType(dict(x)) for x in self.parameter_contract))
+        object.__setattr__(self, "conditional_requirements", tuple(MappingProxyType(dict(x)) for x in self.conditional_requirements))
 
     def to_dict(self) -> dict[str, Any]:
         return {"draft_id": self.draft_id, "equipment_type": self.equipment_type, "display_name": self.display_name,
@@ -146,7 +150,10 @@ class DraftEquipment:
                 "presentation": deepcopy(dict(self.presentation)), "validation_state": deepcopy(dict(self.validation_state)),
                 "command_type": self.command_type, "id_field": self.id_field,
                 "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping),
-                "required_connection_terminals": list(self.required_connection_terminals)}
+                "required_connection_terminals": list(self.required_connection_terminals),
+                **({"parameter_contract": [dict(x) for x in self.parameter_contract],
+                    "conditional_requirements": [dict(x) for x in self.conditional_requirements]}
+                   if self.parameter_contract else {})}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -157,7 +164,9 @@ class DraftEquipment:
                     None if placement is None else (float(placement[0]), float(placement[1])), dict(data.get("presentation", {})),
                     dict(data.get("validation_state", {})), str(data["command_type"]), str(data["id_field"]),
                     dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})),
-                    tuple(str(x) for x in data.get("required_connection_terminals", ())))
+                    tuple(str(x) for x in data.get("required_connection_terminals", ())),
+                    tuple(dict(x) for x in data.get("parameter_contract", ())),
+                    tuple(dict(x) for x in data.get("conditional_requirements", ())))
 
 
 @dataclass(frozen=True, slots=True)
