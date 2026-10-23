@@ -107,6 +107,11 @@ class GridScene(QGraphicsScene):
         10000.0,
     )
 
+    # Minimum projected spacing in viewport pixels before a grid tier is drawn.
+    # These are presentation thresholds only; grid snapping remains unchanged.
+    MIN_MINOR_GRID_PIXEL_SPACING = 8.0
+    MIN_MAJOR_GRID_PIXEL_SPACING = 12.0
+
     # ========================================================
     # INITIALIZATION
     # ========================================================
@@ -164,7 +169,7 @@ class GridScene(QGraphicsScene):
         minor_pixel_spacing = grid.minor_spacing * scale
         major_pixel_spacing = grid.major_spacing * scale
 
-        if grid.minor_visible and minor_pixel_spacing >= 8.0:
+        if grid.minor_visible and minor_pixel_spacing >= self.MIN_MINOR_GRID_PIXEL_SPACING:
             minor_pen = QPen(token_color("canvas_grid_minor"))
             setter = getattr(minor_pen, "setWidthF", None)
             if callable(setter):
@@ -173,7 +178,7 @@ class GridScene(QGraphicsScene):
             for x1, y1, x2, y2 in grid.get_lines(rect, major=False):
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
-        if grid.major_visible and major_pixel_spacing >= 12.0:
+        if grid.major_visible and major_pixel_spacing >= self.MIN_MAJOR_GRID_PIXEL_SPACING:
             major_pen = QPen(token_color("canvas_grid_major"))
             setter = getattr(major_pen, "setWidthF", None)
             if callable(setter):
