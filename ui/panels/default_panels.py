@@ -337,6 +337,7 @@ class PropertiesPanelWidget(QWidget):
         root.addLayout(self._annotation_layout)
         self._sld_controller: Any | None = None
         self._sld_selection_ids: tuple[str, ...] = ()
+        self._sld_annotations_cleared = False
         self._validation_label = QLabel("Select an element to inspect.", self)
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
@@ -384,6 +385,9 @@ class PropertiesPanelWidget(QWidget):
 
     def _on_sld_selection_changed(self, ids: Any) -> None:
         self._sld_selection_ids = tuple(str(value) for value in (ids or ()))
+        if self._sld_annotations_cleared:
+            self.clear_sld_annotation_controls()
+            return
         self._refresh_sld_annotation_controls()
 
     def _selected_sld_node(self) -> Any | None:
@@ -401,10 +405,12 @@ class PropertiesPanelWidget(QWidget):
 
     def refresh_sld_annotation_controls(self) -> None:
         """Refresh annotation controls after canonical document/selection changes."""
+        self._sld_annotations_cleared = False
         self._refresh_sld_annotation_controls()
 
     def clear_sld_annotation_controls(self) -> None:
         """Clear document-specific annotation controls when no SLD document is active."""
+        self._sld_annotations_cleared = True
         self._sld_selection_ids = ()
         layout = getattr(self, "_annotation_layout", None)
         if layout is None:
