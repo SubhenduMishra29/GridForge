@@ -105,6 +105,19 @@ class PreparedTransientStability:
             raise ValueError("Power Flow result bus ordering must match the prepared Power Flow snapshot.")
         if power_flow_result.snapshot_id is None or power_flow_result.snapshot_id != prepared_power_flow.input.snapshot_id:
             raise ValueError("Power Flow result must originate from the exact prepared snapshot used for transient stability.")
+        # Project activation provenance must agree with the prepared operating point.
+        # Optional metadata is tolerated only for legacy detached snapshots that
+        # genuinely lack that field; supplied caller values never override it.
+        if prepared_power_flow.project_id is not None:
+            if project_id.strip() != prepared_power_flow.project_id.strip():
+                raise ValueError(
+                    "Transient project_id must match the project that produced the prepared Power Flow snapshot."
+                )
+        if prepared_power_flow.activation_generation is not None:
+            if activation_generation != prepared_power_flow.activation_generation:
+                raise ValueError(
+                    "Transient activation_generation must match the prepared Power Flow snapshot."
+                )
         bus_count = len(prepared_power_flow.bus_ids)
         if len(power_flow_result.voltage_magnitudes) != bus_count or len(power_flow_result.voltage_angles) != bus_count:
             raise ValueError("Power Flow result dimensions must match the prepared Power Flow snapshot.")
