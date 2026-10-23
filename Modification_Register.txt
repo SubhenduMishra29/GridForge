@@ -2638,3 +2638,33 @@ Verification boundary:
     - No tests or CI run. Runtime behavior remains unverified.
 
 ======================================================================
+
+
+======================================================================
+2026-10-23 — STUDY RESULT METADATA DEEP-IMMUTABILITY CORRECTION
+======================================================================
+
+File corrected:
+    core/application/study.py
+
+Source evidence:
+    - StudyResult is documented as an immutable Application study result.
+    - Its metadata field was only wrapped in MappingProxyType(dict(...)).
+      This prevents top-level key assignment but leaves nested dictionaries,
+      lists and sets mutable through the published result.
+
+Correction:
+    - StudyResult.__post_init__ now uses the existing recursive
+      _freeze_study_value helper for metadata, freezing nested mappings,
+      sequences and sets while preserving typed contract objects.
+
+Disposition:
+    - The shallow metadata-freeze gap is corrected.
+    - This does not claim arbitrary objects stored as metadata are deeply
+      immutable; the helper freezes supported container types recursively.
+
+Verification boundary:
+    - Source patch committed; GitHub re-fetch verification pending.
+    - No tests or CI run. Runtime behavior remains unverified.
+
+======================================================================
