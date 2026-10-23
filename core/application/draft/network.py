@@ -285,14 +285,8 @@ class DraftNetwork:
         for item in self._equipment.values():
             if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
             if len(set(item.terminal_contract)) != len(item.terminal_contract): errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
-            for role, endpoint in item.endpoints.items():
-                if role not in item.terminal_contract:
-                    errors.append(f"{item.draft_id}: endpoint role {role!r} is not canonical.")
-                    continue
-                try:
-                    self._validate_endpoint(endpoint, network=network)
-                except (KeyError, TypeError, ValueError) as exc:
-                    errors.append(f"{item.draft_id}:{role}: {exc}")
+            # DraftEquipment.endpoints is legacy acquisition metadata, not
+            # topology. Only DraftConnection endpoints are validated as wiring.
         for item in self._connections.values():
             try:
                 self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
