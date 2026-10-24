@@ -3741,5 +3741,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD node property undo identity guard prepared for review.
+    SLD node property undo identity guard merged in PR #595
+    (merge commit 4013650da68ccd723416b9825af4c09cf749ddb8).
 ======================================================================
