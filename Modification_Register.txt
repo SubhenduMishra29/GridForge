@@ -3861,5 +3861,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD node removal attached-connection undo guard prepared for review.
+    SLD node removal attached-connection undo guard merged in PR #604
+    (merge commit c3358547caa61fc14683f7c348a2b3d7f4c4f95e).
 ======================================================================
