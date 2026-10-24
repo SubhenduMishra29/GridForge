@@ -99,9 +99,9 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "voltage_pu": {"unit": "pu", "datatype": "float"},
     "angle_deg": {"unit": "deg", "datatype": "float"},
 
-    "resistance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "reactance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "study_impact": True},
+    "resistance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
+    "reactance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
+    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "editable": True, "study_impact": True},
     "length_km": {"unit": "km", "datatype": "float", "editable": True, "study_impact": True},
     "thermal_limit_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "non_negative": True}},
     "conductor_count": {"datatype": "int", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "minimum": 1}},
@@ -113,7 +113,7 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "r0_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
     "x0_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
     "b0_us_per_km": {"unit": "µS/km", "datatype": "float", "editable": True, "study_impact": True},
-    "rate_mva": {"unit": "MVA", "datatype": "float", "study_impact": True},
+    "rate_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
     "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": True, "study_impact": True},
     "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
     "impedance_base_voltage_kv": {"unit": "kV", "datatype": "float", "editable": False, "study_impact": True},
@@ -306,6 +306,8 @@ class NetworkReadService(ReadService):
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type == "lines" and parameter_id == "in_service":
+                metadata["editable"] = True
             if element_type == "capacitive_voltage_transformers" and parameter_id == "polarity":
                 metadata["choices"] = tuple(value.value for value in CVTPolarity)
                 metadata["datatype"] = "enum"

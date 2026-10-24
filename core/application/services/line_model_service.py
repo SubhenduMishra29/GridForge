@@ -65,6 +65,69 @@ class LineModelService(ModelServiceSupport):
         transaction.record_undo(lambda line=line: self._network.remove_line(line))
         return self._success(line, "line", line_id, f"Line created: {line_id}")
 
+    def update_line(
+        self,
+        *,
+        line_id: str,
+        name: str | None = None,
+        resistance_ohm: float | None = None,
+        reactance_ohm: float | None = None,
+        shunt_susceptance_siemens: float | None = None,
+        rate_mva: float | None = None,
+        in_service: bool | None = None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Line]:
+        self._require_transaction(transaction)
+        self._require_id(line_id, "line_id")
+        line = self._get_required("line", line_id, "Line")
+        self._require_type(line, Line, line_id, "Line")
+        values = (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, rate_mva, in_service)
+        if all(value is None for value in values):
+            raise ValueError("At least one mutable Line field must be specified.")
+
+        old = {
+            "name": line.name,
+            "resistance_ohm": line.resistance_ohm,
+            "reactance_ohm": line.reactance_ohm,
+            "shunt_susceptance_siemens": line.shunt_susceptance_siemens,
+            "rate_mva": line.rate_mva,
+            "in_service": line.in_service,
+        }
+        candidate = {
+            "name": old["name"] if name is None else name,
+            "resistance_ohm": old["resistance_ohm"] if resistance_ohm is None else resistance_ohm,
+            "reactance_ohm": old["reactance_ohm"] if reactance_ohm is None else reactance_ohm,
+            "shunt_susceptance_siemens": old["shunt_susceptance_siemens"] if shunt_susceptance_siemens is None else shunt_susceptance_siemens,
+            "rate_mva": old["rate_mva"] if rate_mva is None else rate_mva,
+            "in_service": old["in_service"] if in_service is None else in_service,
+        }
+
+        def apply(state: dict[str, Any]) -> None:
+            line.name = state["name"]
+            line.resistance_ohm = state["resistance_ohm"]
+            line.reactance_ohm = state["reactance_ohm"]
+            line.shunt_susceptance_siemens = state["shunt_susceptance_siemens"]
+            line.rate_mva = state["rate_mva"]
+            line.set_in_service(state["in_service"])
+            line.validate()
+
+        try:
+            apply(candidate)
+        except BaseException:
+            apply(old)
+            raise
+
+        if in_service is not None:
+            self._network.invalidate_topology()
+
+        def restore() -> None:
+            apply(old)
+            if in_service is not None:
+                self._network.invalidate_topology()
+
+        transaction.record_undo(restore)
+        return self._success(line, "line", line_id, f"Line updated: {line_id}")
+
     def delete_line(
         self,
         *,
