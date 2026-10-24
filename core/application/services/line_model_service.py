@@ -117,12 +117,15 @@ class LineModelService(ModelServiceSupport):
             apply(old)
             raise
 
-        if in_service is not None:
+        service_state_changed = (
+            in_service is not None and in_service != old["in_service"]
+        )
+        if service_state_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
             apply(old)
-            if in_service is not None:
+            if service_state_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
