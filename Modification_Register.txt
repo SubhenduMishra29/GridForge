@@ -3921,5 +3921,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD added-connection undo signature guard prepared for review.
+    SLD added-connection undo signature guard merged in PR #608
+    (merge commit 0fc1329900ab1e670855bed79557249f0a2e8671).
 ======================================================================
