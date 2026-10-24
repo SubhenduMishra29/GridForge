@@ -3195,3 +3195,38 @@ Disposition:
     outstanding.
 
 ======================================================================
+
+======================================================================
+2026-10-24 — SLD ELEMENT UPDATE INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_element_update() changed the live SLD node's projected
+    properties, lifecycle state, and equipment binding before registering
+    restore_updated_node with the Application transaction. A failure during
+    presentation mutation could therefore leave a partial update without an
+    inverse. Registering the inverse late also made rollback correctness
+    depend on the update having completed.
+
+Correction:
+    - Compute projected labels, attributes, terminal references, and the
+      complete next property mapping before touching the live node.
+    - Register restore_updated_node before the first presentation mutation.
+    - Apply the prepared property mapping and equipment binding to the
+      existing canonical node rather than replacing its identity.
+    - Retain in-place rollback restoration of position, presentation,
+      properties, and equipment binding, with absent-node restoration only
+      as a defensive fallback.
+
+Verification boundary:
+    Source and register review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Inverse-registration ordering corrected in the focused branch; final
+    diff and merge status remain to be reviewed.
+======================================================================

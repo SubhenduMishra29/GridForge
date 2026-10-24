@@ -670,15 +670,20 @@ class SLDService:
         attributes = dict(projected.attributes)
         labels = dict(projected.labels)
         connectivity = tuple(projected.connectivity_refs)
-        node.properties.update({
+
+        # Prepare the complete projected property state without mutating the
+        # live node. Register the inverse while the canonical node is still
+        # untouched so any subsequent presentation failure is compensatable.
+        projected_properties = dict(node.properties)
+        projected_properties.update({
             "element_type": str(element_type),
             "labels": labels,
             "attributes": attributes,
             "terminal_ids": connectivity,
             "terminal_connectivity": tuple(attributes.get("terminal_connectivity", ())),
+            "lifecycle_state": "BOUND",
         })
-        self._set_node_lifecycle_state(node, "BOUND")
-        node.equipment_id = equipment_id
+
         def restore_updated_node(snapshot=previous) -> None:
             # This is an update of an existing node, so undo must restore that
             # live identity in place. _restore_node_snapshot is for absent-node
@@ -698,6 +703,13 @@ class SLDService:
             self.document.mark_modified()
 
         transaction.record_undo(restore_updated_node)
+
+        # All live-node mutations follow inverse registration. Keep the
+        # canonical node object/identity and preserve fields not owned by this
+        # projection update.
+        node.properties.clear()
+        node.properties.update(projected_properties)
+        node.equipment_id = equipment_id
         self.document.mark_modified()
 
     @classmethod
