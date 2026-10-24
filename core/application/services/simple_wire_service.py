@@ -52,7 +52,28 @@ class SimpleWireConnectionService:
                 message="Simple Wire endpoints must be topology endpoint references.",
                 details={},
             )
-        if source == target:
+        try:
+            normalized_source = (
+                source
+                if isinstance(source, TopologyEndpointReference)
+                else TopologyEndpointReference.from_terminal(source)
+            )
+            normalized_target = (
+                target
+                if isinstance(target, TopologyEndpointReference)
+                else TopologyEndpointReference.from_terminal(target)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                message="Simple Wire endpoints must identify terminals or registered topology junctions.",
+                details={},
+            ) from exc
+
+        # Compare canonical topology identities, not their input wrapper types:
+        # an EndpointReference and a TopologyEndpointReference can represent
+        # the same terminal while comparing unequal before normalization.
+        if normalized_source == normalized_target:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINTS",
                 message="Simple Wire endpoints must be distinct.",
@@ -60,8 +81,8 @@ class SimpleWireConnectionService:
             )
         return CreateSimpleWireConnectionCommand(
             connection_id=connection_id.strip(),
-            endpoint_a=source,
-            endpoint_b=target,
+            endpoint_a=normalized_source,
+            endpoint_b=normalized_target,
         )
 
     def execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
