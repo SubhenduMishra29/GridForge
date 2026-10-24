@@ -1209,61 +1209,77 @@ class SLDService:
             self.document.model.remove_connection(connection_id_to_remove)
 
         def restore() -> None:
-            # Remove only the replacement objects created by this operation;
-            # never delete a later object merely because it reused an ID.
-            remove_created_connection(first_id, first_core_id)
-            remove_created_connection(second_id, second_core_id)
+            rollback_errors: list[str] = []
+            # Continue restoring independent objects after a collision is
+            # detected, but never remove an object whose identity is unknown.
+            for replacement_id, core_id in ((first_id, first_core_id), (second_id, second_core_id)):
+                try:
+                    remove_created_connection(replacement_id, core_id)
+                except Exception as exc:
+                    rollback_errors.append(str(exc))
 
-            current_node = self.document.model.get_node_optional(node_id)
-            if existing_node is None:
-                if current_node is not None:
-                    if created_node_ref:
-                        if current_node is not created_node_ref[0]:
-                            raise ValueError(
-                                f"Cannot roll back SLD insertion; node identity was reused: {node_id!r}."
-                            )
-                    else:
-                        props = getattr(current_node, "properties", {})
-                        if (
-                            str(getattr(current_node, "equipment_id", "")) != str(equipment_id)
-                            or str(props.get("insertion_parent_connection_id", "")) != str(connection_id)
-                            or str(props.get("element_type", "")) != str(equipment_type)
-                        ):
-                            raise ValueError(
-                                f"Cannot safely identify partially created SLD insertion node {node_id!r}."
-                            )
-                    self.document.model.remove_node(node_id)
-            else:
-                if current_node is not None and current_node is not existing_node:
-                    raise ValueError(
-                        f"Cannot restore SLD insertion node; identity already reused: {node_id!r}."
-                    )
-                if current_node is None:
-                    self._restore_node_snapshot(node_snapshot or {})
+            try:
+                current_node = self.document.model.get_node_optional(node_id)
+                if existing_node is None:
+                    if current_node is not None:
+                        if created_node_ref:
+                            if current_node is not created_node_ref[0]:
+                                raise ValueError(
+                                    f"Cannot roll back SLD insertion; node identity was reused: {node_id!r}."
+                                )
+                        else:
+                            props = getattr(current_node, "properties", {})
+                            if (
+                                str(getattr(current_node, "equipment_id", "")) != str(equipment_id)
+                                or str(props.get("insertion_parent_connection_id", "")) != str(connection_id)
+                                or str(props.get("element_type", "")) != str(equipment_type)
+                            ):
+                                raise ValueError(
+                                    f"Cannot safely identify partially created SLD insertion node {node_id!r}."
+                                )
+                        self.document.model.remove_node(node_id)
                 else:
-                    current_node.set_position(float(node_snapshot["x"]), float(node_snapshot["y"]))
-                    if node_snapshot.get("presentation") is None:
-                        current_node.clear_presentation()
+                    if current_node is not None and current_node is not existing_node:
+                        raise ValueError(
+                            f"Cannot restore SLD insertion node; identity already reused: {node_id!r}."
+                        )
+                    if current_node is None:
+                        self._restore_node_snapshot(node_snapshot or {})
                     else:
-                        current_node.set_presentation(node_snapshot["presentation"])
-                    current_node.properties.clear()
-                    current_node.properties.update(dict(node_snapshot.get("properties", {})))
-                    current_node.equipment_id = node_snapshot.get("equipment_id")
+                        current_node.set_position(float(node_snapshot["x"]), float(node_snapshot["y"]))
+                        if node_snapshot.get("presentation") is None:
+                            current_node.clear_presentation()
+                        else:
+                            current_node.set_presentation(node_snapshot["presentation"])
+                        current_node.properties.clear()
+                        current_node.properties.update(dict(node_snapshot.get("properties", {})))
+                        current_node.equipment_id = node_snapshot.get("equipment_id")
+            except Exception as exc:
+                rollback_errors.append(str(exc))
 
-            current_old = self.document.model.get_connection_optional(old_id)
-            if current_old is not None:
-                if current_old is not old_connection:
-                    raise ValueError(
-                        f"Cannot restore original SLD connection; identity already reused: {old_id!r}."
-                    )
-            else:
-                self._restore_connection_snapshot(snapshot)
+            try:
+                current_old = self.document.model.get_connection_optional(old_id)
+                if current_old is not None:
+                    if current_old is not old_connection:
+                        raise ValueError(
+                            f"Cannot restore original SLD connection; identity already reused: {old_id!r}."
+                        )
+                else:
+                    self._restore_connection_snapshot(snapshot)
+            except Exception as exc:
+                rollback_errors.append(str(exc))
+
             # This inverse is also retained in committed undo history.
             # Restoring the pre-operation clean flag here would incorrectly
             # make an undone, persisted document appear clean. Immediate
             # transaction rollback restores the original dirty flag through
             # apply_command's rollback finalizer after all inverses succeed.
             self.document.mark_modified()
+            if rollback_errors:
+                raise ValueError(
+                    "SLD insertion rollback encountered identity/restoration conflicts: "
+                    + " | ".join(rollback_errors)
+                )
 
         # Register the inverse before mutating the presentation so any failure
         # during the multi-object replacement is rollback-safe as well.
