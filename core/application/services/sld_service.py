@@ -1183,6 +1183,21 @@ class SLDService:
             self.document.mark_modified()
             return "REMOVED"
 
+        def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
+            self._restore_node_snapshot(snapshot)
+            connection_ids = {item["connection_id"] for item in connection_snapshots}
+            for connection in tuple(self.document.model.connections):
+                if connection.connection_id in connection_ids:
+                    self.document.model.remove_connection(connection.connection_id)
+            for item in connection_snapshots:
+                self._restore_connection_snapshot(item)
+            self.document.mark_modified()
+
+        # Register the full inverse before touching the node or any connection.
+        # This keeps partial failures inside the Application transaction
+        # rollback-safe, including failures midway through connection orphaning.
+        transaction.record_undo(restore)
+
         node.equipment_id = None
         node.properties.pop("projection_source", None)
         node.properties["lifecycle_state"] = "ORPHANED"
@@ -1200,14 +1215,6 @@ class SLDService:
                 self.document.model.remove_connection(connection.connection_id)
 
         self.document.mark_modified()
-        def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
-            self._restore_node_snapshot(snapshot)
-            for connection in tuple(self.document.model.connections):
-                if connection.connection_id in {item["connection_id"] for item in connection_snapshots}:
-                    self.document.model.remove_connection(connection.connection_id)
-            for item in connection_snapshots:
-                self._restore_connection_snapshot(item)
-        transaction.record_undo(restore)
         return "ORPHANED"
 
     def reconcile_connection_delete(
