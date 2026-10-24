@@ -3619,3 +3619,34 @@ Disposition:
     SLD node creation compensation signature correction merged in PR #585
     (merge commit 477e0e0b7cb6369d37ca6bf7484ed5a556ff49f9).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ELEMENT UPDATE UNDO IDENTITY GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_element_update() restored a node by ID without checking the
+    live object's identity. If the original node disappeared or its ID was
+    reused, undo could recreate an incomplete node or overwrite a different
+    logical node with the old snapshot.
+
+Correction:
+    - Capture the original node reference and expected post-update logical
+      identity before mutation.
+    - During undo, reject absent nodes and reject replacements whose equipment
+      ID or stable logical identity differs.
+    - Permit a reconstructed node only when it matches the expected updated
+      identity, then restore the previous snapshot in place.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD element update undo identity guard prepared for review.
+======================================================================
