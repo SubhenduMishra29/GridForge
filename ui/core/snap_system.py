@@ -946,10 +946,31 @@ class SnapSystem:
                     "Equipment snap candidates require terminal_id and terminal_name."
                 )
         elif bool(getattr(item, "is_draft_presentation", False)):
-            if not isinstance(draft_id, str) or not draft_id.strip() or not isinstance(draft_terminal_role, str) or not draft_terminal_role.strip():
-                raise ValueError("Draft snap candidates require stable draft_id and draft_terminal_role.")
+            if not isinstance(draft_id, str) or not draft_id.strip():
+                raise ValueError("Draft snap candidates require a stable draft_id.")
             if not isinstance(draft_equipment_type, str) or not draft_equipment_type.strip():
                 raise ValueError("Draft snap candidates require draft_equipment_type.")
+            if draft_equipment_type.strip().lower() == "bus":
+                # Draft Bus attachment points are Bus endpoints, not terminal
+                # roles. Keep this contract aligned with SymbolPreviewItem and
+                # WireTool._authoring_endpoint instead of forcing a fake role.
+                if (
+                    object_id is None
+                    or str(object_id) != draft_id
+                    or bus_id is None
+                    or str(bus_id) != draft_id
+                    or not isinstance(attachment_id, str)
+                    or not attachment_id.strip()
+                ):
+                    raise ValueError(
+                        "Draft Bus snap candidates require matching object_id, "
+                        "draft_id, bus_id, and attachment_id."
+                    )
+                if terminal_id is not None or terminal_name is not None or draft_terminal_role is not None:
+                    raise ValueError("Draft Bus snap candidates must not expose terminal identity.")
+            else:
+                if not isinstance(draft_terminal_role, str) or not draft_terminal_role.strip():
+                    raise ValueError("Draft equipment snap candidates require draft_terminal_role.")
         else:
             raise ValueError("Unsupported electrical snap target.")
 
