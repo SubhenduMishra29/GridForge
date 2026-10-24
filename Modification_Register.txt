@@ -3710,5 +3710,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD connection route undo ownership guard prepared for review.
+    SLD connection route undo ownership guard merged in PR #592
+    (merge commit 227ad517923d3868d8d862d93f0176d493ebf606).
 ======================================================================
