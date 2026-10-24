@@ -757,6 +757,32 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
+        except BaseException as exc:
+            # Pre-commit interruptions can leave the manager CLEAN after a
+            # successful rollback. Restore the popped redo entry before
+            # propagating the interruption; post-commit ambiguity is already
+            # marked DEGRADED by _execute_command and must remain fail-closed.
+            if self._integrity_state == "CLEAN":
+                try:
+                    self._history.restore_redo(record)
+                except BaseException as restore_exc:
+                    self._mark_degraded(restore_exc)
+                    if not isinstance(restore_exc, Exception):
+                        raise
+                    raise ExecutionError(
+                        code="HISTORY_RESTORE_FAILED",
+                        message=(
+                            "Redo was interrupted cleanly, but restoring "
+                            "the redo history record failed."
+                        ),
+                        details={
+                            "command_type": record.command_type,
+                            "command_id": str(record.command_id),
+                        },
+                        cause=restore_exc,
+                    ) from restore_exc
+            raise
+
     # ========================================================
     # HISTORY STATE
     # ========================================================
