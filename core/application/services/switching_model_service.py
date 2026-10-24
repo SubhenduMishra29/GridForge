@@ -125,9 +125,16 @@ class SwitchingModelService(ModelServiceSupport):
         if voltage_kv is not None: breaker.voltage_kv = voltage_kv
         if current_a is not None: breaker.current_a = current_a
         if interrupting_ka is not None: breaker.interrupting_ka = interrupting_ka
-        self._network.invalidate_topology()
+        topology_changed = (
+            (closed is not None and closed != old["closed"])
+            or (in_service is not None and in_service != old["in_service"])
+        )
+        if topology_changed:
+            self._network.invalidate_topology()
         def restore() -> None:
-            breaker.name = old["name"]; breaker.in_service = old["in_service"]; breaker.closed = old["closed"]; breaker.failed = old["failed"]; breaker.voltage_kv = old["voltage_kv"]; breaker.current_a = old["current_a"]; breaker.interrupting_ka = old["interrupting_ka"]; self._network.invalidate_topology()
+            breaker.name = old["name"]; breaker.in_service = old["in_service"]; breaker.closed = old["closed"]; breaker.failed = old["failed"]; breaker.voltage_kv = old["voltage_kv"]; breaker.current_a = old["current_a"]; breaker.interrupting_ka = old["interrupting_ka"]
+            if topology_changed:
+                self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker updated: {breaker_id}")
 
     def delete_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
@@ -139,13 +146,34 @@ class SwitchingModelService(ModelServiceSupport):
     def take_breaker_out_of_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._set_breaker_service(breaker_id=breaker_id, in_service=False, transaction=transaction)
 
     def trip_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.trip(); self._network.invalidate_topology(); transaction.record_undo(lambda breaker=breaker, old=old: (breaker.close() if old else breaker.open(), self._network.invalidate_topology())); return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.trip(); topology_changed = old != breaker.closed
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            breaker.close() if old else breaker.open()
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
 
     def _set_breaker_closed(self, *, breaker_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.close() if closed else breaker.open(); self._network.invalidate_topology(); transaction.record_undo(lambda breaker=breaker, old=old: (breaker.close() if old else breaker.open(), self._network.invalidate_topology())); return self._success(breaker, "breaker", breaker_id, f"Breaker {'closed' if closed else 'opened'}: {breaker_id}")
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.close() if closed else breaker.open(); topology_changed = old != breaker.closed
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            breaker.close() if old else breaker.open()
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker {'closed' if closed else 'opened'}: {breaker_id}")
 
     def _set_breaker_service(self, *, breaker_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.in_service; breaker.in_service = in_service; self._network.invalidate_topology(); transaction.record_undo(lambda breaker=breaker, old=old: (setattr(breaker, "in_service", old), self._network.invalidate_topology())); return self._success(breaker, "breaker", breaker_id, f"Breaker {'put in service' if in_service else 'taken out of service'}: {breaker_id}")
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.in_service; breaker.in_service = in_service; topology_changed = old != breaker.in_service
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            breaker.in_service = old
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker {'put in service' if in_service else 'taken out of service'}: {breaker_id}")
 
     def create_disconnector(self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, operating_time: float = 1.0, closed: bool = True, in_service: bool = True, name: str = "", transaction: Transaction) -> ApplicationResult[Disconnector]:
         self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id")
