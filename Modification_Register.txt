@@ -3164,3 +3164,34 @@ Disposition:
     confirmation remains outstanding.
 
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD POSITION / SYMBOL / CONNECTION REMOVE INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_node_position(), _set_node_presentation(), and _remove_connection()
+    mutated live SLD state before registering their transaction inverses.
+    A failure during those operations could leave changes without registered
+    compensation.
+
+Correction:
+    - Register node-position and node-presentation inverses before mutation.
+    - Register connection-removal inverse before structural deletion.
+    - Make connection-removal compensation tolerate the unchanged original
+      connection, but fail closed on a conflicting object with the same ID.
+    - Preserve canonical identity, route, endpoints, and properties.
+
+Verification boundary:
+    Static source/diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    Inverse ordering corrected in source; runtime confirmation remains
+    outstanding.
+
+======================================================================
