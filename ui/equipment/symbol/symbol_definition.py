@@ -30,6 +30,7 @@ state, or rendering behavior.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -91,14 +92,14 @@ class SymbolDefinition:
                 "display_name must be a non-empty string."
             )
 
-        if self.width <= 0:
+        if not isfinite(float(self.width)) or self.width <= 0:
             raise ValueError(
-                "width must be greater than zero."
+                "width must be finite and greater than zero."
             )
 
-        if self.height <= 0:
+        if not isfinite(float(self.height)) or self.height <= 0:
             raise ValueError(
-                "height must be greater than zero."
+                "height must be finite and greater than zero."
             )
 
         if (
@@ -140,10 +141,13 @@ class SymbolDefinition:
                     "exactly two values."
                 )
 
-            anchors[name] = (
-                float(position[0]),
-                float(position[1]),
-            )
+            anchor_x = float(position[0])
+            anchor_y = float(position[1])
+            if not isfinite(anchor_x) or not isfinite(anchor_y):
+                raise ValueError(
+                    f"terminal anchor {name!r} coordinates must be finite."
+                )
+            anchors[name] = (anchor_x, anchor_y)
 
         # ----------------------------------------------------
         # Renderer-neutral primitives
@@ -158,10 +162,17 @@ class SymbolDefinition:
                     "each primitive must be a mapping."
                 )
 
+            primitive_copy = dict(primitive)
+            for key, value in primitive_copy.items():
+                # Renderer-neutral geometry values must be finite before
+                # they can reach QPainter or terminal/snap calculations.
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    if not isfinite(float(value)):
+                        raise ValueError(
+                            f"primitive {key!r} numeric value must be finite."
+                        )
             frozen_primitives.append(
-                MappingProxyType(
-                    dict(primitive)
-                )
+                MappingProxyType(primitive_copy)
             )
 
         object.__setattr__(
