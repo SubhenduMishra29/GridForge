@@ -3263,6 +3263,38 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Identity-safe restoration correction reviewed in PR #565; merge status
+    Identity-safe restoration correction merged in PR #565
+    (merge commit 2abf1febc081d4e19ae2222aca1aeb90102bae46).
+======================================================================
+
+======================================================================
+2026-10-24 — SLD ADD INVERSE IDENTITY SAFETY
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _add_node() and _add_connection() registered pre-mutation inverses that
+    later removed whatever object happened to occupy the requested ID. After
+    a remove/restore cycle or identity reuse, rollback/undo could therefore
+    delete an unrelated node or connection with the same canonical ID.
+
+Correction:
+    - Capture the exact created node/connection reference after successful
+      model insertion and require that identity during later undo.
+    - For construction failures before the reference is captured, remove a
+      partially inserted object only when its available creation signature
+      matches the operation; otherwise fail closed on the collision.
+    - Preserve pre-mutation inverse registration for partial-failure
+      compensation.
+
+Verification boundary:
+    Static source and diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Add-inverse identity correction reviewed in PR #566; merge status
     remains pending.
 ======================================================================
