@@ -67,7 +67,15 @@ class SemanticPresentationRealization:
     def realize(self, node: SLDCanvasNode) -> PresentationSelection:
         if not isinstance(node, SLDCanvasNode):
             raise TypeError("node must be an SLDCanvasNode")
-        element_type = node.properties.get("element_type")
+        # The Application read model is the authoritative source for the
+        # equipment type whenever it is available. Persisted SLD properties
+        # are a compatibility fallback for presentation-only/legacy nodes;
+        # they must not override current projected domain identity.
+        element_type = (
+            node.read_model.element_type
+            if node.read_model is not None
+            else node.properties.get("element_type")
+        )
         canonical_semantic = semantic_type(element_type)
         equipment_type = equipment_type_for_semantic(canonical_semantic)
         definition = self._equipment_registry.require(equipment_type)
