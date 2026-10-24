@@ -3924,3 +3924,34 @@ Disposition:
     SLD added-connection undo signature guard merged in PR #608
     (merge commit 0fc1329900ab1e670855bed79557249f0a2e8671).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ADDED-NODE UNDO LIVE-STATE GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _add_node() undo verified that the registered node was the same object
+    created by the command, but did not verify that its mutable state remained
+    unchanged. A later equipment-binding, position, property, or presentation
+    change could therefore be deleted by undo.
+
+Correction:
+    - Capture a deep signature of equipment binding, position, properties,
+      and symbol presentation immediately after successful node creation.
+    - During undo, require both original object identity and an unchanged
+      creation signature before removing the live node.
+    - Preserve the separate partial-construction compensation checks.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD added-node undo live-state guard merged in PR #610
+    (merge commit 188d096bca754cf17525ad3404f1236d7d07d8a5).
+======================================================================
