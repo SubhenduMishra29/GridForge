@@ -3744,3 +3744,32 @@ Disposition:
     SLD node property undo identity guard merged in PR #595
     (merge commit 4013650da68ccd723416b9825af4c09cf749ddb8).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE POSITION / PRESENTATION UNDO IDENTITY GUARDS
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_node_position() and _set_node_presentation() validated logical
+    identity only when undo found a replacement object. A still-registered
+    original node whose equipment or semantic identity changed could have
+    stale presentation state restored over the conflict.
+
+Correction:
+    - Compare equipment_id and deep-copied semantic identity fields on every
+      undo, regardless of object reference equality.
+    - Fail closed before restoring position, symbol presentation, or
+      presentation properties when logical identity differs.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD node position/presentation undo identity guards prepared for review.
+======================================================================
