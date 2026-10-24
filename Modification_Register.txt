@@ -3648,5 +3648,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD element update undo identity guard prepared for review.
+    SLD element update undo identity guard merged in PR #587
+    (merge commit 63bc6f564011d17e1a2658f8ade3af2207fa09c3).
 ======================================================================
