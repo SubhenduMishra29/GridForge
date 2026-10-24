@@ -3588,3 +3588,33 @@ Disposition:
     SLD connection creation compensation signature correction merged in PR #583
     (merge commit b9551fae9084b7e7783e76682daaf5acc6f91145).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE CREATION COMPENSATION SIGNATURE
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _add_node() compared the live SymbolBase serialization with the raw
+    presentation mapping. SymbolBase normalizes omitted defaults and numeric
+    fields during construction, so an equivalent partial insertion could fail
+    the compensation signature and be left behind after a failed creation.
+
+Correction:
+    - Normalize the expected presentation signature to SymbolBase's canonical
+      serialized fields and defaults without importing UI classes into
+      Application.
+    - Preserve exact object-identity protection after successful creation and
+      fail-closed collision handling.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD node creation compensation signature correction prepared for review.
+======================================================================
