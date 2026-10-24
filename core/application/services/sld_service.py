@@ -672,11 +672,25 @@ class SLDService:
         x = float(p["x"])
         y = float(p["y"])
         created_node = None
+        created_node_signature = None
 
-        # Capture the created object after successful insertion. During a
-        # failed construction, clean up by ID only when the surviving object
-        # matches this operation's complete creation signature; during later
-        # undo, remove only the exact object created by this command.
+        def node_creation_signature(node: Any) -> tuple[Any, ...]:
+            """Snapshot the complete mutable state owned by this creation."""
+            node_presentation = (
+                None if node.presentation is None else node.presentation.to_dict()
+            )
+            return (
+                node.equipment_id,
+                float(node.x),
+                float(node.y),
+                deepcopy(dict(node.properties)),
+                deepcopy(node_presentation),
+            )
+
+        # Capture the created object and its state after successful insertion.
+        # During failed construction, compensate by ID only if the survivor
+        # still matches the requested creation signature. During later undo,
+        # require both the original object and its unchanged creation state.
         def undo_added_node() -> None:
             current = self.document.model.get_node_optional(node_id)
             if current is None:
@@ -685,6 +699,10 @@ class SLDService:
                 if current is not created_node:
                     raise ValueError(
                         f"Cannot undo added SLD node; identity is now owned by another object: {node_id!r}."
+                    )
+                if node_creation_signature(current) != created_node_signature:
+                    raise ValueError(
+                        f"Cannot undo added SLD node; live state changed after creation: {node_id!r}."
                     )
             else:
                 current_presentation = (
@@ -732,6 +750,8 @@ class SLDService:
                 properties=properties,
             )
             created_node = self.document.model.get_node_optional(node_id)
+            if created_node is not None:
+                created_node_signature = node_creation_signature(created_node)
         except Exception as exc:
             raise ValueError(
                 f"Could not create SLD node {node_id!r} with its symbol presentation: {exc}"
