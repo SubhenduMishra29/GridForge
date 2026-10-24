@@ -1154,14 +1154,33 @@ class SLDService:
         connection_snapshots = tuple(connection.to_dict() for connection in attached)
 
         if not self.has_engineer_presentation_overrides(node):
-            self.document.model.remove_node(node.node_id)
-            self.document.mark_modified()
-            def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
+            annotation_snapshot = [
+                block.to_dict() for block in self.document.annotation_blocks
+            ]
+            remaining_annotations = [
+                item for item in annotation_snapshot
+                if item.get("node_id") != node.node_id
+            ]
+
+            def restore(
+                snapshot=snapshot,
+                connection_snapshots=connection_snapshots,
+                annotation_snapshot=annotation_snapshot,
+            ) -> None:
                 self._restore_node_snapshot(snapshot)
                 for item in connection_snapshots:
                     if self.document.model.get_connection_optional(item["connection_id"]) is None:
                         self._restore_connection_snapshot(item)
+                self.document.replace_annotation_blocks(annotation_snapshot)
+                self.document.mark_modified()
+
+            # Record the complete inverse before mutation so rollback/undo
+            # restores node, attached connections, and its annotation config
+            # as one Application transaction.
             transaction.record_undo(restore)
+            self.document.model.remove_node(node.node_id)
+            self.document.replace_annotation_blocks(remaining_annotations)
+            self.document.mark_modified()
             return "REMOVED"
 
         node.equipment_id = None

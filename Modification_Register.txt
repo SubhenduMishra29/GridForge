@@ -3002,3 +3002,37 @@ Verification boundary:
     - No tests or CI run; runtime behavior remains unverified.
 
 ======================================================================
+
+======================================================================
+2026-10-24 — SLD CORE-DELETE ANNOTATION LIFECYCLE
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    Core-driven deletion of an SLD-bound equipment object can remove its
+    presentation node and attached connections through
+    reconcile_element_delete(), while leaving SLD annotation blocks that
+    reference the now-missing node. A later canvas projection can then fail
+    when resolving the stale annotation reference.
+
+Correction:
+    - Snapshot annotation configuration before node removal.
+    - Remove annotation blocks bound to the deleted node in the same
+      Application transaction.
+    - Register the inverse before mutation; undo restores the node,
+      attached connections, and annotation configuration together.
+    - Preserve annotation blocks for an intentionally orphaned SLD node,
+      because that node remains in the presentation document and the
+      annotation reference remains structurally valid.
+
+Verification boundary:
+    Static source/diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    Core-driven deletion annotation-reference integrity corrected in this
+    change; runtime confirmation remains outstanding.
+
+======================================================================
