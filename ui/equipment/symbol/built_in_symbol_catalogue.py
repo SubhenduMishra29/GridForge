@@ -87,11 +87,13 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": -13, "y1": 3, "x2": 13, "y2": 3},
         {"kind": "line", "x1": 0, "y1": -10, "x2": 0, "y2": 10},
     ), {"terminal": (-28.0, 0.0)}),
+    # Battery is currently a one-terminal network injection in Core.
+    # Render only the declared network connection; do not imply a second
+    # independently connectable terminal with a dangling right-hand lead.
     ("battery", "Battery", ("terminal",), (
         {"kind": "line", "x1": -5, "y1": -12, "x2": -5, "y2": 12},
         {"kind": "line", "x1": 5, "y1": -7, "x2": 5, "y2": 7},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -5, "y2": 0},
-        {"kind": "line", "x1": 5, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("grid", "Grid", ("terminal",), (
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
