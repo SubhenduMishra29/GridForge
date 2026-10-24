@@ -288,6 +288,54 @@ class ElectricalInsertionService:
                 details={"orientation": raw_orientation},
             )
 
+        raw_terminal_anchors = payload.get("terminal_anchors")
+        terminal_anchors: dict[str, tuple[float, float]] | None = None
+        if raw_terminal_anchors is not None:
+            if not isinstance(raw_terminal_anchors, Mapping):
+                raise ValidationError(
+                    code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                    message="Terminal anchors must be a mapping from terminal roles to coordinate pairs.",
+                    details={},
+                )
+            terminal_anchors = {}
+            for raw_role, raw_anchor in raw_terminal_anchors.items():
+                if not isinstance(raw_role, str) or not raw_role.strip():
+                    raise ValidationError(
+                        code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                        message="Terminal anchor roles must be non-empty strings.",
+                        details={},
+                    )
+                if not isinstance(raw_anchor, (tuple, list)) or len(raw_anchor) != 2:
+                    raise ValidationError(
+                        code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                        message="Each terminal anchor must contain exactly two coordinates.",
+                        details={"terminal_role": raw_role},
+                    )
+                coordinates: list[float] = []
+                for coordinate in raw_anchor:
+                    if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                        raise ValidationError(
+                            code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                            message="Terminal anchor coordinates must be finite numeric values.",
+                            details={"terminal_role": raw_role},
+                        )
+                    numeric_coordinate = float(coordinate)
+                    if not math.isfinite(numeric_coordinate):
+                        raise ValidationError(
+                            code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                            message="Terminal anchor coordinates must be finite numeric values.",
+                            details={"terminal_role": raw_role},
+                        )
+                    coordinates.append(numeric_coordinate)
+                normalized_role = raw_role.strip()
+                if normalized_role in terminal_anchors:
+                    raise ValidationError(
+                        code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                        message="Terminal anchor roles must be unique after normalization.",
+                        details={"terminal_role": normalized_role},
+                    )
+                terminal_anchors[normalized_role] = (coordinates[0], coordinates[1])
+
         raw_segment_index = payload.get("segment_index")
         if isinstance(raw_segment_index, bool) or not isinstance(raw_segment_index, int) or raw_segment_index < 0:
             raise ValidationError(
@@ -505,7 +553,9 @@ class ElectricalInsertionService:
                 "insertion_position": insertion_position,
                 "orientation": orientation,
                 "segment_index": segment_index,
-                "terminal_anchors": payload.get("terminal_anchors"),
+                "terminal_anchors": (
+                    None if terminal_anchors is None else dict(terminal_anchors)
+                ),
                 "terminal_mapping": tuple(terminal_mapping),
                 "endpoint_a": dict(endpoint_a.to_mapping()),
                 "endpoint_b": dict(endpoint_b.to_mapping()),
