@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Optional
 
 from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
@@ -37,6 +38,22 @@ class EquipmentItem(BaseItem):
             raise ValueError("element_type must be a non-empty string")
         if not isinstance(symbol_definition, SymbolDefinition):
             raise TypeError("symbol_definition must be a SymbolDefinition")
+        for primitive in symbol_definition.primitives:
+            if "stroke_width" in primitive:
+                width = primitive["stroke_width"]
+                if (
+                    isinstance(width, bool)
+                    or not isinstance(width, (int, float))
+                    or not isfinite(float(width))
+                    or float(width) <= 0
+                ):
+                    raise ValueError(
+                        "primitive stroke_width must be a finite positive number"
+                    )
+                if primitive.get("kind") != "line":
+                    raise ValueError(
+                        "stroke_width is currently supported only for line primitives"
+                    )
         if not isinstance(equipment, EquipmentBase):
             raise TypeError("equipment must be an EquipmentBase")
         super().__init__(object_id, parent)
@@ -120,11 +137,25 @@ class EquipmentItem(BaseItem):
         return tuple(points)
 
     def boundingRect(self) -> QRectF:
+        # QGraphicsItem bounds must include the painted pen extents. Keep a
+        # stable margin around the declared logical symbol box so terminals
+        # at its edges and heavier IEEE/ANSI busbar strokes are not clipped.
+        margin = max(
+            2.0,
+            max(
+                (
+                    float(primitive.get("stroke_width", 1.8)) / 2.0
+                    for primitive in self._symbol_definition.primitives
+                    if primitive.get("kind") == "line"
+                ),
+                default=0.9,
+            ) + 0.2,
+        )
         return QRectF(
-            -self._symbol_definition.width / 2,
-            -self._symbol_definition.height / 2,
-            self._symbol_definition.width,
-            self._symbol_definition.height,
+            -self._symbol_definition.width / 2 - margin,
+            -self._symbol_definition.height / 2 - margin,
+            self._symbol_definition.width + 2 * margin,
+            self._symbol_definition.height + 2 * margin,
         )
 
     def _effective_state(self) -> VisualState:
@@ -144,19 +175,24 @@ class EquipmentItem(BaseItem):
         painter.setPen(visual_pen(role, state, width=1.8))
         painter.setBrush(visual_brush(role, state))
         painter.setFont(visual_font("engineering"))
+        base_pen = visual_pen(role, state, width=1.8)
         for primitive in self._symbol_definition.primitives:
             kind = primitive.get("kind")
             if kind == "line":
+                line_width = float(primitive.get("stroke_width", 1.8))
+                painter.setPen(visual_pen(role, state, width=line_width))
                 painter.drawLine(
                     float(primitive["x1"]), float(primitive["y1"]),
                     float(primitive["x2"]), float(primitive["y2"]),
                 )
             elif kind == "rect":
+                painter.setPen(base_pen)
                 painter.drawRect(
                     float(primitive["x"]), float(primitive["y"]),
                     float(primitive["width"]), float(primitive["height"]),
                 )
             elif kind == "circle":
+                painter.setPen(base_pen)
                 radius = float(primitive["r"])
                 painter.drawEllipse(
                     float(primitive["cx"]) - radius,
