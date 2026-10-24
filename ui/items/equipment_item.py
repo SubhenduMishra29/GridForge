@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import isfinite
 from typing import Any, Optional
 
@@ -21,6 +22,10 @@ _PRIMITIVE_FIELDS = {
 def _validate_symbol_primitives(definition: SymbolDefinition) -> None:
     """Reject unsupported or malformed primitives before Qt invokes paint()."""
     for index, primitive in enumerate(definition.primitives):
+        if not isinstance(primitive, Mapping):
+            raise TypeError(
+                f"Symbol {definition.symbol_id!r} primitive {index} must be a mapping."
+            )
         kind = primitive.get("kind")
         if not isinstance(kind, str):
             raise ValueError(
