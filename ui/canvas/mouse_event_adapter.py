@@ -112,7 +112,9 @@ class MouseEventAdapter:
         y = float(scene_position.y())
         transform = self._view.viewportTransform()
         try:
-            item = item_at(x, y, transform)
+            # QGraphicsScene.itemAt accepts a scene point and device transform.
+            # Passing separate x/y coordinates is not a supported overload.
+            item = item_at(QPointF(x, y), transform)
         except (TypeError, ValueError, AttributeError):
             return CanvasHitTarget.none()
 
