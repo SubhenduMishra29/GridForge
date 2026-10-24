@@ -678,7 +678,24 @@ class SLDService:
                 current_presentation = (
                     None if current.presentation is None else current.presentation.to_dict()
                 )
-                expected_presentation = None if presentation is None else dict(presentation)
+                if presentation is None:
+                    expected_presentation = None
+                else:
+                    symbol_id = presentation.get("symbol_id")
+                    definition_id = presentation.get("definition_id")
+                    if definition_id is None:
+                        definition_id = symbol_id
+                    expected_presentation = {
+                        "symbol_id": symbol_id,
+                        "definition_id": definition_id,
+                        "representation_id": str(
+                            presentation.get("representation_id", "symbol")
+                        ).strip(),
+                        "scale": float(presentation.get("scale", 1.0)),
+                        "rotation": float(presentation.get("rotation", 0.0)),
+                        "visible": bool(presentation.get("visible", True)),
+                        "properties": dict(presentation.get("properties") or {}),
+                    }
                 if (
                     current.equipment_id != equipment_id
                     or float(current.x) != x
