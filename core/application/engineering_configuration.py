@@ -37,6 +37,7 @@ _UPDATE_COMMANDS = {
     "transformer": (UpdateTransformerCommand, "transformer_id"),
     "cable": (UpdateCableCommand, "cable_id"),
     "line": (UpdateLineCommand, "line_id"),
+    "lines": (UpdateLineCommand, "line_id"),
     "switch": (UpdateSwitchCommand, "switch_id"),
     "disconnector": (UpdateDisconnectorCommand, "disconnector_id"),
     "fuse": (UpdateFuseCommand, "fuse_id"),
