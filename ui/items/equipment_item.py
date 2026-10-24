@@ -210,19 +210,40 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
-                # SLD canvas is deliberately white; engineering annotations must
-                # use the canonical dark-on-light text token rather than the
-                # light symbol stroke used for geometry.
+                # IEEE/ANSI 315 drafting practice says letters and numbers
+                # that form part of a symbol must not be mirror-imaged. The
+                # graphics-item transform mirrors the geometry, so cancel its
+                # reflection locally around the text rectangle's centre.
                 painter.setPen(QPen(token_color("text_inverse")))
                 painter.setFont(visual_font("engineering"))
+                text_x = float(primitive["x"])
+                text_y = float(primitive["y"])
+                text_width = float(primitive["width"])
+                text_height = float(primitive["height"])
+                text_rect = QRectF(text_x, text_y, text_width, text_height)
+                mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
+                mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+                # Current item transform is scale-X reflection, plus a 180°
+                # rotation when both mirror flags are set. Its net reflection
+                # is horizontal for X-only and vertical for X+Y.
+                reflect_text_x = mirror_x and not mirror_y
+                reflect_text_y = mirror_x and mirror_y
+                painter.save()
+                if reflect_text_x or reflect_text_y:
+                    center_x = text_x + text_width / 2.0
+                    center_y = text_y + text_height / 2.0
+                    painter.translate(center_x, center_y)
+                    painter.scale(
+                        -1.0 if reflect_text_x else 1.0,
+                        -1.0 if reflect_text_y else 1.0,
+                    )
+                    painter.translate(-center_x, -center_y)
                 painter.drawText(
-                    QRectF(
-                        float(primitive["x"]), float(primitive["y"]),
-                        float(primitive["width"]), float(primitive["height"]),
-                    ),
+                    text_rect,
                     Qt.AlignmentFlag.AlignCenter,
                     str(primitive["text"]),
                 )
+                painter.restore()
 
     def hoverEnterEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.NORMAL:
