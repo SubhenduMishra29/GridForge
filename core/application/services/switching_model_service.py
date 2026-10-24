@@ -68,9 +68,9 @@ class SwitchingModelService(ModelServiceSupport):
 
         def restore_snapshot() -> None:
             switch.name = old["name"]
-            switch.set_closed(old["closed"])
-            switch.set_in_service(old["in_service"])
-            switch.set_normally_closed(old["normally_closed"])
+            switch.closed = old["closed"]
+            switch.in_service = old["in_service"]
+            switch.normally_closed = old["normally_closed"]
             switch.rated_voltage_kv = old["rated_voltage_kv"]
             switch.rated_current_a = old["rated_current_a"]
 
@@ -78,11 +78,11 @@ class SwitchingModelService(ModelServiceSupport):
             for key, value in (("name", name), ("closed", closed), ("in_service", in_service), ("normally_closed", normally_closed), ("rated_voltage_kv", rated_voltage_kv), ("rated_current_a", rated_current_a)):
                 if value is not None:
                     if key == "closed":
-                        switch.set_closed(value)
+                        switch.closed = value
                     elif key == "in_service":
-                        switch.set_in_service(value)
+                        switch.in_service = value
                     elif key == "normally_closed":
-                        switch.set_normally_closed(value)
+                        switch.normally_closed = value
                     else:
                         setattr(switch, key, value)
             switch.validate_parameters()
@@ -112,21 +112,21 @@ class SwitchingModelService(ModelServiceSupport):
     def take_switch_out_of_service(self, *, switch_id: str, transaction: Transaction) -> ApplicationResult[Switch]: return self._set_switch_service(switch_id=switch_id, in_service=False, transaction=transaction)
 
     def _set_switch_closed(self, *, switch_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.closed; switch.set_closed(closed); topology_changed = old != switch.closed
+        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.closed; switch.closed = closed; topology_changed = old != switch.closed
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
-            switch.set_closed(old)
+            switch.closed = old
             if topology_changed:
                 self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(switch, "switch", switch_id, f"Switch {'closed' if closed else 'opened'}: {switch_id}")
 
     def _set_switch_service(self, *, switch_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.in_service; switch.set_in_service(in_service); topology_changed = old != switch.in_service
+        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.in_service; switch.in_service = in_service; topology_changed = old != switch.in_service
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
-            switch.set_in_service(old)
+            switch.in_service = old
             if topology_changed:
                 self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(switch, "switch", switch_id, f"Switch {'put in service' if in_service else 'taken out of service'}: {switch_id}")
@@ -239,8 +239,8 @@ class SwitchingModelService(ModelServiceSupport):
             disconnector.voltage_kv = old["voltage_kv"]
             disconnector.rated_current_a = old["rated_current_a"]
             disconnector.operating_time = old["operating_time"]
-            disconnector.set_closed(old["closed"])
-            disconnector.set_in_service(old["in_service"])
+            disconnector.closed = old["closed"]
+            disconnector.in_service = old["in_service"]
             disconnector.name = old["name"]
 
         try:
@@ -248,9 +248,9 @@ class SwitchingModelService(ModelServiceSupport):
                 if value is not None:
                     setattr(disconnector, key, value)
             if closed is not None:
-                disconnector.set_closed(closed)
+                disconnector.closed = closed
             if in_service is not None:
-                disconnector.set_in_service(in_service)
+                disconnector.in_service = in_service
             disconnector.validate_parameters()
         except Exception:
             restore_snapshot()
@@ -278,21 +278,21 @@ class SwitchingModelService(ModelServiceSupport):
     def take_disconnector_out_of_service(self, *, disconnector_id: str, transaction: Transaction) -> ApplicationResult[Disconnector]: return self._set_disconnector_service(disconnector_id=disconnector_id, in_service=False, transaction=transaction)
 
     def _set_disconnector_closed(self, *, disconnector_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Disconnector]:
-        self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id"); disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector"); old = disconnector.closed; disconnector.set_closed(closed); topology_changed = old != disconnector.closed
+        self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id"); disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector"); old = disconnector.closed; disconnector.closed = closed; topology_changed = old != disconnector.closed
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
-            disconnector.set_closed(old)
+            disconnector.closed = old
             if topology_changed:
                 self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector {'closed' if closed else 'opened'}: {disconnector_id}")
 
     def _set_disconnector_service(self, *, disconnector_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Disconnector]:
-        self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id"); disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector"); old = disconnector.in_service; disconnector.set_in_service(in_service); topology_changed = old != disconnector.in_service
+        self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id"); disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector"); old = disconnector.in_service; disconnector.in_service = in_service; topology_changed = old != disconnector.in_service
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
-            disconnector.set_in_service(old)
+            disconnector.in_service = old
             if topology_changed:
                 self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector {'put in service' if in_service else 'taken out of service'}: {disconnector_id}")
