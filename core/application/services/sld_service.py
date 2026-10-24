@@ -1800,25 +1800,42 @@ class SLDService:
                 # create_connection can fail during route/endpoint
                 # normalization. Only remove a partially inserted object if
                 # its structural and ownership signature matches this command.
-                current_source = (
-                    current.source_endpoint.to_dict()
-                    if current.source_endpoint is not None else None
-                )
-                current_target = (
-                    current.target_endpoint.to_dict()
-                    if current.target_endpoint is not None else None
-                )
-                expected_source = (
-                    dict(source_endpoint) if isinstance(source_endpoint, Mapping) else source_endpoint
-                )
-                expected_target = (
-                    dict(target_endpoint) if isinstance(target_endpoint, Mapping) else target_endpoint
-                )
+                def endpoint_signature(endpoint: Any) -> dict[str, Any] | None:
+                    if endpoint is None:
+                        return None
+                    if isinstance(endpoint, Mapping):
+                        return dict(endpoint)
+                    serializer = getattr(endpoint, "to_dict", None)
+                    if callable(serializer):
+                        return serializer()
+                    raise TypeError("SLD connection endpoint must be canonical endpoint data.")
+
+                if route is None:
+                    expected_route = {
+                        "routing_mode": "orthogonal",
+                        "ownership": "auto",
+                        "points": [],
+                    }
+                elif isinstance(route, Mapping):
+                    expected_route = {
+                        "routing_mode": route.get("routing_mode", "orthogonal"),
+                        "ownership": route.get("ownership", "auto"),
+                        "points": [
+                            [float(point[0]), float(point[1])]
+                            for point in route.get("points", ())
+                        ],
+                    }
+                else:
+                    serializer = getattr(route, "to_dict", None)
+                    if not callable(serializer):
+                        raise TypeError("SLD connection route must be canonical route data.")
+                    expected_route = serializer()
                 if (
                     current.source_node_id != p["source_node_id"]
                     or current.target_node_id != p["target_node_id"]
-                    or current_source != expected_source
-                    or current_target != expected_target
+                    or endpoint_signature(current.source_endpoint) != endpoint_signature(source_endpoint)
+                    or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
+                    or current.route.to_dict() != expected_route
                     or dict(current.properties) != properties
                 ):
                     raise ValueError(
