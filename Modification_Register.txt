@@ -3335,3 +3335,38 @@ Verification boundary:
 Disposition:
     Focused rollback-scope correction prepared on the branch pending review.
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD INSERTION ROLLBACK IDENTITY SAFETY
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_insertion() removed replacement connections and a newly
+    inserted node by canonical ID during rollback without checking whether
+    those IDs still referred to objects created by the insertion. Its
+    original-connection restore path also treated any occupied ID as if the
+    original connection had been restored, silently accepting identity reuse.
+
+Correction:
+    - Capture exact references for the node and replacement connections as
+      they are inserted.
+    - Remove only those exact created objects during rollback; use narrow
+      creation-signature checks only when an exception occurs before a
+      creation call returns and its reference can be captured.
+    - Reject conflicting live objects that reuse the inserted node,
+      replacement connection, or original connection identity.
+    - Restore the original connection snapshot only when its identity is
+      absent, preserving the original live object when it remains registered.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused insertion rollback identity correction prepared for review.
+======================================================================
