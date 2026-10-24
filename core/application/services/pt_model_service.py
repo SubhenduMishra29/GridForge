@@ -50,11 +50,25 @@ class PTModelService(ModelServiceSupport):
         old = {"name": pt.name, "primary_voltage_kv": pt.primary_voltage_kv, "secondary_voltage_v": pt.secondary_voltage_v,
                "accuracy_class": pt.accuracy_class, "burden_va": pt.burden_va,
                "phase_displacement_deg": pt.phase_displacement_deg, "in_service": pt.in_service}
-        for key, value in (("name", name), ("primary_voltage_kv", primary_voltage_kv), ("secondary_voltage_v", secondary_voltage_v),
-                           ("accuracy_class", accuracy_class), ("burden_va", burden_va), ("phase_displacement_deg", phase_displacement_deg), ("in_service", in_service)):
-            if value is not None: setattr(pt, key, value)
+
+        def restore_snapshot() -> None:
+            for key, value in old.items():
+                setattr(pt, key, value)
+
+        try:
+            for key, value in (("name", name), ("primary_voltage_kv", primary_voltage_kv), ("secondary_voltage_v", secondary_voltage_v),
+                               ("accuracy_class", accuracy_class), ("burden_va", burden_va), ("phase_displacement_deg", phase_displacement_deg), ("in_service", in_service)):
+                if value is not None:
+                    setattr(pt, key, value)
+            pt.validate_parameters()
+        except Exception:
+            restore_snapshot()
+            raise
+
         def restore() -> None:
-            for key, value in old.items(): setattr(pt, key, value)
+            restore_snapshot()
+            pt.validate_parameters()
+
         transaction.record_undo(restore)
         return self._success(pt, "pt", pt_id, f"PT updated: {pt_id}")
 
