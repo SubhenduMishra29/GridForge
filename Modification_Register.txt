@@ -3493,5 +3493,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Focused node-property undo identity guard prepared for review.
+    Node-property undo identity guard merged in PR #577
+    (merge commit 9ace7d68f4d654aed876bba9579b882e94982c49).
 ======================================================================
