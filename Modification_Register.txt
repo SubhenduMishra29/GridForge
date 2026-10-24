@@ -3371,3 +3371,37 @@ Disposition:
     Insertion rollback identity correction merged in PR #569
     (merge commit 28de5888aa4c126b1743a4fa288518d6aec520dc).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD CONNECTION DELETE RESTORATION IDENTITY SAFETY
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_connection_delete() used an unconditional snapshot recreation
+    inverse for removed connections, which could collide if removal failed
+    before the object disappeared. The authored/orphaned connection inverse
+    also rewrote any object found under the same ID without confirming that
+    it was the original connection.
+
+Correction:
+    - Make removal compensation identity-aware: recreate only when the ID is
+      absent, accept the original object if it remains registered, and reject
+      a different object occupying the ID.
+    - Capture the original connection reference for the orphaning inverse and
+      fail closed on identity reuse before restoring endpoints/properties.
+    - Preserve the existing Application transaction boundary and inverse
+      registration order.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused connection-delete restoration identity correction prepared
+    for review.
+======================================================================
