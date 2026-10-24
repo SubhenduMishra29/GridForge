@@ -27,6 +27,7 @@ Runtime logical representation of an SLD symbol instance.
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 
@@ -81,9 +82,9 @@ class SymbolBase:
                 "scale must be a real numeric value."
             ) from exc
 
-        if normalized_scale <= 0.0:
+        if not isfinite(normalized_scale) or normalized_scale <= 0.0:
             raise ValueError(
-                "scale must be greater than zero."
+                "scale must be finite and greater than zero."
             )
 
         try:
@@ -92,6 +93,8 @@ class SymbolBase:
             raise TypeError(
                 "rotation must be a real numeric value."
             ) from exc
+        if not isfinite(normalized_rotation):
+            raise ValueError("rotation must be finite.")
 
         # ----------------------------------------------------
         # Representation validation
@@ -182,9 +185,9 @@ class SymbolBase:
                 "scale must be a real numeric value."
             ) from exc
 
-        if normalized <= 0.0:
+        if not isfinite(normalized) or normalized <= 0.0:
             raise ValueError(
-                "scale must be greater than zero."
+                "scale must be finite and greater than zero."
             )
 
         self._scale = normalized
@@ -202,11 +205,14 @@ class SymbolBase:
         value: float,
     ) -> None:
         try:
-            self._rotation = float(value)
+            normalized = float(value)
         except (TypeError, ValueError) as exc:
             raise TypeError(
                 "rotation must be a real numeric value."
             ) from exc
+        if not isfinite(normalized):
+            raise ValueError("rotation must be finite.")
+        self._rotation = normalized
 
     # ========================================================
     # REPRESENTATION

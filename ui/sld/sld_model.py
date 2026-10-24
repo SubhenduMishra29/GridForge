@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from dataclasses import dataclass, field
 from enum import Enum
 import math
@@ -141,9 +142,13 @@ class SLDNode:
 
         if isinstance(self.x, bool) or not isinstance(self.x, (int, float)):
             raise TypeError("x must be numeric")
+        if not isfinite(float(self.x)):
+            raise ValueError("x must be finite")
 
         if isinstance(self.y, bool) or not isinstance(self.y, (int, float)):
             raise TypeError("y must be numeric")
+        if not isfinite(float(self.y)):
+            raise ValueError("y must be finite")
 
         self.node_id = str(self.node_id)
 
@@ -185,9 +190,13 @@ class SLDNode:
         """Update the logical SLD position."""
         if isinstance(x, bool) or not isinstance(x, (int, float)):
             raise TypeError("x must be numeric")
+        if not isfinite(float(x)):
+            raise ValueError("x must be finite")
 
         if isinstance(y, bool) or not isinstance(y, (int, float)):
             raise TypeError("y must be numeric")
+        if not isfinite(float(y)):
+            raise ValueError("y must be finite")
 
         self.x = float(x)
         self.y = float(y)
