@@ -3679,6 +3679,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Simple-Wire reconciliation partial-create signature correction prepared
-    for review.
+    Simple-Wire reconciliation partial-create signature correction merged
+    in PR #589 (merge commit 7d125a4e8827ee59d2321a3d9f31413d3565e91d).
 ======================================================================
