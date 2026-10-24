@@ -31,6 +31,7 @@ CREATE_SHUNT = "model.create_shunt"
 UPDATE_SHUNT = "model.update_shunt"
 DELETE_SHUNT = "model.delete_shunt"
 CREATE_LINE = "model.create_line"
+UPDATE_LINE = "model.update_line"
 DELETE_LINE = "model.delete_line"
 CREATE_TRANSFORMER = "model.create_transformer"
 UPDATE_TRANSFORMER = "model.update_transformer"
@@ -195,6 +196,12 @@ class CreateLineCommand(Command):
             "name": name,
             "rate_mva": rate_mva,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class UpdateLineCommand(Command):
+    def __init__(self, *, line_id: str, name: str | None = None, resistance_ohm: float | None = None, reactance_ohm: float | None = None, shunt_susceptance_siemens: float | None = None, rate_mva: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if all(value is None for value in (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, rate_mva, in_service)):
+            raise ValueError("UpdateLineCommand requires at least one mutable Line field.")
+        super().__init__(**_command(UPDATE_LINE, {"line_id": line_id, "name": name, "resistance_ohm": resistance_ohm, "reactance_ohm": reactance_ohm, "shunt_susceptance_siemens": shunt_susceptance_siemens, "rate_mva": rate_mva, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class DeleteLineCommand(Command):
     def __init__(self, *, line_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
