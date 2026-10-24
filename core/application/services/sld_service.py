@@ -1775,6 +1775,13 @@ class SLDService:
                         f"connection identity reused: {connection_id!r}."
                     )
                     continue
+                if current.to_dict() != snapshot:
+                    node_identity_safe = False
+                    rollback_errors.append(
+                        "Cannot restore removed SLD node atomically; attached "
+                        f"connection state changed while removed: {connection_id!r}."
+                    )
+                    continue
                 snapshot_properties = dict(snapshot.get("properties", {}))
                 source = snapshot.get("source_endpoint")
                 target_endpoint = snapshot.get("target_endpoint")
@@ -1886,6 +1893,11 @@ class SLDService:
                 elif current is not original:
                     rollback_errors.append(
                         f"Cannot restore removed SLD node; connection identity reused: {connection_id!r}."
+                    )
+                elif current.to_dict() != snapshot:
+                    rollback_errors.append(
+                        "Cannot restore removed SLD node; attached connection state "
+                        f"changed while removed: {connection_id!r}."
                     )
                 else:
                     snapshot_properties = dict(snapshot.get("properties", {}))
