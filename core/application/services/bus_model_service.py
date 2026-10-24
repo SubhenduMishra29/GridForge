@@ -87,29 +87,42 @@ class BusModelService(ModelServiceSupport):
             "frequency_hz": bus.frequency_hz,
             "in_service": bus.in_service,
         }
+        candidate = {
+            "name": old["name"] if name is None else name,
+            "nominal_voltage_kv": old["nominal_voltage_kv"] if nominal_voltage_kv is None else nominal_voltage_kv,
+            "voltage_pu": old["voltage_pu"] if voltage_pu is None else voltage_pu,
+            "angle_deg": old["angle_deg"] if angle_deg is None else angle_deg,
+            "frequency_hz": old["frequency_hz"] if frequency_hz is None else frequency_hz,
+            "in_service": old["in_service"] if in_service is None else in_service,
+        }
+        service_state_changed = (
+            in_service is not None and in_service != old["in_service"]
+        )
 
-        if name is not None:
-            bus.name = name
-        if nominal_voltage_kv is not None:
-            bus.nominal_voltage_kv = bus._validate_non_negative(nominal_voltage_kv, "nominal_voltage_kv")
-        if frequency_hz is not None:
-            bus.frequency_hz = bus._validate_positive(frequency_hz, "frequency_hz")
-        if voltage_pu is not None or angle_deg is not None:
-            bus.set_voltage(bus.voltage_pu if voltage_pu is None else voltage_pu, bus.angle_deg if angle_deg is None else angle_deg)
-        if in_service is not None:
-            bus.set_in_service(in_service)
-        bus.validate_parameters()
-        if in_service is not None:
+        def apply(state: dict[str, object]) -> None:
+            bus.name = state["name"]
+            bus.nominal_voltage_kv = bus._validate_non_negative(
+                state["nominal_voltage_kv"], "nominal_voltage_kv"
+            )
+            bus.frequency_hz = bus._validate_positive(
+                state["frequency_hz"], "frequency_hz"
+            )
+            bus.set_voltage(state["voltage_pu"], state["angle_deg"])
+            bus.set_in_service(state["in_service"])
+            bus.validate_parameters()
+
+        try:
+            apply(candidate)
+        except BaseException:
+            apply(old)
+            raise
+
+        if service_state_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
-            bus.name = old["name"]
-            bus.nominal_voltage_kv = bus._validate_non_negative(old["nominal_voltage_kv"], "nominal_voltage_kv")
-            bus.frequency_hz = bus._validate_positive(old["frequency_hz"], "frequency_hz")
-            bus.set_voltage(old["voltage_pu"], old["angle_deg"])
-            bus.set_in_service(old["in_service"])
-            bus.validate_parameters()
-            if in_service is not None:
+            apply(old)
+            if service_state_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
