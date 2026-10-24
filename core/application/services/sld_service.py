@@ -1167,6 +1167,28 @@ class SLDService:
             if connection.source_node_id == node.node_id or connection.target_node_id == node.node_id
         )
         connection_snapshots = tuple(connection.to_dict() for connection in attached)
+        original_connections = {connection.connection_id: connection for connection in attached}
+
+        def restore_node_in_place(target: Any, node_snapshot: Mapping[str, Any]) -> None:
+            target.set_position(
+                float(node_snapshot.get("x", 0.0)),
+                float(node_snapshot.get("y", 0.0)),
+            )
+            if node_snapshot.get("presentation") is None:
+                target.clear_presentation()
+            else:
+                target.set_presentation(node_snapshot["presentation"])
+            target.properties.clear()
+            target.properties.update(deepcopy(dict(node_snapshot.get("properties", {}))))
+            target.equipment_id = node_snapshot.get("equipment_id")
+
+        def restore_connection_in_place(target: Any, connection_snapshot: Mapping[str, Any]) -> None:
+            source = connection_snapshot.get("source_endpoint")
+            target_endpoint = connection_snapshot.get("target_endpoint")
+            target.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
+            target.target_endpoint = None if target_endpoint is None else SLDEndpoint.from_dict(target_endpoint)
+            target.properties.clear()
+            target.properties.update(deepcopy(dict(connection_snapshot.get("properties", {}))))
 
         if not self.has_engineer_presentation_overrides(node):
             annotation_snapshot = [
@@ -1178,54 +1200,99 @@ class SLDService:
             ]
 
             def restore(
-                snapshot=snapshot,
+                node_snapshot=snapshot,
+                original_node=node,
                 connection_snapshots=connection_snapshots,
+                original_connections=original_connections,
                 annotation_snapshot=annotation_snapshot,
             ) -> None:
-                self._restore_node_snapshot(snapshot)
+                current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
+                if current_node is None:
+                    self.document.model.create_node(
+                        node_id=node_snapshot["node_id"],
+                        equipment_id=node_snapshot.get("equipment_id"),
+                        x=node_snapshot.get("x", 0.0),
+                        y=node_snapshot.get("y", 0.0),
+                        presentation=node_snapshot.get("presentation"),
+                        properties=node_snapshot.get("properties", {}),
+                    )
+                elif current_node is not original_node:
+                    raise ValueError(
+                        "Cannot restore deleted SLD node; a different object now owns "
+                        f"identity {node_snapshot['node_id']!r}."
+                    )
+                else:
+                    restore_node_in_place(current_node, node_snapshot)
+
                 for item in connection_snapshots:
-                    if self.document.model.get_connection_optional(item["connection_id"]) is None:
+                    connection_id = item["connection_id"]
+                    current = self.document.model.get_connection_optional(connection_id)
+                    original = original_connections[connection_id]
+                    if current is None:
                         self._restore_connection_snapshot(item)
+                    elif current is not original:
+                        raise ValueError(
+                            "Cannot restore deleted SLD node; a different connection "
+                            f"object now owns identity {connection_id!r}."
+                        )
+                    else:
+                        restore_connection_in_place(current, item)
                 self.document.replace_annotation_blocks(annotation_snapshot)
                 self.document.mark_modified()
 
-            # Record the complete inverse before mutation so rollback/undo
-            # restores node, attached connections, and its annotation config
-            # as one Application transaction.
+            # Record the complete inverse before mutation. Restoration accepts
+            # the original live objects, recreates only absent objects, and
+            # fails closed on conflicting identities rather than silently
+            # skipping or deleting unrelated objects with matching IDs.
             transaction.record_undo(restore)
             self.document.model.remove_node(node.node_id)
             self.document.replace_annotation_blocks(remaining_annotations)
             self.document.mark_modified()
             return "REMOVED"
 
-        def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
-            node_to_restore = self.document.model.get_node_optional(snapshot["node_id"])
-            if node_to_restore is None:
-                self._restore_node_snapshot(snapshot)
-            else:
-                node_to_restore.set_position(
-                    float(snapshot.get("x", 0.0)),
-                    float(snapshot.get("y", 0.0)),
+        def restore(
+            node_snapshot=snapshot,
+            original_node=node,
+            connection_snapshots=connection_snapshots,
+            original_connections=original_connections,
+        ) -> None:
+            current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
+            if current_node is None:
+                self.document.model.create_node(
+                    node_id=node_snapshot["node_id"],
+                    equipment_id=node_snapshot.get("equipment_id"),
+                    x=node_snapshot.get("x", 0.0),
+                    y=node_snapshot.get("y", 0.0),
+                    presentation=node_snapshot.get("presentation"),
+                    properties=node_snapshot.get("properties", {}),
                 )
-                if snapshot.get("presentation") is None:
-                    node_to_restore.clear_presentation()
-                else:
-                    node_to_restore.set_presentation(snapshot["presentation"])
-                node_to_restore.properties.clear()
-                node_to_restore.properties.update(dict(snapshot.get("properties", {})))
-                node_to_restore.equipment_id = snapshot.get("equipment_id")
+            elif current_node is not original_node:
+                raise ValueError(
+                    "Cannot restore orphaned SLD node; a different object now owns "
+                    f"identity {node_snapshot['node_id']!r}."
+                )
+            else:
+                restore_node_in_place(current_node, node_snapshot)
 
-            connection_ids = {item["connection_id"] for item in connection_snapshots}
-            for connection in tuple(self.document.model.connections):
-                if connection.connection_id in connection_ids:
-                    self.document.model.remove_connection(connection.connection_id)
             for item in connection_snapshots:
-                self._restore_connection_snapshot(item)
+                connection_id = item["connection_id"]
+                current = self.document.model.get_connection_optional(connection_id)
+                original = original_connections[connection_id]
+                if current is None:
+                    self._restore_connection_snapshot(item)
+                elif current is not original:
+                    raise ValueError(
+                        "Cannot restore orphaned SLD node; a different connection "
+                        f"object now owns identity {connection_id!r}."
+                    )
+                else:
+                    restore_connection_in_place(current, item)
             self.document.mark_modified()
 
         # Register the full inverse before touching the node or any connection.
-        # This keeps partial failures inside the Application transaction
-        # rollback-safe, including failures midway through connection orphaning.
+        # The inverse restores retained objects in place, recreates absent
+        # objects, and rejects identity collisions instead of replacing an
+        # unrelated object that appeared during the transaction.
         transaction.record_undo(restore)
 
         node.equipment_id = None
