@@ -3713,3 +3713,33 @@ Disposition:
     SLD connection route undo ownership guard merged in PR #592
     (merge commit 227ad517923d3868d8d862d93f0176d493ebf606).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE PROPERTY UNDO IDENTITY GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_node_properties() only checked logical identity when undo found a
+    replacement node object. If the original object remained registered but
+    its equipment or semantic binding identity changed, undo could overwrite
+    the conflicting state.
+
+Correction:
+    - Compare live equipment_id and semantic identity fields on every undo,
+      including when the original object reference is still registered.
+    - Deep-copy the live semantic identity values before comparison.
+    - Fail closed rather than restoring presentation properties onto a node
+      whose logical identity has changed.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD node property undo identity guard prepared for review.
+======================================================================
