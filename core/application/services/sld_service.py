@@ -2042,6 +2042,11 @@ class SLDService:
         updated_properties = deepcopy(previous_properties)
         updated_properties["route_owner"] = "engineer"
         updated_properties.setdefault("presentation_owner", "projection" if updated_properties.get("projection_source") else "engineer")
+        expected_route_edit_identity = {
+            **original_connection_identity,
+            "presentation_owner": updated_properties.get("presentation_owner"),
+            "route_owner": updated_properties.get("route_owner"),
+        }
         if updated == previous and updated_properties == previous_properties:
             return ApplicationResult.success_result(
                 message="SLD connection route is unchanged.",
@@ -2056,21 +2061,22 @@ class SLDService:
                 raise ValueError(
                     f"Cannot undo SLD connection route edit; connection is absent: {p['connection_id']!r}."
                 )
-            if target is not original_connection:
-                target_identity = {
-                    "source_node_id": target.source_node_id,
-                    "target_node_id": target.target_node_id,
-                    "source_endpoint": None if target.source_endpoint is None else target.source_endpoint.to_dict(),
-                    "target_endpoint": None if target.target_endpoint is None else target.target_endpoint.to_dict(),
-                    "core_connection_id": target.properties.get("core_connection_id"),
-                    "projection_source": target.properties.get("projection_source"),
-                    "connection_kind": target.properties.get("connection_kind"),
-                }
-                if target_identity != original_connection_identity:
-                    raise ValueError(
-                        "Cannot undo SLD connection route edit; a different logical "
-                        f"connection owns identity {p['connection_id']!r}."
-                    )
+            target_identity = {
+                "source_node_id": target.source_node_id,
+                "target_node_id": target.target_node_id,
+                "source_endpoint": None if target.source_endpoint is None else target.source_endpoint.to_dict(),
+                "target_endpoint": None if target.target_endpoint is None else target.target_endpoint.to_dict(),
+                "core_connection_id": target.properties.get("core_connection_id"),
+                "projection_source": target.properties.get("projection_source"),
+                "connection_kind": target.properties.get("connection_kind"),
+                "presentation_owner": target.properties.get("presentation_owner"),
+                "route_owner": target.properties.get("route_owner"),
+            }
+            if target_identity != expected_route_edit_identity:
+                raise ValueError(
+                    "Cannot undo SLD connection route edit; the live connection "
+                    f"identity or ownership changed for {p['connection_id']!r}."
+                )
             target.route = previous
             target.properties.clear()
             target.properties.update(deepcopy(previous_properties))
