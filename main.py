@@ -66,7 +66,6 @@ from ui.editors.study.study_tool_runtime import StudyToolRuntime
 from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
-from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
@@ -410,24 +409,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
 
     def _commit_network() -> None:
-        """Commit the active DraftNetwork through the canonical Application command boundary."""
-        draft = gridforge_application.draft_network
-        if draft is None:
-            raise RuntimeError("No active DraftNetwork is available.")
-        errors = tuple(draft.validate())
-        if errors:
-            raise ValueError("Draft validation failed: " + "; ".join(errors))
-        context = gridforge_application.project_lifecycle.context
-        if context is None:
-            raise RuntimeError("COMMIT NETWORK requires an active project.")
-        generation = int(gridforge_application.project_lifecycle.activation_generation)
-        command = CommitNetworkCommand(
-            project_id=context.project_id,
-            activation_generation=generation,
-            draft_network=draft.to_dict(),
-        )
+        """Commit DraftNetwork through the canonical Application operation."""
         try:
-            result = gridforge_application.execute(command)
+            result = gridforge_application.commit_draft_network()
         except ExecutionError as exc:
             # Expected Application execution failures are surfaced once at
             # this UI boundary; retain structured and causal diagnostics.
@@ -441,6 +425,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 "Commit Network",
                 diagnostic,
             )
+            return
+        except (RuntimeError, ValueError, TypeError) as exc:
+            # Application preconditions and draft-contract errors are expected
+            # user-facing failures, not uncaught UI exceptions.
+            QMessageBox.critical(window, "Commit Network", str(exc))
             return
         if not result.success:
             # Some Application integrations return a failed result instead
