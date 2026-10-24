@@ -334,6 +334,7 @@ class CanvasComposer:
             input_adapter=input_adapter,
         )
         navigation_controller = NavigationController(view=view)
+        sld_canvas_render_system.bind_navigation_controller(navigation_controller)
 
         view.bind_services(
             interaction_manager=interaction_manager,
