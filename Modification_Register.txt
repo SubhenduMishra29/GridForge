@@ -3263,8 +3263,8 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Identity-safe restoration correction reviewed in PR #565; merge status
-    remains pending.
+    Identity-safe restoration correction merged in PR #565
+    (merge commit 2abf1febc081d4e19ae2222aca1aeb90102bae46).
 ======================================================================
 
 ======================================================================
@@ -3295,5 +3295,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Add-inverse identity correction is on the focused branch pending review.
+    Add-inverse identity correction reviewed in PR #566; merge status
+    remains pending.
 ======================================================================
