@@ -694,7 +694,7 @@ class SLDService:
                         "scale": float(presentation.get("scale", 1.0)),
                         "rotation": float(presentation.get("rotation", 0.0)),
                         "visible": bool(presentation.get("visible", True)),
-                        "properties": dict(presentation.get("properties", {})),
+                        "properties": dict(presentation.get("properties") or {}),
                     }
                 if (
                     current.equipment_id != equipment_id
