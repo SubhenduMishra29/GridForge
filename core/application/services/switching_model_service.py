@@ -249,25 +249,53 @@ class SwitchingModelService(ModelServiceSupport):
             if value is not None: setattr(fuse, key, value)
         if in_service is not None: fuse.set_in_service(in_service)
         if blown is not None: fuse.blow() if blown else fuse.reset()
-        self._network.invalidate_topology()
+        topology_changed = (
+            (in_service is not None and in_service != old["in_service"])
+            or (blown is not None and blown != old["blown"])
+        )
+        if topology_changed:
+            self._network.invalidate_topology()
         def restore() -> None:
-            fuse.name = old["name"]; fuse.rated_current_a = old["rated_current_a"]; fuse.rated_voltage_v = old["rated_voltage_v"]; fuse.interrupting_rating_ka = old["interrupting_rating_ka"]; fuse.set_in_service(old["in_service"]); fuse.blow() if old["blown"] else fuse.reset(); self._network.invalidate_topology()
+            fuse.name = old["name"]; fuse.rated_current_a = old["rated_current_a"]; fuse.rated_voltage_v = old["rated_voltage_v"]; fuse.interrupting_rating_ka = old["interrupting_rating_ka"]; fuse.set_in_service(old["in_service"]); fuse.blow() if old["blown"] else fuse.reset()
+            if topology_changed:
+                self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(fuse, "fuse", fuse_id, f"Fuse updated: {fuse_id}")
 
     def delete_fuse(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
         self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); self._network.remove_fuse(fuse); transaction.record_undo(lambda fuse=fuse: self._network.add_fuse(fuse)); return self._success(fuse, "fuse", fuse_id, f"Fuse deleted: {fuse_id}")
 
     def blow_fuse(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
-        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.blown; fuse.blow(); self._network.invalidate_topology(); transaction.record_undo(lambda fuse=fuse, old=old: (fuse.reset() if not old else fuse.blow(), self._network.invalidate_topology())); return self._success(fuse, "fuse", fuse_id, f"Fuse blown: {fuse_id}")
+        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.blown; fuse.blow(); topology_changed = old != fuse.blown
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            fuse.reset() if not old else fuse.blow()
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(fuse, "fuse", fuse_id, f"Fuse blown: {fuse_id}")
 
     def reset_fuse(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
-        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.blown; fuse.reset(); self._network.invalidate_topology(); transaction.record_undo(lambda fuse=fuse, old=old: (fuse.blow() if old else fuse.reset(), self._network.invalidate_topology())); return self._success(fuse, "fuse", fuse_id, f"Fuse reset: {fuse_id}")
+        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.blown; fuse.reset(); topology_changed = old != fuse.blown
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            fuse.blow() if old else fuse.reset()
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(fuse, "fuse", fuse_id, f"Fuse reset: {fuse_id}")
 
     def put_fuse_in_service(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]: return self._set_fuse_service(fuse_id=fuse_id, in_service=True, transaction=transaction)
     def take_fuse_out_of_service(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]: return self._set_fuse_service(fuse_id=fuse_id, in_service=False, transaction=transaction)
 
     def _set_fuse_service(self, *, fuse_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Fuse]:
-        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.in_service; fuse.set_in_service(in_service); self._network.invalidate_topology(); transaction.record_undo(lambda fuse=fuse, old=old: (fuse.set_in_service(old), self._network.invalidate_topology())); return self._success(fuse, "fuse", fuse_id, f"Fuse {'put in service' if in_service else 'taken out of service'}: {fuse_id}")
+        self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id"); fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse"); old = fuse.in_service; fuse.set_in_service(in_service); topology_changed = old != fuse.in_service
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            fuse.set_in_service(old)
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(fuse, "fuse", fuse_id, f"Fuse {'put in service' if in_service else 'taken out of service'}: {fuse_id}")
 
 
 __all__ = ["SwitchingModelService"]
