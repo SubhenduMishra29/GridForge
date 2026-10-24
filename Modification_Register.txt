@@ -4017,3 +4017,34 @@ Disposition:
     SLD node-removal annotation rollback guard merged in PR #617
     (merge commit 8a9d5f1c161c042c462d018e9b463c902e0b062b).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE-REMOVAL ATTACHED CONNECTION STATE GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_node() checked attached connection identity, endpoints, and
+    selected ownership fields during undo preflight, but omitted route and
+    other mutable properties. A reintroduced original connection object
+    could therefore have newer state overwritten by the removal snapshot,
+    potentially after node restoration had already begun.
+
+Correction:
+    - Compare the complete canonical connection serialization against the
+      removal snapshot during preflight.
+    - Repeat the full-state check immediately before in-place restoration.
+    - Treat route or property drift as a rollback conflict rather than
+      overwriting the live connection state with stale values.
+
+Verification boundary:
+    Focused source/diff review only. No tests or CI run. Syntax, imports,
+    application startup, and GUI runtime were not executed or verified.
+
+Disposition:
+    Attached connection state guard merged in PR #620
+    (merge commit ca65140e305d666b6cd3c50f9f351d87801d2961).
+======================================================================
