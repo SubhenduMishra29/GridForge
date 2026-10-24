@@ -203,10 +203,22 @@ class ModelPlacementTool(ToolBase):
             command = AddDraftEquipmentCommand(equipment=equipment)
             result = self.execute_command(command)
         except Exception as exc:
-            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={exc}")
+            self._report_feedback(
+                self._draft_failure_message(
+                    equipment_type=equipment_type,
+                    equipment_id=equipment_id,
+                    error=exc,
+                )
+            )
             return False
         if not getattr(result, "success", False):
-            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
+            self._report_feedback(
+                self._draft_failure_message(
+                    equipment_type=equipment_type,
+                    equipment_id=equipment_id,
+                    error=result,
+                )
+            )
             return False
         # AddDraftEquipmentCommand ends only the transient placement interaction.
         # It does NOT cross the DraftNetwork -> Core boundary. The authoritative
@@ -324,6 +336,30 @@ class ModelPlacementTool(ToolBase):
             )
         except (KeyError, TypeError, ValueError, RuntimeError):
             return False
+
+    @staticmethod
+    def _draft_failure_message(
+        *,
+        equipment_type: str,
+        equipment_id: str,
+        error: Any,
+    ) -> str:
+        """Expose the structured command cause in placement feedback."""
+        parts = [
+            f"DRAFT_COMMAND_FAILED: equipment={equipment_type}",
+            f"id={equipment_id}",
+        ]
+        current = error
+        seen: set[int] = set()
+        depth = 0
+        while current is not None and id(current) not in seen and depth < 5:
+            seen.add(id(current))
+            error_type = type(current).__name__
+            message = getattr(current, "message", None) or str(current)
+            parts.append(f"cause[{depth}]={error_type}: {message}")
+            current = getattr(current, "cause", None)
+            depth += 1
+        return " | ".join(parts)
 
     def _report_feedback(self, message: str) -> None:
         """Use an existing presentation feedback hook when the composition provides one."""
