@@ -425,11 +425,6 @@ class SLDService:
                 message="SLD node position is unchanged.",
                 metadata={"presentation_operation": "set_node_position", "node_id": p["node_id"]},
             )
-        self.document.set_node_position(p["node_id"], *updated)
-        node.properties.clear()
-        node.properties.update(updated_properties)
-        self.document.mark_modified()
-
         def restore() -> None:
             target = self.document.model.get_node(p["node_id"])
             self.document.set_node_position(p["node_id"], *previous)
@@ -438,6 +433,10 @@ class SLDService:
             self.document.mark_modified()
 
         transaction.record_undo(restore)
+        self.document.set_node_position(p["node_id"], *updated)
+        node.properties.clear()
+        node.properties.update(updated_properties)
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD node position updated.",
             metadata={"presentation_operation": "set_node_position", "node_id": p["node_id"]},
@@ -448,16 +447,6 @@ class SLDService:
         node = self.document.model.get_node(p["node_id"])
         previous = None if node.presentation is None else node.presentation.to_dict()
         previous_properties = dict(node.properties)
-        node.set_presentation(p["presentation"])
-        node.properties["symbol_owner"] = "engineer"
-        node.properties.setdefault("presentation_owner", "projection" if node.properties.get("projection_source") else "engineer")
-        updated = None if node.presentation is None else node.presentation.to_dict()
-        if updated == previous and node.properties == previous_properties:
-            return ApplicationResult.success_result(
-                message="SLD node presentation is unchanged.",
-                metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
-            )
-        self.document.mark_modified()
         def restore() -> None:
             target = self.document.model.get_node(p["node_id"])
             if previous is None:
@@ -467,7 +456,21 @@ class SLDService:
             target.properties.clear()
             target.properties.update(previous_properties)
             self.document.mark_modified()
+
+        # Register before normalization/mutation so malformed presentation
+        # payloads cannot leave a partially changed live node.
         transaction.record_undo(restore)
+        node.set_presentation(p["presentation"])
+        node.properties["symbol_owner"] = "engineer"
+        node.properties.setdefault("presentation_owner", "projection" if node.properties.get("projection_source") else "engineer")
+        updated = None if node.presentation is None else node.presentation.to_dict()
+        if updated == previous and node.properties == previous_properties:
+            # No state changed; the inverse is harmless and idempotent.
+            return ApplicationResult.success_result(
+                message="SLD node presentation is unchanged.",
+                metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
+            )
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD node presentation updated.",
             metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
@@ -1617,12 +1620,13 @@ class SLDService:
 
         self._require_engineer_owned_connection(connection)
         snapshot = connection.to_dict()
-        self.document.model.remove_connection(connection_id)
-        self.document.mark_modified()
 
         def restore() -> None:
             restored_id = snapshot["connection_id"]
-            if self.document.model.get_connection_optional(restored_id) is not None:
+            current = self.document.model.get_connection_optional(restored_id)
+            if current is not None:
+                if current.to_dict() == snapshot:
+                    return
                 raise ValueError(
                     f"Cannot restore removed SLD connection; identity already exists: {restored_id!r}."
                 )
@@ -1637,7 +1641,11 @@ class SLDService:
             )
             self.document.mark_modified()
 
+        # Register the inverse before removing the connection. If the removal
+        # fails before changing state, rollback recognizes the original object.
         transaction.record_undo(restore)
+        self.document.model.remove_connection(connection_id)
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD connection removed.",
             metadata={"presentation_operation": "remove_connection", "connection_id": connection_id},
