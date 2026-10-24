@@ -11,6 +11,16 @@ from math import isfinite
 from typing import Any, Optional
 
 
+
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
+from ui.equipment.equipment_base import EquipmentBase
+from ui.equipment.symbol.symbol_base import SymbolBase
+from ui.equipment.symbol.symbol_definition import SymbolDefinition
+from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen, token_color
+
+from .base_item import BaseItem
+
+
 _PRIMITIVE_FIELDS = {
     "line": ("x1", "y1", "x2", "y2"),
     "rect": ("x", "y", "width", "height"),
@@ -68,14 +78,6 @@ def _validate_symbol_primitives(definition: SymbolDefinition) -> None:
                 raise ValueError(
                     f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be greater than zero."
                 )
-
-from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
-from ui.equipment.equipment_base import EquipmentBase
-from ui.equipment.symbol.symbol_base import SymbolBase
-from ui.equipment.symbol.symbol_definition import SymbolDefinition
-from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen, token_color
-
-from .base_item import BaseItem
 
 
 class EquipmentItem(BaseItem):
