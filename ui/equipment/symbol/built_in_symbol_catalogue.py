@@ -131,6 +131,9 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 12, "y1": -10, "x2": 28, "y2": -10},
         {"kind": "line", "x1": 12, "y1": 10, "x2": 28, "y2": 10},
     ), {"H1": (-28.0, -10.0), "H2": (-28.0, 10.0), "X1": (28.0, -10.0), "X2": (28.0, 10.0)}),
+    # Keep the base Relay glyph function-neutral. ANSI device-function
+    # numbers belong to the configured relay function/readout, not to every
+    # relay instance in the generic symbol catalogue.
     ("relay", "Relay", (), (
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -8, "y": -8, "width": 16, "height": 16, "text": "R"},
