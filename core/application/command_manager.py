@@ -438,11 +438,21 @@ class CommandManager:
                 clear_redo=clear_redo,
             )
 
-        except ApplicationError:
-            raise
-
-        except Exception as exc:
+        except BaseException as exc:
+            # Core is already committed. Any failure while recording history
+            # leaves Core/history synchronization uncertain, regardless of
+            # the exception class or whether the history record was partly
+            # written.
             self._mark_degraded(exc)
+
+            if isinstance(exc, ApplicationError):
+                raise
+
+            if not isinstance(exc, Exception):
+                # Preserve process-level interruption semantics after
+                # protecting the Core/history integrity boundary.
+                raise
+
             raise ExecutionError(
                 code="COMMAND_HISTORY_RECORD_FAILED",
                 message=(
