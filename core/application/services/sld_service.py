@@ -846,14 +846,38 @@ class SLDService:
             "lifecycle_state": "BOUND",
         })
 
+        original_node = node
+        expected_node_equipment_id = equipment_id
+        expected_node_identity = {
+            key: deepcopy(projected_properties.get(key))
+            for key in (
+                "element_type", "terminal_ids", "terminal_connectivity",
+                "projection_source", "lifecycle_state",
+            )
+        }
+
         def restore_updated_node(snapshot=previous) -> None:
-            # This is an update of an existing node, so undo must restore that
-            # live identity in place. _restore_node_snapshot is for absent-node
-            # restoration and would collide with the node that still exists.
+            # Undo must restore the node updated by this reconciliation, not
+            # mutate an unrelated object that later reused the same node ID.
             target = self.document.model.get_node_optional(snapshot["node_id"])
             if target is None:
-                self._restore_node_snapshot(snapshot)
-                return
+                raise ValueError(
+                    "Cannot undo SLD element update; node is absent: "
+                    f"{snapshot['node_id']!r}."
+                )
+            if target is not original_node:
+                target_identity = {
+                    key: target.properties.get(key)
+                    for key in expected_node_identity
+                }
+                if (
+                    target.equipment_id != expected_node_equipment_id
+                    or target_identity != expected_node_identity
+                ):
+                    raise ValueError(
+                        "Cannot undo SLD element update; a different logical "
+                        f"node owns identity {snapshot['node_id']!r}."
+                    )
             target.set_position(float(snapshot.get("x", 0.0)), float(snapshot.get("y", 0.0)))
             if snapshot.get("presentation") is None:
                 target.clear_presentation()
