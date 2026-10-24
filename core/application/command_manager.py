@@ -134,7 +134,7 @@ class CommandManager:
             else CommandHistory()
         )
         self._integrity_state = "CLEAN"
-        self._integrity_error: Exception | None = None
+        self._integrity_error: BaseException | None = None
         self._pre_commit_hook: PreCommitHook | None = None
 
     # ========================================================
@@ -162,7 +162,7 @@ class CommandManager:
         return self._integrity_state
 
     @property
-    def integrity_error(self) -> Exception | None:
+    def integrity_error(self) -> BaseException | None:
         """Return the failure that caused a degraded command boundary, if any."""
         return self._integrity_error
 
@@ -184,7 +184,7 @@ class CommandManager:
                 cause=self._integrity_error,
             )
 
-    def _mark_degraded(self, error: Exception) -> None:
+    def _mark_degraded(self, error: BaseException) -> None:
         self._integrity_state = "DEGRADED"
         self._integrity_error = error
 
