@@ -1788,7 +1788,12 @@ class SLDService:
                     )
 
             current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
-            if current_node is None:
+            if not node_identity_safe:
+                rollback_errors.append(
+                    "SLD node was not restored because attached-connection "
+                    "preflight found an identity conflict."
+                )
+            elif current_node is None:
                 try:
                     self.document.model.create_node(
                         node_id=node_snapshot["node_id"],
