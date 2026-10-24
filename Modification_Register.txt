@@ -3682,3 +3682,33 @@ Disposition:
     Simple-Wire reconciliation partial-create signature correction merged
     in PR #589 (merge commit 7d125a4e8827ee59d2321a3d9f31413d3565e91d).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD CONNECTION ROUTE UNDO OWNERSHIP GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_connection_route() skipped its undo identity check whenever the
+    original Python object was still registered. Mutated identity or ownership
+    metadata on that object could therefore be overwritten by undo. Rebuilt
+    objects were checked without route/presentation ownership metadata.
+
+Correction:
+    - Record the expected post-edit connection identity, including
+      presentation_owner and route_owner.
+    - Validate that identity on every undo, regardless of Python object
+      reference equality, before restoring the previous route and properties.
+    - Fail closed when logical identity or ownership no longer matches.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD connection route undo ownership guard prepared for review.
+======================================================================
