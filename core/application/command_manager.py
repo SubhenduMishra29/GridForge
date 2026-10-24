@@ -577,8 +577,10 @@ class CommandManager:
             if completed == 0:
                 try:
                     self._history.restore_undo(record)
-                except Exception as restore_exc:
+                except BaseException as restore_exc:
                     self._mark_degraded(restore_exc)
+                    if not isinstance(restore_exc, Exception):
+                        raise
                     raise ExecutionError(
                         code="HISTORY_RESTORE_FAILED",
                         message=(
@@ -602,6 +604,11 @@ class CommandManager:
             else:
                 self._mark_degraded(exc)
 
+            if exc.cause is not None and not isinstance(exc.cause, Exception):
+                # Preserve KeyboardInterrupt/SystemExit only after history is
+                # restored where possible and the manager is fail-closed.
+                raise exc.cause
+
             raise ExecutionError(
                 code="UNDO_FAILED",
                 message=(
@@ -618,8 +625,10 @@ class CommandManager:
 
         try:
             self._history.move_undo_to_redo(record)
-        except Exception as history_exc:
+        except BaseException as history_exc:
             self._mark_degraded(history_exc)
+            if not isinstance(history_exc, Exception):
+                raise
             raise ExecutionError(
                 code="HISTORY_TRANSITION_FAILED",
                 message=(
@@ -658,7 +667,7 @@ class CommandManager:
         for operation in reversed(record.undo_operations):
             try:
                 operation()
-            except Exception as exc:
+            except BaseException as exc:
                 raise ExecutionError(
                     code="UNDO_OPERATION_FAILED",
                     message="An inverse operation failed during undo.",
