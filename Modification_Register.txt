@@ -3463,5 +3463,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Focused connection-removal restoration identity correction prepared for review.
+    Connection-removal restoration identity correction merged in PR #575
+    (merge commit 52ae091ebd8501db3202e89648304922928a6cf9).
 ======================================================================
