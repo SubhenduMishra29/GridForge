@@ -3555,5 +3555,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Focused node position/presentation undo identity guards prepared for review.
+    Node position/presentation undo identity guards merged in PR #581
+    (merge commit bfdf03aa51cd80f09e136cdadc06180c5c53c571).
 ======================================================================
