@@ -2076,9 +2076,20 @@ class SLDService:
             )
 
         # Register the inverse before mutation so validation failures remain
-        # transaction-safe. The document validates identity, fields and node
-        # references at the presentation boundary.
+        # transaction-safe. On rollback/undo, only restore over the exact state
+        # this command installed; accept the original state as an idempotent
+        # no-op when validation failed before mutation.
         def restore_annotation_blocks() -> None:
+            current = [
+                block.to_dict() for block in self.document.annotation_blocks
+            ]
+            if current == previous:
+                return
+            if current != updated:
+                raise ValueError(
+                    "Cannot undo SLD annotation-block update; live annotation "
+                    "state changed after this command."
+                )
             self.document.replace_annotation_blocks(previous)
             self.document.mark_modified()
 
