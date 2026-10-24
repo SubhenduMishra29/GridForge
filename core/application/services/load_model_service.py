@@ -68,7 +68,7 @@ class LoadModelService(ModelServiceSupport):
         self._require_id(load_id, "load_id")
         load = self._get_required("load", load_id, "Load")
         self._require_type(load, Load, load_id, "Load")
-        if all(v is None for v in (name, p, q, in_service)):
+        if all(value is None for value in (name, p, q, in_service)):
             raise DomainError(
                 code="NO_LOAD_UPDATE",
                 message="At least one mutable Load property must be specified.",
@@ -81,23 +81,33 @@ class LoadModelService(ModelServiceSupport):
             "q": load.q,
             "in_service": load.in_service,
         }
-        if name is not None:
-            load.name = name
-        if p is not None:
-            load.p = p
-        if q is not None:
-            load.q = q
-        if in_service is not None:
-            load.set_in_service(in_service)
-        if in_service is not None:
-            self._network.invalidate_topology()
+        service_state_changed = in_service is not None and in_service != old["in_service"]
 
-        def restore() -> None:
+        def restore_snapshot() -> None:
             load.name = old["name"]
             load.p = old["p"]
             load.q = old["q"]
-            load.set_in_service(old["in_service"])
+            load.in_service = old["in_service"]
+
+        try:
+            if name is not None:
+                load.name = name
+            if p is not None:
+                load.p = p
+            if q is not None:
+                load.q = q
             if in_service is not None:
+                load.set_in_service(in_service)
+        except Exception:
+            restore_snapshot()
+            raise
+
+        if service_state_changed:
+            self._network.invalidate_topology()
+
+        def restore() -> None:
+            restore_snapshot()
+            if service_state_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
