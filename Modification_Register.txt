@@ -4048,3 +4048,87 @@ Disposition:
     Attached connection state guard merged in PR #620
     (merge commit ca65140e305d666b6cd3c50f9f351d87801d2961).
 ======================================================================
+
+
+
+======================================================================
+2026-10-24 — SLD PREVIEW PAINTER GEOMETRY OVERLOAD CORRECTION
+======================================================================
+
+File:
+    ui/canvas/symbol_preview_item.py
+
+Finding:
+    SymbolPreviewItem.paint() passed floating-point coordinate arguments to
+    QPainter geometry overloads that are binding-sensitive and may fail at
+    paint time, preventing equipment symbol previews from rendering.
+
+Correction:
+    - Use QLineF for line primitives.
+    - Use QRectF for rectangle and circle primitives.
+    - Preserve canonical symbol definitions, terminal anchors, and the
+      ui.core.qt import boundary.
+
+Verification boundary:
+    Focused source/diff review. Confirmed QLineF and QRectF are exported by
+    ui.core.qt. No tests or CI run; syntax, imports, startup, and GUI runtime
+    were not executed or verified.
+
+Disposition:
+    Merged in PR #623 (merge commit 53e79dc3453229801cb73d3cb9f33bd20fa7419f).
+======================================================================
+
+
+======================================================================
+2026-10-24 — CANVAS SELECTION HIT-TEST OVERLOAD CORRECTION
+======================================================================
+
+File:
+    ui/canvas/mouse_event_adapter.py
+
+Finding:
+    MouseEventAdapter._hit_test() called itemAt(x, y, transform), an
+    unsupported QGraphicsScene overload. The caught TypeError returned a
+    no-hit target, preventing selectable canvas items from reaching the
+    selection tool and potentially leaving the Properties projection empty.
+
+Correction:
+    - Call itemAt(QPointF(x, y), transform).
+    - Keep Qt types behind ui.core.qt; QPointF is already imported there.
+
+Verification boundary:
+    Focused source/diff review. Confirmed QPointF is exported by ui.core.qt.
+    No tests or CI run; syntax, imports, startup, and GUI runtime were not
+    executed or verified.
+
+Disposition:
+    Merged in PR #624 (merge commit f7b954029e801d0fc3de67223bea4da6263c0247).
+======================================================================
+
+
+======================================================================
+2026-10-24 — PALETTE SYMBOL PAINTER GEOMETRY OVERLOAD CORRECTION
+======================================================================
+
+File:
+    ui/equipment/symbol/palette_symbol_adapter.py
+
+Finding:
+    Palette symbol painting passed floating-point coordinate arguments to
+    QPainter.drawLine(), drawRect(), and drawEllipse() overloads that are
+    binding-sensitive and can fail while rendering palette icons.
+
+Correction:
+    - Use QLineF for line primitives.
+    - Use QRectF for rectangle and circle primitives.
+    - Preserve canonical SymbolDefinition rendering and the ui.core.qt
+      import boundary.
+
+Verification boundary:
+    Focused source/diff review. Confirmed QLineF and QRectF are exported by
+    ui.core.qt. No tests or CI run; syntax, imports, startup, and GUI runtime
+    were not executed or verified.
+
+Disposition:
+    Merged in PR #626 (merge commit 3b7f4737c905cea0f9a31852a30a685286dea67d).
+======================================================================
