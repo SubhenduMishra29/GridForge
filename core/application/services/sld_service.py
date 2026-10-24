@@ -1965,62 +1965,61 @@ class SLDService:
             properties["route_owner"] = "engineer"
         created_connection = None
 
+        def endpoint_signature(endpoint: Any) -> dict[str, Any] | None:
+            if endpoint is None:
+                return None
+            if isinstance(endpoint, Mapping):
+                return dict(endpoint)
+            serializer = getattr(endpoint, "to_dict", None)
+            if callable(serializer):
+                return serializer()
+            raise TypeError("SLD connection endpoint must be canonical endpoint data.")
+
+        if route is None:
+            expected_route = {
+                "routing_mode": "orthogonal",
+                "ownership": "auto",
+                "points": [],
+            }
+        elif isinstance(route, Mapping):
+            expected_route = {
+                "routing_mode": route.get("routing_mode", "orthogonal"),
+                "ownership": route.get("ownership", "auto"),
+                "points": [
+                    [float(point[0]), float(point[1])]
+                    for point in route.get("points", ())
+                ],
+            }
+        else:
+            serializer = getattr(route, "to_dict", None)
+            if not callable(serializer):
+                raise TypeError("SLD connection route must be canonical route data.")
+            expected_route = serializer()
+
         def undo_added_connection() -> None:
             current = self.document.model.get_connection_optional(connection_id)
             if current is None:
                 return
-            if created_connection is not None:
-                if current is not created_connection:
-                    raise ValueError(
-                        "Cannot undo added SLD connection; identity is now owned "
-                        f"by another object: {connection_id!r}."
-                    )
-            else:
-                # create_connection can fail during route/endpoint
-                # normalization. Only remove a partially inserted object if
-                # its structural and ownership signature matches this command.
-                def endpoint_signature(endpoint: Any) -> dict[str, Any] | None:
-                    if endpoint is None:
-                        return None
-                    if isinstance(endpoint, Mapping):
-                        return dict(endpoint)
-                    serializer = getattr(endpoint, "to_dict", None)
-                    if callable(serializer):
-                        return serializer()
-                    raise TypeError("SLD connection endpoint must be canonical endpoint data.")
-
-                if route is None:
-                    expected_route = {
-                        "routing_mode": "orthogonal",
-                        "ownership": "auto",
-                        "points": [],
-                    }
-                elif isinstance(route, Mapping):
-                    expected_route = {
-                        "routing_mode": route.get("routing_mode", "orthogonal"),
-                        "ownership": route.get("ownership", "auto"),
-                        "points": [
-                            [float(point[0]), float(point[1])]
-                            for point in route.get("points", ())
-                        ],
-                    }
-                else:
-                    serializer = getattr(route, "to_dict", None)
-                    if not callable(serializer):
-                        raise TypeError("SLD connection route must be canonical route data.")
-                    expected_route = serializer()
-                if (
-                    current.source_node_id != p["source_node_id"]
-                    or current.target_node_id != p["target_node_id"]
-                    or endpoint_signature(current.source_endpoint) != endpoint_signature(source_endpoint)
-                    or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
-                    or current.route.to_dict() != expected_route
-                    or dict(current.properties) != properties
-                ):
-                    raise ValueError(
-                        "Cannot compensate failed SLD connection creation; "
-                        f"identity collision: {connection_id!r}."
-                    )
+            if created_connection is not None and current is not created_connection:
+                raise ValueError(
+                    "Cannot undo added SLD connection; identity is now owned "
+                    f"by another object: {connection_id!r}."
+                )
+            # Object identity alone is insufficient: the same live object may
+            # have been rebound or had its route/ownership changed after add.
+            # Only remove it when its complete creation signature still matches.
+            if (
+                current.source_node_id != p["source_node_id"]
+                or current.target_node_id != p["target_node_id"]
+                or endpoint_signature(current.source_endpoint) != endpoint_signature(source_endpoint)
+                or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
+                or current.route.to_dict() != expected_route
+                or dict(current.properties) != properties
+            ):
+                raise ValueError(
+                    "Cannot undo added SLD connection; its structure or ownership "
+                    f"changed after creation: {connection_id!r}."
+                )
             self.document.model.remove_connection(connection_id)
             self.document.mark_modified()
 
