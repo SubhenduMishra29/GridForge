@@ -170,9 +170,16 @@ class SLDUpdateCoordinator:
                     self._application.read_protection(),
                 )
             elif isinstance(event, SLDPresentationChanged):
-                # The SLD service already owns presentation mutation. This
-                # event only invalidates the canvas; it must not rebuild the
-                # network projection.
+                # The SLD service already owns committed presentation mutation.
+                # Draft→Core commit also clears/restores Application draft state;
+                # reconcile that projection at the same presentation boundary so
+                # the canvas never combines committed state with a stale draft
+                # snapshot (including commit undo/redo).
+                if (
+                    self._draft_projection is not None
+                    and event.payload.get("presentation_operation") == "network_commit_draft"
+                ):
+                    self._draft_projection.project()
                 self._canvas_refresh()
                 return
             elif isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
