@@ -1805,17 +1805,54 @@ class SLDService:
                         f"Cannot restore removed SLD node; connection identity reused: {connection_id!r}."
                     )
                 else:
-                    current.source_node_id = snapshot["source_node_id"]
-                    current.target_node_id = snapshot["target_node_id"]
+                    snapshot_properties = dict(snapshot.get("properties", {}))
                     source = snapshot.get("source_endpoint")
                     target_endpoint = snapshot.get("target_endpoint")
+                    current_source = (
+                        None if current.source_endpoint is None
+                        else current.source_endpoint.to_dict()
+                    )
+                    current_target = (
+                        None if current.target_endpoint is None
+                        else current.target_endpoint.to_dict()
+                    )
+                    identity_property_keys = (
+                        "core_connection_id",
+                        "projection_source",
+                        "connection_kind",
+                        "presentation_owner",
+                        "route_owner",
+                        "lifecycle_state",
+                    )
+                    expected_identity_properties = {
+                        key: deepcopy(snapshot_properties.get(key))
+                        for key in identity_property_keys
+                    }
+                    current_identity_properties = {
+                        key: deepcopy(current.properties.get(key))
+                        for key in identity_property_keys
+                    }
+                    if (
+                        current.source_node_id != snapshot["source_node_id"]
+                        or current.target_node_id != snapshot["target_node_id"]
+                        or current_source != source
+                        or current_target != target_endpoint
+                        or current_identity_properties != expected_identity_properties
+                    ):
+                        rollback_errors.append(
+                            "Cannot restore removed SLD node; attached connection "
+                            f"identity or ownership changed: {connection_id!r}."
+                        )
+                        continue
+                    current.source_node_id = snapshot["source_node_id"]
+                    current.target_node_id = snapshot["target_node_id"]
                     current.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
                     current.target_endpoint = None if target_endpoint is None else SLDEndpoint.from_dict(target_endpoint)
                     route = snapshot.get("route")
                     if route is not None:
                         current.route = current.route.__class__.from_dict(route)
                     current.properties.clear()
-                    current.properties.update(deepcopy(dict(snapshot.get("properties", {}))))
+                    current.properties.update(deepcopy(snapshot_properties))
 
             self.document.replace_annotation_blocks(annotation_snapshot)
             self.document.mark_modified()
