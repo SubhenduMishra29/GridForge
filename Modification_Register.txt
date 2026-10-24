@@ -4132,3 +4132,36 @@ Verification boundary:
 Disposition:
     Merged in PR #626 (merge commit 3b7f4737c905cea0f9a31852a30a685286dea67d).
 ======================================================================
+
+
+
+======================================================================
+2026-10-24 — COMMITTED EQUIPMENT AND BUS PAINTER GEOMETRY CORRECTION
+======================================================================
+
+Files:
+    ui/items/equipment_item.py
+    ui/items/bus_item.py
+
+Finding:
+    The primary committed equipment symbol renderer still passed floating
+    coordinates to QPainter line, rectangle, and ellipse overloads. BusItem
+    also used the multi-coordinate ellipse overload for its endpoint markers.
+    Earlier preview/palette corrections did not cover these scene items, so
+    committed equipment could still fail during paint-time rendering.
+
+Correction:
+    - Use QLineF for equipment line primitives.
+    - Use QRectF for equipment rectangle/circle primitives and Bus endpoint
+      markers.
+    - Preserve symbol definitions, terminal anchors, and the ui.core.qt
+      boundary.
+
+Verification boundary:
+    Focused source/diff review. Confirmed QLineF and QRectF are exported by
+    ui.core.qt. No tests or CI run; syntax, import integrity, application
+    startup, and GUI runtime were not executed or verified.
+
+Disposition:
+    Merged in PR #628 (merge commit 99c970b5f4998d8604f6a0b8e9feac04909c8ca0).
+======================================================================
