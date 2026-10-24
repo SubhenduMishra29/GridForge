@@ -2079,13 +2079,15 @@ class SLDService:
         # transaction-safe. On rollback/undo, only restore over the exact state
         # this command installed; accept the original state as an idempotent
         # no-op when validation failed before mutation.
+        installed_state = None
+
         def restore_annotation_blocks() -> None:
             current = [
                 block.to_dict() for block in self.document.annotation_blocks
             ]
             if current == previous:
                 return
-            if current != updated:
+            if installed_state is None or current != installed_state:
                 raise ValueError(
                     "Cannot undo SLD annotation-block update; live annotation "
                     "state changed after this command."
@@ -2095,6 +2097,9 @@ class SLDService:
 
         transaction.record_undo(restore_annotation_blocks)
         self.document.replace_annotation_blocks(updated)
+        installed_state = [
+            block.to_dict() for block in self.document.annotation_blocks
+        ]
         self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD annotation blocks updated.",
