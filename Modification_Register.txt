@@ -3405,3 +3405,33 @@ Disposition:
     Connection-delete restoration identity correction merged in PR #571
     (merge commit 2d632afe5c5807b1e5e207092ce83b42a0253ba9).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE REMOVAL RESTORATION IDENTITY SAFETY
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_node() rejected every occupied node/connection ID during undo,
+    including original objects if removal had not completed. It did not
+    retain original object references to distinguish them from identity reuse.
+
+Correction:
+    - Capture the original node and attached connection references.
+    - Restore original live objects in place when still registered; recreate
+      only absent objects and reject different objects reusing canonical IDs.
+    - Attempt restoration of independent attached connections before
+      reporting accumulated identity/restoration conflicts.
+    - Preserve inverse registration before the first structural mutation.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused node-removal restoration identity correction prepared for review.
+======================================================================
