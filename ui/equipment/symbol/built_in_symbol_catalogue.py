@@ -79,7 +79,6 @@ _BUILTIN_SYMBOLS = (
         {"kind": "circle", "cx": -7, "cy": 0, "r": 6},
         {"kind": "circle", "cx": 7, "cy": 0, "r": 6},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
-        {"kind": "line", "x1": 13, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("solar", "Solar", ("terminal",), (
         {"kind": "rect", "x": -13, "y": -10, "width": 26, "height": 20},
