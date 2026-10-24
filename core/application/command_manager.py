@@ -570,6 +570,11 @@ class CommandManager:
                         },
                         cause=exc,
                     ) from restore_exc
+                # An inverse can mutate state and then raise before the
+                # journal loop increments its completed-operation count.
+                # Treat every inverse failure as an uncertain Core/history
+                # boundary and block further commands until recovery.
+                self._mark_degraded(exc)
             else:
                 self._mark_degraded(exc)
 
