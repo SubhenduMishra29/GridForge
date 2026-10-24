@@ -165,9 +165,9 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
-                # SLD canvas is deliberately white; engineering annotations must
-                # use the canonical dark-on-light text token rather than the
-                # light symbol stroke used for geometry.
+                # Text annotations use a dark-on-light token, but must not
+                # leak their pen/font state into subsequent symbol primitives.
+                painter.save()
                 painter.setPen(QPen(token_color("text_inverse")))
                 painter.setFont(visual_font("engineering"))
                 painter.drawText(
@@ -178,6 +178,7 @@ class EquipmentItem(BaseItem):
                     Qt.AlignmentFlag.AlignCenter,
                     str(primitive["text"]),
                 )
+                painter.restore()
 
     def hoverEnterEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.NORMAL:
