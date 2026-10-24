@@ -48,6 +48,13 @@ class CableModelService(ModelServiceSupport):
         self._require_id(cable_id, "cable_id")
         cable = self._get_required("cable", cable_id, "Cable")
         self._require_type(cable, Cable, cable_id, "Cable")
+        if thermal_limit_mva is not None:
+            Cable._validate_non_negative(thermal_limit_mva, "thermal_limit_mva")
+        if conductor_count is not None:
+            if isinstance(conductor_count, bool) or not isinstance(conductor_count, int):
+                raise TypeError("conductor_count must be an integer.")
+            if conductor_count < 1:
+                raise ValueError("conductor_count must be at least 1.")
         values = (name, length_km, rated_voltage_kv, rated_current_a, r1_ohm_per_km, x1_ohm_per_km, b1_us_per_km, r0_ohm_per_km, x0_ohm_per_km, b0_us_per_km, thermal_limit_mva, conductor_count, in_service)
         if all(value is None for value in values):
             raise DomainError(code="NO_CABLE_UPDATE", message="At least one mutable Cable property must be specified.", details={"cable_id": cable_id})
