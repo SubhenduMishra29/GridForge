@@ -22,6 +22,10 @@ def _validate_symbol_primitives(definition: SymbolDefinition) -> None:
     """Reject unsupported or malformed primitives before Qt invokes paint()."""
     for index, primitive in enumerate(definition.primitives):
         kind = primitive.get("kind")
+        if not isinstance(kind, str):
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} kind must be a string."
+            )
         fields = _PRIMITIVE_FIELDS.get(kind)
         if fields is None:
             raise ValueError(
