@@ -1937,8 +1937,29 @@ class SLDService:
                     current.properties.clear()
                     current.properties.update(deepcopy(snapshot_properties))
 
-            self.document.replace_annotation_blocks(annotation_snapshot)
-            self.document.mark_modified()
+            # Annotation blocks are a separate mutable presentation state.
+            # Restore them only if the node/connections were restored safely
+            # and the live list is still the exact post-removal state. Never
+            # overwrite annotations edited after this removal command.
+            current_annotations = [
+                block.to_dict() for block in self.document.annotation_blocks
+            ]
+            if current_annotations == annotation_snapshot:
+                pass
+            elif not node_identity_safe:
+                rollback_errors.append(
+                    "Annotation blocks were not restored because the removed "
+                    "node identity or attached connections could not be restored safely."
+                )
+            elif current_annotations != remaining_annotations:
+                rollback_errors.append(
+                    "Cannot restore removed SLD node annotations; live annotation "
+                    "state changed after node removal."
+                )
+            else:
+                self.document.replace_annotation_blocks(annotation_snapshot)
+                self.document.mark_modified()
+
             if rollback_errors:
                 raise ValueError("SLD node removal rollback conflicts: " + " | ".join(rollback_errors))
 
