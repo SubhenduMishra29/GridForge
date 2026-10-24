@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel
@@ -213,8 +214,16 @@ class SLDGraphicsItemFactory:
     def _validate_point(point: QPointF, name: str) -> None:
         if point is None:
             raise ValueError(f"{name} must not be None")
-        if not callable(getattr(point, "x", None)) or not callable(getattr(point, "y", None)):
+        x = getattr(point, "x", None)
+        y = getattr(point, "y", None)
+        if not callable(x) or not callable(y):
             raise TypeError(f"{name} must provide x() and y()")
+        try:
+            coordinates = (float(x()), float(y()))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TypeError(f"{name} coordinates must be numeric") from exc
+        if not all(isfinite(value) for value in coordinates):
+            raise ValueError(f"{name} coordinates must be finite")
 
 
 __all__ = ["SLDGraphicsItemFactory"]
