@@ -3832,5 +3832,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD connection removal undo identity guard prepared for review.
+    SLD connection removal undo identity guard merged in PR #602
+    (merge commit 4546ac04e32ef7e85af35f0d3c8b43c1d514ab34).
 ======================================================================
