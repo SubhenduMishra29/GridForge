@@ -180,7 +180,7 @@ class NavigationController:
         self._pan_start = None
 
         self._disposed = False
-        self._zoom_listeners: list[Callable[[float], None]] = []
+        self._zoom_changed_listeners: list[Callable[[float], None]] = []
 
     # ========================================================
     # VIEW ACCESS
@@ -194,26 +194,6 @@ class NavigationController:
         """
 
         return self.view
-
-    def add_zoom_listener(self, listener: Callable[[float], None]) -> None:
-        """Subscribe to effective zoom changes; immediately publish current scale."""
-        if not callable(listener):
-            raise TypeError("listener must be callable")
-        if listener not in self._zoom_listeners:
-            self._zoom_listeners.append(listener)
-        listener(self._zoom_level)
-
-    def remove_zoom_listener(self, listener: Callable[[float], None]) -> None:
-        """Unsubscribe a zoom observer; missing listeners are ignored."""
-        try:
-            self._zoom_listeners.remove(listener)
-        except ValueError:
-            pass
-
-    def _notify_zoom_changed(self) -> None:
-        """Notify presentation observers after navigation scale changes."""
-        for listener in tuple(self._zoom_listeners):
-            listener(self._zoom_level)
 
     # ========================================================
     # PAN STATE
@@ -524,6 +504,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # --------------------------------------------------------
 
@@ -664,6 +645,35 @@ class NavigationController:
 
     # --------------------------------------------------------
 
+    def add_zoom_changed_listener(
+        self,
+        listener: Callable[[float], None],
+    ) -> None:
+        """Subscribe to zoom changes without coupling navigation to a renderer."""
+        if not callable(listener):
+            raise TypeError("listener must be callable.")
+        self._ensure_active()
+        if listener not in self._zoom_changed_listeners:
+            self._zoom_changed_listeners.append(listener)
+
+    def remove_zoom_changed_listener(
+        self,
+        listener: Callable[[float], None],
+    ) -> None:
+        """Remove a previously registered zoom observer if present."""
+        try:
+            self._zoom_changed_listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def _notify_zoom_changed(self) -> None:
+        """Publish the authoritative zoom level to registered presentation observers."""
+        level = self._zoom_level
+        for listener in tuple(self._zoom_changed_listeners):
+            listener(level)
+
+    # --------------------------------------------------------
+
     def set_zoom_level(
         self,
         level: float,
@@ -717,7 +727,7 @@ class NavigationController:
             abs_tol=self.TRANSFORM_TOLERANCE,
         ):
             self._zoom_level = target
-        self._notify_zoom_changed()
+            self._notify_zoom_changed()
             return
 
         self._scale_at(
@@ -730,6 +740,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # ========================================================
     # RESET
@@ -910,11 +921,11 @@ class NavigationController:
             )
 
         self._zoom_level = self._estimate_zoom_level()
-        self._notify_zoom_changed()
 
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # ========================================================
     # VIEW TRANSFORM
@@ -1420,6 +1431,7 @@ class NavigationController:
             return
 
         self.end_pan()
+        self._zoom_changed_listeners.clear()
 
         self._disposed = True
 
