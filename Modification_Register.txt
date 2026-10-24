@@ -3774,3 +3774,33 @@ Disposition:
     SLD node position/presentation undo identity guards merged in PR #597
     (merge commit 1f3c2acc7c2a1d705d7dec4394adeceec39bcdca).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE REMOVAL UNDO IDENTITY GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_node() rejected replacement node objects but did not validate the
+    logical identity of the original object if it was still registered during
+    rollback/undo. It could restore stale snapshot state over a changed
+    equipment or semantic binding identity.
+
+Correction:
+    - Compare the live equipment_id and semantic identity fields with the
+      removal snapshot before restoring the original node's state.
+    - If identity changed, mark restoration unsafe, report the conflict, and
+      do not restore attached connections against an uncertain node identity.
+    - Preserve the existing replacement-object collision guard.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD node removal undo identity guard prepared for review.
+======================================================================
