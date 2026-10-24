@@ -84,7 +84,6 @@ _BUILTIN_SYMBOLS = (
         {"kind": "circle", "cx": -7, "cy": 0, "r": 6},
         {"kind": "circle", "cx": 7, "cy": 0, "r": 6},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
-        {"kind": "line", "x1": 13, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("solar", "Solar", ("terminal",), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
@@ -97,7 +96,6 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": -5, "y1": -12, "x2": -5, "y2": 12},
         {"kind": "line", "x1": 5, "y1": -7, "x2": 5, "y2": 7},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -5, "y2": 0},
-        {"kind": "line", "x1": 5, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("grid", "Grid", ("terminal",), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
@@ -130,7 +128,7 @@ _BUILTIN_SYMBOLS = (
     ), {"H1": (-28.0, -10.0), "H2": (-28.0, 10.0), "X1": (28.0, -10.0), "X2": (28.0, 10.0)}),
     ("relay", "Relay", (), (
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
-        {"kind": "text", "x": -12, "y": -8, "width": 24, "height": 16, "text": "50/51"},
+        {"kind": "text", "x": -8, "y": -8, "width": 16, "height": 16, "text": "R"},
     ), {}),
 )
 
