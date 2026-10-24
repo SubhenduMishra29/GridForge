@@ -1804,16 +1804,32 @@ class SLDService:
                     if endpoint is None:
                         return None
                     if isinstance(endpoint, Mapping):
-                        return SLDEndpoint.from_dict(endpoint).to_dict()
-                    if isinstance(endpoint, SLDEndpoint):
-                        return endpoint.to_dict()
+                        return dict(endpoint)
+                    serializer = getattr(endpoint, "to_dict", None)
+                    if callable(serializer):
+                        return serializer()
                     raise TypeError("SLD connection endpoint must be canonical endpoint data.")
 
-                expected_route = (
-                    SLDRoute.from_dict(route).to_dict()
-                    if isinstance(route, Mapping)
-                    else (route or SLDRoute()).to_dict()
-                )
+                if route is None:
+                    expected_route = {
+                        "routing_mode": "orthogonal",
+                        "ownership": "auto",
+                        "points": [],
+                    }
+                elif isinstance(route, Mapping):
+                    expected_route = {
+                        "routing_mode": route.get("routing_mode", "orthogonal"),
+                        "ownership": route.get("ownership", "auto"),
+                        "points": [
+                            [float(point[0]), float(point[1])]
+                            for point in route.get("points", ())
+                        ],
+                    }
+                else:
+                    serializer = getattr(route, "to_dict", None)
+                    if not callable(serializer):
+                        raise TypeError("SLD connection route must be canonical route data.")
+                    expected_route = serializer()
                 if (
                     current.source_node_id != p["source_node_id"]
                     or current.target_node_id != p["target_node_id"]
