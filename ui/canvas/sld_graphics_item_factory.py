@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel
@@ -211,10 +212,20 @@ class SLDGraphicsItemFactory:
 
     @staticmethod
     def _validate_point(point: QPointF, name: str) -> None:
+        """Reject malformed or non-finite anchors before creating scene geometry."""
         if point is None:
             raise ValueError(f"{name} must not be None")
-        if not callable(getattr(point, "x", None)) or not callable(getattr(point, "y", None)):
+        x_getter = getattr(point, "x", None)
+        y_getter = getattr(point, "y", None)
+        if not callable(x_getter) or not callable(y_getter):
             raise TypeError(f"{name} must provide x() and y()")
+        try:
+            x = float(x_getter())
+            y = float(y_getter())
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TypeError(f"{name} coordinates must be real numeric values") from exc
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError(f"{name} coordinates must be finite")
 
 
 __all__ = ["SLDGraphicsItemFactory"]
