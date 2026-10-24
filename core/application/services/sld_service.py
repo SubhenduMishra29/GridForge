@@ -1623,22 +1623,31 @@ class SLDService:
         ]
         def restore() -> None:
             rollback_errors: list[str] = []
+            node_identity_safe = True
             current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
             if current_node is None:
-                self.document.model.create_node(
-                    node_id=node_snapshot["node_id"],
-                    equipment_id=node_snapshot.get("equipment_id"),
-                    x=node_snapshot.get("x", 0.0),
-                    y=node_snapshot.get("y", 0.0),
-                    presentation=node_snapshot.get("presentation"),
-                    properties=node_snapshot.get("properties", {}),
-                )
+                try:
+                    self.document.model.create_node(
+                        node_id=node_snapshot["node_id"],
+                        equipment_id=node_snapshot.get("equipment_id"),
+                        x=node_snapshot.get("x", 0.0),
+                        y=node_snapshot.get("y", 0.0),
+                        presentation=node_snapshot.get("presentation"),
+                        properties=node_snapshot.get("properties", {}),
+                    )
+                except Exception as exc:
+                    node_identity_safe = False
+                    rollback_errors.append(f"Cannot restore SLD node {node_snapshot['node_id']!r}: {exc}")
             elif current_node is not original_node:
+                node_identity_safe = False
                 rollback_errors.append(
                     f"Cannot restore removed SLD node; identity reused: {node_snapshot['node_id']!r}."
                 )
             else:
-                current_node.set_position(float(node_snapshot.get("x", 0.0)), float(node_snapshot.get("y", 0.0)))
+                current_node.set_position(
+                    float(node_snapshot.get("x", 0.0)),
+                    float(node_snapshot.get("y", 0.0)),
+                )
                 if node_snapshot.get("presentation") is None:
                     current_node.clear_presentation()
                 else:
@@ -1647,7 +1656,11 @@ class SLDService:
                 current_node.properties.update(deepcopy(dict(node_snapshot.get("properties", {}))))
                 current_node.equipment_id = node_snapshot.get("equipment_id")
 
-            for snapshot in connection_snapshots:
+            if not node_identity_safe:
+                rollback_errors.append(
+                    "Attached connections were not restored because the original node identity is unavailable."
+                )
+            for snapshot in connection_snapshots if node_identity_safe else ():
                 connection_id = snapshot["connection_id"]
                 current = self.document.model.get_connection_optional(connection_id)
                 original = original_connections[connection_id]
