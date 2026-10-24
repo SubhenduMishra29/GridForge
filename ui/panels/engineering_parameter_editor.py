@@ -104,9 +104,17 @@ class EngineeringParameterEditor:
                 raise TypeError(f"{parameter_id} requires a numeric value.")
             return float(value)
         if normalized in {"int", "integer"}:
-            if isinstance(value, bool) or int(value) != value:
+            if isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires an integer value.")
-            return int(value)
+            try:
+                converted = int(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise TypeError(f"{parameter_id} requires an integer value.") from exc
+            if isinstance(value, float) and converted != value:
+                raise TypeError(f"{parameter_id} requires an integer value.")
+            if isinstance(value, str) and str(converted) != value.strip():
+                raise TypeError(f"{parameter_id} requires an integer value.")
+            return converted
         if normalized in {"bool", "boolean"}:
             if not isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires a boolean value.")
