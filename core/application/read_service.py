@@ -306,6 +306,8 @@ class NetworkReadService(ReadService):
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type == "lines" and parameter_id == "in_service":
+                metadata["editable"] = True
             if element_type == "capacitive_voltage_transformers" and parameter_id == "polarity":
                 metadata["choices"] = tuple(value.value for value in CVTPolarity)
                 metadata["datatype"] = "enum"
