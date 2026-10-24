@@ -3651,3 +3651,34 @@ Disposition:
     SLD element update undo identity guard merged in PR #587
     (merge commit 63bc6f564011d17e1a2658f8ade3af2207fa09c3).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SIMPLE-WIRE RECONCILIATION PARTIAL-CREATE SIGNATURE
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_simple_wire_projection() compensated a failed connection
+    creation using only endpoint/node identity and two ownership properties.
+    That partial signature could remove a colliding object with extra or
+    conflicting properties or route state.
+
+Correction:
+    - Capture the complete expected projection-owned properties and default
+      route for each attempted creation.
+    - Require exact route and complete property signatures before removing a
+      partially inserted connection; otherwise fail closed as an identity
+      collision.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Simple-Wire reconciliation partial-create signature correction prepared
+    for review.
+======================================================================
