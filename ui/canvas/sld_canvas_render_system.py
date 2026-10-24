@@ -80,6 +80,7 @@ class SLDCanvasRenderSystem:
             raise ValueError("annotation_min_zoom must be finite and greater than zero.")
         self._annotation_min_zoom = annotation_min_zoom
         self._zoom_level = 1.0
+        self._annotations_zoom_visible = self._zoom_level >= self._annotation_min_zoom
         self._navigation_controller: Any = None
         self._annotation_base_visibility: dict[str, bool] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
@@ -148,6 +149,9 @@ class SLDCanvasRenderSystem:
             raise ValueError("zoom level must be finite and greater than zero")
         self._zoom_level = level
         annotations_visible_at_zoom = level >= self._annotation_min_zoom
+        if annotations_visible_at_zoom == self._annotations_zoom_visible:
+            return
+        self._annotations_zoom_visible = annotations_visible_at_zoom
         for render_id, base_visible in tuple(self._annotation_base_visibility.items()):
             items = self._items.get(render_id, ())
             for item in items:
