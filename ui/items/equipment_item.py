@@ -7,10 +7,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+
 from math import isfinite
 from typing import Any, Optional
-
-
 
 from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
@@ -101,6 +100,22 @@ class EquipmentItem(BaseItem):
         if not isinstance(symbol_definition, SymbolDefinition):
             raise TypeError("symbol_definition must be a SymbolDefinition")
         _validate_symbol_primitives(symbol_definition)
+        for primitive in symbol_definition.primitives:
+            if "stroke_width" in primitive:
+                width = primitive["stroke_width"]
+                if (
+                    isinstance(width, bool)
+                    or not isinstance(width, (int, float))
+                    or not isfinite(float(width))
+                    or float(width) <= 0
+                ):
+                    raise ValueError(
+                        "primitive stroke_width must be a finite positive number"
+                    )
+                if primitive.get("kind") != "line":
+                    raise ValueError(
+                        "stroke_width is currently supported only for line primitives"
+                    )
         if not isinstance(equipment, EquipmentBase):
             raise TypeError("equipment must be an EquipmentBase")
         super().__init__(object_id, parent)
@@ -125,8 +140,9 @@ class EquipmentItem(BaseItem):
         self.setAcceptHoverEvents(True)
         mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
         mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-        # Keep reflection in the item transform so painting and mapToScene()
-        # use the same transform for geometry and terminal anchors.
+        # Apply reflection once to the graphics transform. Drawing and
+        # mapToScene() then share the same coordinate transform, so terminal
+        # anchors remain attached to the rendered symbol for every mirror state.
         self.setTransform(
             QTransform.fromScale(
                 -1.0 if mirror_x else 1.0,
@@ -178,8 +194,8 @@ class EquipmentItem(BaseItem):
         points = []
         for terminal in self._equipment.terminals:
             local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
-            # The item transform already applies reflections; transform the
-            # canonical anchor exactly once with the rendered symbol.
+            # The item's transform already applies symbol reflections;
+            # do not mirror local anchor coordinates a second time.
             scene_point = self.mapToScene(
                 QPointF(float(local_anchor[0]), float(local_anchor[1]))
             )
@@ -192,14 +208,25 @@ class EquipmentItem(BaseItem):
         return tuple(points)
 
     def boundingRect(self) -> QRectF:
-        # Include the outer half of the widest supported symbol stroke so Qt
-        # does not clip edge-aligned leads or under-invalidate their repaint area.
-        stroke_margin = 2.0
+        # QGraphicsItem bounds must include the painted pen extents. Keep a
+        # stable margin around the declared logical symbol box so terminals
+        # at its edges and heavier IEEE/ANSI busbar strokes are not clipped.
+        margin = max(
+            2.0,
+            max(
+                (
+                    float(primitive.get("stroke_width", 1.8)) / 2.0
+                    for primitive in self._symbol_definition.primitives
+                    if primitive.get("kind") == "line"
+                ),
+                default=0.9,
+            ) + 0.2,
+        )
         return QRectF(
-            -self._symbol_definition.width / 2 - stroke_margin,
-            -self._symbol_definition.height / 2 - stroke_margin,
-            self._symbol_definition.width + 2 * stroke_margin,
-            self._symbol_definition.height + 2 * stroke_margin,
+            -self._symbol_definition.width / 2 - margin,
+            -self._symbol_definition.height / 2 - margin,
+            self._symbol_definition.width + 2 * margin,
+            self._symbol_definition.height + 2 * margin,
         )
 
     def _effective_state(self) -> VisualState:
@@ -219,19 +246,24 @@ class EquipmentItem(BaseItem):
         painter.setPen(visual_pen(role, state, width=1.8))
         painter.setBrush(visual_brush(role, state))
         painter.setFont(visual_font("engineering"))
+        base_pen = visual_pen(role, state, width=1.8)
         for primitive in self._symbol_definition.primitives:
             kind = primitive.get("kind")
             if kind == "line":
+                line_width = float(primitive.get("stroke_width", 1.8))
+                painter.setPen(visual_pen(role, state, width=line_width))
                 painter.drawLine(
                     float(primitive["x1"]), float(primitive["y1"]),
                     float(primitive["x2"]), float(primitive["y2"]),
                 )
             elif kind == "rect":
+                painter.setPen(base_pen)
                 painter.drawRect(
                     float(primitive["x"]), float(primitive["y"]),
                     float(primitive["width"]), float(primitive["height"]),
                 )
             elif kind == "circle":
+                painter.setPen(base_pen)
                 radius = float(primitive["r"])
                 painter.drawEllipse(
                     float(primitive["cx"]) - radius,
@@ -240,9 +272,12 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
-                # Keep text readable and isolate its pen/font/transform from
-                # later primitives. Geometry and anchors still share the
-                # item's canonical mirror transform.
+                # IEEE/ANSI 315 drafting practice says letters and numbers
+                # that form part of a symbol must not be mirror-imaged. The
+                # graphics-item transform mirrors the geometry, so cancel its
+                # reflection locally around the text rectangle's centre.
+                painter.setPen(QPen(token_color("text_inverse")))
+                painter.setFont(visual_font("engineering"))
                 text_x = float(primitive["x"])
                 text_y = float(primitive["y"])
                 text_width = float(primitive["width"])
@@ -250,16 +285,19 @@ class EquipmentItem(BaseItem):
                 text_rect = QRectF(text_x, text_y, text_width, text_height)
                 mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
                 mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+                # Current item transform is scale-X reflection, plus a 180°
+                # rotation when both mirror flags are set. Its net reflection
+                # is horizontal for X-only and vertical for X+Y.
+                reflect_text_x = mirror_x and not mirror_y
+                reflect_text_y = mirror_x and mirror_y
                 painter.save()
-                painter.setPen(QPen(token_color("text_inverse")))
-                painter.setFont(visual_font("engineering"))
-                if mirror_x or mirror_y:
+                if reflect_text_x or reflect_text_y:
                     center_x = text_x + text_width / 2.0
                     center_y = text_y + text_height / 2.0
                     painter.translate(center_x, center_y)
                     painter.scale(
-                        -1.0 if mirror_x else 1.0,
-                        -1.0 if mirror_y else 1.0,
+                        -1.0 if reflect_text_x else 1.0,
+                        -1.0 if reflect_text_y else 1.0,
                     )
                     painter.translate(-center_x, -center_y)
                 painter.drawText(
