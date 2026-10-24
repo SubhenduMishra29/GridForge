@@ -890,8 +890,12 @@ class CommandManager:
         try:
             transaction.rollback()
 
-        except Exception as exc:
+        except BaseException as exc:
             self._mark_degraded(exc)
+            if not isinstance(exc, Exception):
+                # Preserve process-level interruption semantics, but never
+                # leave the manager CLEAN after rollback has failed.
+                raise
             raise ExecutionError(
                 code="TRANSACTION_ROLLBACK_FAILED",
                 message="Transaction rollback failed.",
