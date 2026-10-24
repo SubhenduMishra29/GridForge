@@ -53,7 +53,7 @@ class DraftCommandHandlers:
             _thaw_payload(command.payload["equipment"])
         )
         draft.add_equipment(equipment)
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def update_equipment(self, command, context, transaction):
         draft = self._draft()
@@ -61,23 +61,23 @@ class DraftCommandHandlers:
             str(command.payload["draft_id"]),
             **_thaw_payload(command.payload["changes"]),
         )
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def remove_equipment(self, command, context, transaction):
         draft = self._draft()
         equipment = draft.remove_equipment(str(command.payload["draft_id"]))
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def add_connection(self, command, context, transaction):
         draft = self._draft()
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
         draft.add_connection(connection)
-        return ApplicationResult.success_result({"connection_id": connection.connection_id})
+        return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
     def remove_connection(self, command, context, transaction):
         draft = self._draft()
         connection = draft.remove_connection(str(command.payload["connection_id"]))
-        return ApplicationResult.success_result({"connection_id": connection.connection_id})
+        return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
 
 class DraftConnectivityResolver:
