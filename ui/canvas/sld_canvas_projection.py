@@ -181,17 +181,28 @@ class SLDCanvasProjection:
                     raise ValueError(
                         f"Read-model provider identity mismatch for {node.equipment_id!r}."
                     )
+        # Persisted presentation is user-editable presentation data, not
+        # electrical truth. A malformed/obsolete symbol payload must not abort
+        # projection of every other node in the document. Leave the presentation
+        # absent so SemanticPresentationRealization can rebuild the canonical
+        # symbol from the Application read model and equipment registry.
+        properties = dict(node.properties)
+        presentation = None
+        if node.presentation is not None:
+            try:
+                presentation = SymbolBase.from_dict(node.presentation.to_dict())
+            except Exception as exc:
+                properties["_projection_presentation_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+
         return SLDCanvasNode(
             node_id=node.node_id,
             equipment_id=node.equipment_id,
             x=node.x,
             y=node.y,
-            presentation=(
-                None
-                if node.presentation is None
-                else SymbolBase.from_dict(node.presentation.to_dict())
-            ),
-            properties=_freeze_projection_value(node.properties),
+            presentation=presentation,
+            properties=_freeze_projection_value(properties),
             read_model=read_model,
         )
 
