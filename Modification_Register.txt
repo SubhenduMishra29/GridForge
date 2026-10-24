@@ -3295,8 +3295,8 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Add-inverse identity correction reviewed in PR #566; merge status
-    remains pending.
+    Add-inverse identity correction merged in PR #566
+    (merge commit f4b039b6ac7126c7546640afaecbd8d54d9a483a).
 ======================================================================
 
 ======================================================================
