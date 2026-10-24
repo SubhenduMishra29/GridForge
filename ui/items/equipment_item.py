@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
@@ -61,8 +61,17 @@ class EquipmentItem(BaseItem):
         self.setAcceptHoverEvents(True)
         mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
         mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-        self.setScale(self._symbol_instance.scale * (-1.0 if mirror_x else 1.0))
-        self.setRotation(self._symbol_instance.rotation + (180.0 if mirror_x and mirror_y else 0.0))
+        # Apply reflection once to the graphics transform. Drawing and
+        # mapToScene() then share the same coordinate transform, so terminal
+        # anchors remain attached to the rendered symbol for every mirror state.
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(self._symbol_instance.scale)
+        self.setRotation(self._symbol_instance.rotation)
         self.setVisible(self._symbol_instance.visible)
         if position is not None:
             self.setPos(position)
@@ -106,11 +115,11 @@ class EquipmentItem(BaseItem):
         points = []
         for terminal in self._equipment.terminals:
             local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
-            mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
-            mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-            local_x = -float(local_anchor[0]) if mirror_x else float(local_anchor[0])
-            local_y = -float(local_anchor[1]) if mirror_y else float(local_anchor[1])
-            scene_point = self.mapToScene(QPointF(local_x, local_y))
+            # The item's transform already applies symbol reflections;
+            # do not mirror local anchor coordinates a second time.
+            scene_point = self.mapToScene(
+                QPointF(float(local_anchor[0]), float(local_anchor[1]))
+            )
             points.append({
                 "position": scene_point,
                 "object_id": self.object_id,
