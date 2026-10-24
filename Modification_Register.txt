@@ -3298,3 +3298,40 @@ Disposition:
     Add-inverse identity correction reviewed in PR #566; merge status
     remains pending.
 ======================================================================
+
+======================================================================
+2026-10-24 — SLD WIRE RECONCILIATION ROLLBACK SCOPE
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_simple_wire_projection() previously removed every live SLD
+    connection and recreated the pre-reconciliation snapshot on rollback.
+    Endpoint reconciliation also removed/recreated a connection in place of
+    updating it. These broad operations could invalidate untouched object
+    references and make rollback destructive when IDs were reused. A failure
+    during reconciliation before the rollback callback was returned could
+    also leave partial mutations.
+
+Correction:
+    - Snapshot original connection references and serialized state before
+      reconciliation.
+    - Update changed endpoint fields in place, preserving canonical connection
+      identity; preserve legacy migration fields through the snapshot.
+    - Track newly created connections and remove only their exact identities
+      during rollback, with a constrained signature fallback for partial
+      creation failures.
+    - Restore original objects in place and reject conflicting identity
+      owners instead of deleting them.
+    - Run the same rollback on exceptions raised before the callback returns.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused rollback-scope correction prepared on the branch pending review.
+======================================================================
