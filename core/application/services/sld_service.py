@@ -482,6 +482,15 @@ class SLDService:
     def _set_node_position(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         node = self.document.model.get_node(p["node_id"])
+        original_node = node
+        original_node_equipment_id = node.equipment_id
+        original_node_identity = {
+            key: deepcopy(node.properties.get(key))
+            for key in (
+                "element_type", "terminal_ids", "terminal_connectivity",
+                "projection_source", "lifecycle_state",
+            )
+        }
         previous = tuple(node.position)
         previous_properties = deepcopy(node.properties)
         updated = (float(p["x"]), float(p["y"]))
@@ -493,7 +502,24 @@ class SLDService:
                 metadata={"presentation_operation": "set_node_position", "node_id": p["node_id"]},
             )
         def restore() -> None:
-            target = self.document.model.get_node(p["node_id"])
+            target = self.document.model.get_node_optional(p["node_id"])
+            if target is None:
+                raise ValueError(
+                    f"Cannot undo SLD node position edit; node is absent: {p['node_id']!r}."
+                )
+            if target is not original_node:
+                target_identity = {
+                    key: target.properties.get(key)
+                    for key in original_node_identity
+                }
+                if (
+                    target.equipment_id != original_node_equipment_id
+                    or target_identity != original_node_identity
+                ):
+                    raise ValueError(
+                        "Cannot undo SLD node position edit; a different logical "
+                        f"node owns identity {p['node_id']!r}."
+                    )
             self.document.set_node_position(p["node_id"], *previous)
             target.properties.clear()
             target.properties.update(deepcopy(previous_properties))
@@ -512,10 +538,36 @@ class SLDService:
     def _set_node_presentation(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         node = self.document.model.get_node(p["node_id"])
+        original_node = node
+        original_node_equipment_id = node.equipment_id
+        original_node_identity = {
+            key: deepcopy(node.properties.get(key))
+            for key in (
+                "element_type", "terminal_ids", "terminal_connectivity",
+                "projection_source", "lifecycle_state",
+            )
+        }
         previous = None if node.presentation is None else node.presentation.to_dict()
-        previous_properties = dict(node.properties)
+        previous_properties = deepcopy(node.properties)
         def restore() -> None:
-            target = self.document.model.get_node(p["node_id"])
+            target = self.document.model.get_node_optional(p["node_id"])
+            if target is None:
+                raise ValueError(
+                    f"Cannot undo SLD node presentation edit; node is absent: {p['node_id']!r}."
+                )
+            if target is not original_node:
+                target_identity = {
+                    key: target.properties.get(key)
+                    for key in original_node_identity
+                }
+                if (
+                    target.equipment_id != original_node_equipment_id
+                    or target_identity != original_node_identity
+                ):
+                    raise ValueError(
+                        "Cannot undo SLD node presentation edit; a different logical "
+                        f"node owns identity {p['node_id']!r}."
+                    )
             if previous is None:
                 target.clear_presentation()
             else:
