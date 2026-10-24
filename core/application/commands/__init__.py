@@ -60,6 +60,10 @@ from .sld_commands import (
     ADD_SLD_CONNECTION, REMOVE_SLD_CONNECTION,
     SetSLDNodePositionCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
+    SET_SLD_NODE_PRESENTATION, SET_SLD_CONNECTION_ROUTE, SET_SLD_NODE_PROPERTIES,
+    SET_SLD_ANNOTATION_BLOCKS, SetSLDNodePresentationCommand,
+    SetSLDConnectionRouteCommand, SetSLDNodePropertiesCommand,
+    SetSLDAnnotationBlocksCommand,
 )
 from .placement_commands import PLACE_BUS, PlaceBusCommand
 from .relay_commands import (
