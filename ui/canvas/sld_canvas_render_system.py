@@ -412,6 +412,7 @@ class SLDCanvasRenderSystem:
                     self._snap_system.register_item(item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
+                self._clear_reported_diagnostic(render_id)
                 self._degraded_node_ids.discard(render_id)
                 realized[render_id] = item
             except Exception as exc:
