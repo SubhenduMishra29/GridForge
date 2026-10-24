@@ -14,6 +14,7 @@ from core.application.commands.draft_commands import CreateDraftConnectionComman
 from core.application.draft.network import DraftEndpointReference
 
 from ui.connections.connection_preview import ConnectionPreview
+from ui.core.qt import QPointF
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from ui.core.snap_system import SnapIntent, SnapType
@@ -171,6 +172,8 @@ class WireTool(ToolBase):
 
     def _snap(self, event: Any) -> Any:
         scene_position = self.event_position(event)
+        if isinstance(scene_position, (tuple, list)) and len(scene_position) >= 2:
+            scene_position = QPointF(float(scene_position[0]), float(scene_position[1]))
         snap = getattr(self.get_snap_system(), "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
