@@ -3103,3 +3103,33 @@ Disposition:
     in source; runtime confirmation remains outstanding.
 
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ADD-CONNECTION INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _add_connection() created and marked a presentation connection modified
+    before registering its undo inverse. A failure during the mutation path
+    could therefore leave a created connection without registered
+    compensation.
+
+Correction:
+    - Define and register the idempotent connection-removal inverse before
+      calling create_connection().
+    - Resolve the created identity from the validated command connection ID.
+    - Keep the existing collision preflight and presentation ownership rules.
+
+Verification boundary:
+    Static source/diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    Add-connection inverse ordering corrected in source; runtime confirmation
+    remains outstanding.
+
+======================================================================
