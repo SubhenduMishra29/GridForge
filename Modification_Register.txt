@@ -3069,3 +3069,37 @@ Disposition:
     confirmation remains outstanding.
 
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD CONNECTION / NODE DELETE INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_connection_delete() registered undo only after removing or
+    mutating a presentation connection. Its customized-connection inverse
+    also attempted to recreate a connection whose identity still existed,
+    risking a duplicate-identity failure during undo. The direct
+    _remove_node() command likewise registered its inverse after mutation.
+
+Correction:
+    - Register inverses before connection or node deletion mutations.
+    - Restore an authored/orphaned connection in place when it still exists;
+      recreate it only when absent.
+    - Restore the customized connection's prior endpoints and properties,
+      preserving its existing route and structural identity.
+    - Register the direct node-removal inverse before removing the node,
+      attached connections, and annotations.
+
+Verification boundary:
+    Static source/diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    Pre-mutation inverse registration and in-place restoration are corrected
+    in source; runtime confirmation remains outstanding.
+
+======================================================================
