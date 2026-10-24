@@ -1955,25 +1955,37 @@ class SLDService:
 
         self._require_engineer_owned_connection(connection)
         snapshot = connection.to_dict()
+        original_connection = connection
 
         def restore() -> None:
             restored_id = snapshot["connection_id"]
             current = self.document.model.get_connection_optional(restored_id)
-            if current is not None:
-                if current.to_dict() == snapshot:
-                    return
-                raise ValueError(
-                    f"Cannot restore removed SLD connection; identity already exists: {restored_id!r}."
+            if current is None:
+                self.document.model.create_connection(
+                    connection_id=restored_id,
+                    source_node_id=snapshot["source_node_id"],
+                    target_node_id=snapshot["target_node_id"],
+                    source_endpoint=snapshot.get("source_endpoint"),
+                    target_endpoint=snapshot.get("target_endpoint"),
+                    route=snapshot.get("route"),
+                    properties=deepcopy(snapshot.get("properties", {})),
                 )
-            self.document.model.create_connection(
-                connection_id=restored_id,
-                source_node_id=snapshot["source_node_id"],
-                target_node_id=snapshot["target_node_id"],
-                source_endpoint=snapshot.get("source_endpoint"),
-                target_endpoint=snapshot.get("target_endpoint"),
-                route=snapshot.get("route"),
-                properties=deepcopy(snapshot.get("properties", {})),
-            )
+            elif current is not original_connection:
+                raise ValueError(
+                    f"Cannot restore removed SLD connection; identity reused: {restored_id!r}."
+                )
+            else:
+                current.source_node_id = snapshot["source_node_id"]
+                current.target_node_id = snapshot["target_node_id"]
+                source = snapshot.get("source_endpoint")
+                target = snapshot.get("target_endpoint")
+                current.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
+                current.target_endpoint = None if target is None else SLDEndpoint.from_dict(target)
+                route = snapshot.get("route")
+                if route is not None:
+                    current.route = current.route.__class__.from_dict(route)
+                current.properties.clear()
+                current.properties.update(deepcopy(dict(snapshot.get("properties", {}))))
             self.document.mark_modified()
 
         # Register the inverse before removing the connection. If the removal
