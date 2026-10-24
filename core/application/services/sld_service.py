@@ -538,26 +538,52 @@ class SLDService:
         if self.document.model.get_node_optional(node_id) is not None:
             raise ValueError(f"SLD node identity collision: {node_id!r}.")
 
-        # Register compensation before entering model code. A malformed
-        # SymbolBase payload can raise while create_node is constructing the
-        # persistent presentation; rollback must still remove a partially
-        # inserted node. The inverse is deliberately idempotent because the
-        # model may have failed before insertion.
+        x = float(p["x"])
+        y = float(p["y"])
+        created_node = None
+
+        # Capture the created object after successful insertion. During a
+        # failed construction, clean up by ID only when the surviving object
+        # matches this operation's complete creation signature; during later
+        # undo, remove only the exact object created by this command.
         def undo_added_node() -> None:
-            if self.document.model.get_node_optional(node_id) is not None:
-                self.document.model.remove_node(node_id)
-                self.document.mark_modified()
+            current = self.document.model.get_node_optional(node_id)
+            if current is None:
+                return
+            if created_node is not None:
+                if current is not created_node:
+                    raise ValueError(
+                        f"Cannot undo added SLD node; identity is now owned by another object: {node_id!r}."
+                    )
+            else:
+                current_presentation = (
+                    None if current.presentation is None else current.presentation.to_dict()
+                )
+                expected_presentation = None if presentation is None else dict(presentation)
+                if (
+                    current.equipment_id != equipment_id
+                    or float(current.x) != x
+                    or float(current.y) != y
+                    or dict(current.properties) != properties
+                    or current_presentation != expected_presentation
+                ):
+                    raise ValueError(
+                        f"Cannot compensate failed SLD node creation; identity collision: {node_id!r}."
+                    )
+            self.document.model.remove_node(node_id)
+            self.document.mark_modified()
 
         transaction.record_undo(undo_added_node)
         try:
             self.document.model.create_node(
                 node_id=node_id,
                 equipment_id=equipment_id,
-                x=float(p["x"]),
-                y=float(p["y"]),
+                x=x,
+                y=y,
                 presentation=presentation,
                 properties=properties,
             )
+            created_node = self.document.model.get_node_optional(node_id)
         except Exception as exc:
             raise ValueError(
                 f"Could not create SLD node {node_id!r} with its symbol presentation: {exc}"
@@ -1513,13 +1539,49 @@ class SLDService:
             properties["lifecycle_state"] = "BOUND"
         if isinstance(route, Mapping) and route.get("ownership") == "engineer":
             properties["route_owner"] = "engineer"
+        created_connection = None
+
         def undo_added_connection() -> None:
-            # Undo only the identity created by this command. If creation did
-            # not complete or the connection has already disappeared, treat
-            # compensation as an idempotent no-op.
-            if self.document.model.get_connection_optional(connection_id) is not None:
-                self.document.model.remove_connection(connection_id)
-                self.document.mark_modified()
+            current = self.document.model.get_connection_optional(connection_id)
+            if current is None:
+                return
+            if created_connection is not None:
+                if current is not created_connection:
+                    raise ValueError(
+                        "Cannot undo added SLD connection; identity is now owned "
+                        f"by another object: {connection_id!r}."
+                    )
+            else:
+                # create_connection can fail during route/endpoint
+                # normalization. Only remove a partially inserted object if
+                # its structural and ownership signature matches this command.
+                current_source = (
+                    current.source_endpoint.to_dict()
+                    if current.source_endpoint is not None else None
+                )
+                current_target = (
+                    current.target_endpoint.to_dict()
+                    if current.target_endpoint is not None else None
+                )
+                expected_source = (
+                    dict(source_endpoint) if isinstance(source_endpoint, Mapping) else source_endpoint
+                )
+                expected_target = (
+                    dict(target_endpoint) if isinstance(target_endpoint, Mapping) else target_endpoint
+                )
+                if (
+                    current.source_node_id != p["source_node_id"]
+                    or current.target_node_id != p["target_node_id"]
+                    or current_source != expected_source
+                    or current_target != expected_target
+                    or dict(current.properties) != properties
+                ):
+                    raise ValueError(
+                        "Cannot compensate failed SLD connection creation; "
+                        f"identity collision: {connection_id!r}."
+                    )
+            self.document.model.remove_connection(connection_id)
+            self.document.mark_modified()
 
         # Register compensation before the first structural mutation so a
         # failure during creation or document modification remains reversible.
@@ -1533,6 +1595,7 @@ class SLDService:
             route=route,
             properties=properties,
         )
+        created_connection = self.document.model.get_connection_optional(connection_id)
         self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD connection added.",
