@@ -3955,3 +3955,35 @@ Disposition:
     SLD added-node undo live-state guard merged in PR #610
     (merge commit 188d096bca754cf17525ad3404f1236d7d07d8a5).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ANNOTATION UNDO LIVE-STATE GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_annotation_blocks() restored the previous annotation list
+    unconditionally during undo. If the live annotation configuration changed
+    after the command, undo could overwrite newer state.
+
+Correction:
+    - Capture the canonical annotation state actually installed by the
+      document, rather than comparing against raw input mappings.
+    - Restore the previous snapshot only when live state still matches the
+      state installed by this command.
+    - Treat the original snapshot as an idempotent no-op when validation fails
+      before mutation; fail closed on unexpected live-state drift.
+
+Verification boundary:
+    Static source/diff review and inspection of replace_annotation_blocks()
+    validation/assignment order. No tests or CI run. Python syntax, import
+    integrity, application startup, and GUI runtime were not executed or
+    verified in this batch.
+
+Disposition:
+    SLD annotation undo live-state guard merged in PR #614
+    (merge commit 557b1e91dd3515a62cb3d2dd7a80a02068044bed).
+======================================================================
