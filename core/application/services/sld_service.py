@@ -1749,17 +1749,43 @@ class SLDService:
                     f"Cannot restore removed SLD node; identity reused: {node_snapshot['node_id']!r}."
                 )
             else:
-                current_node.set_position(
-                    float(node_snapshot.get("x", 0.0)),
-                    float(node_snapshot.get("y", 0.0)),
+                snapshot_properties = dict(node_snapshot.get("properties", {}))
+                identity_keys = (
+                    "element_type",
+                    "terminal_ids",
+                    "terminal_connectivity",
+                    "projection_source",
+                    "lifecycle_state",
                 )
-                if node_snapshot.get("presentation") is None:
-                    current_node.clear_presentation()
+                expected_identity = {
+                    key: deepcopy(snapshot_properties.get(key))
+                    for key in identity_keys
+                }
+                current_identity = {
+                    key: deepcopy(current_node.properties.get(key))
+                    for key in identity_keys
+                }
+                if (
+                    current_node.equipment_id != node_snapshot.get("equipment_id")
+                    or current_identity != expected_identity
+                ):
+                    node_identity_safe = False
+                    rollback_errors.append(
+                        "Cannot restore removed SLD node; the original object's "
+                        f"logical identity changed: {node_snapshot['node_id']!r}."
+                    )
                 else:
-                    current_node.set_presentation(node_snapshot["presentation"])
-                current_node.properties.clear()
-                current_node.properties.update(deepcopy(dict(node_snapshot.get("properties", {}))))
-                current_node.equipment_id = node_snapshot.get("equipment_id")
+                    current_node.set_position(
+                        float(node_snapshot.get("x", 0.0)),
+                        float(node_snapshot.get("y", 0.0)),
+                    )
+                    if node_snapshot.get("presentation") is None:
+                        current_node.clear_presentation()
+                    else:
+                        current_node.set_presentation(node_snapshot["presentation"])
+                    current_node.properties.clear()
+                    current_node.properties.update(deepcopy(snapshot_properties))
+                    current_node.equipment_id = node_snapshot.get("equipment_id")
 
             if not node_identity_safe:
                 rollback_errors.append(
