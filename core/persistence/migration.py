@@ -183,7 +183,7 @@ class SLDMigration(ABC):
 
 class _SLDSchema1To2(SLDMigration):
     source_schema = 1
-    target_schema = SLD_SCHEMA_VERSION
+    target_schema = 2
 
     def migrate(
         self,
@@ -249,8 +249,28 @@ class _SLDSchema1To2(SLDMigration):
         return result
 
 
+class _SLDSchema2To3(SLDMigration):
+    source_schema = 2
+    target_schema = 3
 
-SLD_DOCUMENT_FIELDS = frozenset({"schema", "document_id", "project_id", "document_type", "name", "metadata", "model"})
+    def migrate(
+        self,
+        data: Mapping[str, Any],
+        *,
+        project_id: str,
+        document_index: int,
+        existing_document_ids: set[str],
+    ) -> Mapping[str, Any]:
+        del project_id, document_index, existing_document_ids
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise SLDMigrationError("SLD schema 2-to-3 received a non-schema-2 payload.")
+        result.setdefault("annotation_blocks", [])
+        result["schema"] = self.target_schema
+        return result
+
+
+SLD_DOCUMENT_FIELDS = frozenset({"schema", "document_id", "project_id", "document_type", "name", "metadata", "model", "annotation_blocks"})
 SLD_MODEL_FIELDS = frozenset({"nodes", "connections"})
 SLD_NODE_FIELDS = frozenset({"node_id", "equipment_id", "x", "y", "presentation", "properties"})
 SLD_CONNECTION_FIELDS = frozenset({"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"})
@@ -260,6 +280,7 @@ SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "representation_id"
 SLD_ENDPOINT_KINDS = frozenset({"equipment", "bus"})
 SLD_ROUTING_MODES = frozenset({"direct", "orthogonal", "manual"})
 SLD_ROUTE_OWNERSHIP = frozenset({"auto", "engineer"})
+SLD_ANNOTATION_BLOCK_FIELDS = frozenset({"block_id", "node_id", "visible", "fields", "offset_x", "offset_y"})
 
 
 def _sld_unknown(value: Mapping[str, Any], allowed: frozenset[str], context: str) -> None:
@@ -284,7 +305,7 @@ def _sld_number(value: Any, field: str, context: str) -> None:
 
 
 def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = None) -> None:
-    """Validate schema-2 SLD structure without constructing or mutating runtime state."""
+    """Validate canonical schema-3 SLD structure without constructing runtime state."""
     if not isinstance(data, Mapping):
         raise SLDMigrationError("SLD document must be an object.")
     _sld_unknown(data, SLD_DOCUMENT_FIELDS, "document")
@@ -342,6 +363,44 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
                 raise SLDMigrationError("Symbol properties must be an object in " + context + ".")
         if not isinstance(node["properties"], Mapping):
             raise SLDMigrationError("SLD node properties must be an object in " + context + ".")
+    annotation_blocks = data.get("annotation_blocks")
+    if not isinstance(annotation_blocks, list):
+        raise SLDMigrationError("SLD annotation_blocks must be an array.")
+    block_ids = set()
+    for index, block in enumerate(annotation_blocks):
+        context = "annotation_block[" + str(index) + "]"
+        if not isinstance(block, Mapping):
+            raise SLDMigrationError("SLD " + context + " must be an object.")
+        _sld_unknown(block, SLD_ANNOTATION_BLOCK_FIELDS, context)
+        for field in ("block_id", "node_id", "visible", "fields", "offset_x", "offset_y"):
+            if field not in block:
+                raise SLDMigrationError("Missing annotation block field " + field + " in " + context + ".")
+        _sld_string(block["block_id"], "block_id", context)
+        if block["block_id"] in block_ids:
+            raise SLDMigrationError("Duplicate SLD annotation block ID " + repr(block["block_id"]) + ".")
+        block_ids.add(block["block_id"])
+        _sld_string(block["node_id"], "node_id", context)
+        if block["node_id"] not in node_ids:
+            raise SLDMigrationError("SLD " + context + " references a missing node.")
+        if not isinstance(block["visible"], bool):
+            raise SLDMigrationError("SLD " + context + " visible must be boolean.")
+        fields = block["fields"]
+        if not isinstance(fields, list) or not fields:
+            raise SLDMigrationError("SLD " + context + " fields must be a non-empty array.")
+        seen_fields = set()
+        for field in fields:
+            _sld_string(field, "field", context)
+            if field not in {"identity", "type"} and not (
+                field.startswith("label:") and field[6:].strip()
+                or field.startswith("attribute:") and field[10:].strip()
+                or field.startswith("parameter:") and field[10:].strip()
+            ):
+                raise SLDMigrationError("Unsupported annotation field " + repr(field) + " in " + context + ".")
+            if field in seen_fields:
+                raise SLDMigrationError("Duplicate annotation field " + repr(field) + " in " + context + ".")
+            seen_fields.add(field)
+        _sld_number(block["offset_x"], "offset_x", context)
+        _sld_number(block["offset_y"], "offset_y", context)
     connection_ids = set()
     for index, connection in enumerate(connections):
         context = "connection[" + str(index) + "]"
@@ -418,7 +477,7 @@ class ProjectPersistenceMigration:
         1: _ProjectSchema1To2(),
         2: _ProjectSchema2To3(),
     }
-    _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2()}
+    _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3()}
 
     def migrate_project(self, data: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(data, Mapping):
