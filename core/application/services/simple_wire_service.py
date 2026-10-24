@@ -192,6 +192,26 @@ class SimpleWireConnectionService:
         network = self._network(context)
         connection_id = str(command.payload["connection_id"])
         connection = network.get_simple_wire_connection(connection_id)
+
+        # Reversible remove commands carry endpoint snapshots. Check those
+        # snapshots before mutation so a stale inverse cannot remove a
+        # different relationship if an identifier has been reused or a
+        # command has become inconsistent with the canonical Network.
+        expected_a = command.payload.get("endpoint_a")
+        expected_b = command.payload.get("endpoint_b")
+        if expected_a is not None and expected_a != connection.endpoint_a:
+            raise ValidationError(
+                code="SIMPLE_WIRE_ENDPOINT_SNAPSHOT_MISMATCH",
+                message="The requested Simple Wire removal does not match endpoint A of the registered relationship.",
+                details={"connection_id": connection_id, "endpoint": "endpoint_a"},
+            )
+        if expected_b is not None and expected_b != connection.endpoint_b:
+            raise ValidationError(
+                code="SIMPLE_WIRE_ENDPOINT_SNAPSHOT_MISMATCH",
+                message="The requested Simple Wire removal does not match endpoint B of the registered relationship.",
+                details={"connection_id": connection_id, "endpoint": "endpoint_b"},
+            )
+
         removed = network.remove_simple_wire_connection(connection_id)
         transaction.record_undo(
             lambda connection=removed, network=network: network.add_simple_wire_connection(connection)
