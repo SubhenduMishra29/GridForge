@@ -3523,5 +3523,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Focused connection-route undo identity guard prepared for review.
+    Connection-route undo identity guard merged in PR #579
+    (merge commit 76a18f5488834f5ee21730ee166e210d43e2424e).
 ======================================================================
