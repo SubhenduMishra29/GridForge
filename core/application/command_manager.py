@@ -386,6 +386,12 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
+        except BaseException:
+            # Process-level interruptions during pre-commit still leave this
+            # execution path responsible for rolling back its active scope.
+            self._rollback_safely(transaction)
+            raise
+
         # ----------------------------------------------------
         # COMMIT
         # ----------------------------------------------------
@@ -399,12 +405,20 @@ class CommandManager:
         try:
             undo_journal = transaction.commit()
 
-        except ApplicationError:
-            self._rollback_safely(transaction)
-            raise
+        except BaseException as exc:
+            # A commit interruption may occur after Transaction has left OPEN.
+            # In that case rollback is not legal and Core/history consistency
+            # cannot be assumed, so fail closed.
+            if transaction.active:
+                self._rollback_safely(transaction)
+            else:
+                self._mark_degraded(exc)
 
-        except Exception as exc:
-            self._rollback_safely(transaction)
+            if isinstance(exc, ApplicationError):
+                raise
+
+            if not isinstance(exc, Exception):
+                raise
 
             raise ExecutionError(
                 code="COMMAND_COMMIT_FAILED",
