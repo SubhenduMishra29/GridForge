@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 
 
-from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
@@ -125,8 +125,16 @@ class EquipmentItem(BaseItem):
         self.setAcceptHoverEvents(True)
         mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
         mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-        self.setScale(self._symbol_instance.scale * (-1.0 if mirror_x else 1.0))
-        self.setRotation(self._symbol_instance.rotation + (180.0 if mirror_x and mirror_y else 0.0))
+        # Keep reflection in the item transform so painting and mapToScene()
+        # use the same transform for geometry and terminal anchors.
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(self._symbol_instance.scale)
+        self.setRotation(self._symbol_instance.rotation)
         self.setVisible(self._symbol_instance.visible)
         if position is not None:
             self.setPos(position)
@@ -170,11 +178,11 @@ class EquipmentItem(BaseItem):
         points = []
         for terminal in self._equipment.terminals:
             local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
-            mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
-            mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-            local_x = -float(local_anchor[0]) if mirror_x else float(local_anchor[0])
-            local_y = -float(local_anchor[1]) if mirror_y else float(local_anchor[1])
-            scene_point = self.mapToScene(QPointF(local_x, local_y))
+            # The item transform already applies reflections; transform the
+            # canonical anchor exactly once with the rendered symbol.
+            scene_point = self.mapToScene(
+                QPointF(float(local_anchor[0]), float(local_anchor[1]))
+            )
             points.append({
                 "position": scene_point,
                 "object_id": self.object_id,
@@ -232,19 +240,34 @@ class EquipmentItem(BaseItem):
                     radius * 2.0,
                 )
             elif kind == "text":
-                # SLD canvas is deliberately white; engineering annotations must
-                # use the canonical dark-on-light text token rather than the
-                # light symbol stroke used for geometry.
+                # Keep text readable and isolate its pen/font/transform from
+                # later primitives. Geometry and anchors still share the
+                # item's canonical mirror transform.
+                text_x = float(primitive["x"])
+                text_y = float(primitive["y"])
+                text_width = float(primitive["width"])
+                text_height = float(primitive["height"])
+                text_rect = QRectF(text_x, text_y, text_width, text_height)
+                mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
+                mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+                painter.save()
                 painter.setPen(QPen(token_color("text_inverse")))
                 painter.setFont(visual_font("engineering"))
+                if mirror_x or mirror_y:
+                    center_x = text_x + text_width / 2.0
+                    center_y = text_y + text_height / 2.0
+                    painter.translate(center_x, center_y)
+                    painter.scale(
+                        -1.0 if mirror_x else 1.0,
+                        -1.0 if mirror_y else 1.0,
+                    )
+                    painter.translate(-center_x, -center_y)
                 painter.drawText(
-                    QRectF(
-                        float(primitive["x"]), float(primitive["y"]),
-                        float(primitive["width"]), float(primitive["height"]),
-                    ),
+                    text_rect,
                     Qt.AlignmentFlag.AlignCenter,
                     str(primitive["text"]),
                 )
+                painter.restore()
 
     def hoverEnterEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.NORMAL:
