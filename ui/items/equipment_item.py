@@ -182,11 +182,14 @@ class EquipmentItem(BaseItem):
         return tuple(points)
 
     def boundingRect(self) -> QRectF:
+        # Include the outer half of the widest supported symbol stroke so Qt
+        # does not clip edge-aligned leads or under-invalidate their repaint area.
+        stroke_margin = 2.0
         return QRectF(
-            -self._symbol_definition.width / 2,
-            -self._symbol_definition.height / 2,
-            self._symbol_definition.width,
-            self._symbol_definition.height,
+            -self._symbol_definition.width / 2 - stroke_margin,
+            -self._symbol_definition.height / 2 - stroke_margin,
+            self._symbol_definition.width + 2 * stroke_margin,
+            self._symbol_definition.height + 2 * stroke_margin,
         )
 
     def _effective_state(self) -> VisualState:
