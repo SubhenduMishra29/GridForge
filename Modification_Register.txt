@@ -3133,3 +3133,34 @@ Disposition:
     remains outstanding.
 
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD PRESENTATION EDIT INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_node_properties() and _set_connection_route() applied presentation
+    changes and marked the document modified before registering their undo
+    inverses. Failures during either mutation path could leave a partial
+    presentation update without transaction compensation.
+
+Correction:
+    - Register each inverse after validation/no-op checks but before mutation.
+    - Resolve live node/connection identities at undo time to survive
+      remove/restore cycles.
+    - Preserve the prior node properties, connection route and connection
+      properties in the inverse.
+
+Verification boundary:
+    Static source/diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    Presentation edit inverse ordering corrected in source; runtime
+    confirmation remains outstanding.
+
+======================================================================

@@ -1511,9 +1511,6 @@ class SLDService:
                 message="SLD node presentation properties are unchanged.",
                 metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
             )
-        node.properties.clear()
-        node.properties.update(updated_properties)
-        self.document.mark_modified()
         def restore_properties() -> None:
             # Resolve through the live document model at undo time. A later
             # remove/restore cycle may have replaced the original node object;
@@ -1525,6 +1522,9 @@ class SLDService:
             self.document.mark_modified()
 
         transaction.record_undo(restore_properties)
+        node.properties.clear()
+        node.properties.update(updated_properties)
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD node presentation properties updated.",
             metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
@@ -1549,10 +1549,6 @@ class SLDService:
                 message="SLD connection route is unchanged.",
                 metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
             )
-        connection.route = updated
-        connection.properties.clear()
-        connection.properties.update(updated_properties)
-        self.document.mark_modified()
         def restore_route() -> None:
             # Undo may follow a remove/restore cycle that reconstructs the
             # connection object. Restore the live model object by canonical ID,
@@ -1564,6 +1560,10 @@ class SLDService:
             self.document.mark_modified()
 
         transaction.record_undo(restore_route)
+        connection.route = updated
+        connection.properties.clear()
+        connection.properties.update(updated_properties)
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD connection route updated.",
             metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
