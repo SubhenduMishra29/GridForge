@@ -89,6 +89,7 @@ class SLDCanvasRenderSystem:
         self._unsupported_connections: dict[str, str] = {}
         self._degraded_node_ids: set[str] = set()
         self._degraded_diagnostics: dict[str, RenderDiagnostic] = {}
+        self._reported_diagnostics: dict[str, tuple[str, ...]] = {}
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
@@ -304,6 +305,9 @@ class SLDCanvasRenderSystem:
         desired_ids.update(self._annotation_render_id(annotation.block_id) for annotation in committed.annotations)
         desired_ids.update(self._draft_render_id(node.draft_id) for node in draft.nodes)
         desired_ids.update(self._draft_render_id(connection.connection_id) for connection in draft.connections)
+        for diagnostic_id in tuple(self._reported_diagnostics):
+            if diagnostic_id not in desired_ids:
+                self._reported_diagnostics.pop(diagnostic_id, None)
         for item_id in tuple(self._items):
             if item_id not in desired_ids:
                 self._remove_realized(item_id)
@@ -364,7 +368,7 @@ class SLDCanvasRenderSystem:
                     code=code,
                     realization_stage="SemanticPresentationRealization -> SLDGraphicsItemFactory.create_node",
                 )
-                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+                self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
                 degraded = self._create_degraded_realization(node, message, code)
                 self._scene.addItem(degraded)
@@ -373,8 +377,6 @@ class SLDCanvasRenderSystem:
                 self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
-                if self._diagnostic_sink is not None:
-                    self._diagnostic_sink(diagnostic)
                 continue
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
@@ -384,6 +386,7 @@ class SLDCanvasRenderSystem:
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
             self._degraded_diagnostics.pop(node.node_id, None)
+            self._clear_reported_diagnostic(node.node_id)
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
             self._restore_node_selection(node, item)
@@ -425,9 +428,7 @@ class SLDCanvasRenderSystem:
                     code="DRAFT_PRESENTATION_REALIZATION_FAILED",
                     realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
                 )
-                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-                if self._diagnostic_sink is not None:
-                    self._diagnostic_sink(diagnostic)
+                self._record_diagnostic(render_id, diagnostic)
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
@@ -472,6 +473,7 @@ class SLDCanvasRenderSystem:
                 self._scene.addItem(item)
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
+                self._clear_reported_diagnostic(connection.connection_id)
             except Exception as exc:
                 self._record_connection_failure(
                     connection, "CONNECTION_REALIZATION_FAILED",
@@ -500,6 +502,7 @@ class SLDCanvasRenderSystem:
                 self._scene.addItem(item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
+                self._clear_reported_diagnostic(render_id)
             except Exception as exc:
                 self._record_draft_connection_failure(
                     connection,
@@ -601,6 +604,25 @@ class SLDCanvasRenderSystem:
             raise ValueError("Resolved endpoint has no scene position")
         return QPointF(float(position.x()), float(position.y())), object_id
 
+    def _record_diagnostic(self, identity: str, diagnostic: RenderDiagnostic) -> None:
+        """Keep active diagnostics visible while reporting each unchanged failure once."""
+        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+        key = (
+            diagnostic.category,
+            diagnostic.node_id,
+            diagnostic.connection_id or "",
+            diagnostic.code,
+            diagnostic.message,
+        )
+        if self._reported_diagnostics.get(identity) == key:
+            return
+        self._reported_diagnostics[identity] = key
+        if self._diagnostic_sink is not None:
+            self._diagnostic_sink(diagnostic)
+
+    def _clear_reported_diagnostic(self, identity: str) -> None:
+        self._reported_diagnostics.pop(identity, None)
+
     def _record_draft_connection_failure(self, connection: Any, code: str, message: str) -> None:
         render_id = self._draft_render_id(connection.connection_id)
         self._unsupported_connections[render_id] = message
@@ -615,9 +637,7 @@ class SLDCanvasRenderSystem:
             connection_id=render_id,
             code=code,
         )
-        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-        if self._diagnostic_sink is not None:
-            self._diagnostic_sink(diagnostic)
+        self._record_diagnostic(render_id, diagnostic)
 
     def _record_connection_failure(self, connection: Any, code: str, message: str) -> None:
         """Keep failed connection realization observable through RenderDiagnostic."""
@@ -633,9 +653,7 @@ class SLDCanvasRenderSystem:
             connection_id=connection.connection_id,
             code=code,
         )
-        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-        if self._diagnostic_sink is not None:
-            self._diagnostic_sink(diagnostic)
+        self._record_diagnostic(connection.connection_id, diagnostic)
 
     def _create_degraded_realization(self, node: Any, message: str, code: str) -> Any:
         """Create a visible/selectable presentation fallback without Core mutation."""
@@ -702,6 +720,7 @@ class SLDCanvasRenderSystem:
         self._render_signatures.pop(item_id, None)
         self._annotation_base_visibility.pop(item_id, None)
         self._degraded_diagnostics.pop(item_id, None)
+        self._clear_reported_diagnostic(item_id)
         self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
@@ -719,6 +738,7 @@ class SLDCanvasRenderSystem:
         self._annotation_base_visibility.clear()
         self._degraded_node_ids.clear()
         self._degraded_diagnostics.clear()
+        self._reported_diagnostics.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
