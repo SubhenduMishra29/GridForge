@@ -3036,3 +3036,36 @@ Disposition:
     change; runtime confirmation remains outstanding.
 
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ORPHANING TRANSACTION INVERSE ORDER
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_element_delete() mutated a customized SLD node and its attached
+    connections before registering the transaction inverse. A failure while
+    orphaning any connection could leave partial presentation changes without
+    a registered rollback operation.
+
+Correction:
+    - Register the node/connection snapshot inverse before the first mutation.
+    - Restore an existing orphaned node in place during undo; recreate it
+      only if it is absent, avoiding duplicate-node restoration failures.
+    - Restore attached connection snapshots and mark the document modified
+      when the inverse runs.
+    - Preserve the existing field-level ownership behavior and retain
+      annotation blocks for the intentionally orphaned node.
+
+Verification boundary:
+    Static source and diff review only. No tests, CI, syntax/import execution,
+    application startup, or GUI runtime verification performed.
+
+Disposition:
+    The inverse-registration ordering gap is corrected in source; runtime
+    confirmation remains outstanding.
+
+======================================================================
