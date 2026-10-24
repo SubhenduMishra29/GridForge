@@ -12,7 +12,7 @@ from math import isfinite
 from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel
-from ui.core.qt import QPointF
+from ui.core.qt import QPointF, QTransform
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.equipment.equipment_factory import EquipmentFactory
@@ -85,9 +85,19 @@ class SLDGraphicsItemFactory:
                 end=end,
                 attachment_count=definition.attachment_count,
             )
+            # Bus endpoints are already oriented by the canonical presentation
+            # definition. Apply only the symbol-instance rotation here to avoid
+            # rotating that geometry twice.
+            mirror_x = bool(symbol_instance.get_property("mirror_x", False))
+            mirror_y = bool(symbol_instance.get_property("mirror_y", False))
+            item.setTransform(
+                QTransform.fromScale(
+                    -1.0 if mirror_x else 1.0,
+                    -1.0 if mirror_y else 1.0,
+                )
+            )
             item.setScale(symbol_instance.scale)
-            item.setRotation(definition.orientation_deg + symbol_instance.rotation)
-            item.setScale(symbol_instance.scale * (-1.0 if symbol_instance.get_property("mirror_x", False) else 1.0))
+            item.setRotation(symbol_instance.rotation)
             item.setVisible(symbol_instance.visible)
             return item
 
