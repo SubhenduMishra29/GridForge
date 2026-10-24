@@ -107,7 +107,10 @@ class SelectionProjectionCoordinator:
             transition_operation = "commit"
         elif isinstance(event, NetworkChanged):
             operation = event.payload.get("operation")
-            if operation in {"undo", "redo"} and event.payload.get("presentation_operation") == "network_commit_draft":
+            # NetworkChanged is also emitted for unrelated topology edits. The
+            # commit-specific created_elements mapping identifies this history
+            # entry without relying on presentation-only metadata.
+            if operation in {"undo", "redo"} and "created_elements" in event.payload:
                 transition_operation = str(operation)
 
         if transition_operation is not None:
