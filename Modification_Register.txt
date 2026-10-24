@@ -3053,8 +3053,10 @@ Finding:
 
 Correction:
     - Register the node/connection snapshot inverse before the first mutation.
-    - Restore node and attached connection snapshots and mark the document
-      modified when the inverse runs.
+    - Restore an existing orphaned node in place during undo; recreate it
+      only if it is absent, avoiding duplicate-node restoration failures.
+    - Restore attached connection snapshots and mark the document modified
+      when the inverse runs.
     - Preserve the existing field-level ownership behavior and retain
       annotation blocks for the intentionally orphaned node.
 
