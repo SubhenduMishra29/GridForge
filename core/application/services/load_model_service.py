@@ -41,6 +41,8 @@ class LoadModelService(ModelServiceSupport):
     ) -> ApplicationResult[Load]:
         self._require_transaction(transaction)
         self._require_id(load_id, "load_id")
+        if endpoint is not None:
+            self._validate_endpoint(endpoint, "endpoint")
         self._ensure_not_exists("load", load_id, "Load")
         load = Load(
             id=load_id,
