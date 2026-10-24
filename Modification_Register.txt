@@ -3616,5 +3616,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD node creation compensation signature correction prepared for review.
+    SLD node creation compensation signature correction merged in PR #585
+    (merge commit 477e0e0b7cb6369d37ca6bf7484ed5a556ff49f9).
 ======================================================================
