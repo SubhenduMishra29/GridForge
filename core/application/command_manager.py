@@ -814,9 +814,16 @@ class CommandManager:
         return self._history.redo_count()
 
     def clear_history(self) -> None:
-        """Clear undo and redo history."""
+        """Clear undo and redo history, failing closed if clearing is interrupted."""
 
-        self._history.clear()
+        try:
+            self._history.clear()
+        except BaseException as exc:
+            # A partial clear can leave only one history direction available.
+            # Block further commands instead of continuing with uncertain
+            # history state, while preserving interruption semantics.
+            self._mark_degraded(exc)
+            raise
 
     def undo_commands(
         self,
