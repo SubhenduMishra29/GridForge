@@ -979,9 +979,11 @@ class PropertiesPanelWidget(QWidget):
         if self._apply_button is not None:
             self._apply_button.setEnabled(False)
         if self._validation_label is not None:
-            self._validation_label.setText(
-                "Update submitted. Waiting for authoritative read-model refresh."
-            )
+            # Application events are published synchronously by execute(); the
+            # projection coordinator may already have refreshed this panel.
+            # Do not overwrite that completed refresh with a misleading
+            # "waiting" status after control returns from the command path.
+            self._validation_label.setText("Engineering update accepted.")
 
 
 PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})
