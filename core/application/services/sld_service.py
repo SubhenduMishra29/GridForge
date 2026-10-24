@@ -1729,8 +1729,71 @@ class SLDService:
         def restore() -> None:
             rollback_errors: list[str] = []
             node_identity_safe = True
+
+            # Preflight every still-present attached connection before restoring
+            # the node. Otherwise a later connection collision can make undo
+            # fail after the node has already been recreated, leaving a partial
+            # graph restoration.
+            identity_property_keys = (
+                "core_connection_id",
+                "projection_source",
+                "connection_kind",
+                "presentation_owner",
+                "route_owner",
+                "lifecycle_state",
+            )
+            for snapshot in connection_snapshots:
+                connection_id = snapshot["connection_id"]
+                current = self.document.model.get_connection_optional(connection_id)
+                if current is None:
+                    continue
+                original = original_connections[connection_id]
+                if current is not original:
+                    node_identity_safe = False
+                    rollback_errors.append(
+                        "Cannot restore removed SLD node atomically; attached "
+                        f"connection identity reused: {connection_id!r}."
+                    )
+                    continue
+                snapshot_properties = dict(snapshot.get("properties", {}))
+                source = snapshot.get("source_endpoint")
+                target_endpoint = snapshot.get("target_endpoint")
+                current_source = (
+                    None if current.source_endpoint is None
+                    else current.source_endpoint.to_dict()
+                )
+                current_target = (
+                    None if current.target_endpoint is None
+                    else current.target_endpoint.to_dict()
+                )
+                expected_identity_properties = {
+                    key: deepcopy(snapshot_properties.get(key))
+                    for key in identity_property_keys
+                }
+                current_identity_properties = {
+                    key: deepcopy(current.properties.get(key))
+                    for key in identity_property_keys
+                }
+                if (
+                    current.source_node_id != snapshot["source_node_id"]
+                    or current.target_node_id != snapshot["target_node_id"]
+                    or current_source != source
+                    or current_target != target_endpoint
+                    or current_identity_properties != expected_identity_properties
+                ):
+                    node_identity_safe = False
+                    rollback_errors.append(
+                        "Cannot restore removed SLD node atomically; attached "
+                        f"connection identity or ownership changed: {connection_id!r}."
+                    )
+
             current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
-            if current_node is None:
+            if not node_identity_safe:
+                rollback_errors.append(
+                    "SLD node was not restored because attached-connection "
+                    "preflight found an identity conflict."
+                )
+            elif current_node is None:
                 try:
                     self.document.model.create_node(
                         node_id=node_snapshot["node_id"],

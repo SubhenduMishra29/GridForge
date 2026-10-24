@@ -3864,3 +3864,32 @@ Disposition:
     SLD node removal attached-connection undo guard merged in PR #604
     (merge commit c3358547caa61fc14683f7c348a2b3d7f4c4f95e).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE REMOVAL UNDO ATOMICITY PREFLIGHT
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_node() restored or recreated the node before checking whether
+    attached connections had been replaced or had identity/ownership drift.
+    A later connection conflict could therefore make undo fail after partial
+    graph restoration.
+
+Correction:
+    - Preflight all still-present attached connections before mutating the node.
+    - Reject node/connection restoration as a unit when a present attached
+      connection has been replaced or its endpoint/ownership identity changed.
+    - Preserve the existing per-connection checks as a defensive guard.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD node removal undo atomicity preflight prepared for review.
+======================================================================
