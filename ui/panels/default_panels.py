@@ -585,6 +585,19 @@ class PropertiesPanelWidget(QWidget):
         if target is None:
             if self._validation_label is not None:
                 self._validation_label.setText("Select an element to inspect.")
+                self._validation_label.setProperty("role", "validationInfo")
+            if self._apply_button is not None:
+                if not self._apply_changes_connected:
+                    try:
+                        self._apply_button.clicked.disconnect(self._place_draft)
+                    except (RuntimeError, TypeError):
+                        pass
+                    self._place_draft_connected = False
+                    self._apply_button.clicked.connect(self._apply_changes)
+                    self._apply_changes_connected = True
+                self._apply_button.setText("Apply / Commit")
+                self._apply_button.setProperty("role", "primaryAction")
+                self._apply_button.setEnabled(False)
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
         assert self._form_layout is not None
@@ -947,9 +960,10 @@ class PropertiesPanelWidget(QWidget):
         except (RuntimeError, TypeError, ValueError) as exc:
             if self._validation_label is not None:
                 self._validation_label.setText(f"Engineering update rejected: {exc}")
-            # Rebuild controls from the authoritative projection; local edits
-            # must never become a second source of truth.
-            self._render_projection(target)
+            # Rebuild from the panel's current projection, not the target
+            # captured before submission: selection may have changed while the
+            # Application command was being handled.
+            self._render_projection(self.logical_panel.target)
             return
 
         if not getattr(result, "success", False):
@@ -957,8 +971,9 @@ class PropertiesPanelWidget(QWidget):
             if self._validation_label is not None:
                 self._validation_label.setText(f"Engineering update rejected: {message}")
             # The command failed, so DraftChanged is not authoritative evidence
-            # of a mutation. Restore the inspector from the existing projection.
-            self._render_projection(target)
+            # of a mutation. Restore the currently selected projection; never
+            # resurrect a previous target after a selection transition.
+            self._render_projection(self.logical_panel.target)
             return
 
         if self._apply_button is not None:
