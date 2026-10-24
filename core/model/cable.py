@@ -108,7 +108,7 @@ class Cable(Branch):
                 thermal_limit_mva, "thermal_limit_mva"
             )
 
-        if not isinstance(conductor_count, int):
+        if isinstance(conductor_count, bool) or not isinstance(conductor_count, int):
             raise TypeError("conductor_count must be an integer.")
         if conductor_count < 1:
             raise ValueError("conductor_count must be at least 1.")
