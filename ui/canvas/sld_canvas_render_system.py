@@ -88,6 +88,7 @@ class SLDCanvasRenderSystem:
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
         self._degraded_node_ids: set[str] = set()
+        self._degraded_diagnostics: dict[str, RenderDiagnostic] = {}
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
@@ -320,9 +321,15 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(node.node_id) == signature
                 and node.node_id in self._items
-                and node.node_id not in self._degraded_node_ids
             ):
                 realized[node.node_id] = self._items[node.node_id][0]
+                if node.node_id in self._degraded_node_ids:
+                    diagnostic = self._degraded_diagnostics.get(node.node_id)
+                    if diagnostic is not None:
+                        # Keep the active failure observable without retrying an
+                        # unchanged realization or flooding the Messages panel.
+                        self._unsupported_presentations[node.node_id] = diagnostic.message
+                        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
                 self._restore_node_selection(node, realized[node.node_id])
                 continue
 
@@ -358,6 +365,7 @@ class SLDCanvasRenderSystem:
                     realization_stage="SemanticPresentationRealization -> SLDGraphicsItemFactory.create_node",
                 )
                 self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+                self._degraded_diagnostics[node.node_id] = diagnostic
                 degraded = self._create_degraded_realization(node, message, code)
                 self._scene.addItem(degraded)
                 self._items[node.node_id] = (degraded,)
@@ -375,6 +383,7 @@ class SLDCanvasRenderSystem:
                 self._snap_system.register_item(item)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
+            self._degraded_diagnostics.pop(node.node_id, None)
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
             self._restore_node_selection(node, item)
@@ -692,6 +701,7 @@ class SLDCanvasRenderSystem:
                 self._scene.removeItem(item)
         self._render_signatures.pop(item_id, None)
         self._annotation_base_visibility.pop(item_id, None)
+        self._degraded_diagnostics.pop(item_id, None)
         self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
@@ -708,6 +718,7 @@ class SLDCanvasRenderSystem:
         self._render_signatures.clear()
         self._annotation_base_visibility.clear()
         self._degraded_node_ids.clear()
+        self._degraded_diagnostics.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
