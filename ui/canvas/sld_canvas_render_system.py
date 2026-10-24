@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Callable
 
 from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem, Qt
@@ -44,9 +45,12 @@ class RenderDiagnostic:
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
+    DEFAULT_ANNOTATION_MIN_ZOOM = 0.65
+
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
-                 selection_manager: Any = None) -> None:
+                 selection_manager: Any = None,
+                 annotation_min_zoom: float = DEFAULT_ANNOTATION_MIN_ZOOM) -> None:
         if scene is None:
             raise ValueError("scene must not be None")
         if not isinstance(item_factory, SLDGraphicsItemFactory):
@@ -69,6 +73,15 @@ class SLDCanvasRenderSystem:
                 raise ValueError("SLDCanvasRenderSystem snap_system must target the same active SLD scene.")
             if not callable(getattr(snap_system, "register_item", None)) or not callable(getattr(snap_system, "unregister_item", None)):
                 raise TypeError("snap_system must expose canonical register_item()/unregister_item() lifecycle APIs.")
+        if isinstance(annotation_min_zoom, bool) or not isinstance(annotation_min_zoom, (int, float)):
+            raise TypeError("annotation_min_zoom must be numeric.")
+        annotation_min_zoom = float(annotation_min_zoom)
+        if not math.isfinite(annotation_min_zoom) or annotation_min_zoom <= 0.0:
+            raise ValueError("annotation_min_zoom must be finite and greater than zero.")
+        self._annotation_min_zoom = annotation_min_zoom
+        self._zoom_level = 1.0
+        self._navigation_controller: Any = None
+        self._annotation_base_visibility: dict[str, bool] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
@@ -101,6 +114,45 @@ class SLDCanvasRenderSystem:
     def unsupported_presentations(self) -> dict[str, str]:
         """Return authored node IDs whose presentation could not be realized."""
         return dict(self._unsupported_presentations)
+
+    def bind_navigation_controller(self, navigation_controller: Any) -> None:
+        """Observe the canonical viewport zoom to keep annotation density readable."""
+        if navigation_controller is None:
+            raise ValueError("navigation_controller must not be None")
+        add_listener = getattr(navigation_controller, "add_zoom_changed_listener", None)
+        remove_listener = getattr(navigation_controller, "remove_zoom_changed_listener", None)
+        get_zoom_level = getattr(navigation_controller, "get_zoom_level", None)
+        if not callable(add_listener) or not callable(remove_listener) or not callable(get_zoom_level):
+            raise TypeError("navigation_controller must expose zoom listener and state APIs")
+        if self._navigation_controller is navigation_controller:
+            self.set_zoom_level(get_zoom_level())
+            return
+        self._unbind_navigation_controller()
+        self._navigation_controller = navigation_controller
+        self.set_zoom_level(get_zoom_level())
+        add_listener(self.set_zoom_level)
+
+    def _unbind_navigation_controller(self) -> None:
+        controller = self._navigation_controller
+        self._navigation_controller = None
+        remove_listener = getattr(controller, "remove_zoom_changed_listener", None)
+        if callable(remove_listener):
+            remove_listener(self.set_zoom_level)
+
+    def set_zoom_level(self, level: float) -> None:
+        """Update transient annotation visibility without changing saved SLD settings."""
+        if isinstance(level, bool) or not isinstance(level, (int, float)):
+            raise TypeError("zoom level must be numeric")
+        level = float(level)
+        if not math.isfinite(level) or level <= 0.0:
+            raise ValueError("zoom level must be finite and greater than zero")
+        self._zoom_level = level
+        annotations_visible_at_zoom = level >= self._annotation_min_zoom
+        for render_id, base_visible in tuple(self._annotation_base_visibility.items()):
+            items = self._items.get(render_id, ())
+            for item in items:
+                if item is not None:
+                    item.setVisible(base_visible and annotations_visible_at_zoom)
 
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
         """Bind an optional application/UI diagnostic consumer."""
@@ -456,7 +508,8 @@ class SLDCanvasRenderSystem:
             # connection, or placement gestures intended for underlying SLD items.
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
-            item.setVisible(bool(annotation.visible))
+            self._annotation_base_visibility[render_id] = bool(annotation.visible)
+            item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
             item.setZValue(5.0)
             self._scene.addItem(item)
             self._items[render_id] = (item,)
@@ -634,6 +687,7 @@ class SLDCanvasRenderSystem:
             if item is not None and item.scene() is self._scene:
                 self._scene.removeItem(item)
         self._render_signatures.pop(item_id, None)
+        self._annotation_base_visibility.pop(item_id, None)
         self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
@@ -648,12 +702,14 @@ class SLDCanvasRenderSystem:
             self._snap_system.clear_candidates()
         self._items.clear()
         self._render_signatures.clear()
+        self._annotation_base_visibility.clear()
         self._degraded_node_ids.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
 
     def dispose(self) -> None:
+        self._unbind_navigation_controller()
         self.clear()
         self._unbind_route_edit_controller()
 
