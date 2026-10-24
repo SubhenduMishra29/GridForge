@@ -40,13 +40,30 @@ class ShuntModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(shunt_id, "shunt_id"); shunt = self._get_required("shunt", shunt_id, "Shunt"); self._require_type(shunt, Shunt, shunt_id, "Shunt")
         if all(v is None for v in (name, g_pu, b_pu, in_service)): raise DomainError(code="NO_SHUNT_UPDATE", message="At least one mutable Shunt property must be specified.", details={"shunt_id": shunt_id})
         old = {"name": shunt.name, "g_pu": shunt.g_pu, "b_pu": shunt.b_pu, "in_service": shunt.in_service}
-        if name is not None: shunt.name = name
-        if g_pu is not None: shunt.g_pu = g_pu
-        if b_pu is not None: shunt.b_pu = b_pu
-        if in_service is not None: shunt.set_in_service(in_service)
-        if in_service is not None: self._network.invalidate_topology()
-        def restore() -> None: shunt.name = old["name"]; shunt.g_pu = old["g_pu"]; shunt.b_pu = old["b_pu"]; shunt.set_in_service(old["in_service"]); self._network.invalidate_topology()
-        transaction.record_undo(restore); return self._success(shunt, "shunt", shunt_id, f"Shunt updated: {shunt_id}")
+        service_state_changed = in_service is not None and in_service != old["in_service"]
+        def restore_snapshot() -> None:
+            shunt.name = old["name"]
+            shunt.g_pu = old["g_pu"]
+            shunt.b_pu = old["b_pu"]
+            shunt.set_in_service(old["in_service"])
+        try:
+            if name is not None: shunt.name = name
+            if g_pu is not None: shunt.g_pu = g_pu
+            if b_pu is not None: shunt.b_pu = b_pu
+            if in_service is not None: shunt.set_in_service(in_service)
+            shunt.validate_parameters()
+        except Exception:
+            restore_snapshot()
+            raise
+        if service_state_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            restore_snapshot()
+            shunt.validate_parameters()
+            if service_state_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore)
+        return self._success(shunt, "shunt", shunt_id, f"Shunt updated: {shunt_id}")
 
     def delete_shunt(self, *, shunt_id: str, transaction: Transaction) -> ApplicationResult[Shunt]:
         self._require_transaction(transaction); self._require_id(shunt_id, "shunt_id"); shunt = self._get_required("shunt", shunt_id, "Shunt"); self._require_type(shunt, Shunt, shunt_id, "Shunt"); self._network.remove_shunt(shunt); transaction.record_undo(lambda shunt=shunt: self._network.add_shunt(shunt)); return self._success(shunt, "shunt", shunt_id, f"Shunt deleted: {shunt_id}")
