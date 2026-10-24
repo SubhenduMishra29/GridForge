@@ -91,6 +91,30 @@ class SLDDocument(Document):
             self.mark_modified()
         return normalized
 
+    def replace_annotation_blocks(
+        self,
+        blocks: list[SLDAnnotationBlock | Mapping[str, Any]],
+        *,
+        mark_modified: bool = True,
+    ) -> tuple[SLDAnnotationBlock, ...]:
+        """Atomically replace the full annotation configuration after validation."""
+        if not isinstance(blocks, list):
+            raise TypeError("annotation blocks must be supplied as a list")
+        normalized = [
+            block if isinstance(block, SLDAnnotationBlock) else SLDAnnotationBlock.from_dict(block)
+            for block in blocks
+        ]
+        identifiers = [block.block_id for block in normalized]
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("SLD annotation block IDs must be unique")
+        for block in normalized:
+            if self._model.get_node_optional(block.node_id) is None:
+                raise ValueError("Annotation block references unknown SLD node: " + block.node_id)
+        self._annotation_blocks = normalized
+        if mark_modified:
+            self.mark_modified()
+        return tuple(self._annotation_blocks)
+
     def remove_annotation_block(self, block_id: str) -> SLDAnnotationBlock:
         """Remove a configured presentation data block."""
         for index, block in enumerate(self._annotation_blocks):

@@ -26,6 +26,7 @@ from core.application.commands.sld_commands import (
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
     SetSLDNodePropertiesCommand,
+    SetSLDAnnotationBlocksCommand,
     SetSLDConnectionRouteCommand,
 )
 
@@ -215,6 +216,16 @@ class SLDController:
     def set_node_properties(self, node_id: str, properties: Dict[str, Any]) -> None:
         self._require_active_document()
         result = self.application.execute(SetSLDNodePropertiesCommand(node_id=node_id, properties=properties))
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def set_annotation_blocks(self, annotation_blocks: list[dict[str, Any]]) -> None:
+        """Persist annotation edits through Application command history."""
+        self._require_active_document()
+        result = self.application.execute(
+            SetSLDAnnotationBlocksCommand(annotation_blocks=annotation_blocks)
+        )
         if not result.success:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
