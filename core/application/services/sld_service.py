@@ -1992,19 +1992,18 @@ class SLDService:
                 raise ValueError(
                     f"Cannot undo SLD node property edit; node is absent: {p['node_id']!r}."
                 )
-            if target is not original_node:
-                target_identity = {
-                    key: target.properties.get(key)
-                    for key in original_node_identity
-                }
-                if (
-                    target.equipment_id != original_equipment_id
-                    or target_identity != original_node_identity
-                ):
-                    raise ValueError(
-                        "Cannot undo SLD node property edit; a different logical "
-                        f"node owns identity {p['node_id']!r}."
-                    )
+            target_identity = {
+                key: deepcopy(target.properties.get(key))
+                for key in original_node_identity
+            }
+            if (
+                target.equipment_id != original_equipment_id
+                or target_identity != original_node_identity
+            ):
+                raise ValueError(
+                    "Cannot undo SLD node property edit; the live node's logical "
+                    f"identity changed for {p['node_id']!r}."
+                )
             target.properties.clear()
             target.properties.update(deepcopy(previous))
             self.document.mark_modified()
