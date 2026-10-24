@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Mapping, Any
+import math
 from uuid import UUID, uuid4
 
 from ..command import Command
@@ -55,8 +56,12 @@ class InsertEquipmentIntoConnectionCommand(Command):
             raise TypeError("insertion_position coordinates must be numeric.")
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
             raise TypeError("insertion_position coordinates must be numeric.")
+        if not math.isfinite(float(x)) or not math.isfinite(float(y)):
+            raise ValueError("insertion_position coordinates must be finite.")
         if isinstance(orientation, bool) or not isinstance(orientation, (int, float)):
             raise TypeError("orientation must be numeric.")
+        if not math.isfinite(float(orientation)):
+            raise ValueError("orientation must be finite.")
         if isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 0:
             raise ValueError("segment_index must be a non-negative integer.")
         if terminal_mapping is not None:
@@ -76,6 +81,8 @@ class InsertEquipmentIntoConnectionCommand(Command):
                     raise TypeError("terminal anchor positions must contain exactly two coordinates.")
                 if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in anchor):
                     raise TypeError("terminal anchor coordinates must be numeric.")
+                if any(not math.isfinite(float(value)) for value in anchor):
+                    raise ValueError("terminal anchor coordinates must be finite.")
 
         super().__init__(
             command_type=INSERT_EQUIPMENT_INTO_CONNECTION,
