@@ -1265,10 +1265,34 @@ class SLDService:
         presentation_id = connection.connection_id
         snapshot = connection.to_dict()
         if not self.has_engineer_presentation_overrides_for_connection(connection):
+            # Register the inverse before removing the presentation connection.
+            transaction.record_undo(
+                lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot)
+            )
             self.document.model.remove_connection(presentation_id)
             self.document.mark_modified()
-            transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
             return "REMOVED"
+
+        def restore_orphaned_connection(snapshot=snapshot) -> None:
+            current = self.document.model.get_connection_optional(snapshot["connection_id"])
+            if current is None:
+                self._restore_connection_snapshot(snapshot)
+            else:
+                source = snapshot.get("source_endpoint")
+                target = snapshot.get("target_endpoint")
+                current.source_endpoint = (
+                    None if source is None else SLDEndpoint.from_dict(source)
+                )
+                current.target_endpoint = (
+                    None if target is None else SLDEndpoint.from_dict(target)
+                )
+                current.properties.clear()
+                current.properties.update(dict(snapshot.get("properties", {})))
+                self.document.mark_modified()
+
+        # The authored connection remains in the document, so undo must restore
+        # it in place rather than attempting to create a duplicate identity.
+        transaction.record_undo(restore_orphaned_connection)
         connection.source_endpoint = None
         connection.target_endpoint = None
         connection.properties.pop("projection_source", None)
@@ -1278,7 +1302,6 @@ class SLDService:
         connection.properties["orphaned_from_core_connection_id"] = connection_id
         connection.properties["lifecycle_state"] = "ORPHANED"
         self.document.mark_modified()
-        transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
         return "ORPHANED"
 
     def _restore_node_snapshot(self, snapshot: Mapping[str, Any]) -> None:
@@ -1327,10 +1350,6 @@ class SLDService:
         remaining_annotations = [
             item for item in annotation_snapshot if item.get("node_id") != node_id
         ]
-        self.document.model.remove_node(node_id)
-        self.document.replace_annotation_blocks(remaining_annotations)
-        self.document.mark_modified()
-
         def restore() -> None:
             # Refuse to overwrite identities that may have been created by an
             # independent mutation after this removal. A failed restoration
@@ -1371,7 +1390,12 @@ class SLDService:
             self.document.replace_annotation_blocks(annotation_snapshot)
             self.document.mark_modified()
 
+        # Record the complete inverse before removing the node, its attached
+        # connections, or its annotation blocks.
         transaction.record_undo(restore)
+        self.document.model.remove_node(node_id)
+        self.document.replace_annotation_blocks(remaining_annotations)
+        self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD node removed.",
             metadata={"presentation_operation": "remove_node", "node_id": node_id},
