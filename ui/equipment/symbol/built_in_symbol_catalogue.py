@@ -12,7 +12,9 @@ from .symbol_registry import SymbolRegistry
 
 _BUILTIN_SYMBOLS = (
     ("bus", "Bus", ("bus",), (
-        {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
+        # IEEE/ANSI 315 busbar convention: distinguish the busbar from
+        # an ordinary conductor by a heavier stroke.
+        {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0, "stroke_width": 3.6},
     ), {"bus": (-28.0, 0.0)}),
     ("line", "Line", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
