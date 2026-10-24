@@ -233,6 +233,11 @@ class SLDService:
                     continue
                 source = current.source_endpoint.to_dict() if current.source_endpoint is not None else None
                 target = current.target_endpoint.to_dict() if current.target_endpoint is not None else None
+                current_route = (
+                    current.route.to_dict()
+                    if getattr(current, "route", None) is not None
+                    else None
+                )
                 if (
                     current.properties.get("projection_source") == "core_reconciliation"
                     and str(current.properties.get("core_connection_id")) == expected["core_connection_id"]
@@ -240,6 +245,8 @@ class SLDService:
                     and current.target_node_id == expected["target_node_id"]
                     and source == expected["source_endpoint"]
                     and target == expected["target_endpoint"]
+                    and current_route == expected["route"]
+                    and dict(current.properties) == expected["properties"]
                 ):
                     self.document.model.remove_connection(connection_id)
                 else:
@@ -341,12 +348,24 @@ class SLDService:
                 target = self._sld_node_for_endpoint_mapping(core.endpoint_b.to_mapping())
                 source_endpoint = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
                 target_endpoint = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+                expected_properties = {
+                    "connection_kind": "SIMPLE_WIRE",
+                    "presentation_owner": "projection",
+                    "projection_source": "core_reconciliation",
+                    "core_connection_id": core_id,
+                }
                 attempted_creations[presentation_id] = {
                     "core_connection_id": core_id,
                     "source_node_id": source,
                     "target_node_id": target,
                     "source_endpoint": source_endpoint.to_dict(),
                     "target_endpoint": target_endpoint.to_dict(),
+                    "route": {
+                        "routing_mode": "orthogonal",
+                        "ownership": "auto",
+                        "points": [],
+                    },
+                    "properties": expected_properties,
                 }
                 self.document.model.create_connection(
                     connection_id=presentation_id,
@@ -354,12 +373,7 @@ class SLDService:
                     target_node_id=target,
                     source_endpoint=source_endpoint,
                     target_endpoint=target_endpoint,
-                    properties={
-                        "connection_kind": "SIMPLE_WIRE",
-                        "presentation_owner": "projection",
-                        "projection_source": "core_reconciliation",
-                        "core_connection_id": core_id,
-                    },
+                    properties=expected_properties,
                 )
                 created = self.document.model.get_connection(presentation_id)
                 created_connections[presentation_id] = created
