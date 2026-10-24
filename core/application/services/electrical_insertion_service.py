@@ -93,10 +93,43 @@ class ElectricalInsertionService:
                 details={"equipment_type": equipment_type},
             )
 
-        connection_id = str(payload["connection_id"])
+        connection_id = str(payload["connection_id"]).strip()
+        if not connection_id:
+            raise ValidationError(
+                code="INVALID_INSERTION_CONNECTION",
+                message="Insertion requires a non-empty connection ID.",
+                details={},
+            )
         connection = network.get_simple_wire_connection(connection_id)
         endpoint_a = connection.endpoint_a
         endpoint_b = connection.endpoint_b
+
+        # Reserve deterministic replacement identities before any equipment,
+        # terminal, or topology mutation. A collision discovered after removing
+        # the original relationship would unnecessarily depend on rollback to
+        # recover the user's original connection.
+        first_connection_id = f"{connection_id}-A"
+        second_connection_id = f"{connection_id}-B"
+        if first_connection_id == second_connection_id:
+            raise ValidationError(
+                code="INSERTION_CONNECTION_ID_COLLISION",
+                message="Replacement connection IDs collide.",
+                details={"connection_id": connection_id},
+            )
+        existing_connection_ids = tuple(
+            candidate
+            for candidate in (first_connection_id, second_connection_id)
+            if network.connectivity.contains(candidate)
+        )
+        if existing_connection_ids:
+            raise ValidationError(
+                code="INSERTION_REPLACEMENT_CONNECTION_ID_EXISTS",
+                message="One or more deterministic replacement connection IDs are already in use.",
+                details={
+                    "connection_id": connection_id,
+                    "conflicting_connection_ids": existing_connection_ids,
+                },
+            )
         if endpoint_a == endpoint_b:
             raise ValidationError(
                 code="INVALID_INSERTION_CONNECTION",
@@ -397,11 +430,6 @@ class ElectricalInsertionService:
                 message=remove_result.message or "Original connection removal failed.",
                 details=dict(remove_result.metadata),
             )
-
-        first_connection_id = f"{connection_id}-A"
-        second_connection_id = f"{connection_id}-B"
-        if first_connection_id == second_connection_id:
-            raise ValidationError(code="INSERTION_CONNECTION_ID_COLLISION", message="Replacement connection IDs collide.", details={})
 
         first_result = self._command_executor(
             CreateSimpleWireConnectionCommand(
