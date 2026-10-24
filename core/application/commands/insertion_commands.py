@@ -71,18 +71,24 @@ class InsertEquipmentIntoConnectionCommand(Command):
                 raise ValueError("terminal_mapping roles must be non-empty strings.")
         if creation_parameters is not None and not isinstance(creation_parameters, Mapping):
             raise TypeError("creation_parameters must be a mapping or None.")
+        normalized_terminal_anchors: dict[str, tuple[float, float]] | None = None
         if terminal_anchors is not None:
             if not isinstance(terminal_anchors, Mapping):
                 raise TypeError("terminal_anchors must be a mapping or None.")
+            normalized_terminal_anchors = {}
             for role, anchor in terminal_anchors.items():
                 if not isinstance(role, str) or not role.strip():
                     raise ValueError("terminal_anchors keys must be non-empty strings.")
+                normalized_role = role.strip()
+                if normalized_role in normalized_terminal_anchors:
+                    raise ValueError("terminal_anchors keys must be unique after whitespace normalization.")
                 if not isinstance(anchor, (tuple, list)) or len(anchor) != 2:
                     raise TypeError("terminal anchor positions must contain exactly two coordinates.")
                 if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in anchor):
                     raise TypeError("terminal anchor coordinates must be numeric.")
                 if any(not math.isfinite(float(value)) for value in anchor):
                     raise ValueError("terminal anchor coordinates must be finite.")
+                normalized_terminal_anchors[normalized_role] = (float(anchor[0]), float(anchor[1]))
 
         super().__init__(
             command_type=INSERT_EQUIPMENT_INTO_CONNECTION,
@@ -97,10 +103,7 @@ class InsertEquipmentIntoConnectionCommand(Command):
                 "terminal_mapping": None if terminal_mapping is None else tuple(str(role).strip() for role in terminal_mapping),
                 "creation_parameters": {} if creation_parameters is None else dict(creation_parameters),
                 "segment_index": segment_index,
-                "terminal_anchors": None if terminal_anchors is None else {
-                    str(role).strip(): (float(anchor[0]), float(anchor[1]))
-                    for role, anchor in terminal_anchors.items()
-                },
+                "terminal_anchors": normalized_terminal_anchors,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
