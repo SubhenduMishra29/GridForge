@@ -1826,6 +1826,15 @@ class SLDService:
     def _set_node_properties(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         node = self.document.model.get_node(p["node_id"])
+        original_node = node
+        original_node_identity = {
+            key: deepcopy(node.properties.get(key))
+            for key in (
+                "element_type", "terminal_ids", "terminal_connectivity",
+                "projection_source", "lifecycle_state",
+            )
+        }
+        original_equipment_id = node.equipment_id
         previous = deepcopy(node.properties)
         properties = p["properties"]
         if not isinstance(properties, Mapping):
@@ -1854,7 +1863,24 @@ class SLDService:
             # remove/restore cycle may have replaced the original node object;
             # mutating the captured object would silently leave persisted state
             # unchanged on the currently registered node.
-            target = self.document.model.get_node(p["node_id"])
+            target = self.document.model.get_node_optional(p["node_id"])
+            if target is None:
+                raise ValueError(
+                    f"Cannot undo SLD node property edit; node is absent: {p['node_id']!r}."
+                )
+            if target is not original_node:
+                target_identity = {
+                    key: target.properties.get(key)
+                    for key in original_node_identity
+                }
+                if (
+                    target.equipment_id != original_equipment_id
+                    or target_identity != original_node_identity
+                ):
+                    raise ValueError(
+                        "Cannot undo SLD node property edit; a different logical "
+                        f"node owns identity {p['node_id']!r}."
+                    )
             target.properties.clear()
             target.properties.update(deepcopy(previous))
             self.document.mark_modified()
