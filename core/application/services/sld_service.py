@@ -1800,25 +1800,26 @@ class SLDService:
                 # create_connection can fail during route/endpoint
                 # normalization. Only remove a partially inserted object if
                 # its structural and ownership signature matches this command.
-                current_source = (
-                    current.source_endpoint.to_dict()
-                    if current.source_endpoint is not None else None
-                )
-                current_target = (
-                    current.target_endpoint.to_dict()
-                    if current.target_endpoint is not None else None
-                )
-                expected_source = (
-                    dict(source_endpoint) if isinstance(source_endpoint, Mapping) else source_endpoint
-                )
-                expected_target = (
-                    dict(target_endpoint) if isinstance(target_endpoint, Mapping) else target_endpoint
+                def endpoint_signature(endpoint: Any) -> dict[str, Any] | None:
+                    if endpoint is None:
+                        return None
+                    if isinstance(endpoint, Mapping):
+                        return SLDEndpoint.from_dict(endpoint).to_dict()
+                    if isinstance(endpoint, SLDEndpoint):
+                        return endpoint.to_dict()
+                    raise TypeError("SLD connection endpoint must be canonical endpoint data.")
+
+                expected_route = (
+                    SLDRoute.from_dict(route).to_dict()
+                    if isinstance(route, Mapping)
+                    else (route or SLDRoute()).to_dict()
                 )
                 if (
                     current.source_node_id != p["source_node_id"]
                     or current.target_node_id != p["target_node_id"]
-                    or current_source != expected_source
-                    or current_target != expected_target
+                    or endpoint_signature(current.source_endpoint) != endpoint_signature(source_endpoint)
+                    or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
+                    or current.route.to_dict() != expected_route
                     or dict(current.properties) != properties
                 ):
                     raise ValueError(
