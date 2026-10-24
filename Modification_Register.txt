@@ -3263,6 +3263,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Identity-safe restoration correction is on the focused branch pending
-    final diff review and PR creation.
+    Identity-safe restoration correction reviewed in PR #565; merge status
+    remains pending.
 ======================================================================
