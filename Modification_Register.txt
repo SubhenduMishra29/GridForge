@@ -3433,5 +3433,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    Focused node-removal restoration identity correction prepared for review.
+    Node-removal restoration identity correction merged in PR #573
+    (merge commit 7aa0e965aed42b3b92565c9ba64c034cdb558869).
 ======================================================================
