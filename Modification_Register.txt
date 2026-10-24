@@ -3894,3 +3894,32 @@ Disposition:
     SLD node removal undo atomicity preflight merged in PR #606
     (merge commit 94e0433e6838604104a1b6adec7aa82989249ccb).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD ADDED-CONNECTION UNDO SIGNATURE GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _add_connection() undo checked object identity after successful creation,
+    but did not check whether the same object had since been rebound or had
+    its route/ownership changed. Undo could remove conflicting live state.
+
+Correction:
+    - Validate source/target node IDs, endpoint data, normalized route, and
+      complete connection properties before removal.
+    - Apply the same structural signature guard to successful undo and partial
+      construction compensation.
+    - Preserve the replacement-object identity rejection.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD added-connection undo signature guard prepared for review.
+======================================================================
