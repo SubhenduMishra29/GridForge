@@ -170,23 +170,36 @@ class SLDCanvasProjection:
 
     def _project_node(self, node: SLDNode) -> SLDCanvasNode:
         read_model = None
+        projection_errors: dict[str, str] = {}
         if self._read_model_provider is not None and node.equipment_id:
-            read_model = self._read_model_provider(node.equipment_id)
-            if read_model is not None:
-                if not isinstance(read_model, ElementReadModel):
-                    raise TypeError(
-                        f"Read-model provider returned an unsupported value for {node.equipment_id!r}."
-                    )
-                if read_model.object_id != node.equipment_id:
-                    raise ValueError(
-                        f"Read-model provider identity mismatch for {node.equipment_id!r}."
-                    )
+            try:
+                read_model = self._read_model_provider(node.equipment_id)
+                if read_model is not None:
+                    if not isinstance(read_model, ElementReadModel):
+                        raise TypeError(
+                            f"Read-model provider returned an unsupported value for {node.equipment_id!r}."
+                        )
+                    if read_model.object_id != node.equipment_id:
+                        raise ValueError(
+                            f"Read-model provider identity mismatch for {node.equipment_id!r}."
+                        )
+            except Exception as exc:
+                # A stale/unavailable Application projection for one object
+                # must not prevent unrelated SLD nodes from being rendered.
+                # Keep the failure attached to this presentation snapshot; the
+                # renderer can use legacy semantic properties when available
+                # and report a node-local realization diagnostic otherwise.
+                read_model = None
+                projection_errors["_projection_read_model_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
         # Persisted presentation is user-editable presentation data, not
         # electrical truth. A malformed/obsolete symbol payload must not abort
         # projection of every other node in the document. Leave the presentation
         # absent so SemanticPresentationRealization can rebuild the canonical
         # symbol from the Application read model and equipment registry.
         properties = dict(node.properties)
+        properties.update(projection_errors)
         presentation = None
         if node.presentation is not None:
             try:
