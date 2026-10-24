@@ -953,9 +953,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             workspace_surface_host.set_sld_document(document)
             workspace_surface_host.refresh_sld_document_tabs()
             synchronize_canvas()
-            refresh_annotations = getattr(properties_panel, "refresh_sld_annotation_controls", None)
-            if callable(refresh_annotations):
-                refresh_annotations()
+            document_changed = getattr(properties_panel, "handle_sld_document_changed", None)
+            if callable(document_changed):
+                document_changed()
         else:
             # A non-SLD/empty workspace transition must not leave controls for
             # the previously active SLD document visible in the Properties panel.
@@ -1079,7 +1079,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     # event; explicitly synchronize the annotation inspector after binding.
     active_sld_document = project_workspace_lifecycle.documents.active_document
     if isinstance(active_sld_document, SLDDocument):
-        properties_panel.refresh_sld_annotation_controls()
+        properties_panel.handle_sld_document_changed()
     else:
         properties_panel.clear_sld_annotation_controls()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas, draft_projection=canvas_composition.draft_sld_projection)
