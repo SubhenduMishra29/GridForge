@@ -297,7 +297,9 @@ class DraftNetwork:
         self._connections[connection.connection_id] = connection; self.validation_state = {}
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
-        return self._connections.pop(connection_id)
+        connection = self._connections.pop(connection_id)
+        self.validation_state = {}
+        return connection
 
     def validate(self, network: Any | None = None) -> tuple[str, ...]:
         errors: list[str] = []
