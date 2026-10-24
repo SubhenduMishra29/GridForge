@@ -11,7 +11,7 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, QTransform, Qt
+from ui.core.qt import QGraphicsItem, QLineF, QPainter, QRectF, QTransform, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
@@ -127,21 +127,27 @@ class SymbolPreviewItem(QGraphicsItem):
             kind = primitive.get("kind")
             if kind == "line":
                 painter.drawLine(
-                    float(primitive["x1"]), float(primitive["y1"]),
-                    float(primitive["x2"]), float(primitive["y2"]),
+                    QLineF(
+                        float(primitive["x1"]), float(primitive["y1"]),
+                        float(primitive["x2"]), float(primitive["y2"]),
+                    )
                 )
             elif kind == "rect":
                 painter.drawRect(
-                    float(primitive["x"]), float(primitive["y"]),
-                    float(primitive["width"]), float(primitive["height"]),
+                    QRectF(
+                        float(primitive["x"]), float(primitive["y"]),
+                        float(primitive["width"]), float(primitive["height"]),
+                    )
                 )
             elif kind == "circle":
                 radius = float(primitive["r"])
                 painter.drawEllipse(
-                    float(primitive["cx"]) - radius,
-                    float(primitive["cy"]) - radius,
-                    radius * 2.0,
-                    radius * 2.0,
+                    QRectF(
+                        float(primitive["cx"]) - radius,
+                        float(primitive["cy"]) - radius,
+                        radius * 2.0,
+                        radius * 2.0,
+                    )
                 )
             elif kind == "text":
                 painter.drawText(
