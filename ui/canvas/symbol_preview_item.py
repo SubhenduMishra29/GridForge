@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
+from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, QTransform, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
@@ -39,8 +40,22 @@ class SymbolPreviewItem(QGraphicsItem):
         self._element_type = str(element_type)
         self._presentation_state = MappingProxyType(dict(presentation_state or {}))
         self._visual_state = VisualState.PREVIEW
+        state = self._presentation_state
+        mirror_x = bool(state.get("mirror_x", False))
+        mirror_y = bool(state.get("mirror_y", False))
+        scale = float(state.get("scale", 1.0))
+        if not isfinite(scale) or scale <= 0.0:
+            raise ValueError("Draft symbol scale must be finite and greater than zero.")
         self.setPos(self._point(position))
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(scale)
         self.setRotation(float(rotation))
+        self.setVisible(bool(state.get("visible", True)))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
