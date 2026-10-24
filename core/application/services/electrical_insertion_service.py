@@ -211,16 +211,58 @@ class ElectricalInsertionService:
             parameters=parameters,
         )
 
-        # The complete insertion definition is validated above before the
-        # canonical creation child command can be constructed or any Core
-        # mutation can occur.
-        insertion_position = tuple(payload["insertion_position"])
-        if len(insertion_position) != 2:
+        # Validate all placement metadata before constructing child commands
+        # or mutating Core state. These values are persisted in the result and
+        # consumed by the projection layer, so malformed metadata must not
+        # survive until after topology has changed.
+        raw_position = payload.get("insertion_position")
+        if not isinstance(raw_position, (tuple, list)) or len(raw_position) != 2:
             raise ValidationError(
                 code="INVALID_INSERTION_POSITION",
                 message="Insertion position must contain exactly two coordinates.",
                 details={},
             )
+        insertion_position_values: list[float] = []
+        for coordinate in raw_position:
+            if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                raise ValidationError(
+                    code="INVALID_INSERTION_POSITION",
+                    message="Insertion coordinates must be finite numeric values.",
+                    details={"insertion_position": raw_position},
+                )
+            numeric_coordinate = float(coordinate)
+            if not math.isfinite(numeric_coordinate):
+                raise ValidationError(
+                    code="INVALID_INSERTION_POSITION",
+                    message="Insertion coordinates must be finite numeric values.",
+                    details={"insertion_position": raw_position},
+                )
+            insertion_position_values.append(numeric_coordinate)
+        insertion_position = tuple(insertion_position_values)
+
+        raw_orientation = payload.get("orientation")
+        if isinstance(raw_orientation, bool) or not isinstance(raw_orientation, (int, float)):
+            raise ValidationError(
+                code="INVALID_INSERTION_ORIENTATION",
+                message="Insertion orientation must be a finite numeric value.",
+                details={"orientation": raw_orientation},
+            )
+        orientation = float(raw_orientation)
+        if not math.isfinite(orientation):
+            raise ValidationError(
+                code="INVALID_INSERTION_ORIENTATION",
+                message="Insertion orientation must be a finite numeric value.",
+                details={"orientation": raw_orientation},
+            )
+
+        raw_segment_index = payload.get("segment_index")
+        if isinstance(raw_segment_index, bool) or not isinstance(raw_segment_index, int) or raw_segment_index < 0:
+            raise ValidationError(
+                code="INVALID_INSERTION_SEGMENT_INDEX",
+                message="Insertion segment index must be a non-negative integer.",
+                details={"segment_index": raw_segment_index},
+            )
+        segment_index = raw_segment_index
 
         # The first mapped terminal is connected to the first side of the
         # existing relationship; the second mapped terminal is connected to
@@ -433,8 +475,8 @@ class ElectricalInsertionService:
                 "equipment_id": equipment_id,
                 "existing_equipment": existing_equipment,
                 "insertion_position": insertion_position,
-                "orientation": float(payload["orientation"]),
-                "segment_index": int(payload["segment_index"]),
+                "orientation": orientation,
+                "segment_index": segment_index,
                 "terminal_anchors": payload.get("terminal_anchors"),
                 "terminal_mapping": tuple(terminal_mapping),
                 "endpoint_a": dict(endpoint_a.to_mapping()),
