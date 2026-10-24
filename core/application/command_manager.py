@@ -134,7 +134,7 @@ class CommandManager:
             else CommandHistory()
         )
         self._integrity_state = "CLEAN"
-        self._integrity_error: Exception | None = None
+        self._integrity_error: BaseException | None = None
         self._pre_commit_hook: PreCommitHook | None = None
 
     # ========================================================
@@ -162,7 +162,7 @@ class CommandManager:
         return self._integrity_state
 
     @property
-    def integrity_error(self) -> Exception | None:
+    def integrity_error(self) -> BaseException | None:
         """Return the failure that caused a degraded command boundary, if any."""
         return self._integrity_error
 
@@ -184,7 +184,7 @@ class CommandManager:
                 cause=self._integrity_error,
             )
 
-    def _mark_degraded(self, error: Exception) -> None:
+    def _mark_degraded(self, error: BaseException) -> None:
         self._integrity_state = "DEGRADED"
         self._integrity_error = error
 
@@ -814,9 +814,16 @@ class CommandManager:
         return self._history.redo_count()
 
     def clear_history(self) -> None:
-        """Clear undo and redo history."""
+        """Clear undo and redo history, failing closed if clearing is interrupted."""
 
-        self._history.clear()
+        try:
+            self._history.clear()
+        except BaseException as exc:
+            # A partial clear can leave only one history direction available.
+            # Block further commands instead of continuing with uncertain
+            # history state, while preserving interruption semantics.
+            self._mark_degraded(exc)
+            raise
 
     def undo_commands(
         self,
