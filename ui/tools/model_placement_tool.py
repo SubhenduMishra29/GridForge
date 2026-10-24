@@ -219,8 +219,8 @@ class ModelPlacementTool(ToolBase):
             f"{equipment_type} draft placed. Use Commit Network to commit the drawing."
         )
         return True
-    @staticmethod
     def _to_draft_endpoint_reference(
+        self,
         endpoint: Any,
         *,
         draft_id: str,
@@ -237,19 +237,42 @@ class ModelPlacementTool(ToolBase):
             raise TypeError(
                 f"Creation endpoint for {terminal_role!r} must be an EndpointReference."
             )
+        # Scope is resolved against Application-owned draft identities, never
+        # inferred from a graphics-item or terminal-registry identifier.
+        draft_equipment = ()
+        read_draft_network = getattr(self.application, "read_draft_network", None)
+        if callable(read_draft_network):
+            snapshot = read_draft_network()
+            if isinstance(snapshot, dict):
+                draft_equipment = tuple(snapshot.get("equipment", ()))
+        draft_item = next(
+            (
+                item for item in draft_equipment
+                if str(item.get("draft_id", "")) == str(endpoint.object_id)
+                and (
+                    endpoint.is_bus
+                    and str(item.get("equipment_type", "")).strip().lower() == "bus"
+                    or endpoint.is_terminal
+                    and str(item.get("equipment_type", "")).strip().lower()
+                    == str(endpoint.equipment_type.value).strip().lower()
+                )
+            ),
+            None,
+        )
+        scope = "draft" if draft_item is not None else "core"
         if endpoint.is_bus:
             return DraftEndpointReference.bus(
                 bus_id=str(endpoint.object_id),
                 attachment_id=str(endpoint.attachment_id),
+                scope=scope,
             )
-        # A terminal endpoint acquired during creation identifies the external
-        # Core endpoint; it must not be rewritten as the placed equipment's
-        # own terminal identity.
+        # Preserve the snapped equipment identity and scope. The role is the
+        # external terminal role, not the newly placed equipment's terminal.
         return DraftEndpointReference.terminal(
             draft_id=str(endpoint.object_id),
             equipment_type=str(endpoint.equipment_type.value),
             terminal_role=str(endpoint.terminal_role),
-            scope="core",
+            scope=scope,
         )
 
     @staticmethod
