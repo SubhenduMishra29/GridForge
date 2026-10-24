@@ -1606,10 +1606,14 @@ class SLDService:
             if node.properties.get("projection_source") != projection_source:
                 raise ValueError("SLD node projection ownership does not match the removal command.")
         node_snapshot = node.to_dict()
-        connection_snapshots = tuple(
-            connection.to_dict()
+        original_node = node
+        original_connections = {
+            connection.connection_id: connection
             for connection in self.document.model.connections
             if connection.source_node_id == node_id or connection.target_node_id == node_id
+        }
+        connection_snapshots = tuple(
+            connection.to_dict() for connection in original_connections.values()
         )
         annotation_snapshot = [
             block.to_dict() for block in self.document.annotation_blocks
@@ -1618,44 +1622,74 @@ class SLDService:
             item for item in annotation_snapshot if item.get("node_id") != node_id
         ]
         def restore() -> None:
-            # Refuse to overwrite identities that may have been created by an
-            # independent mutation after this removal. A failed restoration
-            # must surface through Transaction.rollback()/CommandManager.undo().
-            if self.document.model.get_node_optional(node_snapshot["node_id"]) is not None:
-                raise ValueError(
-                    f"Cannot restore removed SLD node; identity already exists: "
-                    f"{node_snapshot['node_id']!r}."
+            rollback_errors: list[str] = []
+            node_identity_safe = True
+            current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
+            if current_node is None:
+                try:
+                    self.document.model.create_node(
+                        node_id=node_snapshot["node_id"],
+                        equipment_id=node_snapshot.get("equipment_id"),
+                        x=node_snapshot.get("x", 0.0),
+                        y=node_snapshot.get("y", 0.0),
+                        presentation=node_snapshot.get("presentation"),
+                        properties=node_snapshot.get("properties", {}),
+                    )
+                except Exception as exc:
+                    node_identity_safe = False
+                    rollback_errors.append(f"Cannot restore SLD node {node_snapshot['node_id']!r}: {exc}")
+            elif current_node is not original_node:
+                node_identity_safe = False
+                rollback_errors.append(
+                    f"Cannot restore removed SLD node; identity reused: {node_snapshot['node_id']!r}."
                 )
-            existing_connections = {
-                item["connection_id"]
-                for item in connection_snapshots
-                if self.document.model.get_connection_optional(item["connection_id"]) is not None
-            }
-            if existing_connections:
-                raise ValueError(
-                    "Cannot restore removed SLD node; connection identities already "
-                    f"exist: {sorted(existing_connections)!r}."
+            else:
+                current_node.set_position(
+                    float(node_snapshot.get("x", 0.0)),
+                    float(node_snapshot.get("y", 0.0)),
                 )
-            self.document.model.create_node(
-                node_id=node_snapshot["node_id"],
-                equipment_id=node_snapshot.get("equipment_id"),
-                x=node_snapshot.get("x", 0.0),
-                y=node_snapshot.get("y", 0.0),
-                presentation=node_snapshot.get("presentation"),
-                properties=node_snapshot.get("properties", {}),
-            )
-            for snapshot in connection_snapshots:
-                self.document.model.create_connection(
-                    connection_id=snapshot["connection_id"],
-                    source_node_id=snapshot["source_node_id"],
-                    target_node_id=snapshot["target_node_id"],
-                    source_endpoint=snapshot.get("source_endpoint"),
-                    target_endpoint=snapshot.get("target_endpoint"),
-                    route=snapshot.get("route"),
-                    properties=snapshot.get("properties", {}),
+                if node_snapshot.get("presentation") is None:
+                    current_node.clear_presentation()
+                else:
+                    current_node.set_presentation(node_snapshot["presentation"])
+                current_node.properties.clear()
+                current_node.properties.update(deepcopy(dict(node_snapshot.get("properties", {}))))
+                current_node.equipment_id = node_snapshot.get("equipment_id")
+
+            if not node_identity_safe:
+                rollback_errors.append(
+                    "Attached connections were not restored because the original node identity is unavailable."
                 )
+            for snapshot in (connection_snapshots if node_identity_safe else ()):
+                connection_id = snapshot["connection_id"]
+                current = self.document.model.get_connection_optional(connection_id)
+                original = original_connections[connection_id]
+                if current is None:
+                    try:
+                        self._restore_connection_snapshot(snapshot)
+                    except Exception as exc:
+                        rollback_errors.append(f"Cannot restore SLD connection {connection_id!r}: {exc}")
+                elif current is not original:
+                    rollback_errors.append(
+                        f"Cannot restore removed SLD node; connection identity reused: {connection_id!r}."
+                    )
+                else:
+                    current.source_node_id = snapshot["source_node_id"]
+                    current.target_node_id = snapshot["target_node_id"]
+                    source = snapshot.get("source_endpoint")
+                    target_endpoint = snapshot.get("target_endpoint")
+                    current.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
+                    current.target_endpoint = None if target_endpoint is None else SLDEndpoint.from_dict(target_endpoint)
+                    route = snapshot.get("route")
+                    if route is not None:
+                        current.route = current.route.__class__.from_dict(route)
+                    current.properties.clear()
+                    current.properties.update(deepcopy(dict(snapshot.get("properties", {}))))
+
             self.document.replace_annotation_blocks(annotation_snapshot)
             self.document.mark_modified()
+            if rollback_errors:
+                raise ValueError("SLD node removal rollback conflicts: " + " | ".join(rollback_errors))
 
         # Record the complete inverse before removing the node, its attached
         # connections, or its annotation blocks.
