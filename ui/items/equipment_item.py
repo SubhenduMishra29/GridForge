@@ -6,7 +6,59 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Optional
+
+
+_PRIMITIVE_FIELDS = {
+    "line": ("x1", "y1", "x2", "y2"),
+    "rect": ("x", "y", "width", "height"),
+    "circle": ("cx", "cy", "r"),
+    "text": ("x", "y", "width", "height", "text"),
+}
+
+
+def _validate_symbol_primitives(definition: SymbolDefinition) -> None:
+    """Reject unsupported or malformed primitives before Qt invokes paint()."""
+    for index, primitive in enumerate(definition.primitives):
+        kind = primitive.get("kind")
+        fields = _PRIMITIVE_FIELDS.get(kind)
+        if fields is None:
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} has unsupported kind {kind!r}."
+            )
+        missing = tuple(field for field in fields if field not in primitive)
+        if missing:
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} ({kind}) "
+                f"is missing required fields: {', '.join(missing)}."
+            )
+        for field in fields:
+            if kind == "text" and field == "text":
+                if not isinstance(primitive[field], str):
+                    raise TypeError(
+                        f"Symbol {definition.symbol_id!r} primitive {index} text must be a string."
+                    )
+                continue
+            value = primitive[field]
+            if isinstance(value, bool):
+                raise TypeError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be numeric."
+                )
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be numeric."
+                ) from exc
+            if not isfinite(number):
+                raise ValueError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be finite."
+                )
+            if field in {"width", "height", "r"} and number <= 0:
+                raise ValueError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be greater than zero."
+                )
 
 from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
@@ -37,6 +89,7 @@ class EquipmentItem(BaseItem):
             raise ValueError("element_type must be a non-empty string")
         if not isinstance(symbol_definition, SymbolDefinition):
             raise TypeError("symbol_definition must be a SymbolDefinition")
+        _validate_symbol_primitives(symbol_definition)
         if not isinstance(equipment, EquipmentBase):
             raise TypeError("equipment must be an EquipmentBase")
         super().__init__(object_id, parent)
