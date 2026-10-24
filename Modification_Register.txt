@@ -3526,3 +3526,34 @@ Disposition:
     Connection-route undo identity guard merged in PR #579
     (merge commit 76a18f5488834f5ee21730ee166e210d43e2424e).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE POSITION/PRESENTATION UNDO IDENTITY GUARDS
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_node_position() and _set_node_presentation() resolved nodes by ID
+    during undo and restored state without checking whether a different
+    logical node had reused that ID. Position undo also delegated mutation
+    by ID before validating the live node identity.
+
+Correction:
+    - Capture original node reference, equipment ID, and stable logical
+      identity fields before the forward mutation.
+    - During undo, allow the original node or a reconstructed node with
+      matching identity; reject absent or conflicting nodes.
+    - Validate identity before restoring position, presentation, or
+      properties.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused node position/presentation undo identity guards prepared for review.
+======================================================================
