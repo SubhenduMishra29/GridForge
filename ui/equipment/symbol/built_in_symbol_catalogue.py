@@ -50,22 +50,27 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 8, "y1": 0, "x2": 28, "y2": 0},
     ), {"from": (-28.0, 0.0), "to": (28.0, 0.0)}),
     ("load", "Load", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 12},
         {"kind": "line", "x1": -7, "y1": 7, "x2": 7, "y2": -7},
     ), {"terminal": (-28.0, 0.0)}),
     ("generator", "Generator", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -10, "y": -9, "width": 20, "height": 18, "text": "G"},
     ), {"terminal": (-28.0, 0.0)}),
     ("synchronous_machine", "Synchronous Machine", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -10, "y": -9, "width": 20, "height": 18, "text": "M"},
     ), {"terminal": (-28.0, 0.0)}),
     ("motor", "Motor", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 12},
         {"kind": "text", "x": -8, "y": -8, "width": 16, "height": 16, "text": "M"},
     ), {"terminal": (-28.0, 0.0)}),
     ("shunt", "Shunt", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "line", "x1": -12, "y1": 0, "x2": 12, "y2": 0},
         {"kind": "line", "x1": -7, "y1": 0, "x2": -7, "y2": 12},
         {"kind": "line", "x1": 7, "y1": 0, "x2": 7, "y2": 12},
@@ -82,6 +87,7 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 13, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("solar", "Solar", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
         {"kind": "rect", "x": -13, "y": -10, "width": 26, "height": 20},
         {"kind": "line", "x1": -13, "y1": -3, "x2": 13, "y2": -3},
         {"kind": "line", "x1": -13, "y1": 3, "x2": 13, "y2": 3},
@@ -94,6 +100,7 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 5, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("grid", "Grid", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -9, "y": -8, "width": 18, "height": 16, "text": "G"},
     ), {"terminal": (-28.0, 0.0)}),
