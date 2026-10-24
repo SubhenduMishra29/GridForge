@@ -102,11 +102,19 @@ class SelectionProjectionCoordinator:
             self.clear_projection()
             return
 
+        transition_operation = None
         if isinstance(event, NetworkCommitted):
+            transition_operation = "commit"
+        elif isinstance(event, NetworkChanged):
+            operation = event.payload.get("operation")
+            if operation in {"undo", "redo"} and event.payload.get("presentation_operation") == "network_commit_draft":
+                transition_operation = str(operation)
+
+        if transition_operation is not None:
             # Draft IDs are intentionally distinct from deterministic Core IDs.
-            # Carry a selected draft equipment identity across the commit boundary
-            # using the authoritative mapping published by CommitNetworkHandler.
-            selected_before_commit = tuple(self.selection_manager.get_selected_ids())
+            # Reconcile transient selection across commit, undo and redo using
+            # the identity mapping emitted by the authoritative commit handler.
+            selected_before_transition = tuple(self.selection_manager.get_selected_ids())
             created_elements = event.payload.get("created_elements", ())
             core_ids_by_draft_id = {
                 str(item.get("draft_id")): str(item.get("core_id"))
@@ -115,11 +123,27 @@ class SelectionProjectionCoordinator:
                 and item.get("draft_id")
                 and item.get("core_id")
             }
-            for selected_id in selected_before_commit:
-                core_id = core_ids_by_draft_id.get(str(selected_id))
-                if core_id is not None:
-                    self.selection_manager.select_single(core_id)
-                    return
+            draft_ids_by_core_id = {
+                core_id: draft_id for draft_id, core_id in core_ids_by_draft_id.items()
+            }
+            draft_snapshot = self.application.read_draft_network() if self.application is not None else None
+            existing_draft_ids = {
+                str(item.get("draft_id"))
+                for item in (draft_snapshot or {}).get("equipment", ())
+                if item.get("draft_id")
+            }
+            for selected_id in selected_before_transition:
+                selected_key = str(selected_id)
+                if transition_operation in {"commit", "redo"}:
+                    core_id = core_ids_by_draft_id.get(selected_key)
+                    if core_id is not None:
+                        self.selection_manager.select_single(core_id)
+                        return
+                elif transition_operation == "undo":
+                    draft_id = draft_ids_by_core_id.get(selected_key)
+                    if draft_id is not None and draft_id in existing_draft_ids:
+                        self.selection_manager.select_single(draft_id)
+                        return
 
         selected_ids = tuple(self.selection_manager.get_selected_ids())
         if not selected_ids or self.application is None:
