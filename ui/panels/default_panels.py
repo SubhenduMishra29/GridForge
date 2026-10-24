@@ -850,11 +850,18 @@ class PropertiesPanelWidget(QWidget):
             control.setToolTip(self._validation_text(parameter))
             return control
         datatype = str(parameter.datatype).strip().lower()
-        if datatype in {"float", "number"}:
+        if datatype in {"float", "number"} and value is not None:
             control = QDoubleSpinBox(self)
             control.setDecimals(6)
             control.setRange(-1.0e15, 1.0e15)
             control.setValue(float(value))
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        if datatype in {"float", "number", "int", "integer"}:
+            # Keep an unset numeric value visibly unset. A spin box would force
+            # a fabricated zero into the editor and could submit it as a change.
+            control = QLineEdit(self)
+            control.setText("" if value is None else str(value))
             control.setToolTip(self._validation_text(parameter))
             return control
         if datatype in {"bool", "boolean"}:
@@ -904,7 +911,13 @@ class PropertiesPanelWidget(QWidget):
     def _current_value(parameter: EngineeringParameterState, control: QWidget) -> Any:
         datatype = str(parameter.datatype).strip().lower()
         if datatype in {"float", "number"}:
+            if isinstance(control, QLineEdit):
+                text = control.text().strip()
+                return None if not text else float(text)
             return float(control.value())  # type: ignore[attr-defined]
+        if datatype in {"int", "integer"}:
+            text = control.text().strip()  # type: ignore[attr-defined]
+            return None if not text else int(text)
         if datatype in {"bool", "boolean"}:
             return bool(control.isChecked())  # type: ignore[attr-defined]
         if datatype == "enum":
