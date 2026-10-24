@@ -120,6 +120,8 @@ class TransformerModelService(ModelServiceSupport):
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
+        if in_service is not None and not isinstance(in_service, bool):
+            raise TypeError("in_service must be a bool.")
 
         old_state = {
             "name": transformer.name,
@@ -133,7 +135,12 @@ class TransformerModelService(ModelServiceSupport):
             "rate_mva": transformer.rate_mva,
             "in_service": transformer.in_service,
         }
+        service_state_changed = (
+            in_service is not None and in_service != old_state["in_service"]
+        )
 
+        # Transformer.update_configuration validates the complete candidate
+        # and restores its prior state if the candidate is invalid.
         transformer.update_configuration(
             name=name,
             r=r,
@@ -147,12 +154,12 @@ class TransformerModelService(ModelServiceSupport):
             in_service=in_service,
         )
 
-        if in_service is not None:
+        if service_state_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
             transformer.update_configuration(**old_state)
-            if in_service is not None:
+            if service_state_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
