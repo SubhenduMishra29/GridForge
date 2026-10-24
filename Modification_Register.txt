@@ -3771,5 +3771,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD node position/presentation undo identity guards prepared for review.
+    SLD node position/presentation undo identity guards merged in PR #597
+    (merge commit 1f3c2acc7c2a1d705d7dec4394adeceec39bcdca).
 ======================================================================
