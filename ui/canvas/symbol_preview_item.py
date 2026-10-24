@@ -87,6 +87,7 @@ class SymbolPreviewItem(QGraphicsItem):
                     "position": point,
                     "object_id": self._draft_id,
                     "draft_id": self._draft_id,
+                    "draft_equipment_type": self._element_type,
                     "bus_id": self._draft_id,
                     "attachment_id": attachment_id,
                 })
