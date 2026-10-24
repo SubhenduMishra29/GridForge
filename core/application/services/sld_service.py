@@ -1517,18 +1517,33 @@ class SLDService:
         presentation_id = connection.connection_id
         snapshot = connection.to_dict()
         if not self.has_engineer_presentation_overrides_for_connection(connection):
-            # Register the inverse before removing the presentation connection.
-            transaction.record_undo(
-                lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot)
-            )
+            # Register an identity-aware inverse before removing the connection.
+            def restore_removed_connection(snapshot=snapshot, original=connection) -> None:
+                current = self.document.model.get_connection_optional(presentation_id)
+                if current is None:
+                    self._restore_connection_snapshot(snapshot)
+                elif current is not original:
+                    raise ValueError(
+                        "Cannot restore deleted SLD connection; a different object "
+                        f"now owns identity {presentation_id!r}."
+                    )
+                # If the original object is still registered, removal did not
+                # complete (or the same object was reinserted); no duplicate is needed.
+
+            transaction.record_undo(restore_removed_connection)
             self.document.model.remove_connection(presentation_id)
             self.document.mark_modified()
             return "REMOVED"
 
-        def restore_orphaned_connection(snapshot=snapshot) -> None:
+        def restore_orphaned_connection(snapshot=snapshot, original=connection) -> None:
             current = self.document.model.get_connection_optional(snapshot["connection_id"])
             if current is None:
                 self._restore_connection_snapshot(snapshot)
+            elif current is not original:
+                raise ValueError(
+                    "Cannot restore orphaned SLD connection; a different object "
+                    f"now owns identity {snapshot['connection_id']!r}."
+                )
             else:
                 source = snapshot.get("source_endpoint")
                 target = snapshot.get("target_endpoint")
