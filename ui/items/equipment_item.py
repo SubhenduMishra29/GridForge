@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from math import isfinite
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QLineF, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
@@ -253,23 +253,29 @@ class EquipmentItem(BaseItem):
                 line_width = float(primitive.get("stroke_width", 1.8))
                 painter.setPen(visual_pen(role, state, width=line_width))
                 painter.drawLine(
-                    float(primitive["x1"]), float(primitive["y1"]),
-                    float(primitive["x2"]), float(primitive["y2"]),
+                    QLineF(
+                        float(primitive["x1"]), float(primitive["y1"]),
+                        float(primitive["x2"]), float(primitive["y2"]),
+                    )
                 )
             elif kind == "rect":
                 painter.setPen(base_pen)
                 painter.drawRect(
-                    float(primitive["x"]), float(primitive["y"]),
-                    float(primitive["width"]), float(primitive["height"]),
+                    QRectF(
+                        float(primitive["x"]), float(primitive["y"]),
+                        float(primitive["width"]), float(primitive["height"]),
+                    )
                 )
             elif kind == "circle":
                 painter.setPen(base_pen)
                 radius = float(primitive["r"])
                 painter.drawEllipse(
-                    float(primitive["cx"]) - radius,
-                    float(primitive["cy"]) - radius,
-                    radius * 2.0,
-                    radius * 2.0,
+                    QRectF(
+                        float(primitive["cx"]) - radius,
+                        float(primitive["cy"]) - radius,
+                        radius * 2.0,
+                        radius * 2.0,
+                    )
                 )
             elif kind == "text":
                 # IEEE/ANSI 315 drafting practice says letters and numbers
