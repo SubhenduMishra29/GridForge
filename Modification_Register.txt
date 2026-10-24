@@ -3230,3 +3230,39 @@ Disposition:
     Inverse-registration ordering corrected in the focused branch; final
     diff and merge status remain to be reviewed.
 ======================================================================
+
+======================================================================
+2026-10-24 — SLD ELEMENT DELETE RESTORATION IDENTITY SAFETY
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    reconcile_element_delete() had restoration paths that could silently skip
+    a connection with a matching ID even when it was a different object, or
+    remove and recreate a connection without checking whether its identity
+    had been replaced by another mutation. The node restore path could also
+    fail on partial rollback when the original node still existed, or treat
+    an identity collision as ordinary absence.
+
+Correction:
+    - Capture original live node and attached-connection references before
+      mutation, alongside immutable state snapshots.
+    - Restore the original node and connection objects in place when they
+      remain present; recreate only absent objects.
+    - Fail closed when a different live object owns a snapshotted identity.
+    - Restore annotations with the node-removal inverse and keep the inverse
+      registered before the first mutation.
+    - Preserve route objects and unrelated state not mutated by this delete
+      path; restore the fields that the operation can change.
+
+Verification boundary:
+    Static source and diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Identity-safe restoration correction reviewed in PR #565; merge status
+    remains pending.
+======================================================================
