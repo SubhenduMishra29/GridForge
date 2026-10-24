@@ -3805,3 +3805,32 @@ Disposition:
     SLD node removal undo identity guard merged in PR #600
     (merge commit ef121d315884377c624f5e258242c6d043248247).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD CONNECTION REMOVAL UNDO IDENTITY GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_connection() rejected a replacement object but restored the
+    snapshot onto the original object without validating endpoint identity or
+    ownership metadata. Mutated endpoints or ownership could be overwritten.
+
+Correction:
+    - Compare source/target node IDs and endpoint data against the snapshot.
+    - Compare Core/projection linkage, connection kind, presentation ownership,
+      route ownership, and lifecycle metadata before restoring.
+    - Fail closed on identity or ownership drift while preserving the existing
+      missing-object restoration and replacement-ID collision handling.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    SLD connection removal undo identity guard prepared for review.
+======================================================================
