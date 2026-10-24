@@ -3496,3 +3496,32 @@ Disposition:
     Node-property undo identity guard merged in PR #577
     (merge commit 9ace7d68f4d654aed876bba9579b882e94982c49).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD CONNECTION ROUTE UNDO IDENTITY GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _set_connection_route() resolved the connection by ID during undo and
+    overwrote its route/properties without verifying that a replacement
+    object represented the same logical connection.
+
+Correction:
+    - Capture original connection reference and stable endpoint/projection
+      identity before changing the route.
+    - During undo, accept the original or a reconstructed connection with
+      matching stable identity; reject missing/conflicting connections.
+    - Record the change and verification boundary in this register.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax,
+    import integrity, application startup, and GUI runtime were not executed
+    or verified in this batch.
+
+Disposition:
+    Focused connection-route undo identity guard prepared for review.
+======================================================================

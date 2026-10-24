@@ -1900,6 +1900,16 @@ class SLDService:
         owner = connection.properties.get("presentation_owner")
         if owner not in (None, "engineer", "projection"):
             raise ValueError("SLD connection ownership is unknown; route edit is rejected.")
+        original_connection = connection
+        original_connection_identity = {
+            "source_node_id": connection.source_node_id,
+            "target_node_id": connection.target_node_id,
+            "source_endpoint": None if connection.source_endpoint is None else connection.source_endpoint.to_dict(),
+            "target_endpoint": None if connection.target_endpoint is None else connection.target_endpoint.to_dict(),
+            "core_connection_id": connection.properties.get("core_connection_id"),
+            "projection_source": connection.properties.get("projection_source"),
+            "connection_kind": connection.properties.get("connection_kind"),
+        }
         previous = connection.route
         previous_properties = deepcopy(connection.properties)
         updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
@@ -1917,7 +1927,26 @@ class SLDService:
             # Undo may follow a remove/restore cycle that reconstructs the
             # connection object. Restore the live model object by canonical ID,
             # not the stale instance captured by the forward handler.
-            target = self.document.model.get_connection(p["connection_id"])
+            target = self.document.model.get_connection_optional(p["connection_id"])
+            if target is None:
+                raise ValueError(
+                    f"Cannot undo SLD connection route edit; connection is absent: {p['connection_id']!r}."
+                )
+            if target is not original_connection:
+                target_identity = {
+                    "source_node_id": target.source_node_id,
+                    "target_node_id": target.target_node_id,
+                    "source_endpoint": None if target.source_endpoint is None else target.source_endpoint.to_dict(),
+                    "target_endpoint": None if target.target_endpoint is None else target.target_endpoint.to_dict(),
+                    "core_connection_id": target.properties.get("core_connection_id"),
+                    "projection_source": target.properties.get("projection_source"),
+                    "connection_kind": target.properties.get("connection_kind"),
+                }
+                if target_identity != original_connection_identity:
+                    raise ValueError(
+                        "Cannot undo SLD connection route edit; a different logical "
+                        f"connection owns identity {p['connection_id']!r}."
+                    )
             target.route = previous
             target.properties.clear()
             target.properties.update(deepcopy(previous_properties))
