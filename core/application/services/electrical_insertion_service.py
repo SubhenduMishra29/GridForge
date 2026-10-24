@@ -328,6 +328,15 @@ class ElectricalInsertionService:
                         )
                     coordinates.append(numeric_coordinate)
                 normalized_role = raw_role.strip()
+                if normalized_role not in terminal_mapping:
+                    raise ValidationError(
+                        code="INVALID_INSERTION_TERMINAL_ANCHORS",
+                        message="Terminal anchors may only be supplied for the two mapped insertion terminals.",
+                        details={
+                            "terminal_role": normalized_role,
+                            "allowed_terminal_roles": tuple(terminal_mapping),
+                        },
+                    )
                 if normalized_role in terminal_anchors:
                     raise ValidationError(
                         code="INVALID_INSERTION_TERMINAL_ANCHORS",
