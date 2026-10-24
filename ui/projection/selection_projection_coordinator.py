@@ -102,6 +102,25 @@ class SelectionProjectionCoordinator:
             self.clear_projection()
             return
 
+        if isinstance(event, NetworkCommitted):
+            # Draft IDs are intentionally distinct from deterministic Core IDs.
+            # Carry a selected draft equipment identity across the commit boundary
+            # using the authoritative mapping published by CommitNetworkHandler.
+            selected_before_commit = tuple(self.selection_manager.get_selected_ids())
+            created_elements = event.payload.get("created_elements", ())
+            core_ids_by_draft_id = {
+                str(item.get("draft_id")): str(item.get("core_id"))
+                for item in created_elements
+                if isinstance(item, Mapping)
+                and item.get("draft_id")
+                and item.get("core_id")
+            }
+            for selected_id in selected_before_commit:
+                core_id = core_ids_by_draft_id.get(str(selected_id))
+                if core_id is not None:
+                    self.selection_manager.select_single(core_id)
+                    return
+
         selected_ids = tuple(self.selection_manager.get_selected_ids())
         if not selected_ids or self.application is None:
             self.clear_projection()
