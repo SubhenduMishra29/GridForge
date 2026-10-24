@@ -1660,7 +1660,7 @@ class SLDService:
                 rollback_errors.append(
                     "Attached connections were not restored because the original node identity is unavailable."
                 )
-            for snapshot in connection_snapshots if node_identity_safe else ():
+            for snapshot in (connection_snapshots if node_identity_safe else ()):
                 connection_id = snapshot["connection_id"]
                 current = self.document.model.get_connection_optional(connection_id)
                 original = original_connections[connection_id]
