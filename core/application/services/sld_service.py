@@ -1431,8 +1431,19 @@ class SLDService:
             properties["lifecycle_state"] = "BOUND"
         if isinstance(route, Mapping) and route.get("ownership") == "engineer":
             properties["route_owner"] = "engineer"
+        def undo_added_connection() -> None:
+            # Undo only the identity created by this command. If creation did
+            # not complete or the connection has already disappeared, treat
+            # compensation as an idempotent no-op.
+            if self.document.model.get_connection_optional(connection_id) is not None:
+                self.document.model.remove_connection(connection_id)
+                self.document.mark_modified()
+
+        # Register compensation before the first structural mutation so a
+        # failure during creation or document modification remains reversible.
+        transaction.record_undo(undo_added_connection)
         self.document.model.create_connection(
-            connection_id=p["connection_id"],
+            connection_id=connection_id,
             source_node_id=p["source_node_id"],
             target_node_id=p["target_node_id"],
             source_endpoint=source_endpoint,
@@ -1441,14 +1452,6 @@ class SLDService:
             properties=properties,
         )
         self.document.mark_modified()
-        def undo_added_connection() -> None:
-            # Undo only the identity created by this command. If it has already
-            # disappeared, treat compensation as an idempotent no-op.
-            if self.document.model.get_connection_optional(p["connection_id"]) is not None:
-                self.document.model.remove_connection(p["connection_id"])
-                self.document.mark_modified()
-
-        transaction.record_undo(undo_added_connection)
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
