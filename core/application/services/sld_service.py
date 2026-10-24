@@ -1184,7 +1184,22 @@ class SLDService:
             return "REMOVED"
 
         def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
-            self._restore_node_snapshot(snapshot)
+            node_to_restore = self.document.model.get_node_optional(snapshot["node_id"])
+            if node_to_restore is None:
+                self._restore_node_snapshot(snapshot)
+            else:
+                node_to_restore.set_position(
+                    float(snapshot.get("x", 0.0)),
+                    float(snapshot.get("y", 0.0)),
+                )
+                if snapshot.get("presentation") is None:
+                    node_to_restore.clear_presentation()
+                else:
+                    node_to_restore.set_presentation(snapshot["presentation"])
+                node_to_restore.properties.clear()
+                node_to_restore.properties.update(dict(snapshot.get("properties", {})))
+                node_to_restore.equipment_id = snapshot.get("equipment_id")
+
             connection_ids = {item["connection_id"] for item in connection_snapshots}
             for connection in tuple(self.document.model.connections):
                 if connection.connection_id in connection_ids:
