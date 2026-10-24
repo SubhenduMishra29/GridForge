@@ -404,7 +404,13 @@ class PropertiesPanelWidget(QWidget):
         return document.model.get_node_by_equipment_id_optional(selected_id)
 
     def refresh_sld_annotation_controls(self) -> None:
-        """Refresh annotation controls after canonical document/selection changes."""
+        """Refresh annotation controls while preserving the current selection."""
+        self._sld_annotations_cleared = False
+        self._refresh_sld_annotation_controls()
+
+    def handle_sld_document_changed(self) -> None:
+        """Drop selection IDs from the previous document before rebuilding controls."""
+        self._sld_selection_ids = ()
         self._sld_annotations_cleared = False
         self._refresh_sld_annotation_controls()
 
