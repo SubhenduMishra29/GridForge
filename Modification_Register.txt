@@ -3987,3 +3987,33 @@ Disposition:
     SLD annotation undo live-state guard merged in PR #614
     (merge commit 557b1e91dd3515a62cb3d2dd7a80a02068044bed).
 ======================================================================
+
+
+======================================================================
+2026-10-24 — SLD NODE-REMOVAL ANNOTATION ROLLBACK GUARD
+======================================================================
+
+File:
+    core/application/services/sld_service.py
+
+Finding:
+    _remove_node() unconditionally replaced live annotations with the
+    pre-removal snapshot during undo. This could overwrite annotation edits
+    made after removal and could restore blocks when node restoration failed.
+
+Correction:
+    - Restore annotations only when node/attached-connection restoration is
+      identity-safe and live annotations still equal the post-removal list.
+    - Treat an already-restored annotation snapshot as an idempotent no-op.
+    - Record a rollback conflict instead of overwriting changed annotation
+      state or restoring annotations when node identity is unsafe.
+
+Verification boundary:
+    Static source/diff review only. No tests or CI run. Python syntax, import
+    integrity, application startup, and GUI runtime were not executed or
+    verified in this batch.
+
+Disposition:
+    SLD node-removal annotation rollback guard merged in PR #617
+    (merge commit 8a9d5f1c161c042c462d018e9b463c902e0b062b).
+======================================================================
