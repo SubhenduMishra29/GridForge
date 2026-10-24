@@ -3891,5 +3891,6 @@ Verification boundary:
     or verified in this batch.
 
 Disposition:
-    SLD node removal undo atomicity preflight prepared for review.
+    SLD node removal undo atomicity preflight merged in PR #606
+    (merge commit 94e0433e6838604104a1b6adec7aa82989249ccb).
 ======================================================================
