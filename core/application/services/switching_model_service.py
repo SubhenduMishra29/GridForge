@@ -65,9 +65,16 @@ class SwitchingModelService(ModelServiceSupport):
         if normally_closed is not None: switch.set_normally_closed(normally_closed)
         if rated_voltage_kv is not None: switch.rated_voltage_kv = rated_voltage_kv
         if rated_current_a is not None: switch.rated_current_a = rated_current_a
-        self._network.invalidate_topology()
+        topology_changed = (
+            (closed is not None and closed != old["closed"])
+            or (in_service is not None and in_service != old["in_service"])
+        )
+        if topology_changed:
+            self._network.invalidate_topology()
         def restore() -> None:
-            switch.name = old["name"]; switch.set_closed(old["closed"]); switch.set_in_service(old["in_service"]); switch.set_normally_closed(old["normally_closed"]); switch.rated_voltage_kv = old["rated_voltage_kv"]; switch.rated_current_a = old["rated_current_a"]; self._network.invalidate_topology()
+            switch.name = old["name"]; switch.set_closed(old["closed"]); switch.set_in_service(old["in_service"]); switch.set_normally_closed(old["normally_closed"]); switch.rated_voltage_kv = old["rated_voltage_kv"]; switch.rated_current_a = old["rated_current_a"]
+            if topology_changed:
+                self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(switch, "switch", switch_id, f"Switch updated: {switch_id}")
 
     def delete_switch(self, *, switch_id: str, transaction: Transaction) -> ApplicationResult[Switch]:
@@ -79,10 +86,24 @@ class SwitchingModelService(ModelServiceSupport):
     def take_switch_out_of_service(self, *, switch_id: str, transaction: Transaction) -> ApplicationResult[Switch]: return self._set_switch_service(switch_id=switch_id, in_service=False, transaction=transaction)
 
     def _set_switch_closed(self, *, switch_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.closed; switch.set_closed(closed); self._network.invalidate_topology(); transaction.record_undo(lambda switch=switch, old=old: (switch.set_closed(old), self._network.invalidate_topology())); return self._success(switch, "switch", switch_id, f"Switch {'closed' if closed else 'opened'}: {switch_id}")
+        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.closed; switch.set_closed(closed); topology_changed = old != switch.closed
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            switch.set_closed(old)
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(switch, "switch", switch_id, f"Switch {'closed' if closed else 'opened'}: {switch_id}")
 
     def _set_switch_service(self, *, switch_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.in_service; switch.set_in_service(in_service); self._network.invalidate_topology(); transaction.record_undo(lambda switch=switch, old=old: (switch.set_in_service(old), self._network.invalidate_topology())); return self._success(switch, "switch", switch_id, f"Switch {'put in service' if in_service else 'taken out of service'}: {switch_id}")
+        self._require_transaction(transaction); self._require_id(switch_id, "switch_id"); switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch"); old = switch.in_service; switch.set_in_service(in_service); topology_changed = old != switch.in_service
+        if topology_changed:
+            self._network.invalidate_topology()
+        def restore() -> None:
+            switch.set_in_service(old)
+            if topology_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore); return self._success(switch, "switch", switch_id, f"Switch {'put in service' if in_service else 'taken out of service'}: {switch_id}")
 
     def create_breaker(self, *, breaker_id: str, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
         self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
