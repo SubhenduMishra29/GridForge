@@ -152,7 +152,14 @@ class WireTool(ToolBase):
         return self._preview.source_endpoint is not None
 
     def on_mouse_double_click(self, event: Any) -> bool:
-        return self.on_mouse_press(event)
+        # A double-click is not a second wire endpoint gesture. Qt emits a
+        # distinct double-click event after the first press/release sequence;
+        # forwarding it to on_mouse_press can start a new wire immediately
+        # after a successful connection cleared the preview state. Keep the
+        # canonical two-press endpoint lifecycle explicit and side-effect free
+        # for double-clicks.
+        del event
+        return False
 
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
