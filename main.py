@@ -658,7 +658,19 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        if not selected_ids:
+            return
         _copy_selection()
+        # Never delete selected items that the clipboard could not represent.
+        # In particular, draft equipment and draft wires need identity-aware
+        # clipboard remapping before Cut can safely remove them.
+        if len(sld_clipboard) != len(selected_ids):
+            messages_panel.append_message(
+                "Cut canceled: one or more selected items cannot yet be copied "
+                "as semantic equipment. Nothing was deleted."
+            )
+            return
         _delete_selection()
 
     def _selected_sld_nodes() -> tuple[object, ...]:
