@@ -4165,3 +4165,31 @@ Verification boundary:
 Disposition:
     Merged in PR #628 (merge commit 99c970b5f4998d8604f6a0b8e9feac04909c8ca0).
 ======================================================================
+
+
+
+======================================================================
+2026-10-25 — CONTROL CANVAS PORT MARKER PAINTER CORRECTION
+======================================================================
+
+File:
+    ui/items/control_items.py
+
+Finding:
+    ControlLogicItem.paint() passed floating-point coordinate arguments to
+    QPainter.drawEllipse() for input and output port markers. This left a
+    separate control/ladder-canvas renderer outside the geometry-overload
+    corrections applied to SLD items.
+
+Correction:
+    - Construct QRectF bounds for input and output port markers.
+    - Keep Qt imports behind ui.core.qt.
+    - Preserve port positions, dimensions, and control semantics.
+
+Verification boundary:
+    Focused source/diff review only. No tests or CI run; syntax, import
+    integrity, startup, and GUI runtime were not executed or verified.
+
+Disposition:
+    Merged in PR #630 (merge commit edf6855c30625b61d74d0eb020fc842f4254cb2d).
+======================================================================
