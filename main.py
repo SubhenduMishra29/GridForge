@@ -402,7 +402,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
-        workspace_controller.activate(STUDY_WORKSPACE_ID)
+        _activate_workspace(STUDY_WORKSPACE_ID, "study")
         workspace_controller.realizer.focus_region("main-study", "explorer")
 
     def _show_unconfigured_surface(title: str) -> None:
