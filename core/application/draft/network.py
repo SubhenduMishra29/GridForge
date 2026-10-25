@@ -293,6 +293,13 @@ class DraftNetwork:
         if connection.connection_kind != "simple_wire": raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
         self._validate_endpoint(connection.source, connection_id=connection.connection_id)
         self._validate_endpoint(connection.target, connection_id=connection.connection_id)
+        candidate_pair = frozenset((connection.source, connection.target))
+        for existing in self._connections.values():
+            if frozenset((existing.source, existing.target)) == candidate_pair:
+                raise ValueError(
+                    f"Duplicate draft endpoint pair for connection {connection.connection_id!r}; "
+                    f"it already exists as {existing.connection_id!r}."
+                )
         self._connections[connection.connection_id] = connection; self.validation_state = {}
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
