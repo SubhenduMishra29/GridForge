@@ -151,9 +151,8 @@ class DraftEquipment:
                 "command_type": self.command_type, "id_field": self.id_field,
                 "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping),
                 "required_connection_terminals": list(self.required_connection_terminals),
-                **({"parameter_contract": [dict(x) for x in self.parameter_contract],
-                    "conditional_requirements": [dict(x) for x in self.conditional_requirements]}
-                   if self.parameter_contract else {})}
+                "parameter_contract": [dict(x) for x in self.parameter_contract],
+                "conditional_requirements": [dict(x) for x in self.conditional_requirements]}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -233,7 +232,7 @@ class DraftNetwork:
         current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
-        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals")}
+        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements")}
         values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
