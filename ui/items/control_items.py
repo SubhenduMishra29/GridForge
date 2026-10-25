@@ -104,10 +104,10 @@ class ControlLogicItem(BaseItem):
         painter.drawText(QRectF(4.0, 4.0, self.WIDTH - 8.0, 16.0), 0x82, str(self.object_id))
         for index, _port in enumerate(self._inputs):
             y = self._port_local_y(index, len(self._inputs))
-            painter.drawEllipse(0.0 - 3.0, y - 3.0, 6.0, 6.0)
+            painter.drawEllipse(QRectF(-3.0, y - 3.0, 6.0, 6.0))
         for index, _port in enumerate(self._outputs):
             y = self._port_local_y(index, len(self._outputs))
-            painter.drawEllipse(self.WIDTH - 3.0, y - 3.0, 6.0, 6.0)
+            painter.drawEllipse(QRectF(self.WIDTH - 3.0, y - 3.0, 6.0, 6.0))
 
     def set_visual_state(self, state: VisualState | str) -> None:
         self._visual_state = state if isinstance(state, VisualState) else VisualState(str(state).lower())
