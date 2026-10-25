@@ -860,6 +860,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         selected = bool(context.selected_ids)
         active_tool = context.active_tool
         discipline = context.discipline
+
+        # These routed handlers operate on the SLD canvas/selection manager.
+        # Do not advertise them as available while another editor owns focus;
+        # otherwise a shortcut or menu action can mutate the hidden SLD.
+        sld_only_actions = {
+            "select", "move", "pan", "zoom_in", "zoom_out", "fit_view",
+            "copy", "paste", "delete", "sld_select", "sld_move", "sld_wire",
+            "edit.select_all", "edit.cut", "edit.box_select", "edit.move",
+            "edit.drag_move", "edit.rotate", "edit.mirror_horizontal",
+            "edit.mirror_vertical",
+        }
+        if action_id in sld_only_actions and discipline != "sld":
+            return False
+
         if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
                          "view.protection_workspace", "view.topology", "view.map", "view.reports",
