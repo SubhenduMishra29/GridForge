@@ -120,10 +120,14 @@ class SymbolPreviewItem(QGraphicsItem):
         del option, widget
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         visual_state = VisualState.SELECTED if self.isSelected() else self._visual_state
-        painter.setPen(visual_pen("symbol", visual_state, width=1.8))
         painter.setBrush(visual_brush("symbol", visual_state))
         painter.setFont(visual_font("engineering"))
         for primitive in self._definition.primitives:
+            # Honour the renderer-neutral catalogue's per-primitive stroke
+            # width (e.g. the heavier IEEE/ANSI busbar), while preserving the
+            # common visual-state pen styling for every primitive.
+            stroke_width = float(primitive.get("stroke_width", 1.8))
+            painter.setPen(visual_pen("symbol", visual_state, width=stroke_width))
             kind = primitive.get("kind")
             if kind == "line":
                 painter.drawLine(
