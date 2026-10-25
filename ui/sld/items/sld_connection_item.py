@@ -9,13 +9,38 @@ from __future__ import annotations
 from typing import Iterable
 import math
 
-from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
+from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
 
+class _CallbackSignal:
+    """Small Python callback signal for non-QObject graphics items."""
+
+    def __init__(self) -> None:
+        self._callbacks = []
+
+    def connect(self, callback) -> None:
+        if not callable(callback):
+            raise TypeError("signal callback must be callable")
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
+
+    def disconnect(self, callback=None) -> None:
+        if callback is None:
+            self._callbacks.clear()
+            return
+        try:
+            self._callbacks.remove(callback)
+        except ValueError as exc:
+            raise TypeError("callback is not connected") from exc
+
+    def emit(self, *args) -> None:
+        for callback in tuple(self._callbacks):
+            callback(*args)
+
+
 class SLDConnectionItem(QGraphicsPathItem):
-    route_edit_requested = Signal(object)
     INTERACTION_WIDTH = 10.0
     """Render resolved semantic endpoints and engineer-owned route geometry."""
 
@@ -35,6 +60,9 @@ class SLDConnectionItem(QGraphicsPathItem):
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{name} must be a non-empty string")
         super().__init__()
+        # QGraphicsPathItem is not a QObject; PySide Signal descriptors are
+        # therefore invalid here. Keep route-edit notifications in Python.
+        self.route_edit_requested = _CallbackSignal()
         self._presentation_id = object_id
         # Presentation and Core identities are independent; never synthesize one from the other.
         self._core_connection_id = str(core_connection_id) if core_connection_id is not None else None
