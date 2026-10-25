@@ -93,16 +93,39 @@ class UIActionRouter:
     def dispatch(self, action_id: str) -> Any:
         self._ensure_active()
         canonical = self._canonical_id(action_id)
-        if canonical not in self._handlers or not self.is_enabled(canonical):
-            raise RuntimeError(f"UI action is currently disabled or unroutable: {action_id!r}")
+        if canonical not in self._handlers:
+            return self._report_or_raise(
+                action_id,
+                KeyError(f"No UI action handler registered for {action_id!r}."),
+            )
+
+        enabled, enabled_error = self._enabled_status(canonical)
+        if enabled_error is not None:
+            return self._report_or_raise(
+                canonical,
+                RuntimeError(
+                    f"UI action enabled-state evaluation failed for {canonical!r}: "
+                    f"{type(enabled_error).__name__}: {enabled_error}"
+                ),
+            )
+        if not enabled:
+            return self._report_or_raise(
+                canonical,
+                RuntimeError(f"UI action is disabled in the current context: {canonical!r}."),
+            )
+
         try:
             return self._handlers[canonical]()
         except Exception as exc:
-            handler = self._error_handler
-            if handler is None:
-                raise
-            handler(canonical, exc)
-            return None
+            return self._report_or_raise(canonical, exc)
+
+    def _report_or_raise(self, action_id: str, error: Exception) -> None:
+        handler = self._error_handler
+        if handler is None:
+            raise error
+        handler(action_id, error)
+        return None
+
 
     def set_error_handler(self, handler: ActionErrorHandler | None) -> None:
         """Install the UI-owned sink for exceptions raised by routed actions."""
@@ -118,15 +141,19 @@ class UIActionRouter:
     def is_enabled(self, action_id: str) -> bool:
         self._ensure_active()
         canonical = self._canonical_id(action_id)
+        enabled, error = self._enabled_status(canonical)
+        return enabled and error is None
+
+    def _enabled_status(self, canonical: str) -> tuple[bool, Exception | None]:
         if canonical not in self._handlers:
-            return False
+            return False, None
         if self._enabled_provider is None:
             definition = self._definitions.get(canonical)
-            return True if definition is None else definition.enabled
+            return (True if definition is None else definition.enabled), None
         try:
-            return bool(self._enabled_provider(canonical))
-        except (KeyError, RuntimeError, TypeError, ValueError):
-            return False
+            return bool(self._enabled_provider(canonical)), None
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            return False, exc
 
     def has(self, action_id: str) -> bool:
         if self._disposed or not isinstance(action_id, str) or not action_id.strip():
