@@ -7,6 +7,7 @@ from typing import Any
 from ui.core.action_definition import ActionDefinition
 
 ActionHandler = Callable[[], Any]
+ActionErrorHandler = Callable[[str, Exception], None]
 
 
 class UIActionRouter:
@@ -18,6 +19,7 @@ class UIActionRouter:
         self._aliases: dict[str, str] = {}
         self._disposed = False
         self._enabled_provider: Callable[[str], bool] | None = None
+        self._error_handler: ActionErrorHandler | None = None
 
     @property
     def actions(self) -> Mapping[str, ActionHandler]:
@@ -93,12 +95,25 @@ class UIActionRouter:
         canonical = self._canonical_id(action_id)
         if canonical not in self._handlers or not self.is_enabled(canonical):
             raise RuntimeError(f"UI action is currently disabled or unroutable: {action_id!r}")
-        return self._handlers[canonical]()
+        try:
+            return self._handlers[canonical]()
+        except Exception as exc:
+            handler = self._error_handler
+            if handler is None:
+                raise
+            handler(canonical, exc)
+            return None
 
     def set_enabled_provider(self, provider: Callable[[str], bool] | None) -> None:
         if provider is not None and not callable(provider):
             raise TypeError("provider must be callable or None.")
         self._enabled_provider = provider
+
+    def set_error_handler(self, handler: ActionErrorHandler | None) -> None:
+        """Install the UI-owned sink for exceptions raised by routed actions."""
+        if handler is not None and not callable(handler):
+            raise TypeError("error handler must be callable or None.")
+        self._error_handler = handler
 
     def is_enabled(self, action_id: str) -> bool:
         self._ensure_active()
@@ -126,6 +141,7 @@ class UIActionRouter:
         self._definitions.clear()
         self._aliases.clear()
         self._enabled_provider = None
+        self._error_handler = None
         self._disposed = True
 
     def _canonical_id(self, action_id: str) -> str:
@@ -142,4 +158,4 @@ class UIActionRouter:
             raise ValueError("action_id must be a non-empty string.")
 
 
-__all__ = ["ActionHandler", "UIActionRouter"]
+__all__ = ["ActionErrorHandler", "ActionHandler", "UIActionRouter"]
