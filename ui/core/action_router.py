@@ -152,7 +152,7 @@ class UIActionRouter:
             return (True if definition is None else definition.enabled), None
         try:
             return bool(self._enabled_provider(canonical)), None
-        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        except Exception as exc:
             return False, exc
 
     def has(self, action_id: str) -> bool:
