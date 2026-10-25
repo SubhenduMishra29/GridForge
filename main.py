@@ -70,6 +70,7 @@ from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDN
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
 from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
+from core.application.commands.draft_commands import RemoveDraftEquipmentCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -402,8 +403,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
+        # The Study editor has a timeline region, not the SLD-only explorer.
+        # Activate its main area instead of requesting a nonexistent Region.
         _activate_workspace(STUDY_WORKSPACE_ID, "study")
-        workspace_controller.realizer.focus_region("main-study", "explorer")
+        workspace_controller.realizer.focus_area("main-study")
 
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
@@ -604,6 +607,22 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             if wire is not None:
                 result = gridforge_application.execute(
                     RemoveSimpleWireConnectionCommand(connection_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            # Draft equipment has not crossed the Application commit boundary;
+            # remove it through the registered DraftNetwork command, never by
+            # deleting only its transient graphics item.
+            draft_snapshot = gridforge_application.read_draft_network()
+            draft_equipment = (
+                (draft_snapshot or {}).get("equipment", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
+                result = gridforge_application.execute(
+                    RemoveDraftEquipmentCommand(draft_id=str(selected_id))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
