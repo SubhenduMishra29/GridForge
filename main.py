@@ -839,6 +839,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
         "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
         "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
+        "control.panel": ("Control Workspace", "Activate the Control workspace.", None, "workspace"),
+        "protection.panel": ("Protection Workspace", "Activate the Protection workspace.", None, "workspace"),
         "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
         "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
     }
