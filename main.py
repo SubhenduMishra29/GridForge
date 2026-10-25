@@ -499,6 +499,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                     f"Copy skipped: semantic paste is not defined for {element_type}."
                 )
                 continue
+            if element_type == "transformer" and not bool(
+                getattr(read_model, "attributes", {}).get("in_service", True)
+            ):
+                # CreateTransformerCommand has no in_service field and there
+                # is no canonical Transformer service-state command. Pasting
+                # this item would silently reactivate an out-of-service unit.
+                messages_panel.append_message(
+                    "Copy skipped: Transformer service state cannot yet be "
+                    "preserved by the canonical create command."
+                )
+                continue
             sld_clipboard.append({
                 "element_type": element_type,
                 "attributes": dict(getattr(read_model, "attributes", {}) or {}),
