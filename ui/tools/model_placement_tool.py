@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 from uuid import uuid4
 
 from .tool_base import ToolBase
