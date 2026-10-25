@@ -4250,3 +4250,29 @@ Verification boundary:
 Disposition:
     Merged in PR #634 (merge commit 1929f1401db9f252a8b9480c4055c528183eb55e).
 ======================================================================
+
+======================================================================
+2026-10-25 — MAIN.PY STUDY CASES ACTION CONTEXT ROUTING
+======================================================================
+
+File:
+    main.py
+
+Finding:
+    The dedicated study.cases action called _show_study_cases(), which
+    activated STUDY_WORKSPACE_ID directly and bypassed _activate_workspace().
+    This left EngineeringContextStore.discipline stale even after the shared
+    workspace helper was corrected to recognize 'study'.
+
+Correction:
+    - Route the Study Cases action through _activate_workspace(
+      STUDY_WORKSPACE_ID, "study") before focusing the Study Explorer.
+    - Keep workspace activation ownership and Study runtime behavior intact.
+
+Verification boundary:
+    Focused action-registration and source-diff review. No tests or CI run;
+    no GUI/runtime verification performed.
+
+Disposition:
+    Merged in PR #636 (merge commit d24e029b3c00abf87d31247b8430075783785fa2).
+======================================================================
