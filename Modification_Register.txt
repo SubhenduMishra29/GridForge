@@ -4223,3 +4223,30 @@ Verification boundary:
 Disposition:
     Merged in PR #632 (merge commit 046c2edc1e492be463c5ac51519334c00af55edb).
 ======================================================================
+
+======================================================================
+2026-10-25 — MAIN.PY STUDY WORKSPACE CONTEXT CORRECTION
+======================================================================
+
+File:
+    main.py
+
+Finding:
+    _activate_workspace() activated the Study workspace with surface_id
+    'study', but its accepted engineering-context discipline set included
+    only SLD, Control, and Protection. The EngineeringContextStore could
+    therefore retain the previously active discipline after switching to
+    Study, leaving contextual action/tool state inconsistent with the
+    active workspace.
+
+Correction:
+    - Recognize 'study' as a valid active engineering-context discipline.
+    - Preserve existing workspace activation and tool-runtime ownership.
+
+Verification boundary:
+    Focused main.py source and PR diff review. No tests or CI run; no GUI
+    runtime verification performed.
+
+Disposition:
+    Merged in PR #634 (merge commit 1929f1401db9f252a8b9480c4055c528183eb55e).
+======================================================================
