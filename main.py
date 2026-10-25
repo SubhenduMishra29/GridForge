@@ -70,7 +70,7 @@ from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDN
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
 from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
-from core.application.commands.draft_commands import RemoveDraftEquipmentCommand
+from core.application.commands.draft_commands import RemoveDraftConnectionCommand, RemoveDraftEquipmentCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -623,6 +623,22 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
                 result = gridforge_application.execute(
                     RemoveDraftEquipmentCommand(draft_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            draft_connections = (
+                (draft_snapshot or {}).get("connections", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(
+                str(item.get("connection_id", "")) == str(selected_id)
+                for item in draft_connections
+                if isinstance(item, dict)
+            ):
+                result = gridforge_application.execute(
+                    RemoveDraftConnectionCommand(connection_id=str(selected_id))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
