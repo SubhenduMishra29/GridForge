@@ -86,7 +86,10 @@ class MenuPlugin(QObject):
                     definition = router.definition(action_spec.action_id)
                     if action_spec.separator_before:
                         menu.addSeparator()
-                    action = QAction(definition.title, self)
+                    # MenuActionSpec owns the menu-specific label; canonical
+                    # ActionDefinition remains the source for shared tooltip,
+                    # status text, and default shortcut metadata.
+                    action = QAction(action_spec.text, self)
                     action.setObjectName(action_spec.action_id)
                     action.setToolTip(definition.description)
                     action.setStatusTip(definition.description)
