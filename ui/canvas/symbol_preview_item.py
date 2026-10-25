@@ -57,7 +57,9 @@ class SymbolPreviewItem(QGraphicsItem):
         self.setRotation(float(rotation))
         self.setVisible(bool(state.get("visible", True)))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        # Draft symbols must receive left-clicks so QGraphicsScene can select
+        # them and the SelectionProjectionCoordinator can populate the inspector.
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
 
     @property
     def object_id(self) -> str | None:
