@@ -4193,3 +4193,33 @@ Verification boundary:
 Disposition:
     Merged in PR #630 (merge commit edf6855c30625b61d74d0eb020fc842f4254cb2d).
 ======================================================================
+
+======================================================================
+2026-10-25 — DRAFT COMMAND TRANSACTION ROLLBACK CORRECTION
+======================================================================
+
+File:
+    core/application/draft/handlers.py
+
+Finding:
+    Draft equipment and connection command handlers mutated the
+    Application-owned DraftNetwork without registering an inverse in the
+    active transaction. A later pre-commit failure could leave draft state
+    changed after rollback, and command-history undo could not restore the
+    previous draft snapshot for these mutations.
+
+Correction:
+    - Capture the canonical DraftNetwork snapshot before each mutation.
+    - Register DraftNetwork.restore_snapshot() as the transaction inverse.
+    - Cover equipment add/update/remove and connection add/remove; the
+      draft.create_connection alias uses the same corrected handler.
+    - Keep draft authoring mutations within the Application transaction.
+
+Verification boundary:
+    Focused source and PR diff review. No tests or CI run; syntax, imports,
+    startup, and GUI runtime were not executed or verified. This correction
+    does not establish the root cause of the generic placement failure.
+
+Disposition:
+    Merged in PR #632 (merge commit 046c2edc1e492be463c5ac51519334c00af55edb).
+======================================================================
