@@ -27,6 +27,14 @@ def _thaw_payload(value: Any) -> Any:
     return value
 
 
+def _record_draft_undo(draft: DraftNetwork, transaction: Any) -> None:
+    """Register the exact pre-command draft snapshot as the transaction inverse."""
+    snapshot = draft.to_dict()
+    transaction.record_undo(
+        lambda snapshot=snapshot, draft=draft: draft.restore_snapshot(snapshot)
+    )
+
+
 class DraftCommandHandlers:
     def __init__(self, draft_provider):
         self._draft_provider = draft_provider
@@ -52,11 +60,13 @@ class DraftCommandHandlers:
         equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
             _thaw_payload(command.payload["equipment"])
         )
+        _record_draft_undo(draft, transaction)
         draft.add_equipment(equipment)
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def update_equipment(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         equipment = draft.update_equipment(
             str(command.payload["draft_id"]),
             **_thaw_payload(command.payload["changes"]),
@@ -65,17 +75,20 @@ class DraftCommandHandlers:
 
     def remove_equipment(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         equipment = draft.remove_equipment(str(command.payload["draft_id"]))
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def add_connection(self, command, context, transaction):
         draft = self._draft()
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
+        _record_draft_undo(draft, transaction)
         draft.add_connection(connection)
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
     def remove_connection(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         connection = draft.remove_connection(str(command.payload["connection_id"]))
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
