@@ -493,8 +493,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 str(element.element_type),
                 str(element.object_id),
             )
+            element_type = str(read_model.element_type).strip().lower()
+            if element_type not in {"bus", "transformer", "breaker"}:
+                messages_panel.append_message(
+                    f"Copy skipped: semantic paste is not defined for {element_type}."
+                )
+                continue
             sld_clipboard.append({
-                "element_type": str(read_model.element_type),
+                "element_type": element_type,
                 "attributes": dict(getattr(read_model, "attributes", {}) or {}),
                 "labels": dict(getattr(read_model, "labels", {}) or {}),
                 "position": (float(node.x), float(node.y)),
