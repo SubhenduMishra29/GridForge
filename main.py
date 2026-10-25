@@ -660,7 +660,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     def _activate_workspace(workspace_id: str, surface_id: str) -> None:
         workspace_controller.activate(workspace_id)
         engineering_context.update(
-            discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
+            discipline=surface_id if surface_id in {"sld", "control", "protection", "study"} else engineering_context.current.discipline,
         )
 
     def _toggle_sld_maximize() -> None:
