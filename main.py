@@ -623,7 +623,29 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        if not selected_ids:
+            return
+
         _copy_selection()
+        if len(sld_clipboard) != len(selected_ids):
+            messages_panel.append_message(
+                "Cut canceled: one or more selected items cannot be copied "
+                "as semantic equipment. Nothing was deleted."
+            )
+            return
+
+        # Deletion currently dispatches one command per object and does not
+        # provide an atomic batch/rollback boundary. A multi-object Cut could
+        # therefore delete earlier objects before a later command fails.
+        # Keep Cut non-destructive until Application exposes an atomic batch.
+        if len(selected_ids) > 1:
+            messages_panel.append_message(
+                "Cut canceled: multi-object Cut is unavailable until deletion "
+                "supports an atomic Application batch. Nothing was deleted."
+            )
+            return
+
         _delete_selection()
 
     def _selected_sld_nodes() -> tuple[object, ...]:
