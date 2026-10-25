@@ -72,6 +72,7 @@ Redo:
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from difflib import get_close_matches
 from typing import Any
 
 from .command import Command
@@ -914,14 +915,32 @@ class CommandManager:
         )
 
         if handler is None:
+            registered = tuple(sorted(self._handlers))
+            command_type = command.command_type
+            family = command_type.split(".", 1)[0] if "." in command_type else command_type
+            same_family = tuple(
+                item for item in registered
+                if (item.split(".", 1)[0] if "." in item else item) == family
+            )
+            suggestions = tuple(get_close_matches(command_type, registered, n=5, cutoff=0.45))
             raise ExecutionError(
                 code="COMMAND_HANDLER_NOT_FOUND",
                 message=(
-                    "No handler registered for command type: "
-                    f"{command.command_type}"
+                    "No Application handler is registered for command type "
+                    f"{command_type!r}. Check command-type spelling, handler "
+                    "registration, and whether its handler family was included "
+                    "in the active Application composition."
                 ),
                 details={
-                    "command_type": command.command_type,
+                    "command_type": command_type,
+                    "registered_handler_count": len(registered),
+                    "same_family_command_types": same_family,
+                    "suggested_command_types": suggestions,
+                    "diagnostic": {
+                        "has_same_family_handlers": bool(same_family),
+                        "has_similar_handlers": bool(suggestions),
+                        "composition_scope": "active CommandManager registry",
+                    },
                 },
             )
 
