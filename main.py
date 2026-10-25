@@ -1001,6 +1001,21 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("equipment", equipment_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+
+    def _report_action_failure(action_id: str, error: Exception) -> None:
+        """Surface routed UI/Application failures in the persistent Messages panel."""
+        code = str(getattr(error, "code", "") or type(error).__name__)
+        message = str(getattr(error, "message", "") or error)
+        details = getattr(error, "details", None)
+        diagnostic = f"Action failed [{action_id}] — {code}: {message}"
+        if details:
+            diagnostic += f" | Details: {dict(details)!r}"
+        cause = getattr(error, "cause", None)
+        if cause is not None:
+            diagnostic += f" | Cause: {cause}"
+        messages_panel.append_message(diagnostic)
+
+    action_router.set_error_handler(_report_action_failure)
     # Utility panels are physically re-homed into editor Regions. Their
     # QDockWidget wrappers remain compatibility-only.
     detached = {}
