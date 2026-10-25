@@ -80,12 +80,22 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_source = QPointF()
         self._visual_target = QPointF()
         self._visual_state = VisualState.NORMAL
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, self._core_connection_id is not None)
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+            self._core_connection_id is not None or self._projection_source == "draft_network",
+        )
         self.setAcceptHoverEvents(True)
 
     @property
     def object_id(self) -> str | None:
-        return self._object_id
+        # Draft connections have an Application-owned identity before they
+        # acquire a Core connection ID. Expose that draft identity to the
+        # SelectionManager without promoting it to Core topology identity.
+        if self._core_connection_id is not None:
+            return self._core_connection_id
+        if self._projection_source == "draft_network":
+            return self._presentation_id
+        return None
 
     @property
     def presentation_id(self) -> str:
