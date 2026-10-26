@@ -6061,3 +6061,39 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-038
+======================================================================
+
+Files:
+    core/model/relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 RELAY MEASUREMENT-CHANNEL BINDING CONTRACT TIGHTENED;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    Relay.bind_input() validated that a channel had an 'id' attribute,
+    but did not verify that the channel exposed a supported live-value
+    interface. Invalid objects could be accepted as relay inputs and fail
+    later when a protection function attempted to read a measurement.
+
+Correction:
+    - Require a non-empty string channel identity.
+    - Require either a 'value' attribute or callable get_value() method,
+      matching the interfaces consumed by Relay.get_input_value().
+    - Keep the Relay independent of a concrete MeasurementChannel class
+      and do not copy/cache measurement values or derive them from SLD data.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime protection/measurement flow were
+    run. The concrete measurement-channel implementation and end-to-end
+    CT/PT/CVT-to-relay integration remain to be audited.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
