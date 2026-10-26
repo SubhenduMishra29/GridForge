@@ -4433,3 +4433,31 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #667; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — CANONICAL ACTION CATALOG CONFLICT VALIDATION
+======================================================================
+
+File:
+    ui/core/action_catalog.py
+
+Finding:
+    Duplicate tool definitions with the same canonical action ID were
+    silently ignored after the first occurrence. Conflicting metadata could
+    therefore be determined by registry iteration order.
+
+Correction:
+    - Build candidate ActionDefinition metadata before inserting it.
+    - Accept repeated action IDs only when the complete definitions are equal.
+    - Raise ValueError for conflicting definitions instead of silently
+      choosing one definition.
+    - Preserve identical duplicates as a single canonical action.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, import integrity,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #668; not merged.
+======================================================================
