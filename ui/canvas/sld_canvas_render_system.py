@@ -378,8 +378,8 @@ class SLDCanvasRenderSystem:
                     self._items[node.node_id] = (degraded,)
                 else:
                     degraded.setToolTip(
-                        f"Unsupported presentation [{code}]\\n"
-                        f"node={node.node_id} equipment={getattr(degraded, 'object_id', node.node_id)}\\n{message}"
+                        f"Unsupported presentation [{code}]\n"
+                        f"node={node.node_id} equipment={getattr(degraded, 'object_id', node.node_id)}\n{message}"
                     )
                 self._render_signatures[node.node_id] = signature
                 self._degraded_node_ids.add(node.node_id)
@@ -756,10 +756,10 @@ class SLDCanvasRenderSystem:
         item.object_id = node.equipment_id or node.node_id
         item.node_id = node.node_id
         item.setToolTip(
-            f"Unsupported presentation [{code}]\\n"
-            f"node={node.node_id} equipment={item.object_id}\\n{message}"
+            f"Unsupported presentation [{code}]\n"
+            f"node={node.node_id} equipment={item.object_id}\n{message}"
         )
-        text = QGraphicsTextItem(f"Unsupported Symbol\\n{item.object_id}", item)
+        text = QGraphicsTextItem(f"Unsupported Symbol\n{item.object_id}", item)
         text.setPos(-62.0, -24.0)
         item.setPos(float(node.x), float(node.y))
         return item
