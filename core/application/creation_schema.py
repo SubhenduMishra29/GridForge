@@ -194,7 +194,11 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
     unit = None
     if isinstance(value, Mapping):
         unit = value.get("unit")
-        value = value.get("value")
+        if "value" not in value:
+            raise ValueError("value mapping must contain 'value'")
+        value = value["value"]
+    if unit is not None and definition.unit is None:
+        raise ValueError("unit metadata is not defined by the canonical contract")
     if unit is not None and definition.unit is not None and str(unit).strip() != str(definition.unit).strip():
         raise ValueError(f"unit must be {definition.unit!r}")
     datatype = definition.datatype.strip().lower()
