@@ -1082,12 +1082,20 @@ class Relay:
                 "MeasurementChannel cannot be None."
             )
 
-        if not hasattr(
-            channel,
-            "id",
+        channel_id = getattr(channel, "id", None)
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise TypeError(
+                "MeasurementChannel must expose a non-empty string 'id'."
+            )
+
+        # Binding must fail early when the object cannot supply a live
+        # measurement. Otherwise the Relay accepts the binding and fails
+        # only later when a protection function reads the input.
+        if not hasattr(channel, "value") and not callable(
+            getattr(channel, "get_value", None)
         ):
             raise TypeError(
-                "MeasurementChannel must expose an 'id' attribute."
+                "MeasurementChannel must expose 'value' or callable 'get_value()'."
             )
 
 
