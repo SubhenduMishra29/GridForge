@@ -744,22 +744,25 @@ class Relay:
             name
         )
 
-        if hasattr(
-            channel,
-            "value",
-        ):
-            value = channel.value
+        # Protection consumes the engineering signal, not the raw
+        # pre-scale/pre-polarity sample. Reject an explicitly unusable
+        # channel before exposing its value to protection logic.
+        usable = getattr(channel, "is_usable", None)
+        if usable is not None:
+            usable = usable() if callable(usable) else usable
+            if usable is not True:
+                raise RuntimeError(
+                    f"Measurement channel bound to relay input '{name}' "
+                    "is not usable."
+                )
 
+        for attribute in ("signal", "engineering_value", "get_value", "value"):
+            if not hasattr(channel, attribute):
+                continue
+            value = getattr(channel, attribute)
             if callable(value):
-                return value()
-
+                value = value()
             return value
-
-        if hasattr(
-            channel,
-            "get_value",
-        ):
-            return channel.get_value()
 
         raise TypeError(
             f"Measurement channel bound to relay input "
