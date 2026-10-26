@@ -4676,3 +4676,37 @@ Validation:
     Runtime activation and import integrity remain unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-002
+======================================================================
+
+File:
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟢 SOURCE-LEVEL COMPOSITION RESPONSIBILITY CORRECTED
+
+Finding:
+    The plugin had passed the registration/composition adapter itself to
+    MotorPlacementCommandHandler as though it were the motor domain
+    service. This conflated host composition with domain operations.
+
+Correction:
+    Plugin initialization now requires a distinct composition.motor_service
+    and passes that service to the command handler. The composition adapter
+    remains responsible for registering handlers with the canonical
+    CommandManager.
+
+Adapter contract remains an integration requirement:
+    - register_motor_extension(plugin, command_handlers=...)
+    - expose motor_service implementing the explicit command service methods
+    - register handlers atomically or clean up partial registration on error
+    - return a teardown callable or unregister token
+
+Limitations:
+    No production adapter or motor service exists in the host yet.
+    No runtime activation is claimed. No tests or CI run.
+
+======================================================================
