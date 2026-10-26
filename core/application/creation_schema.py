@@ -13,6 +13,7 @@ contracts; authority over committed electrical state remains in Core.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -201,14 +202,21 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
         if isinstance(value, bool):
             raise TypeError("must be numeric")
         numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError("must be finite")
         if definition.minimum is not None and numeric < definition.minimum:
             raise ValueError(f"must be >= {definition.minimum}")
         if definition.maximum is not None and numeric > definition.maximum:
             raise ValueError(f"must be <= {definition.maximum}")
     elif datatype in {"int", "integer"}:
-        if isinstance(value, bool) or int(value) != value:
+        if isinstance(value, bool):
             raise TypeError("must be an integer")
-        numeric = int(value)
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError("must be finite")
+        if not numeric_value.is_integer():
+            raise TypeError("must be an integer")
+        numeric = int(numeric_value)
         if definition.minimum is not None and numeric < definition.minimum:
             raise ValueError(f"must be >= {definition.minimum}")
         if definition.maximum is not None and numeric > definition.maximum:
@@ -222,6 +230,8 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
     elif datatype in {"str", "string"}:
         if not isinstance(value, str):
             raise TypeError("must be text")
+    else:
+        raise ValueError(f"unsupported datatype {datatype!r}")
     rules = dict(definition.validation)
     if rules.get("non_empty") and (value is None or (isinstance(value, str) and not value.strip())):
         raise ValueError("must not be empty")
