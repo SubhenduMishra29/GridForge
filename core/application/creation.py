@@ -130,6 +130,27 @@ class CreationContractRegistry:
             for role, target in endpoint_mapping.items():
                 if role not in terminal_contract or not isinstance(target, str) or target not in command_fields:
                     raise ValueError(f"{equipment_type}: endpoint mapping {role!r} -> {target!r} is not canonical.")
+            # Every required constructor field must have an explicit source in
+            # the trusted contract. Without this check, a structurally valid
+            # mapping can be accepted and then fail later during command
+            # preparation because a required argument was never supplied.
+            supplied_fields = {
+                id_field,
+                *parameter_mapping.values(),
+                *endpoint_mapping.values(),
+            }
+            missing_required_fields = {
+                name
+                for name, parameter in command_signature.parameters.items()
+                if name not in {"self", "command_id", "correlation_id", "causation_id"}
+                and parameter.default is inspect.Parameter.empty
+                and name not in supplied_fields
+            }
+            if missing_required_fields:
+                raise ValueError(
+                    f"{equipment_type}: required command fields have no canonical source: "
+                    f"{sorted(missing_required_fields)!r}."
+                )
             required_terminals = tuple(str(role).strip() for role in raw_contract.get("required_connection_terminals", ()))
             if any(not role for role in required_terminals) or len(set(required_terminals)) != len(required_terminals):
                 raise ValueError(f"{equipment_type}: required connection terminal list is invalid.")
