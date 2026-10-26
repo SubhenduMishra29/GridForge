@@ -5731,8 +5731,10 @@ Correction:
     compatibility limits instead of claiming unverified INT8 support.
 
 Validation:
-    Source updates committed as fed22649252e5b8ebd09a507059185c19a3c371f
-    and 174e6886a7825ca0340b539855fddf58cb85003a. Static review only; no
+    Source updates committed as fed22649252e5b8ebd09a507059185c19a3c371f,
+    174e6886a7825ca0340b539855fddf58cb85003a, and
+    8516439c217bbb8f2dacd3195571818aaf4d9422. Complex-valued features are
+    also rejected so their imaginary components cannot be silently discarded. Static review only; no
     tests, CI, syntax compilation, accelerator runtime, or hardware checks were
     run. This does not constitute a complete CPU/GPU/NPU motor simulation solver.
 
