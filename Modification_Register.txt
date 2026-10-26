@@ -6509,3 +6509,37 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-050
+======================================================================
+
+Files:
+    core/protection/overcurrent/instantaneous_relay.py
+    core/protection/overcurrent/iec_relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 ANSI 50/51 BOOLEAN-TO-NUMERIC COERCION REJECTED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    ANSI 50 and 51 settings converted pickup and time-multiplier inputs
+    using float() before checking their numeric contract. Python booleans
+    are numeric subclasses, so True could be accepted as 1.0 for a pickup
+    or TMS value and silently alter protection behaviour.
+
+Correction:
+    - Reject Boolean pickup values for ANSI 50 and ANSI 51.
+    - Reject Boolean TMS values for ANSI 51.
+    - Preserve existing finite-positive numeric validation and IEC curve
+      normalization.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
