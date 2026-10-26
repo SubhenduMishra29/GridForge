@@ -188,6 +188,7 @@ def create_application(network: Any) -> Application:
         previous_protection_read_service = application._protection_read_service
         previous_control_execution = application._control_execution
         previous_control_cycle = application._control_cycle
+        previous_extension_handler_command_types = dict(application._extension_handler_command_types)
 
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
@@ -200,6 +201,7 @@ def create_application(network: Any) -> Application:
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
             application._control_cycle = previous_control_cycle
+            application._extension_handler_command_types = previous_extension_handler_command_types
             raise
 
         def rollback() -> None:
@@ -209,6 +211,7 @@ def create_application(network: Any) -> Application:
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
             application._control_cycle = previous_control_cycle
+            application._extension_handler_command_types = previous_extension_handler_command_types
 
         return rollback
 
