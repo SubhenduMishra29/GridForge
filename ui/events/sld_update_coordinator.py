@@ -135,9 +135,17 @@ class SLDUpdateCoordinator:
             raise TypeError("event must be an ApplicationEvent")
 
         if isinstance(event, DraftChanged):
-            if self._draft_projection is not None:
-                self._draft_projection.refresh(event)
-            self._canvas_refresh()
+            try:
+                if self._draft_projection is not None:
+                    self._draft_projection.refresh(event)
+                self._canvas_refresh()
+            except Exception as exc:
+                # Keep draft-triggered rendering failures observable through
+                # the same reconciliation status exposed for committed SLD
+                # refreshes; the event router may log and isolate this error.
+                self._last_reconciliation_error = exc
+                raise
+            self._last_reconciliation_error = None
             return
 
         if isinstance(event, ProjectClosed):
