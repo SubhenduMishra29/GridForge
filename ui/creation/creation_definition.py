@@ -14,6 +14,7 @@ mutation and no UI lifecycle state.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from ui.equipment.equipment_definition import EngineeringParameterDefinition
@@ -114,8 +115,8 @@ class CreationDefinition:
         object.__setattr__(self, "id_field", self.id_field.strip())
         object.__setattr__(self, "command_type", self.command_type.strip())
         object.__setattr__(self, "parameter_definitions", parameters)
-        object.__setattr__(self, "parameter_mapping", mapping)
-        object.__setattr__(self, "endpoint_mapping", dict(self.endpoint_mapping))
+        object.__setattr__(self, "parameter_mapping", MappingProxyType(mapping))
+        object.__setattr__(self, "endpoint_mapping", MappingProxyType(dict(self.endpoint_mapping)))
         object.__setattr__(self, "topology_requirements", tuple(self.topology_requirements))
         object.__setattr__(self, "terminal_requirements", tuple(self.terminal_requirements))
         object.__setattr__(self, "conditional_requirements", tuple(self.conditional_requirements))
