@@ -4340,3 +4340,32 @@ Verification boundary:
 Disposition:
     Proposed in draft PR #651; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — DRAFT EQUIPMENT PLACEMENT COORDINATE CONTRACT
+======================================================================
+
+File:
+    core/application/draft/network.py
+
+Finding:
+    DraftEquipment accepted arbitrary placement values without checking
+    coordinate shape, numeric types, boolean values, or finiteness. Invalid
+    coordinates could propagate into the SLD projection and canvas geometry.
+
+Correction:
+    - Permit None for an equipment item that has not yet been placed.
+    - Require placed coordinates to be a two-element tuple/list of numeric
+      values, explicitly rejecting booleans.
+    - Normalize coordinates to floats and reject NaN/infinity.
+    - Preserve this validation in DraftEquipment, the application-owned
+      authoring model, rather than deriving placement truth from graphics.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, imports,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #663; not merged.
+======================================================================
