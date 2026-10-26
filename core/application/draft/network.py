@@ -328,18 +328,29 @@ class DraftNetwork:
         errors: list[str] = []
         seen_pairs: set[tuple[DraftEndpointReference, DraftEndpointReference]] = set()
         for item in self._equipment.values():
-            if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
-            if len(set(item.terminal_contract)) != len(item.terminal_contract): errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
+            if item.placement is None:
+                errors.append(f"{item.draft_id}: placement is required.")
+            if len(set(item.terminal_contract)) != len(item.terminal_contract):
+                errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
             # DraftEquipment.endpoints is legacy acquisition metadata, not
             # topology. Only DraftConnection endpoints are validated as wiring.
         for item in self._connections.values():
             try:
-                self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
-            except (KeyError, TypeError, ValueError) as exc: errors.append(str(exc)); continue
-            pair = tuple(sorted((item.source, item.target), key=lambda x: x.to_dict().__repr__()))
-            if pair in seen_pairs: errors.append(f"{item.connection_id}: duplicate endpoint pair.")
+                self._validate_endpoint(
+                    item.source, connection_id=item.connection_id, network=network
+                )
+                self._validate_endpoint(
+                    item.target, connection_id=item.connection_id, network=network
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(str(exc))
+                continue
+            pair = self._endpoint_pair_key(item.source, item.target)
+            if pair in seen_pairs:
+                errors.append(f"{item.connection_id}: duplicate endpoint pair.")
             seen_pairs.add(pair)
-            if item.source == item.target: errors.append(f"{item.connection_id}: self-connection is invalid.")
+            if item.source == item.target:
+                errors.append(f"{item.connection_id}: self-connection is invalid.")
         self.validation_state = {"errors": tuple(errors), "valid": not errors}
         return tuple(errors)
 
