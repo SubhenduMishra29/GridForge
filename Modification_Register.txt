@@ -5830,3 +5830,44 @@ Validation:
 
 ======================================================================
 
+======================================================================
+GF-MOTOR-032
+======================================================================
+
+Files:
+    core/network/electrical_boundary.py
+    core/application/draft/network.py
+    Modification_Register.txt
+
+Status:
+    🟡 SOURCE-LEVEL POLICY RECONCILIATION APPLIED; RUNTIME UNVERIFIED
+
+Finding:
+    DraftNetwork.validate_connection_candidate() checked endpoint identity,
+    role membership, and duplicate pairs, but did not invoke the canonical
+    Core EndpointCompatibility policy. The Core policy also returned early
+    for Bus pairs before rejecting measurement-secondary terminal domains.
+    Consequently, a CT/PT/CVT secondary endpoint could pass draft preflight
+    when connected directly to a Bus, despite the recorded GF-MOTOR-026
+    requirement.
+
+Correction:
+    - Core EndpointCompatibility.validate_pair() now rejects a measurement
+      secondary endpoint before its Bus fast path.
+    - DraftNetwork candidate validation converts both canonical draft
+      endpoints to Core EndpointReference values and invokes the same Core
+      compatibility policy before authoring mutation.
+    - Draft authoring continues to own no electrical compatibility rules;
+      it delegates to Core and raises a contextual ValueError for the caller.
+    - No alternate topology source or UI-derived electrical truth was added.
+
+Validation boundary:
+    Source inspection and targeted replacement checks only. No tests, CI,
+    syntax compilation, import checks, runtime activation, or hardware checks
+    were run. Confirm behavior through the existing SimpleWire service and
+    Core endpoint policy during a separately requested verification pass.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
