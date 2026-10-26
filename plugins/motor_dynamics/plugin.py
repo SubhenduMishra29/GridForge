@@ -59,14 +59,23 @@ class MotorDynamicsPlugin:
                 "motor_dynamics_composition must expose register_motor_extension"
             )
 
-        handler = MotorPlacementCommandHandler(composition)
+        # Keep command registration and domain service responsibilities distinct.
+        # The composition adapter owns host wiring; motor_service owns operations.
+        motor_service = getattr(composition, "motor_service", None)
+        if motor_service is None:
+            raise RuntimeError(
+                "motor_dynamics_composition must expose a separate 'motor_service'; "
+                "the registration adapter itself is not a domain service."
+            )
+
+        handler = MotorPlacementCommandHandler(motor_service)
         self.context = context
         self.application = application
         self.persistence = MotorPluginPersistenceHandler(application)
 
-        # The adapter registers the typed command names against GridForge's
-        # CommandManager. It must use register_handler(command_type, handler),
-        # and its returned teardown must undo registrations on partial failure.
+        # Adapter contract: atomically register these handlers with the canonical
+        # CommandManager and return a callable teardown. If registration fails,
+        # the adapter must undo any partial registrations before raising.
         token = register(
             plugin=self,
             command_handlers={
