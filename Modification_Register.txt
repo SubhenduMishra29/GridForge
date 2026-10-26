@@ -6615,3 +6615,28 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-054
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    The Application motor service relied on command-constructor validation
+    for coordinates and did not independently reject Boolean/non-finite
+    coordinates or malformed parameter keys.
+
+Correction:
+    Validate finite numeric x/y coordinates (excluding bool) and require
+    non-empty string parameter names before creating draft equipment.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
