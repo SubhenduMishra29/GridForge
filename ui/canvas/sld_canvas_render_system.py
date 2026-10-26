@@ -399,14 +399,23 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(render_id) == signature
                 and render_id in self._items
+                and render_id not in self._degraded_node_ids
             ):
                 realized[render_id] = self._items[render_id][0]
                 continue
-            if render_id in self._items:
+            # A fallback is visible but is not a successful symbol realization.
+            # Keep it in place until a real symbol can replace it.
+            previous_degraded = (
+                self._items.get(render_id, (None,))[0]
+                if render_id in self._degraded_node_ids else None
+            )
+            if render_id in self._items and previous_degraded is None:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
                 item.setZValue(1.0)
+                if previous_degraded is not None:
+                    self._remove_realized(render_id)
                 self._scene.addItem(item)
                 if self._snap_system is not None:
                     self._snap_system.register_item(item)
@@ -434,26 +443,28 @@ class SLDCanvasRenderSystem:
                 # A failed symbol lookup must not make placed draft equipment
                 # silently disappear. Keep a selectable, visible fallback in
                 # the same scene and expose the underlying error as its tooltip.
-                fallback = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
-                fallback.object_id = node.draft_id
-                fallback.draft_id = node.draft_id
-                fallback.is_draft_presentation = True
-                fallback.setPos(float(node.x), float(node.y))
-                fallback.setZValue(1.0)
+                fallback = previous_degraded
+                if fallback is None:
+                    fallback = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
+                    fallback.object_id = node.draft_id
+                    fallback.draft_id = node.draft_id
+                    fallback.is_draft_presentation = True
+                    fallback.setPos(float(node.x), float(node.y))
+                    fallback.setZValue(1.0)
+                    label = QGraphicsTextItem(
+                        f"Symbol unavailable\n{node.display_name}", fallback
+                    )
+                    label.setPos(-62.0, -24.0)
+                    fallback.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True
+                    )
+                    fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+                    self._scene.addItem(fallback)
+                    self._items[render_id] = (fallback,)
                 fallback.setToolTip(
                     f"Draft symbol unavailable [{code}]\n"
                     f"draft={node.draft_id} type={node.equipment_type}\n{message}"
                 )
-                label = QGraphicsTextItem(
-                    f"Symbol unavailable\n{node.display_name}", fallback
-                )
-                label.setPos(-62.0, -24.0)
-                fallback.setFlag(
-                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True
-                )
-                fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
-                self._scene.addItem(fallback)
-                self._items[render_id] = (fallback,)
                 self._render_signatures[render_id] = signature
                 self._degraded_node_ids.add(render_id)
                 realized[render_id] = fallback
