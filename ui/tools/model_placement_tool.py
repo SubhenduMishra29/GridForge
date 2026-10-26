@@ -447,10 +447,17 @@ class ModelPlacementTool(ToolBase):
 
     def on_cancel(self) -> bool:
         self._ensure_active()
-        had_state = self._preview_active or self._position is not None
+        creation_context = self._require_creation_context()
+        draft = creation_context.snapshot_draft()
+        had_state = (
+            self._preview_active
+            or self._position is not None
+            or (draft is not None and draft.placement_position is not None)
+            or (draft is not None and bool(draft.endpoints))
+        )
         self._clear_state()
-        self._active_draft_id = None
-        self._placement_dragging = False
+        # ToolManager owns CreationContext cancellation and its controller
+        # notification; this hook clears only the tool's transient visuals.
         return had_state
 
     def on_reset(self) -> None:
