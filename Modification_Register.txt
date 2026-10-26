@@ -5242,6 +5242,41 @@ Validation:
 ======================================================================
 
 ======================================================================
+GF-MOTOR-016
+======================================================================
+
+Files:
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SERIALIZED CREATION CONTRACT ROUND-TRIP PRESERVED IN SOURCE
+
+Finding:
+    EquipmentDefinition.to_dict() serialized only a subset of CreationDefinition
+    fields, omitting command_type, parameter definitions, terminal/topology
+    requirements, conditional rules, and creation behavior flags. from_dict()
+    then ignored the serialized mappings and silently rebuilt a built-in
+    contract using creation_definition_for(). Custom or changed contracts could
+    therefore lose schema information during a serialization round trip.
+
+Correction:
+    Serialize the complete CreationDefinition contract and reconstruct it from
+    the serialized fields, including immutable schema parameter metadata,
+    terminal and topology requirements, conditional requirements, and behavior
+    flags. The deserializer no longer substitutes a built-in catalogue entry
+    for a serialized contract. Older partial creation_definition payloads that
+    lack required identity fields now fail explicitly instead of silently
+    changing contract meaning.
+
+Validation:
+    Source-level edit and target replacement reviewed only. No tests, CI, or
+    runtime imports were executed. Serialization compatibility remains to be
+    checked during the wider framework-neutral catalogue migration. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
 GF-MOTOR-015
 ======================================================================
 
