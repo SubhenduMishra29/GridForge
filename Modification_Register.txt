@@ -5566,3 +5566,38 @@ Validation:
     configuration. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-025
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    core/application/creation.py
+
+Status:
+    🟡 TERMINAL ACQUISITION METADATA PROPAGATED; STATIC REVIEW ONLY
+
+Finding:
+    The neutral catalogue now distinguished CT/PT/CVT measurement interfaces,
+    but creation_contracts_from_definitions() reduced terminal requirements
+    to a tuple of names. The Application registry consequently lost required,
+    cardinality, allowed connection type, acquisition state, and initial
+    endpoint metadata during conversion.
+
+Correction:
+    The catalogue converter now emits immutable-schema terminal requirement
+    records alongside the existing terminal name inventory. The Application
+    CreationContractRegistry validates that rich records cover the canonical
+    terminal inventory exactly once, validates field shapes/enumerated values,
+    and preserves them in its normalized contract snapshot. Legacy caller
+    records that contain only terminal names receive conservative optional,
+    non-connected metadata; the built-in catalogue supplies full records.
+
+Validation:
+    Source-level inspection only. No tests, CI, syntax compilation, or runtime
+    imports were run. Downstream creation intent metadata comparison and any
+    terminal-consumer use of the new normalized field remain to be reconciled.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
