@@ -357,8 +357,24 @@ class ModelPlacementTool(ToolBase):
         while current is not None and id(current) not in seen and depth < 5:
             seen.add(id(current))
             error_type = type(current).__name__
+            code = getattr(current, "code", None)
             message = getattr(current, "message", None) or str(current)
-            parts.append(f"cause[{depth}]={error_type}: {message}")
+            parts.append(
+                f"cause[{depth}]={error_type}"
+                + (f" code={code}" if code is not None else "")
+                + f": {message}"
+            )
+            details = getattr(current, "details", None)
+            if isinstance(details, Mapping):
+                safe_details = {
+                    str(key): value
+                    for key, value in details.items()
+                    if isinstance(value, (str, int, float, bool, type(None), tuple, list, dict))
+                }
+                if safe_details:
+                    parts.append(f"details[{depth}]={safe_details!r}")
+            elif details is not None:
+                parts.append(f"details[{depth}]={type(details).__name__}")
             if getattr(current, "code", None) == "COMMAND_HANDLER_NOT_FOUND":
                 details = getattr(current, "details", None)
                 if isinstance(details, Mapping):
@@ -379,7 +395,7 @@ class ModelPlacementTool(ToolBase):
                             "handler_namespace="
                             + str(details["command_namespace"])
                         )
-            current = getattr(current, "cause", None)
+            current = getattr(current, "cause", None) or getattr(current, "__cause__", None)
             depth += 1
         return " | ".join(parts)
 
