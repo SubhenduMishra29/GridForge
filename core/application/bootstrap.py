@@ -63,6 +63,7 @@ from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
 from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
+from .creation_schema import creation_contracts_from_definitions
 
 
 def create_application(network: Any) -> Application:
@@ -163,6 +164,11 @@ def create_application(network: Any) -> Application:
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
     )
+
+    # Configure trusted creation contracts at the canonical Application
+    # composition boundary. The registry validates all definitions against
+    # actual command constructor signatures before any draft can be committed.
+    application.configure_creation_contracts(creation_contracts_from_definitions())
 
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
