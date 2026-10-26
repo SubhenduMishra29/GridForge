@@ -5414,3 +5414,28 @@ Validation:
     imports were executed. PR #674 remains open and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-020
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 EXPLICIT CATALOGUE INPUT VALIDATION CORRECTED; REGISTRY RECONCILIATION OPEN
+
+Finding and correction:
+    creation_contracts_from_definitions() previously used truthiness fallback,
+    so an explicitly supplied empty mapping silently selected the built-in
+    catalogue. It now selects defaults only when definitions is None, rejects
+    non-mapping inputs with TypeError, and rejects an explicit empty mapping
+    with ValueError. Application startup configuration remains unchanged.
+
+Validation:
+    Source change committed as 8714f12dd2b199815e5e9c4a92e2e8785913957f.
+    Static review only; no tests, CI, syntax compilation, or runtime imports.
+    Full reconciliation of all 22 definitions against command signatures and
+    registry invariants remains open. PR #674 remains draft and unmerged.
+
+======================================================================
