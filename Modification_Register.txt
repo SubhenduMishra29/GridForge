@@ -5469,3 +5469,34 @@ Validation:
     blocked pending complete validation. PR #674 remains draft and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-022
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 CONTRACT DESTINATION COLLISION CHECKS ADDED; CATALOGUE RECONCILIATION OPEN
+
+Finding:
+    CreationCommandPreparer already rejects duplicate parameter destinations,
+    duplicate endpoint destinations, cross-category collisions, and mappings
+    that overwrite the object ID. CreationContractRegistry.configure() did not
+    apply these checks before accepting a trusted catalogue snapshot, allowing
+    invalid mappings to remain configured until a later creation attempt.
+
+Correction:
+    Registry configuration now rejects duplicate parameter targets, duplicate
+    endpoint targets, parameter/endpoint cross-collisions, and mappings that
+    collide with the canonical ID field. This moves these structural failures
+    to configuration time while retaining the preparer's defensive checks.
+
+Validation:
+    Source change committed as a34d28645f92866f6cd24fe8ada35ab148b6e57a.
+    Static source review only; no tests, CI, syntax compilation, or runtime
+    imports. All 22 built-in contracts still require full reconciliation before
+    startup activation. PR #674 remains open, draft, and unmerged.
+
+======================================================================
