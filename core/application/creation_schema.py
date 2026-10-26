@@ -480,14 +480,6 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
 
 
 __all__ = [
-    "ConditionalParameterRequirement",
-    "CreationDefinition",
-    "CreationTerminalRequirement",
-    "CreationTopologyRequirement",
-    "creation_definition_for",
-]
-
-__all__ = [
     "EngineeringParameterDefinition",
     "CreationTerminalRequirement",
     "CreationTopologyRequirement",
