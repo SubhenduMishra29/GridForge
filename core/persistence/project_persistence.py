@@ -470,6 +470,19 @@ class ProjectPersistenceService:
         if protection_configuration is not None:
             for configuration in protection_configuration.elements:
                 for input_name, channel_id in configuration.input_channel_ids.items():
+                    if not isinstance(input_name, str) or not input_name.strip():
+                        raise ProjectPersistenceError(
+                            f"Protection configuration '{configuration.element_id}' has an invalid input name."
+                        )
+                    if (
+                        not isinstance(channel_id, str)
+                        or not channel_id.strip()
+                        or channel_id != channel_id.strip()
+                    ):
+                        raise ProjectPersistenceError(
+                            f"Protection configuration '{configuration.element_id}' input '{input_name}' "
+                            "must reference a canonical, non-empty measurement channel ID."
+                        )
                     if channel_id not in channel_ids:
                         raise ProjectPersistenceError(
                             f"Protection configuration '{configuration.element_id}' input '{input_name}' "
