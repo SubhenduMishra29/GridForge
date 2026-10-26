@@ -325,19 +325,20 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(node.node_id) == signature
                 and node.node_id in self._items
+                and node.node_id not in self._degraded_node_ids
             ):
                 realized[node.node_id] = self._items[node.node_id][0]
-                if node.node_id in self._degraded_node_ids:
-                    diagnostic = self._degraded_diagnostics.get(node.node_id)
-                    if diagnostic is not None:
-                        # Keep the active failure observable without retrying an
-                        # unchanged realization or flooding the Messages panel.
-                        self._unsupported_presentations[node.node_id] = diagnostic.message
-                        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
                 self._restore_node_selection(node, realized[node.node_id])
                 continue
 
-            if node.node_id in self._items:
+            # A degraded placeholder is not a successful realization. Retry it
+            # on the next explicit snapshot synchronization, but retain the
+            # current visible item until a replacement is ready.
+            previous_degraded = (
+                self._items.get(node.node_id, (None,))[0]
+                if node.node_id in self._degraded_node_ids else None
+            )
+            if node.node_id in self._items and previous_degraded is None:
                 self._remove_realized(node.node_id)
             try:
                 selection = self._semantic_realization.realize(node)
@@ -370,14 +371,23 @@ class SLDCanvasRenderSystem:
                 )
                 self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
-                degraded = self._create_degraded_realization(node, message, code)
-                self._scene.addItem(degraded)
-                self._items[node.node_id] = (degraded,)
+                degraded = previous_degraded
+                if degraded is None:
+                    degraded = self._create_degraded_realization(node, message, code)
+                    self._scene.addItem(degraded)
+                    self._items[node.node_id] = (degraded,)
+                else:
+                    degraded.setToolTip(
+                        f"Unsupported presentation [{code}]\\n"
+                        f"node={node.node_id} equipment={getattr(degraded, 'object_id', node.node_id)}\\n{message}"
+                    )
                 self._render_signatures[node.node_id] = signature
                 self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
+            if previous_degraded is not None:
+                self._remove_realized(node.node_id)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._scene.addItem(item)
