@@ -5696,7 +5696,8 @@ Correction:
     connection command.
 
 Validation:
-    GitHub source update committed as 5573e2065acdee2345e24a7b6c22d17fb025e9c6.
+    Source updates committed as 5573e2065acdee2345e24a7b6c22d17fb025e9c6
+    and 6fd98604d2091f469883730ffc4e230373f4a6a6.
     Static source inspection only; the host canvas integration and command
     dispatch path are not yet runtime-verified. No tests or CI were run.
 
