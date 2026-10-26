@@ -5182,3 +5182,33 @@ Validation:
     have not been executed. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-013
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 SOURCE CORRECTION COMMITTED; RUNTIME COMPATIBILITY NOT EXECUTED
+
+Finding:
+    CreationDefinition is declared as a frozen dataclass and described as an
+    immutable creation contract, but its parameter_mapping and endpoint_mapping
+    were copied into ordinary mutable dictionaries in __post_init__. Frozen
+    dataclasses prevent field reassignment but do not freeze nested mappings;
+    callers could therefore mutate a registered definition after validation.
+
+Correction:
+    Wrap both normalized mapping values in types.MappingProxyType. The mapping
+    contents remain readable and iterable by the existing consumers but cannot
+    be modified through the stored contract object.
+
+Validation:
+    Source diff only. No tests, CI, or runtime compatibility checks were run.
+    Serialization/copy compatibility remains to be checked as part of the
+    framework-neutral catalogue migration. PR #674 remains open, draft, and
+    unmerged.
+
+======================================================================
