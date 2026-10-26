@@ -5212,3 +5212,31 @@ Validation:
     unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-014
+======================================================================
+
+Files:
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SOURCE CORRECTION COMMITTED; RUNTIME COMPATIBILITY NOT EXECUTED
+
+Finding:
+    EngineeringParameterDefinition is a frozen dataclass, but its validation
+    field was normalized to a mutable dict. This left nested parameter rules
+    mutable after creation-catalogue validation, undermining the immutability
+    contract established for CreationDefinition mappings.
+
+Correction:
+    Wrap the copied validation mapping in types.MappingProxyType. Existing
+    consumers should treat validation as a read-only Mapping; conversion to a
+    plain dict remains available where serialization requires it.
+
+Validation:
+    Source inspection only. No tests, CI, or runtime imports were executed.
+    Serialization/copy compatibility remains unverified. PR #674 remains open,
+    draft, and unmerged.
+
+======================================================================
