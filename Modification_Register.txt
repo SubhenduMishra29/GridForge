@@ -4905,3 +4905,55 @@ Validation:
     was changed by this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-007
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/creation.py
+    core/application/bootstrap.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟠 CREATION-CONTRACT COMPOSITION MUST PRECEDE MOTOR ACTIVATION
+
+Source-audit findings:
+    Application.__init__ constructs an empty CreationContractRegistry.
+    Application.configure_creation_contracts() delegates to its configure()
+    method. CreationContractRegistry rejects resolve() while empty and refuses
+    replacement with a structurally different contract set after configuration.
+
+    Repository source search and main.py inspection found no call site that
+    configures this registry on the ordinary startup path. The canonical
+    CreationCommandPreparer therefore cannot prepare a DraftEquipment commit
+    until the host composition supplies a complete trusted contract snapshot.
+
+    The registry's configure() operation expects a non-empty contract mapping
+    and the canonical registry is not a motor-only additive registry. Configuring
+    just a motor contract later would risk omitting existing equipment contracts
+    or conflicting with an already frozen full snapshot. Extension registration
+    must not silently replace the trusted registry.
+
+    bootstrap.create_application() closes over build_runtime(active_network).
+    That function constructs candidate handler mappings before creating the
+    candidate CommandManager; project activation invokes it again. This is the
+    correct location to compose runtime-specific extension handler factories,
+    but a registration API must also define how trusted creation metadata is
+    merged and frozen before the first draft commit.
+
+Decision:
+    Do not implement a motor-only contract overwrite or claim that runtime
+    registration alone completes motor creation. Before motor activation,
+    reconcile the complete canonical creation-contract catalog and establish
+    one composition-time configuration call. Then add runtime extension
+    factories to candidate CommandManager construction with duplicate ownership
+    checks and rollback-safe publication. The plugin must consume the resulting
+    Application-owned adapter via PluginContext.services.
+
+Validation:
+    Source inspection only. No tests or CI run. No runtime changes were made
+    by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
