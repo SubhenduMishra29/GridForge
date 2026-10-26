@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from core.model import Branch, Breaker, Cable, Disconnector, Fuse, Line, Switch, Transformer
+from core.model import Branch, Breaker, Cable, CurrentTransformer, Disconnector, Fuse, Line, Switch, Transformer
 from core.model.endpoint_reference import EndpointReference, EndpointReferenceKind
 
 
@@ -180,6 +180,10 @@ def conduction_state(element: Any) -> bool:
     conducts = getattr(element, "conducts", None)
     if conducts is not None:
         return bool(conducts)
+    # A CT primary is a series conductor: its primary terminals belong to
+    # the same electrical path while the measurement secondary remains isolated.
+    if isinstance(element, CurrentTransformer):
+        return bool(getattr(element, "in_service", False))
     if isinstance(element, (Branch, Line, Cable, Transformer)):
         return bool(getattr(element, "in_service", False))
     if isinstance(element, Breaker):
