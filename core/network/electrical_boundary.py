@@ -38,7 +38,11 @@ class EndpointCompatibility:
     """Canonical Core endpoint compatibility and resolution contract."""
 
     _DOMAIN_ROLES = {
+        # EquipmentType values follow each model's canonical TYPE, so CT
+        # and PT resolve as "ct" and "pt" (not their Python class names).
+        "ct": {"P1": "primary", "P2": "primary", "S1": "secondary", "S2": "secondary"},
         "current_transformer": {"P1": "primary", "P2": "primary", "S1": "secondary", "S2": "secondary"},
+        "pt": {"primary_a": "primary", "primary_b": "primary", "secondary_a": "secondary", "secondary_b": "secondary"},
         "potential_transformer": {"primary_a": "primary", "primary_b": "primary", "secondary_a": "secondary", "secondary_b": "secondary"},
         "cvt": {"H1": "primary", "H2": "primary", "X1": "secondary", "X2": "secondary"},
         # Retain the descriptive legacy key for callers that still use it.
