@@ -93,16 +93,38 @@ class WireTool(ToolBase):
             )
             self._show_preview()
             return False
-        result = self._execute_connection(
-            endpoint_pair[0],
-            endpoint_pair[1],
-            source_snap=self._start_snap,
-            target_snap=snap_result,
-        )
+        try:
+            result = self._execute_connection(
+                endpoint_pair[0],
+                endpoint_pair[1],
+                source_snap=self._start_snap,
+                target_snap=snap_result,
+            )
+        except Exception as exc:
+            # Preserve the original failure for the interaction/error boundary,
+            # but also retain an actionable reason in the live wire preview.
+            self._last_command_result = exc
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=f"Connection was not created: {type(exc).__name__}: {exc}",
+            )
+            self._show_preview()
+            raise
+
         self._last_command_result = result
         if not getattr(result, "success", False):
             # A failed Application command is not a committed connection.
-            # Keep the routing preview alive so the user can retry or cancel.
+            # Keep the source endpoint and show why the attempted wire failed.
+            reason = str(getattr(result, "message", "") or "").strip()
+            if not reason:
+                reason = "The Application rejected the connection command."
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=f"Connection was not created: {reason}",
+            )
+            self._show_preview()
             return False
         self._clear_state()
         return True
