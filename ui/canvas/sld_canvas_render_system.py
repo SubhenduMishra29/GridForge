@@ -417,16 +417,31 @@ class SLDCanvasRenderSystem:
                 realized[render_id] = item
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
+                code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
+                symbol_id = None
+                try:
+                    definition = self._item_factory.equipment_registry.require(
+                        node.equipment_type
+                    )
+                    symbol_id = definition.symbol_id
+                    self._item_factory.symbol_registry.require(symbol_id)
+                except KeyError as lookup_error:
+                    missing = str(lookup_error)
+                    if "Unknown equipment type" in missing:
+                        code = "DRAFT_EQUIPMENT_DEFINITION_MISSING"
+                    elif "Unknown symbol definition" in missing:
+                        code = "DRAFT_SYMBOL_DEFINITION_MISSING"
+                    message = f"{message}; catalogue lookup: {lookup_error}"
                 self._unsupported_presentations[render_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=render_id,
                     equipment_id=node.draft_id,
                     equipment_type=node.equipment_type,
-                    symbol_id=None,
+                    symbol_id=symbol_id,
                     requested_presentation="symbol",
                     category="draft_presentation_realization",
                     message=message,
-                    code="DRAFT_PRESENTATION_REALIZATION_FAILED",
+                    code=code,
                     realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
                 )
                 self._record_diagnostic(render_id, diagnostic)
