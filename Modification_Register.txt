@@ -5439,3 +5439,33 @@ Validation:
     registry invariants remains open. PR #674 remains draft and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-021
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 REQUIRED COMMAND-SOURCE INVARIANT ADDED; FULL CATALOGUE CHECK PENDING
+
+Finding:
+    CreationContractRegistry validated that declared mappings targeted real
+    constructor fields, but did not reject a contract that omitted a required
+    constructor argument entirely. Such a contract could pass configuration
+    and fail later when CreationCommandPreparer invoked the command constructor.
+
+Correction:
+    Registry configuration now computes required constructor fields from the
+    canonical command signature and requires each to be sourced by the object
+    ID, parameter mapping, or endpoint mapping. The registry rejects missing
+    sources before publishing its immutable contract snapshot.
+
+Validation:
+    Source edit committed as df54ed65c65c14c784ba7f3425e770cf6b0b9763.
+    Static review only; no tests, CI, syntax compilation, or runtime imports.
+    Full 22-definition reconciliation and runtime startup configuration remain
+    blocked pending complete validation. PR #674 remains draft and unmerged.
+
+======================================================================
