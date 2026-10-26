@@ -1331,16 +1331,20 @@ class Application:
             next_extension_types[extension_id] = tuple(installed)
 
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
-        self._extension_handler_command_types = next_extension_types
+        next_control_cycle = self._control_cycle
         if self._control_engine is not None:
-            self._control_cycle = ControlCycleService(
+            next_control_cycle = ControlCycleService(
                 self._control_engine,
                 next_control_execution,
                 signal_mapping=self._control_signal_mapping,
                 read_service=read_service,
             )
-        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+        # Finish all potentially failing candidate setup before publishing the
+        # replacement runtime through the Application facade.
+        command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        self._control_cycle = next_control_cycle
+        self._extension_handler_command_types = next_extension_types
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
         """Coordinate Core and persistent SLD semantic reconciliation in one transaction.
