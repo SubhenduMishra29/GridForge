@@ -1,16 +1,19 @@
-"""GridForge V2 plugin lifecycle adapter for the motor-dynamics extension.
+"""GridForge V2 lifecycle adapter for the motor-dynamics extension.
 
 Author: Subhendu Mishra
 
-The plugin follows the canonical PluginContext lifecycle. Motor topology
-commands are deliberately not registered until a GridForge composition
-adapter supplies the transactional motor services and command registration
-boundary; Application does not expose a public register_command_handler API.
+Host command registration and topology mutations are delegated to the explicit
+motor_dynamics_composition service supplied through PluginContext.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from .commands import (
+    ADD_DRAFT_MOTOR_PLACEMENT,
+    COMMIT_MOTOR_TO_NETWORK,
+    MotorPlacementCommandHandler,
+)
 from .dashboard import MotorTelemetryDashboardWidget
 from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
@@ -31,7 +34,7 @@ class MotorDynamicsPlugin:
         self._initialized = False
 
     def initialize(self, context: Any) -> None:
-        """Initialize from the canonical immutable PluginContext."""
+        """Initialize from GridForge's canonical PluginContext."""
         if self._initialized:
             return
         if context is None or not hasattr(context, "application"):
@@ -45,25 +48,32 @@ class MotorDynamicsPlugin:
         composition = services.get("motor_dynamics_composition")
         if composition is None:
             raise RuntimeError(
-                "Motor dynamics cannot be activated: PluginContext.services must "
-                "provide the explicit 'motor_dynamics_composition' adapter. The "
-                "current Application has no public motor command-registration or "
-                "motor topology service contract."
+                "Motor dynamics cannot be activated until PluginContext.services "
+                "provides 'motor_dynamics_composition' with transactional motor "
+                "services and command registration."
             )
 
         register = getattr(composition, "register_motor_extension", None)
         if not callable(register):
             raise TypeError(
-                "motor_dynamics_composition must expose register_motor_extension(plugin)"
+                "motor_dynamics_composition must expose register_motor_extension"
             )
 
+        handler = MotorPlacementCommandHandler(composition)
         self.context = context
         self.application = application
         self.persistence = MotorPluginPersistenceHandler(application)
 
-        # The adapter is the composition boundary and owns the concrete command
-        # manager, topology service, graphics registration, and persistence hooks.
-        token = register(self)
+        # The adapter registers the typed command names against GridForge's
+        # CommandManager. It must use register_handler(command_type, handler),
+        # and its returned teardown must undo registrations on partial failure.
+        token = register(
+            plugin=self,
+            command_handlers={
+                ADD_DRAFT_MOTOR_PLACEMENT: handler,
+                COMMIT_MOTOR_TO_NETWORK: handler,
+            },
+        )
         if callable(token):
             self._unhooks.append(token)
         elif token is not None:
@@ -103,3 +113,6 @@ class MotorDynamicsPlugin:
         self.context = None
         if errors:
             raise ExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
+
+
+__all__ = ["MotorDynamicsPlugin"]
