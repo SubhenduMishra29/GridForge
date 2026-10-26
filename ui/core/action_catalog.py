@@ -39,9 +39,14 @@ def build_action_definitions(tool_definitions: Iterable[ToolDefinition] = ()) ->
     editor therefore receive one canonical "tool.<editor>.<tool_id>" action
     per editor. Editor-agnostic definitions retain the legacy "tool.<id>"
     form for compatibility.
+
+    Repeated definitions for the same action ID are accepted only when their
+    resulting metadata is identical. Conflicting definitions are rejected
+    instead of silently allowing whichever registry happened to be iterated
+    first to determine the visible action.
     """
     result: list[ActionDefinition] = list(_COMMON)
-    seen = {item.action_id for item in result}
+    by_action_id = {item.action_id: item for item in result}
     for definition in tool_definitions:
         if not isinstance(definition, ToolDefinition):
             raise TypeError("tool_definitions must contain ToolDefinition objects.")
@@ -52,28 +57,33 @@ def build_action_definitions(tool_definitions: Iterable[ToolDefinition] = ()) ->
                 if editor_type is not None
                 else f"tool.{definition.tool_id}"
             )
-            if action_id in seen:
-                continue
-            result.append(
-                ActionDefinition(
-                    action_id=action_id,
-                    title=definition.display_name,
-                    description=definition.description or definition.display_name,
-                    icon_id=definition.icon_id,
-                    shortcut=definition.shortcuts[0] if definition.shortcuts else None,
-                    category=definition.category or "engineering",
-                    checkable=True,
-                    scope=editor_type or "editor",
-                    tool_id=definition.tool_id,
-                    metadata={
-                        "tool_definition": definition.tool_id,
-                        "editor_type": editor_type,
-                        "editor_types": (editor_type,) if editor_type is not None else (),
-                        "capabilities": tuple(definition.capabilities),
-                    },
-                )
+            candidate = ActionDefinition(
+                action_id=action_id,
+                title=definition.display_name,
+                description=definition.description or definition.display_name,
+                icon_id=definition.icon_id,
+                shortcut=definition.shortcuts[0] if definition.shortcuts else None,
+                category=definition.category or "engineering",
+                checkable=True,
+                scope=editor_type or "editor",
+                tool_id=definition.tool_id,
+                metadata={
+                    "tool_definition": definition.tool_id,
+                    "editor_type": editor_type,
+                    "editor_types": (editor_type,) if editor_type is not None else (),
+                    "capabilities": tuple(definition.capabilities),
+                },
             )
-            seen.add(action_id)
+            existing = by_action_id.get(action_id)
+            if existing is not None:
+                if existing != candidate:
+                    raise ValueError(
+                        f"Conflicting action definitions for {action_id!r}; "
+                        "tool metadata must be unique within each editor scope."
+                    )
+                continue
+            result.append(candidate)
+            by_action_id[action_id] = candidate
     return tuple(result)
 
 
