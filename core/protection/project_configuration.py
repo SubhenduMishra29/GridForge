@@ -53,6 +53,23 @@ class ProtectionFunctionConfiguration:
             object.__setattr__(self, "action_type", action_type)
         if isinstance(self.priority, bool) or not isinstance(self.priority, int):
             raise TypeError("priority must be an integer.")
+        for field_name in ("settings", "input_channel_ids", "metadata"):
+            value = getattr(self, field_name)
+            if not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping.")
+        for setting_name in self.settings:
+            if not isinstance(setting_name, str) or not setting_name.strip():
+                raise ValueError("setting names must be non-empty strings.")
+        for input_name, channel_id in self.input_channel_ids.items():
+            if not isinstance(input_name, str) or not input_name.strip():
+                raise ValueError("input_channel_ids keys must be non-empty strings.")
+            if not isinstance(channel_id, str) or not channel_id.strip():
+                raise ValueError("input_channel_ids values must be non-empty strings.")
+            if channel_id != channel_id.strip():
+                raise ValueError("input channel IDs must not contain surrounding whitespace.")
+        for metadata_key in self.metadata:
+            if not isinstance(metadata_key, str) or not metadata_key.strip():
+                raise ValueError("metadata keys must be non-empty strings.")
         object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
         object.__setattr__(self, "input_channel_ids", MappingProxyType(dict(self.input_channel_ids)))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))

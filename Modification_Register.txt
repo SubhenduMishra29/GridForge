@@ -6436,3 +6436,38 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-048
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION MAPPING INTERNAL TYPES HARDENED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Frozen protection configuration wrapped dict(self.mapping) without
+    validating the direct-construction inputs or the key/value contract of
+    input_channel_ids. Pair sequences could be silently converted to maps,
+    and malformed channel identifiers could be retained until later use.
+
+Correction:
+    - Require settings, input_channel_ids, and metadata to be mappings in
+      direct construction as well as during deserialization.
+    - Require setting names and metadata keys to be non-empty strings.
+    - Require input-channel names and channel IDs to be non-empty strings;
+      reject channel IDs with surrounding whitespace.
+    - Preserve immutable MappingProxyType snapshots after validation.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
