@@ -33,6 +33,7 @@ class WireTool(ToolBase):
         self._current_position: Optional[Tuple[float, float]] = None
         self._last_snap_result: Any = None
         self._last_command_result: Any = None
+        self._failure_reason = ""
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
@@ -74,6 +75,7 @@ class WireTool(ToolBase):
         position = self._position_tuple(snap_result.position)
         endpoint = self._authoring_endpoint(snap_result)
         if self._preview.source_endpoint is None:
+            self._failure_reason = ""
             self._preview.begin(endpoint)
             self._start_snap = snap_result
             self._start_position = position
@@ -82,6 +84,7 @@ class WireTool(ToolBase):
             self._show_preview()
             return True
         self._current_position = position
+        self._failure_reason = ""
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
         endpoint_pair = self._preview.get_endpoint_pair()
@@ -104,10 +107,11 @@ class WireTool(ToolBase):
             # Preserve the original failure for the interaction/error boundary,
             # but also retain an actionable reason in the live wire preview.
             self._last_command_result = exc
+            self._failure_reason = f"Connection was not created: {type(exc).__name__}: {exc}"
             self._preview.update_target(
                 endpoint_pair[1],
                 valid=False,
-                reason=f"Connection was not created: {type(exc).__name__}: {exc}",
+                reason=self._failure_reason,
             )
             self._show_preview()
             raise
@@ -119,10 +123,11 @@ class WireTool(ToolBase):
             reason = str(getattr(result, "message", "") or "").strip()
             if not reason:
                 reason = "The Application rejected the connection command."
+            self._failure_reason = f"Connection was not created: {reason}"
             self._preview.update_target(
                 endpoint_pair[1],
                 valid=False,
-                reason=f"Connection was not created: {reason}",
+                reason=self._failure_reason,
             )
             self._show_preview()
             return False
@@ -297,7 +302,7 @@ class WireTool(ToolBase):
         # PreviewLayer owns the transient graphics. Attach failure feedback to
         # its current segment so the engineer can inspect the rejected route
         # without making the preview item a domain or selection object.
-        reason = self._preview.validation_reason
+        reason = self._failure_reason or self._preview.validation_reason
         items_getter = getattr(layer, "items", None)
         if reason and callable(items_getter):
             items = tuple(items_getter())
@@ -335,6 +340,7 @@ class WireTool(ToolBase):
                 if callable(clear):
                     clear()
         self._start_position = None
+        self._failure_reason = ""
         self._start_snap = None
         self._current_position = None
         self._preview.reset()
