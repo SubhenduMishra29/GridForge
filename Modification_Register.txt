@@ -4461,3 +4461,33 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #668; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — MENU AND TOOLBAR ACTION PRESENTATION CONTRACTS
+======================================================================
+
+Files:
+    ui/plugins/menu_plugin.py
+    ui/plugins/toolbar_plugin.py
+
+Finding:
+    Menu/toolbar renderers ignored action-spec-specific labels and tooltips.
+    Menu dispatch did not recheck canonical enabled state immediately before
+    execution or refresh availability after the handler returned. Toolbar
+    actions could duplicate shortcuts owned by menu actions for the same ID.
+
+Correction:
+    - Use MenuActionSpec text and ToolbarActionSpec text/tooltip when present.
+    - Recheck menu action availability at dispatch and refresh menu enabled
+      states after dispatch, including exceptional handler exits.
+    - Assign a toolbar shortcut only when explicitly declared by that toolbar
+      action spec, leaving shared canonical shortcut ownership to the menu.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, imports, startup,
+    and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #669; not merged.
+======================================================================
