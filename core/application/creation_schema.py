@@ -198,6 +198,7 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
     if unit is not None and definition.unit is not None and str(unit).strip() != str(definition.unit).strip():
         raise ValueError(f"unit must be {definition.unit!r}")
     datatype = definition.datatype.strip().lower()
+    canonical = value
     if datatype in {"float", "number"}:
         if isinstance(value, bool):
             raise TypeError("must be numeric")
@@ -208,6 +209,7 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
             raise ValueError(f"must be >= {definition.minimum}")
         if definition.maximum is not None and numeric > definition.maximum:
             raise ValueError(f"must be <= {definition.maximum}")
+        canonical = numeric
     elif datatype in {"int", "integer"}:
         if isinstance(value, bool):
             raise TypeError("must be an integer")
@@ -221,23 +223,27 @@ def _validate_parameter(definition: EngineeringParameterDefinition, value: Any) 
             raise ValueError(f"must be >= {definition.minimum}")
         if definition.maximum is not None and numeric > definition.maximum:
             raise ValueError(f"must be <= {definition.maximum}")
+        canonical = numeric
     elif datatype in {"bool", "boolean"}:
         if not isinstance(value, bool):
             raise TypeError("must be boolean")
+        canonical = value
     elif datatype == "enum":
         if str(value) not in tuple(str(choice) for choice in definition.choices):
             raise ValueError(f"must be one of {tuple(definition.choices)!r}")
+        canonical = value
     elif datatype in {"str", "string"}:
         if not isinstance(value, str):
             raise TypeError("must be text")
+        canonical = value
     else:
         raise ValueError(f"unsupported datatype {datatype!r}")
     rules = dict(definition.validation)
-    if rules.get("non_empty") and (value is None or (isinstance(value, str) and not value.strip())):
+    if rules.get("non_empty") and (canonical is None or (isinstance(canonical, str) and not canonical.strip())):
         raise ValueError("must not be empty")
-    if rules.get("nonzero") and value == 0:
+    if rules.get("nonzero") and canonical == 0:
         raise ValueError("must be non-zero")
-    if "allowed_values" in rules and value not in tuple(rules["allowed_values"]):
+    if "allowed_values" in rules and canonical not in tuple(rules["allowed_values"]):
         raise ValueError(f"must be one of {tuple(rules['allowed_values'])!r}")
 
 
