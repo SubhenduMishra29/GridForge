@@ -997,6 +997,19 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
+    # Menu and toolbar enabled states are projections of the canonical action
+    # router. Refresh them whenever selection, workspace, project, or tool
+    # context changes outside an action-trigger callback.
+    def _refresh_action_presentations(_context: object) -> None:
+        for plugin_id in ("menu", "toolbar"):
+            entry = plugin_registry.get_entry(plugin_id)
+            plugin = entry.plugin if entry is not None else None
+            refresh = getattr(plugin, "refresh_enabled_states", None)
+            if callable(refresh):
+                refresh()
+
+    engineering_context.subscribe(_refresh_action_presentations)
+    _refresh_action_presentations(engineering_context.current)
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("equipment", equipment_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
