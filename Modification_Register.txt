@@ -4367,7 +4367,7 @@ Verification boundary:
     startup, and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #663; not merged.
+    Merged in PR #663.
 ======================================================================
 
 
@@ -4431,7 +4431,7 @@ Verification boundary:
     startup, and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #667; not merged.
+    Merged in PR #667.
 ======================================================================
 
 
@@ -4459,7 +4459,7 @@ Verification boundary:
     startup, and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #668; not merged.
+    Merged in PR #668.
 ======================================================================
 
 
@@ -4489,7 +4489,7 @@ Verification boundary:
     and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #669; not merged.
+    Merged in PR #669.
 ======================================================================
 
 
@@ -4524,5 +4524,73 @@ Verification boundary:
     startup, and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #670; not merged.
+    Merged in PR #670.
+======================================================================
+
+
+======================================================================
+2026-10-26 — SLD RUNTIME GUARDS AND ACTION CONTEXT DIAGNOSTICS
+======================================================================
+
+Files:
+    main.py
+    ui/core/action_router.py
+    ui/tools/model_placement_tool.py
+
+Finding:
+    Draft interactions and SLD projections needed coherent command wiring,
+    while UI action availability could remain stale after selection/workspace
+    changes. SLD-only actions could be offered while another editor owned
+    focus. Missing/disabled/failing actions and placement command failures
+    lacked complete actionable diagnostics.
+
+Correction:
+    - Reconcile draft deletion/connection command guards and safe Cut behavior
+      in the main composition path; Cut is cancelled when clipboard coverage is
+      incomplete or multi-object deletion cannot be atomic.
+    - Reject unsupported semantic copy operations and preserve out-of-service
+      Transformer state by refusing an unsafe copy.
+    - Keep SLD-only actions disabled outside the SLD discipline.
+    - Refresh menu/toolbar enabled states on engineering-context changes.
+    - Route missing, disabled, and failing UI action diagnostics to the
+      Messages panel, including enabled-provider failures.
+    - Preserve structured command error codes/details and chained causes in
+      placement failure feedback.
+    - Add missing Control/Protection workspace action metadata.
+
+Verification boundary:
+    Source and patch review only. No tests or CI run; syntax, import integrity,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #671; not merged.
+======================================================================
+
+
+======================================================================
+2026-10-26 — WIRE INTERACTION LIFECYCLE GUARDS
+======================================================================
+
+File:
+    ui/tools/wire_tool.py
+
+Finding:
+    Forwarding a double-click to the ordinary press handler could start a
+    second wire immediately after a successful connection. Existing draft
+    endpoint pairs could also reach Application dispatch again before the
+    canonical duplicate-wire guard rejected them.
+
+Correction:
+    - Make double-click handling side-effect free.
+    - Check the current draft snapshot for an existing endpoint pair before
+      dispatching another draft-wire command.
+    - Surface duplicate-pair feedback while retaining Application/Core
+      validation as the authoritative guard.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, imports, startup,
+    and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #671; not merged.
 ======================================================================

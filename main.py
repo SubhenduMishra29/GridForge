@@ -70,6 +70,7 @@ from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDN
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
 from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
+from core.application.commands.draft_commands import RemoveDraftConnectionCommand, RemoveDraftEquipmentCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -402,8 +403,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
+        # The Study editor has a timeline region, not the SLD-only explorer.
+        # Activate its main area instead of requesting a nonexistent Region.
         _activate_workspace(STUDY_WORKSPACE_ID, "study")
-        workspace_controller.realizer.focus_region("main-study", "explorer")
+        workspace_controller.realizer.focus_area("main-study")
 
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
@@ -493,8 +496,25 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 str(element.element_type),
                 str(element.object_id),
             )
+            element_type = str(read_model.element_type).strip().lower()
+            if element_type not in {"bus", "transformer", "breaker"}:
+                messages_panel.append_message(
+                    f"Copy skipped: semantic paste is not defined for {element_type}."
+                )
+                continue
+            if element_type == "transformer" and not bool(
+                getattr(read_model, "attributes", {}).get("in_service", True)
+            ):
+                # CreateTransformerCommand has no in_service field and there
+                # is no canonical Transformer service-state command. Pasting
+                # this item would silently reactivate an out-of-service unit.
+                messages_panel.append_message(
+                    "Copy skipped: Transformer service state cannot yet be "
+                    "preserved by the canonical create command."
+                )
+                continue
             sld_clipboard.append({
-                "element_type": str(read_model.element_type),
+                "element_type": element_type,
                 "attributes": dict(getattr(read_model, "attributes", {}) or {}),
                 "labels": dict(getattr(read_model, "labels", {}) or {}),
                 "position": (float(node.x), float(node.y)),
@@ -609,6 +629,38 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                     raise RuntimeError(result.message)
                 continue
 
+            # Draft equipment has not crossed the Application commit boundary;
+            # remove it through the registered DraftNetwork command, never by
+            # deleting only its transient graphics item.
+            draft_snapshot = gridforge_application.read_draft_network()
+            draft_equipment = (
+                (draft_snapshot or {}).get("equipment", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
+                result = gridforge_application.execute(
+                    RemoveDraftEquipmentCommand(draft_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            draft_connections = (
+                (draft_snapshot or {}).get("connections", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(
+                str(item.get("connection_id", "")) == str(selected_id)
+                for item in draft_connections
+                if isinstance(item, dict)
+            ):
+                result = gridforge_application.execute(
+                    RemoveDraftConnectionCommand(connection_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
             node = _find_sld_node(selected_id)
             if node is not None and getattr(node, "equipment_id", None) is None:
                 result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
@@ -623,7 +675,29 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        if not selected_ids:
+            return
+
         _copy_selection()
+        if len(sld_clipboard) != len(selected_ids):
+            messages_panel.append_message(
+                "Cut canceled: one or more selected items cannot be copied "
+                "as semantic equipment. Nothing was deleted."
+            )
+            return
+
+        # Deletion currently dispatches one command per object and does not
+        # provide an atomic batch/rollback boundary. A multi-object Cut could
+        # therefore delete earlier objects before a later command fails.
+        # Keep Cut non-destructive until Application exposes an atomic batch.
+        if len(selected_ids) > 1:
+            messages_panel.append_message(
+                "Cut canceled: multi-object Cut is unavailable until deletion "
+                "supports an atomic Application batch. Nothing was deleted."
+            )
+            return
+
         _delete_selection()
 
     def _selected_sld_nodes() -> tuple[object, ...]:
@@ -839,6 +913,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
         "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
         "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
+        "control.panel": ("Control Workspace", "Activate the Control workspace.", None, "workspace"),
+        "protection.panel": ("Protection Workspace", "Activate the Protection workspace.", None, "workspace"),
         "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
         "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
     }
@@ -860,6 +936,19 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         selected = bool(context.selected_ids)
         active_tool = context.active_tool
         discipline = context.discipline
+        # These routed handlers operate on the SLD canvas/selection manager.
+        # Do not advertise them as available while another editor owns focus;
+        # otherwise a shortcut or menu action can mutate the hidden SLD.
+        sld_only_actions = {
+            "select", "move", "pan", "zoom_in", "zoom_out", "fit_view",
+            "copy", "paste", "delete", "sld_select", "sld_move", "sld_wire",
+            "edit.select_all", "edit.cut", "edit.box_select", "edit.move",
+            "edit.drag_move", "edit.rotate", "edit.mirror_horizontal",
+            "edit.mirror_vertical",
+        }
+        if action_id in sld_only_actions and discipline != "sld":
+            return False
+
         if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
                          "view.protection_workspace", "view.topology", "view.map", "view.reports",
@@ -997,10 +1086,38 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
+    # Menu and toolbar enabled states are projections of the canonical action
+    # router. Refresh them whenever selection, workspace, project, or tool
+    # context changes outside an action-trigger callback.
+    def _refresh_action_presentations(_context: object) -> None:
+        for plugin_id in ("menu", "toolbar"):
+            entry = plugin_registry.get_entry(plugin_id)
+            plugin = entry.plugin if entry is not None else None
+            refresh = getattr(plugin, "refresh_enabled_states", None)
+            if callable(refresh):
+                refresh()
+
+    engineering_context.subscribe(_refresh_action_presentations)
+    _refresh_action_presentations(engineering_context.current)
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("equipment", equipment_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+
+    def _report_action_failure(action_id: str, error: Exception) -> None:
+        """Surface routed UI/Application failures in the persistent Messages panel."""
+        code = str(getattr(error, "code", "") or type(error).__name__)
+        message = str(getattr(error, "message", "") or error)
+        details = getattr(error, "details", None)
+        diagnostic = f"Action failed [{action_id}] — {code}: {message}"
+        if details:
+            diagnostic += f" | Details: {dict(details)!r}"
+        cause = getattr(error, "cause", None)
+        if cause is not None:
+            diagnostic += f" | Cause: {cause}"
+        messages_panel.append_message(diagnostic)
+
+    action_router.set_error_handler(_report_action_failure)
     # Utility panels are physically re-homed into editor Regions. Their
     # QDockWidget wrappers remain compatibility-only.
     detached = {}

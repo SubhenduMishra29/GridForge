@@ -179,7 +179,12 @@ class WireTool(ToolBase):
         return self._preview.source_endpoint is not None
 
     def on_mouse_double_click(self, event: Any) -> bool:
-        return self.on_mouse_press(event)
+        # A double-click is not a second wire endpoint gesture. Qt emits a
+        # distinct double-click event after the first press/release sequence;
+        # forwarding it to on_mouse_press can start a new wire immediately
+        # after a successful connection cleared the preview state.
+        del event
+        return False
 
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
@@ -225,6 +230,18 @@ class WireTool(ToolBase):
         if isinstance(endpoint_from, DraftEndpointReference) or isinstance(endpoint_to, DraftEndpointReference):
             source = self._as_draft_endpoint(endpoint_from)
             target = self._as_draft_endpoint(endpoint_to)
+            existing_id = self._existing_draft_connection_id(source, target)
+            if existing_id is not None:
+                self._preview.update_target(
+                    endpoint_to,
+                    valid=False,
+                    reason=f"These endpoints are already connected by {existing_id}.",
+                )
+                self._show_preview()
+                self._report_feedback(
+                    f"Wire not created: these endpoints are already connected ({existing_id})."
+                )
+                return None
             from uuid import uuid4
             command = CreateDraftConnectionCommand(
                 connection={
@@ -291,6 +308,49 @@ class WireTool(ToolBase):
             terminal_role=str(endpoint.terminal_role),
             scope="core",
         )
+
+    def _existing_draft_connection_id(
+        self,
+        source: DraftEndpointReference,
+        target: DraftEndpointReference,
+    ) -> str | None:
+        """Avoid dispatching a duplicate draft wire for an existing endpoint pair."""
+        reader = getattr(self.application, "read_draft_network", None)
+        if not callable(reader):
+            return None
+        try:
+            snapshot = reader()
+        except (RuntimeError, TypeError, ValueError):
+            # The Application command handler remains the authoritative guard.
+            return None
+        if not isinstance(snapshot, dict):
+            return None
+        connections = snapshot.get("connections", ())
+        if not isinstance(connections, (list, tuple)):
+            return None
+        source_data = source.to_dict()
+        target_data = target.to_dict()
+        for item in connections:
+            if not isinstance(item, dict):
+                continue
+            connection_source = item.get("source")
+            connection_target = item.get("target")
+            if not isinstance(connection_source, dict) or not isinstance(connection_target, dict):
+                continue
+            if (
+                (connection_source == source_data and connection_target == target_data)
+                or (connection_source == target_data and connection_target == source_data)
+            ):
+                connection_id = item.get("connection_id")
+                return str(connection_id) if connection_id else "an existing draft connection"
+        return None
+
+    def _report_feedback(self, message: str) -> None:
+        for name in ("show_status_message", "set_status_message", "notify_user"):
+            callback = getattr(self.controller, name, None)
+            if callable(callback):
+                callback(message)
+                return
 
     def _show_preview(self) -> None:
         layer = self._preview_layer
