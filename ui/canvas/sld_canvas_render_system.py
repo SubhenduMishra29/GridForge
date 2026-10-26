@@ -483,14 +483,25 @@ class SLDCanvasRenderSystem:
 
         for connection in draft.connections:
             render_id = self._draft_render_id(connection.connection_id)
-            signature = self._draft_connection_signature(connection)
-            if self._render_signatures.get(render_id) == signature and render_id in self._items:
-                continue
-            if render_id in self._items:
-                self._remove_realized(render_id)
             try:
+                # Resolve endpoint geometry before comparing signatures. A
+                # draft node can move while the wire's endpoint identities stay
+                # unchanged; geometry must therefore participate in the
+                # reconciliation decision or the visible wire remains stale.
                 source, source_id = self._resolve_draft_endpoint(connection.source, realized)
                 target, target_id = self._resolve_draft_endpoint(connection.target, realized)
+                signature = self._draft_connection_signature(
+                    connection,
+                    source_position=(source.x(), source.y()),
+                    target_position=(target.x(), target.y()),
+                )
+                if (
+                    self._render_signatures.get(render_id) == signature
+                    and render_id in self._items
+                ):
+                    continue
+                if render_id in self._items:
+                    self._remove_realized(render_id)
                 item = self._item_factory.create_draft_connection(
                     connection,
                     source,
@@ -505,6 +516,10 @@ class SLDCanvasRenderSystem:
                 self._render_signatures[render_id] = signature
                 self._clear_reported_diagnostic(render_id)
             except Exception as exc:
+                # If endpoint resolution or recreation fails, do not leave a
+                # previously realized wire at obsolete endpoint coordinates.
+                if render_id in self._items:
+                    self._remove_realized(render_id)
                 self._record_draft_connection_failure(
                     connection,
                     "DRAFT_CONNECTION_REALIZATION_FAILED",
@@ -553,9 +568,22 @@ class SLDCanvasRenderSystem:
                      node.rotation, node.terminal_roles, node.presentation, node.validation_state))
 
     @staticmethod
-    def _draft_connection_signature(connection: DraftSLDCanvasConnection) -> str:
-        return repr((connection.connection_id, connection.source, connection.target,
-                     connection.connection_kind, connection.route, connection.validation_state))
+    def _draft_connection_signature(
+        connection: DraftSLDCanvasConnection,
+        *,
+        source_position: tuple[float, float],
+        target_position: tuple[float, float],
+    ) -> str:
+        return repr((
+            connection.connection_id,
+            connection.source,
+            connection.target,
+            source_position,
+            target_position,
+            connection.connection_kind,
+            connection.route,
+            connection.validation_state,
+        ))
 
     def _resolve_draft_endpoint(self, endpoint: Any, realized: dict[str, Any]) -> tuple[QPointF, str]:
         """Resolve Draft/Core endpoint identity through already-realized presentation items."""
