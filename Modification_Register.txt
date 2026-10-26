@@ -6255,3 +6255,43 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-043
+======================================================================
+
+Files:
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Status:
+    🟡 PERSISTED PROTECTION INPUT REFERENCES VALIDATED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Project persistence validated the shape of measurement definitions but did
+    not cross-check ProtectionFunctionConfiguration.input_channel_ids against
+    the persisted channel definitions at load/save boundaries. A protection
+    input could therefore refer to a channel absent from the project package,
+    leaving a dangling binding until a later activation or execution path.
+    Duplicate persisted channel IDs were also not rejected at this boundary.
+
+Correction:
+    - Validate that each persisted channel ID is a non-empty string and unique.
+    - Validate every persisted protection input channel ID against the project's
+      measurement channel ID set during both load and save validation.
+    - Fail with ProjectPersistenceError and include the protection element/input
+      context rather than silently retaining a dangling association.
+    - Keep live MeasurementChannel instances and sample state under the
+      Application MeasurementChannelService; persistence checks configuration
+      identity only.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or project round-trip runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
