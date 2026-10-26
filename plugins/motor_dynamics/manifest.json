@@ -7,7 +7,30 @@
   "description": "Headless induction-motor dynamics, diagnostics, and telemetry projections.",
   "author": "Subhendu Mishra",
   "entry_point": "plugin.MotorDynamicsPlugin",
-  "capabilities": ["commands", "sld_graphics", "study_dashboard", "persistence"],
-  "runtime": {"python": ">=3.10", "numerics": ["numpy", "scipy"], "ui": "GridForge ui.core.qt (PySide6 boundary)"},
-  "npu": {"provider": "VitisAIExecutionProvider", "precision": "int8", "fallback": "CPUExecutionProvider"}
+  "capabilities": [
+    "commands",
+    "sld_graphics",
+    "study_dashboard",
+    "persistence"
+  ],
+  "runtime": {
+    "python": ">=3.10",
+    "numerics": [
+      "numpy",
+      "scipy"
+    ],
+    "ui": "GridForge ui.core.qt (PySide6 boundary)"
+  },
+  "inference": {
+    "providers": [
+      "VitisAIExecutionProvider",
+      "TensorrtExecutionProvider",
+      "CUDAExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "dispatch": "capability-based; provider initialization failure falls through to the next available provider",
+    "fallback": "CPUExecutionProvider is required",
+    "input_policy": "finite numeric tensors with statically specified sample dimensions; quantized integer inputs require an explicit model-specific quantization contract",
+    "compatibility": "provider availability does not prove model compatibility or accelerator execution of every graph node"
+  }
 }
