@@ -4853,3 +4853,55 @@ Validation:
     PR #674 remains draft and must not be merged without explicit instruction.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-006
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    core/application/application.py
+    core/application/command_manager.py
+    core/application/project_lifecycle.py
+
+Status:
+    🟠 EXTENSION REGISTRATION MUST BE RUNTIME-FACTORY BASED
+
+Source-audit findings:
+    bootstrap.create_application() defines build_runtime(active_network),
+    which constructs network-scoped ModelService, relay/protection handlers,
+    CommandManager, ElectricalInsertionService, DraftCommandHandlers, and
+    CommitNetworkHandler. Project activation calls build_runtime again for
+    each candidate Network and atomically installs the new manager through
+    Application._replace_runtime(); the lifecycle owns rollback callbacks.
+
+    CommandManager exposes register_handler() and unregister_handler(), but
+    those methods affect only that manager instance. Registering a fixed set
+    of plugin handlers against the current manager would not register them
+    on future managers created by build_runtime().
+
+    A handler factory must be composed for every runtime generation and must
+    receive the active Network/runtime dependencies. Factories must be invoked
+    before the candidate runtime is published, and any partial failure must
+    abort candidate runtime construction without mutating the active runtime.
+    Project activation rollback must restore the prior runtime and must not
+    leave duplicate extension registrations.
+
+    The existing Application._replace_runtime() also adds SLD handlers to the
+    candidate manager before publishing it. This is the closest established
+    lifecycle pattern, but extension registration needs an explicit public
+    contract and should not expose the private manager to plugins.
+
+Decision:
+    Do not register motor handlers directly on the live CommandManager.
+    Implement a host-owned extension factory registry at the Application
+    composition boundary, with stable extension IDs, duplicate command-owner
+    detection, atomic candidate-runtime composition, deterministic teardown,
+    and trusted creation-contract configuration. The motor plugin should
+    provide a factory/adapter, not retain handlers bound to a stale Network.
+
+Validation:
+    Source inspection only. No tests or CI run. No code/runtime behavior
+    was changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
