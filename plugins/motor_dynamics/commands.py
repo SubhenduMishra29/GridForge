@@ -9,6 +9,8 @@ draft authoring to authoritative Core topology.
 """
 from __future__ import annotations
 
+from math import isfinite
+import re
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
@@ -41,8 +43,12 @@ class AddDraftMotorPlacementCommand(Command):
             raise TypeError("x must be numeric")
         if isinstance(y, bool) or not isinstance(y, (int, float)):
             raise TypeError("y must be numeric")
+        if not isfinite(float(x)) or not isfinite(float(y)):
+            raise ValueError("placement coordinates must be finite numbers")
+        if parameters is not None and not isinstance(parameters, Mapping):
+            raise TypeError("parameters must be a mapping when provided")
         payload = {
-            "motor_id": motor_id,
+            "motor_id": motor_id.strip(),
             "x": float(x),
             "y": float(y),
             "parameters": dict(parameters or {}),
@@ -78,8 +84,11 @@ class ConnectMotorToBusCommand(Command):
         for name, value in (("motor_id", motor_id), ("bus_id", bus_id), ("attachment_id", attachment_id)):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
-        if not attachment_id.strip().startswith("attachment-"):
-            raise ValueError("attachment_id must use the canonical Bus attachment identity")
+        if not re.fullmatch(r"attachment-(?:[0-8])", attachment_id.strip()):
+            raise ValueError(
+                "attachment_id must use canonical 'attachment-N' form "
+                "with an index in the supported range 0..8"
+            )
         super().__init__(
             command_type=CONNECT_MOTOR_TO_BUS,
             payload={
