@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import math
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem, Qt
+from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
@@ -449,7 +449,7 @@ class SLDCanvasRenderSystem:
                 )
                 label.setPos(-62.0, -24.0)
                 fallback.setFlag(
-                    fallback.GraphicsItemFlag.ItemIsSelectable, True
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True
                 )
                 fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
                 self._scene.addItem(fallback)
