@@ -11,7 +11,7 @@ from typing import Any
 
 from .commands import (
     ADD_DRAFT_MOTOR_PLACEMENT,
-    COMMIT_MOTOR_TO_NETWORK,
+    CONNECT_MOTOR_TO_BUS,
     MotorPlacementCommandHandler,
 )
 from .dashboard import MotorTelemetryDashboardWidget
@@ -80,7 +80,7 @@ class MotorDynamicsPlugin:
             plugin=self,
             command_handlers={
                 ADD_DRAFT_MOTOR_PLACEMENT: handler,
-                COMMIT_MOTOR_TO_NETWORK: handler,
+                CONNECT_MOTOR_TO_BUS: handler,
             },
         )
         if callable(token):
