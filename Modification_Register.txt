@@ -4276,3 +4276,34 @@ Verification boundary:
 Disposition:
     Merged in PR #636 (merge commit d24e029b3c00abf87d31247b8430075783785fa2).
 ======================================================================
+
+======================================================================
+2026-10-26 — DRAFT WIRE DUPLICATE PREFLIGHT
+======================================================================
+
+File:
+    core/application/draft/network.py
+
+Finding:
+    Duplicate endpoint pairs were detectable by DraftNetwork.validate() at
+    commit time, but add_connection() could accept the duplicate into the
+    authoring graph. The engineer then encountered the error only during
+    commit, and the draft graph temporarily contained invalid duplicate wires.
+
+Correction:
+    - Preflight candidate connections for endpoint identity, supported kind,
+      valid endpoints, self-connection, and an orientation-independent pair
+      already used by an existing DraftConnection.
+    - Perform the dictionary mutation only after every preflight check passes.
+    - Use the same canonical endpoint-pair key in validate(), so authoring
+      and commit-time duplicate detection cannot drift into separate rules.
+    - Preserve the first connection and reject the duplicate with its
+      existing connection ID in the diagnostic.
+
+Verification boundary:
+    Focused source and diff review. No tests or CI run; syntax, imports,
+    startup, and GUI runtime were not executed or verified.
+
+Disposition:
+    Proposed in draft PR #651; not merged.
+======================================================================
