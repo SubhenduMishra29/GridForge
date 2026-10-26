@@ -5500,3 +5500,35 @@ Validation:
     startup activation. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-023
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 REQUIRED TERMINAL MAPPING INVARIANT ADDED; CATALOGUE RECONCILIATION OPEN
+
+Finding:
+    Registry configuration verified that required connection terminals were
+    present in the terminal inventory, but did not require each such terminal
+    to have an endpoint mapping. A contract could therefore declare a terminal
+    mandatory for topology while failing to pass its endpoint to the create
+    command.
+
+Correction:
+    CreationContractRegistry.configure() now rejects any required connection
+    terminal absent from endpoint_mapping. This preserves the separation
+    between the terminal inventory and the subset of terminals that must be
+    connected at commit, while ensuring every required terminal can be
+    represented in the command payload.
+
+Validation:
+    Source change committed as 9b4670f9c114f74cd126fa4dc94e8c1bf1a62e31.
+    Static source review only; no tests, CI, syntax compilation, or runtime
+    imports. All 22 built-in definitions still require complete reconciliation.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
