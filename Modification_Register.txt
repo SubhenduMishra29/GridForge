@@ -4594,3 +4594,30 @@ Verification boundary:
 Disposition:
     Merged in PR #671.
 ======================================================================
+
+======================================================================
+2026-10-26 — SLD ROUTE EDIT CORE IDENTITY CORRECTION
+======================================================================
+
+File:
+    ui/sld/sld_route_edit_controller.py
+
+Finding:
+    SLDConnectionItem emits both the SLD presentation connection_id and the
+    explicit core_connection_id, but SLDRouteEditController passed the
+    presentation ID to SLDController.set_connection_route(). This crossed the
+    presentation/domain identity boundary and could target a non-Core ID.
+
+Correction:
+    - Require the explicit core_connection_id from the route-edit request.
+    - Pass only that Core identity through the existing controller/Application
+      mutation path; do not infer or synthesize a Core ID from presentation ID.
+    - Preserve the existing route payload and command boundary.
+
+Verification boundary:
+    Focused source review only. No tests or CI run; syntax, imports, startup,
+    and GUI runtime remain unverified.
+
+Disposition:
+    Open for review in PR.
+======================================================================
