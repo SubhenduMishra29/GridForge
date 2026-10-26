@@ -5005,3 +5005,56 @@ Validation:
     changed by this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-009
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/creation/command_factory.py
+    ui/equipment/equipment_registry.py
+    core/application/creation.py
+    core/application/bootstrap.py
+
+Status:
+    🟠 CATALOGUE FOUND — OWNERSHIP / ADAPTER BOUNDARY RECONCILIATION REQUIRED
+
+Source-audit findings:
+    ui/creation/creation_definition.py provides declarative equipment
+    CreationDefinition values with engineering parameter definitions,
+    command type and ID field, parameter mapping, endpoint mapping,
+    terminal requirements, topology requirements, and conditional rules.
+
+    ui/equipment/equipment_registry.py composes the built-in equipment
+    catalogue through creation_definition_for(), including a motor
+    definition for model.create_motor and a single terminal topology.
+
+    ui/creation/command_factory.py translates UI creation drafts into
+    CreationCommitIntent and verifies those definitions against canonical
+    command signatures.
+
+    core/application/creation.py separately owns CreationContractRegistry,
+    which requires a trusted complete mapping and currently has no ordinary
+    composition-time configuration call identified in the inspected path.
+    Application/Core must not import UI modules to obtain this catalogue.
+
+Decision:
+    The missing source data is no longer considered wholly absent. The
+    remaining defect is a layer-ownership and composition integration gap:
+    creation metadata is authored in UI while commit validation trusts an
+    Application-owned registry. Do not add a UI import to Core/Application,
+    and do not copy a partial motor-only schema into the registry.
+
+    Next reconcile canonical ownership of the framework-neutral creation
+    schema. Establish one dependency-safe catalogue/contract representation
+    consumed by both UI authoring and Application commit validation, with
+    complete equipment coverage and explicit terminal/topology semantics.
+    Then configure the immutable Application registry once at composition
+    and resume runtime-scoped extension handler work.
+
+Validation:
+    Direct GitHub source inspection only. No tests or CI run. No runtime code
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
