@@ -5104,3 +5104,50 @@ Validation:
     changed by this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-011
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    core/application/creation.py
+    core/application/draft/handlers.py
+
+Status:
+    🟠 CONTRACT CONVERSION SEMANTICS MUST BE PRESERVED
+
+Source-audit findings:
+    CreationDefinition has distinct terminal_requirements and
+    topology_requirements. Its endpoint_mapping maps semantic endpoint roles
+    to immutable create-command fields. The Application CreationContractRegistry
+    separately validates terminal_contract, endpoint_mapping, and
+    required_connection_terminals.
+
+    A conversion must not collapse these concepts. In particular, a model's
+    complete terminal inventory is not identical to its required topology
+    connections. Measurement-device secondary terminals are model terminals,
+    while primary electrical endpoints are the relevant SimpleWire/draft
+    topology endpoints. Required connection cardinality remains a commit-time
+    policy and must be derived from explicit topology requirements, not inferred
+    merely because a terminal exists or has an endpoint field.
+
+    The current registry's endpoint mapping validation requires mapped role
+    keys to be present in terminal_contract. The converter must validate this
+    invariant against the full catalogue before any registry configuration.
+    It must also preserve parameter defaults, units, choices, numeric bounds,
+    validation rules, and conditional requirements when converting parameter
+    definitions to the immutable Application contract representation.
+
+Decision:
+    Implement a framework-neutral schema/catalogue source and an explicit,
+    deterministic conversion to CreationContractRegistry's contract shape.
+    Reconcile all built-in equipment types and command signatures before
+    wiring configuration into startup. Reject incomplete or conflicting
+    contracts at composition rather than silently weakening commit validation.
+
+Validation:
+    Source inspection only. No tests or CI run. No runtime code changed by
+    this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
