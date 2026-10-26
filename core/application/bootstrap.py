@@ -64,6 +64,7 @@ from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
 from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
 from .creation_schema import creation_contracts_from_definitions
+from .services.motor_dynamics_service import MotorDynamicsComposition
 
 
 def create_application(network: Any) -> Application:
@@ -169,6 +170,9 @@ def create_application(network: Any) -> Application:
     # composition boundary. The registry validates all definitions against
     # actual command constructor signatures before any draft can be committed.
     application.configure_creation_contracts(creation_contracts_from_definitions())
+    # Optional UI plugin consumes this adapter through PluginContext.services.
+    # No motor handlers are registered until that plugin is explicitly loaded.
+    application.motor_dynamics_composition = MotorDynamicsComposition(application)
 
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
