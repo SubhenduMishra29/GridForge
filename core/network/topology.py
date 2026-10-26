@@ -10,6 +10,7 @@ from core.model import Branch,Breaker,Cable,CurrentTransformer,Disconnector,Fuse
 from core.model.endpoint_reference import EndpointReference
 from .connectivity import ConnectivityResolver
 from .electrical_boundary import ElectricalBoundaryResolver,ElectricalBoundaryType,EndpointCompatibilityError,conduction_state
+from .electrical_boundary import EndpointCompatibility
 from .topology_snapshot import ConductiveEdge,EquipmentBusAttachment,TopologySnapshot
 class TopologyManager:
     """Build and expose topology through the Network-owned lifecycle only.
