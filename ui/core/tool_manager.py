@@ -442,6 +442,12 @@ class ToolManager:
         self._ensure_active()
         if self._active_tool is not None:
             self._active_tool.reset()
+        had_draft = self.creation_context.active
+        if had_draft:
+            self.creation_context.cancel()
+            callback = getattr(self.controller, "_on_creation_cancelled", None)
+            if callable(callback):
+                callback()
 
     def get_state(self) -> dict[str, Any]:
         return {
