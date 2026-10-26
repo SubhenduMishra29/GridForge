@@ -325,19 +325,20 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(node.node_id) == signature
                 and node.node_id in self._items
+                and node.node_id not in self._degraded_node_ids
             ):
                 realized[node.node_id] = self._items[node.node_id][0]
-                if node.node_id in self._degraded_node_ids:
-                    diagnostic = self._degraded_diagnostics.get(node.node_id)
-                    if diagnostic is not None:
-                        # Keep the active failure observable without retrying an
-                        # unchanged realization or flooding the Messages panel.
-                        self._unsupported_presentations[node.node_id] = diagnostic.message
-                        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
                 self._restore_node_selection(node, realized[node.node_id])
                 continue
 
-            if node.node_id in self._items:
+            # A degraded placeholder is not a successful realization. Retry it
+            # on the next explicit snapshot synchronization, but retain the
+            # current visible item until a replacement is ready.
+            previous_degraded = (
+                self._items.get(node.node_id, (None,))[0]
+                if node.node_id in self._degraded_node_ids else None
+            )
+            if node.node_id in self._items and previous_degraded is None:
                 self._remove_realized(node.node_id)
             try:
                 selection = self._semantic_realization.realize(node)
@@ -370,14 +371,23 @@ class SLDCanvasRenderSystem:
                 )
                 self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
-                degraded = self._create_degraded_realization(node, message, code)
-                self._scene.addItem(degraded)
-                self._items[node.node_id] = (degraded,)
+                degraded = previous_degraded
+                if degraded is None:
+                    degraded = self._create_degraded_realization(node, message, code)
+                    self._scene.addItem(degraded)
+                    self._items[node.node_id] = (degraded,)
+                else:
+                    degraded.setToolTip(
+                        f"Unsupported presentation [{code}]\\n"
+                        f"node={node.node_id} equipment={getattr(degraded, 'object_id', node.node_id)}\\n{message}"
+                    )
                 self._render_signatures[node.node_id] = signature
                 self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
+            if previous_degraded is not None:
+                self._remove_realized(node.node_id)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._scene.addItem(item)
@@ -399,14 +409,23 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(render_id) == signature
                 and render_id in self._items
+                and render_id not in self._degraded_node_ids
             ):
                 realized[render_id] = self._items[render_id][0]
                 continue
-            if render_id in self._items:
+            # A fallback is visible but is not a successful symbol realization.
+            # Keep it in place until a real symbol can replace it.
+            previous_degraded = (
+                self._items.get(render_id, (None,))[0]
+                if render_id in self._degraded_node_ids else None
+            )
+            if render_id in self._items and previous_degraded is None:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
                 item.setZValue(1.0)
+                if previous_degraded is not None:
+                    self._remove_realized(render_id)
                 self._scene.addItem(item)
                 if self._snap_system is not None:
                     self._snap_system.register_item(item)
@@ -417,19 +436,66 @@ class SLDCanvasRenderSystem:
                 realized[render_id] = item
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
+                code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
+                symbol_id = None
+                # Diagnose catalogue failures by the failing lookup stage rather
+                # than parsing exception text; retain the original realization
+                # exception as the primary failure.
+                try:
+                    definition = self._item_factory.equipment_registry.require(
+                        node.equipment_type
+                    )
+                except KeyError as lookup_error:
+                    code = "DRAFT_EQUIPMENT_DEFINITION_MISSING"
+                    message = f"{message}; equipment catalogue lookup: {lookup_error}"
+                else:
+                    symbol_id = definition.symbol_id
+                    try:
+                        self._item_factory.symbol_registry.require(symbol_id)
+                    except KeyError as lookup_error:
+                        code = "DRAFT_SYMBOL_DEFINITION_MISSING"
+                        message = f"{message}; symbol catalogue lookup: {lookup_error}"
                 self._unsupported_presentations[render_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=render_id,
                     equipment_id=node.draft_id,
                     equipment_type=node.equipment_type,
-                    symbol_id=None,
+                    symbol_id=symbol_id,
                     requested_presentation="symbol",
                     category="draft_presentation_realization",
                     message=message,
-                    code="DRAFT_PRESENTATION_REALIZATION_FAILED",
+                    code=code,
                     realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
                 )
                 self._record_diagnostic(render_id, diagnostic)
+                # A failed symbol lookup must not make placed draft equipment
+                # silently disappear. Keep a selectable, visible fallback in
+                # the same scene and expose the underlying error as its tooltip.
+                fallback = previous_degraded
+                if fallback is None:
+                    fallback = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
+                    fallback.object_id = node.draft_id
+                    fallback.draft_id = node.draft_id
+                    fallback.is_draft_presentation = True
+                    fallback.setPos(float(node.x), float(node.y))
+                    fallback.setZValue(1.0)
+                    label = QGraphicsTextItem(
+                        f"Symbol unavailable\n{node.display_name}", fallback
+                    )
+                    label.setPos(-62.0, -24.0)
+                    fallback.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True
+                    )
+                    fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+                    self._scene.addItem(fallback)
+                    self._items[render_id] = (fallback,)
+                fallback.setToolTip(
+                    f"Draft symbol unavailable [{code}]\n"
+                    f"draft={node.draft_id} type={node.equipment_type}\n{message}"
+                )
+                self._render_signatures[render_id] = signature
+                self._degraded_node_ids.add(render_id)
+                realized[render_id] = fallback
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
