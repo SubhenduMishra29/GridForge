@@ -434,18 +434,19 @@ class ModelPlacementTool(ToolBase):
 
     def on_cancel(self) -> bool:
         self._ensure_active()
-        draft = self._require_creation_context().require_draft()
+        creation_context = self._require_creation_context()
+        draft = creation_context.snapshot_draft()
         had_state = (
             self._preview_active
             or self._position is not None
-            or draft.placement_position is not None
-            or bool(draft.endpoints)
+            or (draft is not None and draft.placement_position is not None)
+            or (draft is not None and bool(draft.endpoints))
         )
         self._clear_state()
         # Tool-local cleanup alone is insufficient: CreationContext retains
         # the placement position and acquired endpoints. End the transient
         # interaction so the next placement starts as a fresh draft.
-        self._require_creation_context().cancel()
+        creation_context.cancel()
         return had_state
 
     def on_reset(self) -> None:
