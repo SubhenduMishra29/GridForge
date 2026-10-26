@@ -373,7 +373,20 @@ class ModelPlacementTool(ToolBase):
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
         if draft.placement_position is not None:
-            if self._placement_dragging and self._try_begin_wire_insertion(event, draft):
+            if self._placement_dragging:
+                if self._try_begin_wire_insertion(event, draft):
+                    return True
+                # While the initial placement gesture is still active, follow
+                # the cursor and keep the transient CreationDraft and symbol
+                # preview at the same snapped position. Persisting the draft
+                # only happens on release through place_creation_draft().
+                position = self._snap_position(event)
+                if position is None:
+                    return False
+                self._position = position
+                draft.set_placement(position)
+                self._preview_active = True
+                self._show_preview(position)
                 return True
             self._preview_active = True
             self._show_preview(self._position or draft.placement_position)
