@@ -4307,3 +4307,36 @@ Verification boundary:
 Disposition:
     Proposed in draft PR #651; not merged.
 ======================================================================
+
+======================================================================
+2026-10-26 — DRAFT WIRE PREFLIGHT BEFORE TRANSACTION UNDO REGISTRATION
+======================================================================
+
+Files:
+    core/application/draft/network.py
+    core/application/draft/handlers.py
+
+Finding:
+    DraftCommandHandlers.add_connection() registered a full DraftNetwork
+    snapshot inverse before DraftNetwork.add_connection() performed its
+    rejection checks. On a rejected candidate, CommandManager rolled back the
+    transaction even though no draft mutation had occurred. Snapshot restore
+    reconstructs the draft equipment/connection objects, needlessly replacing
+    unchanged object instances and risking stale references in projections.
+
+Correction:
+    - Add DraftNetwork.validate_connection_candidate() as a non-mutating
+      domain preflight using the same canonical checks as add_connection().
+    - Invoke preflight before recording the transaction inverse.
+    - Keep add_connection() independently validating immediately before its
+      mutation, so the domain boundary remains defensive.
+    - Invalid connection commands now fail before adding an inverse operation;
+      valid commands still register exact snapshot restoration before mutation.
+
+Verification boundary:
+    Focused source and diff review. No tests or CI run; syntax, import,
+    startup, and GUI/runtime behavior were not executed or verified.
+
+Disposition:
+    Proposed in draft PR #651; not merged.
+======================================================================
