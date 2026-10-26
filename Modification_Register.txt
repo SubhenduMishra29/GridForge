@@ -4710,3 +4710,45 @@ Limitations:
     No runtime activation is claimed. No tests or CI run.
 
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-003
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟢 ELECTRICAL TOPOLOGY SEMANTICS CORRECTED AT COMMAND CONTRACT
+
+Source-audit finding:
+    Canonical core/model/motor.py defines Motor as an Injection with exactly
+    one authoritative Terminal. It is a load/injection attached to a Bus,
+    not a two-terminal series element inserted into a SimpleWire.
+
+Correction:
+    Removed the motor command's wire_id/split_fraction wire-splitting
+    semantics. The typed request is now ConnectMotorToBusCommand and carries
+    motor_id, bus_id, and canonical Bus attachment_id. The plugin registers
+    the corrected command type.
+
+Architecture:
+    This request must be translated by an explicit Application composition
+    service into the canonical DraftNetwork connection graph. Core topology
+    is created only through the existing DraftNetwork commit and
+    SimpleWireConnectionService path. The command does not directly mutate
+    Core or SLD graphics.
+
+Remaining blocker:
+    The host motor_dynamics_composition adapter and motor_service are not
+    implemented. Runtime activation remains blocked. Bus attachment identity
+    and draft endpoint construction must be validated against the active
+    draft contract before implementation is considered complete.
+
+Validation:
+    No tests or CI run. Runtime activation and import integrity remain
+    unverified.
+
+======================================================================
