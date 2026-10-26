@@ -5692,6 +5692,8 @@ Correction:
     find_bus_attachment_at, and never requests wire splitting/insertion. Invalid
     Bus hit-test results are rejected before creating the motor draft. Placement
     without a Bus hit remains a draft for subsequent editing/connection.
+    A failed placement result is returned without dispatching the follow-up Bus
+    connection command.
 
 Validation:
     GitHub source update committed as 5573e2065acdee2345e24a7b6c22d17fb025e9c6.
