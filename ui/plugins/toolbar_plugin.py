@@ -651,9 +651,11 @@ class ToolbarPlugin(QObject):
         action.setToolTip(definition.description)
         action.setStatusTip(definition.description)
 
-        # Menu actions own application-wide keyboard shortcuts. Toolbar
-        # actions invoke the same canonical action IDs through the router,
-        # but must not register duplicate shortcuts in the same window.
+        # Canonical shortcuts are owned by the menu action for shared
+        # action IDs. A toolbar-specific shortcut may be registered only
+        # when it is explicitly declared by this toolbar action spec.
+        if spec.shortcut:
+            action.setShortcut(spec.shortcut)
 
         if spec.icon is not None:
             action.setIcon(
