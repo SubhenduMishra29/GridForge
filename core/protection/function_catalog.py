@@ -49,6 +49,21 @@ class ProtectionFunctionSpecification:
     input_contract: ProtectionFunctionInputContract | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.code, str):
+            raise TypeError("Protection function code must be a string.")
+        if not isinstance(self.name, str):
+            raise TypeError("Protection function name must be a string.")
+        if not isinstance(self.status, ProtectionFunctionStatus):
+            raise TypeError("Protection function status must be a ProtectionFunctionStatus.")
+        if self.implementation is not None and not isinstance(self.implementation, type):
+            raise TypeError("Protection function implementation must be a class or None.")
+        if self.input_contract is not None and not isinstance(
+            self.input_contract, ProtectionFunctionInputContract
+        ):
+            raise TypeError(
+                "Protection function input contract must be a ProtectionFunctionInputContract or None."
+            )
+
         code = self.code.strip().upper()
         name = self.name.strip()
         if not code:
