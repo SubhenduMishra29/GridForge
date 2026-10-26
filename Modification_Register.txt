@@ -6176,3 +6176,44 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-041
+======================================================================
+
+Files:
+    core/model/relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 RELAY CONSUMPTION ALIGNED WITH ENGINEERING SIGNAL SEMANTICS;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    MeasurementChannel.value is explicitly a compatibility alias for
+    raw_value. The channel's consumer-facing engineering signal is exposed
+    through signal/engineering_value, which applies scale and polarity.
+    Relay.get_input_value() preferred value and therefore returned the raw
+    sample, silently bypassing channel-level scale/polarity. It also did
+    not reject a channel whose is_usable state explicitly indicated invalid,
+    unavailable, unknown-quality, or stale data.
+
+Correction:
+    - Prefer signal, then engineering_value, before legacy get_value/value
+      interfaces so canonical MeasurementChannel consumers receive the
+      engineering-scaled and polarity-adjusted value.
+    - If the channel exposes is_usable, require it to evaluate to True
+      before returning a value.
+    - Preserve compatibility for generic channel adapters without the
+      optional usability interface.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime relay/protection execution were
+    run. End-to-end measurement generation and protection consumption remain
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
