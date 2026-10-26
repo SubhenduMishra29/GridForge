@@ -323,13 +323,29 @@ class ToolManager:
             return False
         result = handler(event)
         handled = bool(result) if result is not None else True
+
+        key = getattr(event, "key", None)
+        if callable(key):
+            key = key()
+        if isinstance(event, dict):
+            key = event.get("key", key)
+        cancel_requested = method_name == "key_press" and key in (
+            "Escape", "escape", "Key_Escape", 0x01000000, 16777216,
+        )
+        if cancel_requested:
+            had_draft = self.creation_context.active
+            self.creation_context.cancel()
+            callback = getattr(self.controller, "_on_creation_cancelled", None)
+            if callable(callback) and had_draft:
+                callback()
+
         if self._interaction_tool is not None and method_name in {"mouse_release", "key_press"}:
-            if method_name == "key_press" and not getattr(event, "key", None) and isinstance(event, dict) and event.get("key") not in ("Escape", "Key_Escape", 16777216):
+            if method_name == "key_press" and not cancel_requested:
                 return handled
             if method_name == "mouse_release" and not handled:
                 return handled
             self._clear_interaction_tool()
-            if method_name == "mouse_release" or method_name == "key_press":
+            if method_name == "mouse_release":
                 self.creation_context.cancel()
         return handled
 
@@ -426,6 +442,12 @@ class ToolManager:
         self._ensure_active()
         if self._active_tool is not None:
             self._active_tool.reset()
+        had_draft = self.creation_context.active
+        if had_draft:
+            self.creation_context.cancel()
+            callback = getattr(self.controller, "_on_creation_cancelled", None)
+            if callable(callback):
+                callback()
 
     def get_state(self) -> dict[str, Any]:
         return {
