@@ -4752,3 +4752,47 @@ Validation:
     unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-004
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+
+Status:
+    🟢 INPUT CONTRACT VALIDATION CORRECTED
+    🟠 CANONICAL CREATION CONTRACT STILL REQUIRES COMPOSITION INTEGRATION
+
+Source-audit finding:
+    Core Motor creation is already represented by
+    core.application.commands.motor_commands.CreateMotorCommand and the
+    canonical Application creation preparer. The Core Motor has one terminal
+    with role "terminal". DraftNetwork validates Bus attachment IDs against
+    the exact canonical form attachment-0 through attachment-8.
+
+Correction:
+    Motor placement command now rejects NaN/infinite coordinates, rejects a
+    non-mapping parameter payload, and normalizes the motor ID before placing
+    it in the immutable command payload. Motor-to-Bus requests now validate
+    the exact canonical attachment ID form instead of accepting any string
+    beginning with "attachment-".
+
+Remaining integration:
+    The motor plugin still has no host motor_dynamics_composition service.
+    The service must construct DraftEquipment from the canonical trusted
+    creation contract for "motor", using command type "model.create_motor",
+    ID field "motor_id", terminal contract ("terminal",), endpoint mapping
+    {"terminal": "endpoint"}, and explicit parameter mappings/contracts for
+    the canonical CreateMotorCommand fields. The trusted registry must be
+    supplied by Application composition; the plugin must not create a parallel
+    contract registry or bypass CreationCommandPreparer.
+    The motor's Bus attachment must be represented as a DraftConnection in
+    DraftNetwork, not by directly attaching a Core Motor during placement.
+
+Validation:
+    No tests or CI run. Runtime, import integrity, and actual composition
+    registration remain unverified.
+
+======================================================================
