@@ -417,6 +417,7 @@ class SLDCanvasRenderSystem:
                 realized[render_id] = item
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
+                code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
                 self._unsupported_presentations[render_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=render_id,
@@ -426,10 +427,36 @@ class SLDCanvasRenderSystem:
                     requested_presentation="symbol",
                     category="draft_presentation_realization",
                     message=message,
-                    code="DRAFT_PRESENTATION_REALIZATION_FAILED",
+                    code=code,
                     realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
                 )
                 self._record_diagnostic(render_id, diagnostic)
+                # A failed symbol lookup must not make placed draft equipment
+                # silently disappear. Keep a selectable, visible fallback in
+                # the same scene and expose the underlying error as its tooltip.
+                fallback = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
+                fallback.object_id = node.draft_id
+                fallback.draft_id = node.draft_id
+                fallback.is_draft_presentation = True
+                fallback.setPos(float(node.x), float(node.y))
+                fallback.setZValue(1.0)
+                fallback.setToolTip(
+                    f"Draft symbol unavailable [{code}]\\n"
+                    f"draft={node.draft_id} type={node.equipment_type}\\n{message}"
+                )
+                label = QGraphicsTextItem(
+                    f"Symbol unavailable\\n{node.display_name}", fallback
+                )
+                label.setPos(-62.0, -24.0)
+                fallback.setFlag(
+                    fallback.GraphicsItemFlag.ItemIsSelectable, True
+                )
+                fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+                self._scene.addItem(fallback)
+                self._items[render_id] = (fallback,)
+                self._render_signatures[render_id] = signature
+                self._degraded_node_ids.add(render_id)
+                realized[render_id] = fallback
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
