@@ -4594,3 +4594,37 @@ Verification boundary:
 Disposition:
     Merged in PR #671.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — MOTOR DYNAMICS EXTENSION Qt CHARTS AND EVENT BOUNDARY
+======================================================================
+
+Files:
+    ui/core/qt.py
+    plugins/motor_dynamics/dashboard.py
+
+Finding:
+    The initial motor telemetry dashboard imported Qt Charts classes from
+    ui.core.qt even though the canonical boundary did not export those
+    classes. It also subscribed to ApplicationEventBus with a string event
+    name, while the actual bus requires an ApplicationEvent subclass and
+    publishes synchronously. Direct chart mutation from a synchronous event
+    callback could therefore violate Qt widget thread affinity.
+
+Correction:
+    - Export QChart, QChartView, QLineSeries, and QValueAxis through the
+      existing PySide6-only ui.core.qt boundary.
+    - Subscribe using the canonical StudyCompleted event class.
+    - Marshal event delivery to the widget through a Qt signal bridge before
+      updating chart series and axes.
+    - Unsubscribe using the same event class and handler during close.
+
+Verification boundary:
+    Source-contract reconciliation only. No tests or CI run. Qt Charts
+    availability in the target runtime, syntax/import integrity, and GUI
+    thread behavior remain unverified.
+
+Disposition:
+    Proposed in draft PR #674; not merged.
+======================================================================
