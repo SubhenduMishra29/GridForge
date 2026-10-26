@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import math
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem, Qt
+from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
