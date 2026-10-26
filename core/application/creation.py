@@ -115,6 +115,50 @@ class CreationContractRegistry:
             terminal_contract = tuple(str(role).strip() for role in raw_contract.get("terminal_contract", ()))
             if any(not role for role in terminal_contract) or len(set(terminal_contract)) != len(terminal_contract):
                 raise ValueError(f"{equipment_type}: terminal contract contains blank or duplicate roles.")
+            raw_terminal_requirements = raw_contract.get("terminal_requirements")
+            if raw_terminal_requirements is None:
+                # Compatibility for callers that supply only the legacy name
+                # inventory. The built-in catalogue always provides rich records.
+                terminal_requirements = tuple({
+                    "terminal_name": role,
+                    "required": False,
+                    "cardinality": "single",
+                    "allowed_connection_types": (),
+                    "acquisition_state": "optional",
+                    "initial_endpoint_required": False,
+                } for role in terminal_contract)
+            else:
+                terminal_requirements = tuple(
+                    _freeze_contract_value(item) for item in raw_terminal_requirements
+                )
+                requirement_names = tuple(
+                    str(item.get("terminal_name", "")).strip()
+                    if isinstance(item, Mapping) else ""
+                    for item in terminal_requirements
+                )
+                if (
+                    any(not name for name in requirement_names)
+                    or len(set(requirement_names)) != len(requirement_names)
+                    or set(requirement_names) != set(terminal_contract)
+                ):
+                    raise ValueError(
+                        f"{equipment_type}: terminal requirement records must cover the "
+                        "terminal contract exactly once."
+                    )
+                for item in terminal_requirements:
+                    if not isinstance(item, Mapping):
+                        raise TypeError(f"{equipment_type}: terminal requirement records must be mappings.")
+                    if item.get("cardinality") not in {"single", "pair", "multiple"}:
+                        raise ValueError(f"{equipment_type}: terminal cardinality is invalid.")
+                    if item.get("acquisition_state") not in {"required", "optional", "acquired", "pending"}:
+                        raise ValueError(f"{equipment_type}: terminal acquisition state is invalid.")
+                    if not isinstance(item.get("required"), bool) or not isinstance(item.get("initial_endpoint_required"), bool):
+                        raise TypeError(f"{equipment_type}: terminal requirement flags must be boolean.")
+                    connection_types = item.get("allowed_connection_types")
+                    if not isinstance(connection_types, (tuple, list)) or any(
+                        not isinstance(value, str) or not value.strip() for value in connection_types
+                    ):
+                        raise ValueError(f"{equipment_type}: allowed terminal connection types are invalid.")
             parameter_mapping = dict(raw_contract.get("parameter_mapping", {}))
             endpoint_mapping = dict(raw_contract.get("endpoint_mapping", {}))
             parameter_contract = tuple(_freeze_contract_value(item) for item in raw_contract.get("parameter_contract", ()))
@@ -211,6 +255,7 @@ class CreationContractRegistry:
             normalized[equipment_type] = MappingProxyType({
                 "equipment_type": equipment_type,
                 "terminal_contract": terminal_contract,
+                "terminal_requirements": terminal_requirements,
                 "command_type": command_type,
                 "id_field": id_field,
                 "parameter_mapping": _freeze_contract_value(parameter_mapping),
