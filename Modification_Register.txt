@@ -5058,3 +5058,49 @@ Validation:
     changed by this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-010
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_definition.py
+    ui/equipment/equipment_registry.py
+    core/application/creation.py
+
+Status:
+    🟠 CREATION SCHEMA AUTHORITY IS IN THE WRONG LAYER
+
+Source-audit findings:
+    ui/creation/creation_definition.py explicitly describes itself as the
+    single creation-schema authority, but it imports
+    EngineeringParameterDefinition from ui/equipment/equipment_definition.py.
+    That makes the complete creation schema transitively UI-owned.
+
+    ui/equipment/equipment_registry.py builds its catalogue by calling
+    creation_definition_for() and passes the result into UI EquipmentDefinition.
+    core/application/creation.py independently owns the trusted commit-time
+    CreationContractRegistry and command class mapping. There is no
+    dependency-safe canonical contract source shared by both layers.
+
+    This is not solved by configuring Application from main.py using a UI
+    EquipmentRegistry instance: doing so would make Application trust a
+    UI-owned object and could allow presentation/plugin registration to
+    become authoritative engineering schema.
+
+Decision:
+    Reconcile the shared schema types and built-in catalogue into a
+    framework-neutral Application/domain contract module with no UI imports.
+    Keep UI EquipmentDefinition and EquipmentRegistry as presentation/tool
+    adapters over that shared catalogue. Application composition should
+    configure CreationContractRegistry from the trusted framework-neutral
+    catalogue before draft commit. Extension contracts require explicit
+    Application-owned registration/validation and must not mutate the frozen
+    built-in snapshot implicitly.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime code
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
