@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ui.equipment.equipment_definition import EngineeringParameterDefinition
+from core.application.creation_schema import EngineeringParameterDefinition
 
 
 @dataclass(frozen=True, slots=True)
