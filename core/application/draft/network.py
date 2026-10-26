@@ -288,12 +288,39 @@ class DraftNetwork:
         # CommitNetworkHandler reconciles any declaration with the graph's
         # opposite endpoint before preparing Core commands.
 
-    def add_connection(self, connection: DraftConnection) -> None:
-        if connection.connection_id in self._connections: raise ValueError(f"Draft connection already exists: {connection.connection_id}")
-        if connection.connection_kind != "simple_wire": raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
+    @staticmethod
+    def _endpoint_pair_key(
+        source: DraftEndpointReference,
+        target: DraftEndpointReference,
+    ) -> tuple[DraftEndpointReference, DraftEndpointReference]:
+        """Return an orientation-independent key for one semantic wire pair."""
+        return tuple(sorted((source, target), key=lambda endpoint: repr(endpoint.to_dict())))
+
+    def validate_connection_candidate(self, connection: DraftConnection) -> None:
+        """Validate a candidate without changing draft state or transaction history."""
+        if connection.connection_id in self._connections:
+            raise ValueError(f"Draft connection already exists: {connection.connection_id}")
+        if connection.connection_kind != "simple_wire":
+            raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
         self._validate_endpoint(connection.source, connection_id=connection.connection_id)
         self._validate_endpoint(connection.target, connection_id=connection.connection_id)
-        self._connections[connection.connection_id] = connection; self.validation_state = {}
+        if connection.source == connection.target:
+            raise ValueError(f"{connection.connection_id}: self-connection is invalid.")
+
+        candidate_pair = self._endpoint_pair_key(connection.source, connection.target)
+        for existing in self._connections.values():
+            if self._endpoint_pair_key(existing.source, existing.target) == candidate_pair:
+                raise ValueError(
+                    f"{connection.connection_id}: duplicate endpoint pair; "
+                    f"already used by {existing.connection_id}."
+                )
+
+    def add_connection(self, connection: DraftConnection) -> None:
+        self.validate_connection_candidate(connection)
+        # Mutate only after every preflight check succeeds, so a rejected wire
+        # cannot leave partially updated draft state.
+        self._connections[connection.connection_id] = connection
+        self.validation_state = {}
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
         connection = self._connections.pop(connection_id)
@@ -304,18 +331,29 @@ class DraftNetwork:
         errors: list[str] = []
         seen_pairs: set[tuple[DraftEndpointReference, DraftEndpointReference]] = set()
         for item in self._equipment.values():
-            if item.placement is None: errors.append(f"{item.draft_id}: placement is required.")
-            if len(set(item.terminal_contract)) != len(item.terminal_contract): errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
+            if item.placement is None:
+                errors.append(f"{item.draft_id}: placement is required.")
+            if len(set(item.terminal_contract)) != len(item.terminal_contract):
+                errors.append(f"{item.draft_id}: duplicate terminal role in contract.")
             # DraftEquipment.endpoints is legacy acquisition metadata, not
             # topology. Only DraftConnection endpoints are validated as wiring.
         for item in self._connections.values():
             try:
-                self._validate_endpoint(item.source, connection_id=item.connection_id, network=network); self._validate_endpoint(item.target, connection_id=item.connection_id, network=network)
-            except (KeyError, TypeError, ValueError) as exc: errors.append(str(exc)); continue
-            pair = tuple(sorted((item.source, item.target), key=lambda x: x.to_dict().__repr__()))
-            if pair in seen_pairs: errors.append(f"{item.connection_id}: duplicate endpoint pair.")
+                self._validate_endpoint(
+                    item.source, connection_id=item.connection_id, network=network
+                )
+                self._validate_endpoint(
+                    item.target, connection_id=item.connection_id, network=network
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(str(exc))
+                continue
+            pair = self._endpoint_pair_key(item.source, item.target)
+            if pair in seen_pairs:
+                errors.append(f"{item.connection_id}: duplicate endpoint pair.")
             seen_pairs.add(pair)
-            if item.source == item.target: errors.append(f"{item.connection_id}: self-connection is invalid.")
+            if item.source == item.target:
+                errors.append(f"{item.connection_id}: self-connection is invalid.")
         self.validation_state = {"errors": tuple(errors), "valid": not errors}
         return tuple(errors)
 

@@ -82,6 +82,10 @@ class DraftCommandHandlers:
     def add_connection(self, command, context, transaction):
         draft = self._draft()
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
+        # Reject invalid candidates before registering a transaction inverse.
+        # A failed preflight must not trigger snapshot restoration that replaces
+        # otherwise unchanged draft objects and can stale UI projection references.
+        draft.validate_connection_candidate(connection)
         _record_draft_undo(draft, transaction)
         draft.add_connection(connection)
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
