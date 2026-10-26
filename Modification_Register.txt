@@ -6564,3 +6564,30 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+======================================================================
+GF-MOTOR-052
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    ONNX inference included CPU during provider setup but did not retry on a
+    CPU-only session if the selected accelerator failed during inference.
+    The provider_fallback_used result also reflected initialization failures
+    only and could be false/misleading for runtime fallback behavior.
+
+Correction:
+    - Retain ONNX Runtime and session options for a controlled CPU-only retry.
+    - On selected non-CPU provider inference failure, retry once on CPU.
+    - Validate that the CPU session exposes the expected input name.
+    - Update active provider/session diagnostics and fallback state after retry.
+    - If CPU retry also fails, raise an explicit error chained from the failure.
+
+Validation:
+    Source-level re-fetch only. No tests, CI, syntax, import, or runtime checks.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
