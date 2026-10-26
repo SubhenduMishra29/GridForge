@@ -9,13 +9,18 @@ from __future__ import annotations
 from typing import Iterable
 import math
 
-from ui.core.qt import QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
+from ui.core.qt import QObject, QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
 
-class SLDConnectionItem(QGraphicsPathItem):
+class _RouteEditSignalBridge(QObject):
+    """Own Qt signals for a graphics item that is not itself a QObject."""
+
     route_edit_requested = Signal(object)
+
+
+class SLDConnectionItem(QGraphicsPathItem):
     INTERACTION_WIDTH = 10.0
     """Render resolved semantic endpoints and engineer-owned route geometry."""
 
@@ -35,6 +40,7 @@ class SLDConnectionItem(QGraphicsPathItem):
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{name} must be a non-empty string")
         super().__init__()
+        self._route_edit_signal_bridge = _RouteEditSignalBridge()
         self._presentation_id = object_id
         # Presentation and Core identities are independent; never synthesize one from the other.
         self._core_connection_id = str(core_connection_id) if core_connection_id is not None else None
@@ -54,6 +60,11 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_state = VisualState.NORMAL
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, self._core_connection_id is not None)
         self.setAcceptHoverEvents(True)
+
+    @property
+    def route_edit_requested(self):
+        """Return the QObject-owned route-edit signal for this graphics item."""
+        return self._route_edit_signal_bridge.route_edit_requested
 
     @property
     def object_id(self) -> str | None:
