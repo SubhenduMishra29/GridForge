@@ -5780,3 +5780,53 @@ Validation:
 
 ======================================================================
 
+======================================================================
+GF-MOTOR-031
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    core/application/bootstrap.py
+    main.py
+    plugins/motor_dynamics/service.py
+    Modification_Register.txt
+
+Status:
+    🟡 CANONICAL MOTOR DRAFT SERVICE AND PLUGIN SERVICE INJECTION ADDED;
+        DEFAULT PLUGIN ACTIVATION AND END-TO-END VALIDATION REMAIN OPEN
+
+Finding:
+    Motor placement commands had no host-owned implementation that translated
+    the extension's typed commands into the canonical Application DraftNetwork.
+    PluginContext also did not provide the required motor_dynamics_composition
+    service, so MotorDynamicsPlugin could not initialize from the normal UI
+    composition path.
+
+Correction:
+    Added a headless Application service that builds DraftEquipment from the
+    trusted motor creation contract and records motor-to-Bus topology as a typed
+    DraftConnection. Both operations use the existing CommandManager transaction
+    and record the exact draft snapshot as the undo inverse. The service does
+    not create Core models, mutate graphics, or bypass the canonical commit path.
+    Added MotorDynamicsComposition, which registers the two extension handlers
+    through Application.register_extension_handler_factory so handlers survive
+    project-runtime replacement. Application bootstrap exposes the composition
+    adapter, and main.py injects it into PluginContext.services. The implementation
+    lives in core/application/services to keep the headless composition root free
+    of UI plugin imports; the plugin service module is a compatibility re-export.
+
+Commits:
+    62fb9fb5b82a8223cb801d16b2d17dadb9620918
+    6572fdbacf602bae2cc5a71667bc92ed5f5981d5
+    7e45e0c5981b5a89759323a4e5e615d6201e7439
+    ed687e90d947fed94972eed9907a915d2fa2f70b
+
+Validation:
+    Source files and key integration markers were re-fetched after writes.
+    No tests, CI, syntax compilation, import checks, or runtime activation were
+    run. The motor plugin remains opt-in; the default plugin set was not changed.
+    The transient motor solver, full parameter-acquisition UX, and full
+    end-to-end project lifecycle validation remain open.
+
+======================================================================
+
