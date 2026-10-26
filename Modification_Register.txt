@@ -6543,3 +6543,24 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+======================================================================
+GF-MOTOR-051
+======================================================================
+
+Files:
+    core/protection/function_catalog.py
+    Modification_Register.txt
+
+Finding:
+    Validate ProtectionFunctionSpecification metadata types before normalization
+    or enum identity checks. Require string code/name, enum status, class-or-None
+    implementation, and contract-or-None input_contract. Existing invariants
+    remain; ANSI 87 remains explicitly NOT_IMPLEMENTED without implementation
+    or contract.
+
+Validation:
+    Source-level re-fetch only. No tests, CI, syntax, import, or runtime checks.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
