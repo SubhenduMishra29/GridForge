@@ -4402,3 +4402,34 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #666; not merged at register-entry time.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — MISSING COMMAND-HANDLER DIAGNOSTICS
+======================================================================
+
+Files:
+    core/application/command_manager.py
+    ui/tools/model_placement_tool.py
+
+Finding:
+    COMMAND_HANDLER_NOT_FOUND reported only the missing command type. It did
+    not distinguish an empty handler registry from partial/mismatched
+    registration or identify command types registered in the same namespace.
+    Draft equipment placement feedback omitted those structured details.
+
+Correction:
+    - Include registered command types, command namespace, same-namespace
+      candidates, registration state, and an actionable diagnostic.
+    - Surface those structured details through the existing placement failure
+      feedback path.
+    - Do not guess or substitute a handler; Application composition and
+      registration remain the authoritative correction points.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, import integrity,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #667; not merged.
+======================================================================
