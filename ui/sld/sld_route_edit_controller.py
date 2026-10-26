@@ -35,13 +35,14 @@ class SLDRouteEditController:
         """Commit one graphics-item route edit through SLDController/Application."""
         if not isinstance(request, dict):
             raise TypeError("route edit request must be a mapping")
-        connection_id = request.get("connection_id")
+        # The connection_id field is presentation identity; mutation requires Core identity.
+        core_connection_id = request.get("core_connection_id")
         points = request.get("points")
-        if not isinstance(connection_id, str) or not connection_id:
-            raise ValueError("route edit request requires connection_id")
+        if not isinstance(core_connection_id, str) or not core_connection_id:
+            raise ValueError("route edit request requires explicit core_connection_id")
         if not isinstance(points, (tuple, list)):
             raise TypeError("route edit request requires route points")
-        self.begin(connection_id, points)
+        self.begin(core_connection_id, points)
         self.commit()
 
     def commit(self) -> None:
