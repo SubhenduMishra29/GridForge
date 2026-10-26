@@ -536,10 +536,17 @@ def creation_contracts_from_definitions(
     responsible for validating command signatures and rejecting inconsistent
     mappings before a snapshot is accepted.
     """
-    source = definitions or {
-        equipment_type: creation_definition_for(equipment_type)
-        for equipment_type in _BUILTIN_TERMINAL_NAMES
-    }
+    if definitions is None:
+        source = {
+            equipment_type: creation_definition_for(equipment_type)
+            for equipment_type in _BUILTIN_TERMINAL_NAMES
+        }
+    else:
+        if not isinstance(definitions, Mapping):
+            raise TypeError("definitions must be a mapping when supplied.")
+        if not definitions:
+            raise ValueError("An explicit creation catalogue cannot be empty.")
+        source = definitions
     contracts: dict[str, Mapping[str, Any]] = {}
     for key, definition in source.items():
         if not isinstance(definition, CreationDefinition):
