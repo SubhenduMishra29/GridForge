@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 from collections import deque
-from core.model import Branch,Breaker,Cable,Disconnector,Fuse,Line,Switch,Transformer
+from core.model import Branch,Breaker,Cable,CurrentTransformer,Disconnector,Fuse,Line,Switch,Transformer
 from core.model.endpoint_reference import EndpointReference
 from .connectivity import ConnectivityResolver
 from .electrical_boundary import ElectricalBoundaryResolver,ElectricalBoundaryType,EndpointCompatibilityError,conduction_state
@@ -18,7 +18,7 @@ class TopologyManager:
     ``Network.rebuild_topology()``. The latter is the sole lifecycle authority
     that constructs the snapshot and commits NetworkState.topology_rebuilt().
     """
-    _TOPOLOGY_TYPES=(Branch,Line,Cable,Transformer,Breaker,Switch,Disconnector,Fuse)
+    _TOPOLOGY_TYPES=(Branch,Line,Cable,Transformer,CurrentTransformer,Breaker,Switch,Disconnector,Fuse)
     def __init__(self,network): self.network=network;self._graph={};self._edges={};self._snapshot=None
     @property
     def snapshot(self): return self._snapshot
