@@ -96,7 +96,7 @@ class MotorNPUDiagnosticNode:
 
     def _prepare(self, features: np.ndarray) -> np.ndarray:
         x = np.asarray(features)
-        if not np.issubdtype(x.dtype, np.number) or not np.isfinite(x).all():
+        if not np.issubdtype(x.dtype, np.number) or not np.isrealobj(x) or not np.isfinite(x).all():
             raise ValueError("Inference features must be a finite numeric array.")
 
         # Do not silently truncate or pad engineering features: that can change
