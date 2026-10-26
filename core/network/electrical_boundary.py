@@ -52,6 +52,16 @@ class EndpointCompatibility:
         if network is not None:
             cls.validate_reference(first, network)
             cls.validate_reference(second, network)
+
+        # Measurement secondary circuits are not ordinary power-network wire
+        # endpoints. Enforce this before the Bus fast path so a CT/PT/CVT
+        # secondary cannot be wired directly to a Bus either.
+        for reference in (first, second):
+            if cls.domain(reference) == "secondary":
+                raise EndpointCompatibilityError(
+                    "Measurement-secondary terminals cannot be connected by an ordinary Simple Wire."
+                )
+
         if first.is_bus or second.is_bus:
             return
         if first.equipment_type == second.equipment_type and first.object_id == second.object_id:
