@@ -6135,3 +6135,44 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-040
+======================================================================
+
+Files:
+    core/measurement/measurement_generation.py
+    Modification_Register.txt
+
+Status:
+    🟡 MEASUREMENT SOURCE FAMILY AND PRIMARY TERMINAL CONTRACT TIGHTENED;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    MeasurementGeneration validated source identity and that the supplied
+    terminal role existed on the source, but it did not enforce the
+    instrument family or primary-side role required by the conversion.
+    A CT secondary terminal (S1/S2), PT secondary terminal, or CVT
+    secondary terminal could therefore be supplied as the source terminal
+    while the implementation converted a primary-side network quantity
+    through the instrument ratio.
+
+Correction:
+    - Current and short-circuit generation now require a CT source.
+    - Voltage generation now requires a PT or CVT source.
+    - The source terminal must be an authoritative primary-side terminal:
+      CT P1/P2, PT primary_a/primary_b, or CVT H1/H2.
+    - Preserve explicit source identity and terminal membership checks.
+    - Keep analysis values sourced from prepared solver/result contracts;
+      no SLD graphics or UI state is consulted.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime measurement generation were run.
+    Measurement provisioning, channel persistence, and relay consumption
+    still require end-to-end integration audit.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
