@@ -294,6 +294,17 @@ class WireTool(ToolBase):
         if self._start_position is None or self._current_position is None:
             return
         layer.show_segment(self._start_position, self._current_position)
+        # PreviewLayer owns the transient graphics. Attach failure feedback to
+        # its current segment so the engineer can inspect the rejected route
+        # without making the preview item a domain or selection object.
+        reason = self._preview.validation_reason
+        items_getter = getattr(layer, "items", None)
+        if reason and callable(items_getter):
+            items = tuple(items_getter())
+            if items:
+                set_tooltip = getattr(items[-1], "setToolTip", None)
+                if callable(set_tooltip):
+                    set_tooltip(reason)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
