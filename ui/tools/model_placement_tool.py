@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
@@ -357,6 +359,26 @@ class ModelPlacementTool(ToolBase):
             error_type = type(current).__name__
             message = getattr(current, "message", None) or str(current)
             parts.append(f"cause[{depth}]={error_type}: {message}")
+            if getattr(current, "code", None) == "COMMAND_HANDLER_NOT_FOUND":
+                details = getattr(current, "details", None)
+                if isinstance(details, Mapping):
+                    diagnostic = details.get("diagnostic")
+                    registration_state = details.get("registration_state")
+                    candidates = details.get("same_namespace_candidates", ())
+                    if diagnostic:
+                        parts.append(f"handler_diagnostic={diagnostic}")
+                    if registration_state:
+                        parts.append(f"handler_registration_state={registration_state}")
+                    if candidates:
+                        parts.append(
+                            "same_namespace_candidates="
+                            + ", ".join(str(value) for value in candidates)
+                        )
+                    elif details.get("command_namespace"):
+                        parts.append(
+                            "handler_namespace="
+                            + str(details["command_namespace"])
+                        )
             current = getattr(current, "cause", None)
             depth += 1
         return " | ".join(parts)
