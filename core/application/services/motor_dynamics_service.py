@@ -39,9 +39,10 @@ class MotorDraftService:
     def add_draft_motor(self, *, command: Any, context: Any, transaction: Any) -> ApplicationResult[Any]:
         draft = self._draft()
         payload = command.payload
-        motor_id = str(payload.get("motor_id", "")).strip()
-        if not motor_id:
-            raise ValueError("Motor draft identity is required.")
+        motor_id = payload.get("motor_id")
+        if not isinstance(motor_id, str) or not motor_id.strip():
+            raise ValueError("Motor draft identity must be a non-empty string.")
+        motor_id = motor_id.strip()
         contract = self._application.creation_contract_registry.resolve("motor")
         parameters = payload.get("parameters", {})
         if not isinstance(parameters, Mapping):
