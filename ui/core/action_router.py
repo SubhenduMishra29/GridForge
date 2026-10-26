@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import logging
 from types import MappingProxyType
 from typing import Any
 
@@ -8,6 +9,7 @@ from ui.core.action_definition import ActionDefinition
 
 ActionHandler = Callable[[], Any]
 ActionErrorHandler = Callable[[str, Exception], None]
+_LOG = logging.getLogger(__name__)
 
 
 class UIActionRouter:
@@ -20,6 +22,7 @@ class UIActionRouter:
         self._disposed = False
         self._enabled_provider: Callable[[str], bool] | None = None
         self._error_handler: ActionErrorHandler | None = None
+        self._enabled_provider_failures: dict[str, tuple[str, str]] = {}
 
     @property
     def actions(self) -> Mapping[str, ActionHandler]:
@@ -101,13 +104,8 @@ class UIActionRouter:
 
         enabled, enabled_error = self._enabled_status(canonical)
         if enabled_error is not None:
-            return self._report_or_raise(
-                canonical,
-                RuntimeError(
-                    f"UI action enabled-state evaluation failed for {canonical!r}: "
-                    f"{type(enabled_error).__name__}: {enabled_error}"
-                ),
-            )
+            self._report_enabled_provider_failure(canonical, enabled_error)
+            return None
         if not enabled:
             return self._report_or_raise(
                 canonical,
@@ -142,7 +140,26 @@ class UIActionRouter:
         self._ensure_active()
         canonical = self._canonical_id(action_id)
         enabled, error = self._enabled_status(canonical)
-        return enabled and error is None
+        if error is not None:
+            self._report_enabled_provider_failure(canonical, error)
+            return False
+        self._enabled_provider_failures.pop(canonical, None)
+        return enabled
+
+    def _report_enabled_provider_failure(self, action_id: str, error: Exception) -> None:
+        """Report each unchanged enabled-provider failure once per action."""
+        signature = (type(error).__name__, str(error))
+        if self._enabled_provider_failures.get(action_id) == signature:
+            return
+        self._enabled_provider_failures[action_id] = signature
+        diagnostic = RuntimeError(
+            f"UI action enabled-state evaluation failed for {action_id!r}: "
+            f"{signature[0]}: {signature[1]}"
+        )
+        if self._error_handler is not None:
+            self._error_handler(action_id, diagnostic)
+        else:
+            _LOG.error("%s", diagnostic)
 
     def _enabled_status(self, canonical: str) -> tuple[bool, Exception | None]:
         if canonical not in self._handlers:
@@ -169,6 +186,7 @@ class UIActionRouter:
         self._aliases.clear()
         self._enabled_provider = None
         self._error_handler = None
+        self._enabled_provider_failures.clear()
         self._disposed = True
 
     def _canonical_id(self, action_id: str) -> str:
