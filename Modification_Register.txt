@@ -5740,3 +5740,37 @@ Validation:
 
 ======================================================================
 
+======================================================================
+GF-MOTOR-030
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Status:
+    🟡 RUNTIME-SAFE EXTENSION HANDLER FACTORY CONTRACT ADDED; MOTOR SERVICE INTEGRATION OPEN
+
+Finding:
+    Application project activation replaces CommandManager instances. Extension
+    handlers registered only on the current manager would be lost, while handlers
+    closing over project-bound services could remain bound to a stale Network.
+
+Correction:
+    Application now exposes register_extension_handler_factory() and
+    unregister_extension_handler_factory(). Factories produce command handlers
+    against the current/candidate CommandManager. Runtime replacement materializes
+    and validates all extension handler mappings before swapping active Application
+    references; collisions or factory errors abort the candidate replacement.
+    Registration and unregistration update the active registry atomically and
+    preserve core ownership of command execution and project mutation.
+
+Validation:
+    Application source update committed as 9eea4b9bf00d779baf017db289003c58911e587d.
+    Static source review only. No tests, CI, syntax compilation, import checks, or
+    runtime activation were run. The motor-specific host composition adapter and
+    canonical DraftNetwork motor service remain absent. PR #674 remains open,
+    draft, and unmerged.
+
+======================================================================
+
