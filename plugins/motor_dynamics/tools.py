@@ -47,6 +47,8 @@ class MotorPlacementTool:
         placed = self.command_dispatch(
             AddDraftMotorPlacementCommand(self._draft_id, *self._position)
         )
+        if getattr(placed, "success", True) is False:
+            return placed
         if hit is None:
             return placed
 
