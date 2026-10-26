@@ -4628,3 +4628,51 @@ Verification boundary:
 Disposition:
     Proposed in draft PR #674; not merged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-001
+======================================================================
+
+Scope:
+    plugins/motor_dynamics/commands.py
+    plugins/motor_dynamics/plugin.py
+    Core Application command / transaction boundary
+
+Status:
+    🟡 COMMAND ENVELOPE RECONCILED — DOMAIN SERVICE CONTRACT BLOCKED
+
+Source-audit findings:
+    Motor commands now use the canonical immutable Command envelope.
+    Handler shape follows CommandManager:
+        handler(command, context, transaction) -> ApplicationResult
+
+    CommandManager owns transaction commit/rollback. Motor handlers must
+    register inverse operations on the supplied Transaction before each
+    mutation and must not begin, commit, or roll back a separate transaction.
+
+    The existing DraftNetwork commit path prepares canonical equipment
+    creation commands and SimpleWire commands. No verified production
+    operation was found that splits an existing SimpleWire and inserts a
+    motor while preserving endpoint identity, topology invariants, undo,
+    and redo semantics.
+
+Decision:
+    Do not emulate wire splitting by editing SLD graphics or by inventing
+    a second topology service. Motor-to-wire insertion remains blocked
+    until a Core/Application-owned atomic topology operation is defined
+    against the canonical Network and SimpleWire contracts.
+
+Remaining integration requirements:
+    1. Provide the explicit motor_dynamics_composition adapter.
+    2. Provide an actual motor draft service and atomic motor topology
+       operation.
+    3. Register handlers through the host CommandManager composition.
+    4. Record inverse operations on the host transaction before mutation.
+    5. Verify StudyCompleted payload semantics before dashboard refresh.
+
+Validation:
+    No tests or CI run, per project instruction.
+    Runtime activation and import integrity remain unverified.
+
+======================================================================
