@@ -5151,3 +5151,34 @@ Validation:
     this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-012
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_registry.py
+
+Status:
+    🟡 CORRECTED IN SOURCE; STATIC VERIFICATION ONLY
+
+Finding:
+    The built-in catalogue represented Bus with a synthetic terminal named
+    "bus". The canonical connectivity contract instead models Bus as the owner
+    of named attachment points (attachment-0 through attachment-8). Treating
+    the Bus as ordinary terminalized equipment conflates two distinct
+    endpoint forms and risks routing Bus connectivity through an invented
+    terminal role.
+
+Correction:
+    Removed the synthetic Bus terminal from EquipmentRegistry's built-in
+    definition and stopped supplying terminal requirements to the Bus
+    CreationDefinition. Bus attachment IDs remain the canonical connectivity
+    representation; this does not change Core Bus models or attachment rules.
+
+Validation:
+    Source diff only. No tests or CI run. Startup behavior/import integrity
+    have not been executed. PR #674 remains open, draft, and unmerged.
+
+======================================================================
