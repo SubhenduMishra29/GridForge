@@ -914,14 +914,46 @@ class CommandManager:
         )
 
         if handler is None:
+            registered = tuple(sorted(self._handlers))
+            namespace = (
+                command.command_type.split(".", 1)[0]
+                if "." in command.command_type
+                else command.command_type
+            )
+            namespace_candidates = tuple(
+                name for name in registered
+                if name.split(".", 1)[0] == namespace
+            )
+            # Diagnose registration/composition failures without guessing a
+            # handler or silently dispatching to a different command.
             raise ExecutionError(
                 code="COMMAND_HANDLER_NOT_FOUND",
                 message=(
                     "No handler registered for command type: "
-                    f"{command.command_type}"
+                    f"{command.command_type}. "
+                    f"Registered handlers: {len(registered)}."
                 ),
                 details={
                     "command_type": command.command_type,
+                    "registered_command_types": registered,
+                    "command_namespace": namespace,
+                    "same_namespace_candidates": namespace_candidates,
+                    "registration_state": (
+                        "EMPTY" if not registered else "PARTIAL_OR_MISMATCHED"
+                    ),
+                    "diagnostic": (
+                        "No handlers are registered with this CommandManager."
+                        if not registered
+                        else (
+                            "Handlers exist in the same command namespace; "
+                            "check command-type spelling and registration wiring."
+                            if namespace_candidates
+                            else (
+                                "No handler exists in this command namespace; "
+                                "check Application composition and handler registration."
+                            )
+                        )
+                    ),
                 },
             )
 
