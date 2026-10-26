@@ -440,7 +440,7 @@ class EquipmentDefinition:
         if raw_creation is not None:
             if not isinstance(raw_creation, Mapping):
                 raise TypeError("creation_definition must be a mapping or None")
-            from ui.creation.creation_definition import (
+            from core.application.creation_schema import (
                 ConditionalParameterRequirement,
                 CreationDefinition,
                 CreationTerminalRequirement,
