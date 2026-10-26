@@ -5242,6 +5242,40 @@ Validation:
 ======================================================================
 
 ======================================================================
+GF-MOTOR-017
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SHARED CREATION CONTRACT TYPES MOVED TO FRAMEWORK-NEUTRAL MODULE
+
+Finding:
+    CreationTerminalRequirement, CreationTopologyRequirement,
+    ConditionalParameterRequirement, and CreationDefinition were still defined
+    in ui.creation.creation_definition.py. Application could not consume the
+    contract types without depending on UI, and EquipmentDefinition retained a
+    runtime reconstruction import into the UI package.
+
+Correction:
+    Moved the immutable creation contract dataclasses and parameter validation
+    helper into core.application.creation_schema. The UI catalogue module now
+    imports and re-exports those shared types while retaining the built-in
+    catalogue factory. This step intentionally does not move the built-in
+    catalogue or configure Application's registry; those require a complete
+    command/schema reconciliation first.
+
+Validation:
+    Source transformation and import ownership reviewed statically only. No
+    tests, CI, syntax compilation, or runtime imports were executed. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
 GF-MOTOR-016
 ======================================================================
 
