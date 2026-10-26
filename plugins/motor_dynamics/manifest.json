@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "plugin_id": "gridforge.plugin.motor_dynamics",
+  "name": "Multi-Physics Dynamic Motor Extension",
+  "version": "2.0.0",
+  "api_version": "V2.0",
+  "description": "Headless induction-motor dynamics, diagnostics, and telemetry projections.",
+  "author": "Subhendu Mishra",
+  "entry_point": "plugin.MotorDynamicsPlugin",
+  "capabilities": ["commands", "sld_graphics", "study_dashboard", "persistence"],
+  "runtime": {"python": ">=3.10", "numerics": ["numpy", "scipy"], "ui": "GridForge ui.core.qt (PySide6 boundary)"},
+  "npu": {"provider": "VitisAIExecutionProvider", "precision": "int8", "fallback": "CPUExecutionProvider"}
+}
