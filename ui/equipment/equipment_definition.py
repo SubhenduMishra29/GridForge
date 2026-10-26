@@ -27,6 +27,7 @@ GridForge V2 — Equipment Definition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ class EngineeringParameterDefinition:
         object.__setattr__(self, "display_name", self.display_name.strip())
         object.__setattr__(self, "datatype", self.datatype.strip())
         object.__setattr__(self, "choices", tuple(self.choices))
-        object.__setattr__(self, "validation", dict(self.validation))
+        object.__setattr__(self, "validation", MappingProxyType(dict(self.validation)))
 
 
 @dataclass(frozen=True)
