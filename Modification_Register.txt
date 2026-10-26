@@ -5532,3 +5532,37 @@ Validation:
     PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-024
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 MEASUREMENT-TERMINAL ACQUISITION SEMANTICS CORRECTED; STATIC REVIEW ONLY
+
+Finding:
+    The built-in CT, PT, and CVT catalogue correctly excluded secondary
+    measurement terminals from required electrical topology, but the shared
+    terminal helper still marked every physical terminal as required and
+    allowed only "electrical" connections. That left S1/S2, secondary_a/b,
+    and X1/X2 described as mandatory electrical acquisition terminals in the
+    creation schema despite their measurement-channel role.
+
+Correction:
+    Added explicit measurement_terminal_names metadata to the terminal helper.
+    CT S1/S2, PT secondary_a/secondary_b, and CVT X1/X2 remain in the canonical
+    physical terminal inventory but are optional acquisition interfaces and
+    are no longer declared as ordinary electrical-wire terminals. Primary
+    endpoint mappings and required topology remain unchanged.
+
+Validation:
+    Source-level inspection only. No tests, CI, syntax compilation, or runtime
+    imports were run. The Application registry converter currently retains
+    terminal names but not the richer terminal acquisition metadata; that
+    separate contract-propagation gap remains to be reconciled before startup
+    configuration. PR #674 remains open, draft, and unmerged.
+
+======================================================================
