@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -57,9 +58,29 @@ class ProtectionFunctionConfiguration:
             value = getattr(self, field_name)
             if not isinstance(value, Mapping):
                 raise TypeError(f"{field_name} must be a mapping.")
-        for setting_name in self.settings:
+        def validate_setting_value(value: Any, path: str) -> None:
+            if value is None or isinstance(value, (str, bool, int)):
+                return
+            if isinstance(value, float):
+                if not math.isfinite(value):
+                    raise ValueError(f"{path} must not contain NaN or infinity.")
+                return
+            if isinstance(value, Mapping):
+                for nested_key, nested_value in value.items():
+                    if not isinstance(nested_key, str) or not nested_key.strip():
+                        raise ValueError(f"{path} mapping keys must be non-empty strings.")
+                    validate_setting_value(nested_value, f"{path}.{nested_key}")
+                return
+            if isinstance(value, (list, tuple)):
+                for index, nested_value in enumerate(value):
+                    validate_setting_value(nested_value, f"{path}[{index}]")
+                return
+            raise TypeError(f"{path} contains unsupported setting value type: {type(value).__name__}.")
+
+        for setting_name, setting_value in self.settings.items():
             if not isinstance(setting_name, str) or not setting_name.strip():
                 raise ValueError("setting names must be non-empty strings.")
+            validate_setting_value(setting_value, f"settings.{setting_name}")
         for input_name, channel_id in self.input_channel_ids.items():
             if not isinstance(input_name, str) or not input_name.strip():
                 raise ValueError("input_channel_ids keys must be non-empty strings.")
