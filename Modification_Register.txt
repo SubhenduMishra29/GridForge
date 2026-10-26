@@ -4796,3 +4796,60 @@ Validation:
     registration remain unverified.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-005
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    core/application/application.py
+    main.py
+    ui/plugins/plugin_context.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟠 HOST EXTENSION COMPOSITION PATH MISSING — SOURCE TRACE CONFIRMED
+
+Source-audit findings:
+    create_application() composes one CommandManager and registers the
+    built-in handler families in core/application/bootstrap.py. Its draft
+    commit handler resolves the Application-owned CreationContractRegistry.
+
+    Application exposes configure_creation_contracts() and
+    creation_contract_registry, but direct inspection of main.py found no
+    call configuring the registry. The registry is constructed empty by
+    Application.__init__ and resolve() rejects an unconfigured registry.
+
+    Application does not expose a verified public extension handler
+    registration/unregistration API. Built-in handler registration occurs
+    inside bootstrap composition, while project activation rebuilds the
+    CommandManager. Registering only against the current private
+    _command_manager would therefore bypass the public boundary and would
+    not establish lifecycle-safe registration across project transitions.
+
+    main.py creates PluginContext without services. The default PluginManager
+    definitions also do not include motor_dynamics. Consequently the plugin's
+    required motor_dynamics_composition service is not provided by startup
+    composition and the plugin is not activated by the default plugin set.
+
+Decision:
+    Do not add a plugin-local workaround or mutate the private
+    Application._command_manager. Before motor runtime activation, define
+    one Application-owned extension composition seam that:
+      1. supplies trusted motor creation metadata to the existing
+         CreationContractRegistry;
+      2. registers extension handlers atomically with each active
+         CommandManager runtime and supports teardown;
+      3. survives project/runtime replacement without duplicate handlers;
+      4. injects the explicit motor composition adapter and motor service
+         through PluginContext.services only after those services exist.
+    Preserve the canonical DraftNetwork → CreationCommandPreparer → Core
+    mutation path. Do not create a parallel creation registry or topology.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime behavior,
+    import integrity, or project-transition activation was validated.
+    PR #674 remains draft and must not be merged without explicit instruction.
+
+======================================================================
