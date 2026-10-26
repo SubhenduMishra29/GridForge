@@ -299,7 +299,55 @@ def _definition(
     )
 
 
-def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]) -> CreationDefinition:
+_BUILTIN_TERMINAL_NAMES: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "bus": (),
+    "grid": ("terminal",),
+    "generator": ("terminal",),
+    "load": ("terminal",),
+    "shunt": ("terminal",),
+    "capacitor": ("terminal",),
+    "reactor": ("terminal",),
+    "solar": ("terminal",),
+    "battery": ("terminal",),
+    "motor": ("terminal",),
+    "synchronous_machine": ("terminal",),
+    "line": ("FROM", "TO"),
+    "cable": ("FROM", "TO"),
+    "transformer": ("FROM", "TO"),
+    "switch": ("from", "to"),
+    "breaker": ("from", "to"),
+    "disconnector": ("from", "to"),
+    "fuse": ("from", "to"),
+    "current_transformer": ("P1", "P2", "S1", "S2"),
+    "potential_transformer": ("primary_a", "primary_b", "secondary_a", "secondary_b"),
+    "cvt": ("H1", "H2", "X1", "X2"),
+    "relay": (),
+})
+
+
+def creation_definition_for(
+    equipment_type: str,
+    terminal_names: tuple[str, ...] | None = None,
+) -> CreationDefinition:
+    """Return the trusted built-in creation contract for one equipment type.
+
+    The optional terminal_names argument preserves the legacy UI adapter API.
+    Application callers can use the neutral built-in inventory directly.
+    """
+    equipment_type = str(equipment_type).strip().lower()
+    try:
+        canonical_terminal_names = _BUILTIN_TERMINAL_NAMES[equipment_type]
+    except KeyError as exc:
+        raise KeyError(f"No canonical creation definition for {equipment_type!r}") from exc
+    if terminal_names is None:
+        terminal_names = canonical_terminal_names
+    else:
+        terminal_names = tuple(terminal_names)
+        if terminal_names != canonical_terminal_names:
+            raise ValueError(
+                f"{equipment_type}: supplied terminal inventory {terminal_names!r} "
+                f"does not match canonical inventory {canonical_terminal_names!r}."
+            )
     common_endpoints = {"FROM": "endpoint_from", "TO": "endpoint_to"}
     switching_endpoints = {"from": "endpoint_from", "to": "endpoint_to"}
     # Required connection terminals are explicit per equipment family. They
@@ -479,6 +527,60 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
     return definition
 
 
+def creation_contracts_from_definitions(
+    definitions: Mapping[str, CreationDefinition] | None = None,
+) -> Mapping[str, Mapping[str, Any]]:
+    """Convert the neutral built-in catalogue to Application registry records.
+
+    This performs schema-shape conversion only. CreationContractRegistry remains
+    responsible for validating command signatures and rejecting inconsistent
+    mappings before a snapshot is accepted.
+    """
+    source = definitions or {
+        equipment_type: creation_definition_for(equipment_type)
+        for equipment_type in _BUILTIN_TERMINAL_NAMES
+    }
+    contracts: dict[str, Mapping[str, Any]] = {}
+    for key, definition in source.items():
+        if not isinstance(definition, CreationDefinition):
+            raise TypeError(f"{key!r}: expected a CreationDefinition.")
+        equipment_type = str(key).strip().lower()
+        if equipment_type != definition.equipment_type:
+            raise ValueError(f"{key!r}: catalogue key does not match definition identity.")
+        parameters = tuple({
+            "parameter_id": item.parameter_id,
+            "display_name": item.display_name,
+            "datatype": item.datatype,
+            "unit": item.unit,
+            "required_before_create": item.required_before_create,
+            "default_value": item.default_value,
+            "editable": item.editable,
+            "derived": item.derived,
+            "choices": item.choices,
+            "minimum": item.minimum,
+            "maximum": item.maximum,
+            "validation": dict(item.validation),
+        } for item in definition.parameter_definitions)
+        contracts[equipment_type] = MappingProxyType({
+            "equipment_type": equipment_type,
+            "command_type": definition.command_type,
+            "id_field": definition.id_field,
+            "terminal_contract": tuple(item.terminal_name for item in definition.terminal_requirements),
+            "parameter_mapping": dict(definition.parameter_mapping),
+            "endpoint_mapping": dict(definition.endpoint_mapping),
+            "required_connection_terminals": tuple(
+                item.name for item in definition.topology_requirements if item.required
+            ),
+            "parameter_contract": parameters,
+            "conditional_requirements": tuple({
+                "label": item.label,
+                "require_any": item.require_any,
+                "require_all": item.require_all,
+            } for item in definition.conditional_requirements),
+        })
+    return MappingProxyType(contracts)
+
+
 __all__ = [
     "EngineeringParameterDefinition",
     "CreationTerminalRequirement",
@@ -486,4 +588,5 @@ __all__ = [
     "ConditionalParameterRequirement",
     "CreationDefinition",
     "creation_definition_for",
+    "creation_contracts_from_definitions",
 ]
