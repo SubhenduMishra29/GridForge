@@ -288,12 +288,36 @@ class DraftNetwork:
         # CommitNetworkHandler reconciles any declaration with the graph's
         # opposite endpoint before preparing Core commands.
 
+    @staticmethod
+    def _endpoint_pair_key(
+        source: DraftEndpointReference,
+        target: DraftEndpointReference,
+    ) -> tuple[DraftEndpointReference, DraftEndpointReference]:
+        """Return an orientation-independent key for one semantic wire pair."""
+        return tuple(sorted((source, target), key=lambda endpoint: repr(endpoint.to_dict())))
+
     def add_connection(self, connection: DraftConnection) -> None:
-        if connection.connection_id in self._connections: raise ValueError(f"Draft connection already exists: {connection.connection_id}")
-        if connection.connection_kind != "simple_wire": raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
+        if connection.connection_id in self._connections:
+            raise ValueError(f"Draft connection already exists: {connection.connection_id}")
+        if connection.connection_kind != "simple_wire":
+            raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
         self._validate_endpoint(connection.source, connection_id=connection.connection_id)
         self._validate_endpoint(connection.target, connection_id=connection.connection_id)
-        self._connections[connection.connection_id] = connection; self.validation_state = {}
+        if connection.source == connection.target:
+            raise ValueError(f"{connection.connection_id}: self-connection is invalid.")
+
+        candidate_pair = self._endpoint_pair_key(connection.source, connection.target)
+        for existing in self._connections.values():
+            if self._endpoint_pair_key(existing.source, existing.target) == candidate_pair:
+                raise ValueError(
+                    f"{connection.connection_id}: duplicate endpoint pair; "
+                    f"already used by {existing.connection_id}."
+                )
+
+        # Mutate only after all preflight checks succeed, so a rejected wire
+        # cannot leave partially updated draft state.
+        self._connections[connection.connection_id] = connection
+        self.validation_state = {}
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
         connection = self._connections.pop(connection_id)
