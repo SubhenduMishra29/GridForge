@@ -641,15 +641,16 @@ class ToolbarPlugin(QObject):
 
         action = QAction(self)
         action.setObjectName(spec.action_id)
-        action.setText(definition.title)
+        action.setText(spec.text)
         action.setEnabled(router.is_enabled(spec.action_id))
         action.setCheckable(definition.checkable or spec.checkable)
 
         if action.isCheckable():
             action.setChecked(definition.checked or spec.checked)
 
-        action.setToolTip(definition.description)
-        action.setStatusTip(definition.description)
+        tooltip = spec.tooltip if spec.tooltip is not None else definition.description
+        action.setToolTip(tooltip)
+        action.setStatusTip(tooltip)
 
         if definition.shortcut:
             action.setShortcut(definition.shortcut)
