@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from math import isfinite
 import re
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -125,6 +126,20 @@ class DraftEquipment:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
         if not self.command_type.strip() or not self.id_field.strip(): raise ValueError("DraftEquipment requires its canonical command contract.")
         object.__setattr__(self, "terminal_contract", tuple(str(x) for x in self.terminal_contract))
+        if self.placement is not None:
+            if (
+                not isinstance(self.placement, (tuple, list))
+                or len(self.placement) != 2
+                or any(
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                    for value in self.placement
+                )
+            ):
+                raise ValueError("Draft equipment placement must be a finite numeric (x, y) pair or None.")
+            placement = (float(self.placement[0]), float(self.placement[1]))
+            if not all(isfinite(value) for value in placement):
+                raise ValueError("Draft equipment placement coordinates must be finite.")
+            object.__setattr__(self, "placement", placement)
         object.__setattr__(self, "engineering_data", MappingProxyType(dict(self.engineering_data)))
         object.__setattr__(self, "endpoints", MappingProxyType({str(k): DraftEndpointReference.from_value(v) for k, v in self.endpoints.items()}))
         object.__setattr__(self, "presentation", MappingProxyType(dict(self.presentation)))
