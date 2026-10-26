@@ -5242,6 +5242,40 @@ Validation:
 ======================================================================
 
 ======================================================================
+GF-MOTOR-018
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 BUILT-IN CREATION CATALOGUE MOVED TO FRAMEWORK-NEUTRAL MODULE
+
+Finding:
+    The shared creation dataclasses were neutral, but the authoritative
+    creation_definition_for() built-in catalogue and its schema constructors
+    remained in ui.creation.creation_definition.py. Application therefore
+    still could not obtain trusted built-in definitions without a UI-layer
+    dependency.
+
+Correction:
+    Moved the catalogue helper functions and complete built-in
+    creation_definition_for() catalogue into core.application.creation_schema.
+    The UI creation module now imports and re-exports the neutral catalogue
+    function and shared schema types, preserving existing import names. No
+    Application startup wiring or registry conversion is introduced by this
+    change.
+
+Validation:
+    Source transformation and static ownership review only. No tests, CI,
+    syntax compilation, or runtime imports were executed. Complete catalogue
+    reconciliation against Application command signatures and registry shape
+    remains pending. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
 GF-MOTOR-017
 ======================================================================
 
