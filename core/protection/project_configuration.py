@@ -76,12 +76,19 @@ class ProtectionFunctionConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionFunctionConfiguration":
+        if not isinstance(data, Mapping):
+            raise TypeError("protection function configuration must be a mapping.")
         enabled = data.get("enabled", True)
         blocked = data.get("blocked", False)
         if not isinstance(enabled, bool):
             raise TypeError("enabled must be a boolean.")
         if not isinstance(blocked, bool):
             raise TypeError("blocked must be a boolean.")
+        mapping_fields = ("settings", "input_channel_ids", "metadata")
+        for field_name in mapping_fields:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping.")
         return cls(
             element_id=data["element_id"], relay_id=data["relay_id"],
             function_code=data["function_code"], settings=dict(data.get("settings") or {}),
@@ -138,8 +145,14 @@ class ProtectionProjectConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionProjectConfiguration":
-        result = cls(str(data["project_id"]))
-        for item in data.get("elements", ()):
+        if not isinstance(data, Mapping):
+            raise TypeError("protection project configuration must be a mapping.")
+        project_id = data["project_id"]
+        elements = data.get("elements", ())
+        if not isinstance(elements, (list, tuple)):
+            raise TypeError("protection configuration elements must be a list or tuple.")
+        result = cls(project_id)
+        for item in elements:
             result.add(ProtectionFunctionConfiguration.from_dict(item))
         return result
 

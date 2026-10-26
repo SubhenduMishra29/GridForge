@@ -6400,3 +6400,39 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-047
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION CONFIGURATION DESERIALIZATION REQUIRES MAPPING SHAPES;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Protection configuration deserialization accepted malformed container
+    shapes through dict() coercion and stringified project_id. This could
+    transform pair sequences into mappings, fail with incidental errors, or
+    accept a non-string project identifier after coercion.
+
+Correction:
+    - Require protection-function and project configuration payloads to be
+      mappings.
+    - Require settings, input_channel_ids, and metadata to be mappings when
+      supplied, rather than coercing arbitrary iterables through dict().
+    - Require the aggregate elements collection to be a list or tuple.
+    - Pass project_id through without string coercion so the canonical
+      constructor validates the original type.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
