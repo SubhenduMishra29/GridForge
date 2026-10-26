@@ -441,11 +441,11 @@ class SLDCanvasRenderSystem:
                 fallback.setPos(float(node.x), float(node.y))
                 fallback.setZValue(1.0)
                 fallback.setToolTip(
-                    f"Draft symbol unavailable [{code}]\\n"
-                    f"draft={node.draft_id} type={node.equipment_type}\\n{message}"
+                    f"Draft symbol unavailable [{code}]\n"
+                    f"draft={node.draft_id} type={node.equipment_type}\n{message}"
                 )
                 label = QGraphicsTextItem(
-                    f"Symbol unavailable\\n{node.display_name}", fallback
+                    f"Symbol unavailable\n{node.display_name}", fallback
                 )
                 label.setPos(-62.0, -24.0)
                 fallback.setFlag(
@@ -689,10 +689,10 @@ class SLDCanvasRenderSystem:
         item.object_id = node.equipment_id or node.node_id
         item.node_id = node.node_id
         item.setToolTip(
-            f"Unsupported presentation [{code}]\\n"
-            f"node={node.node_id} equipment={item.object_id}\\n{message}"
+            f"Unsupported presentation [{code}]\n"
+            f"node={node.node_id} equipment={item.object_id}\n{message}"
         )
-        text = QGraphicsTextItem(f"Unsupported Symbol\\n{item.object_id}", item)
+        text = QGraphicsTextItem(f"Unsupported Symbol\n{item.object_id}", item)
         text.setPos(-62.0, -24.0)
         item.setPos(float(node.x), float(node.y))
         return item
