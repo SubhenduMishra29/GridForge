@@ -7,6 +7,7 @@ recorded in DraftNetwork and pass through the existing Application transaction.
 """
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -43,10 +44,21 @@ class MotorDraftService:
         if not isinstance(motor_id, str) or not motor_id.strip():
             raise ValueError("Motor draft identity must be a non-empty string.")
         motor_id = motor_id.strip()
+        coordinates = []
+        for field in ("x", "y"):
+            value = payload.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"Motor placement {field} coordinate must be numeric.")
+            if not isfinite(float(value)):
+                raise ValueError(f"Motor placement {field} coordinate must be finite.")
+            coordinates.append(float(value))
+
         contract = self._application.creation_contract_registry.resolve("motor")
         parameters = payload.get("parameters", {})
         if not isinstance(parameters, Mapping):
             raise TypeError("Motor parameters must be a mapping.")
+        if any(not isinstance(key, str) or not key.strip() for key in parameters):
+            raise TypeError("Motor parameter names must be non-empty strings.")
         allowed_parameters = {
             str(item.get("parameter_id"))
             for item in contract.get("parameter_contract", ())
@@ -61,7 +73,7 @@ class MotorDraftService:
             display_name="Motor",
             terminal_contract=tuple(contract.get("terminal_contract", ())),
             engineering_data=dict(parameters),
-            placement=(float(payload["x"]), float(payload["y"])),
+            placement=(coordinates[0], coordinates[1]),
             presentation={"symbol_type": "motor"},
             command_type=str(contract["command_type"]),
             id_field=str(contract["id_field"]),
