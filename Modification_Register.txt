@@ -6332,3 +6332,34 @@ Disposition:
     PR remains unmerged.
 ======================================================================
 
+======================================================================
+GF-MOTOR-045
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PERSISTED PROTECTION ENABLE/BLOCK FLAGS REQUIRE STRICT BOOLEAN TYPES;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    ProtectionFunctionConfiguration.from_dict() used bool(value) coercion for
+    enabled and blocked. Non-empty strings such as "false" and "0" therefore
+    became True, while malformed persisted configuration could silently change
+    whether a protection function was enabled or blocked.
+
+Correction:
+    - Require enabled and blocked to be actual booleans when deserializing.
+    - Preserve defaults for omitted fields (enabled=True, blocked=False).
+    - Reject malformed persisted values instead of guessing intent.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================

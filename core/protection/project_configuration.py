@@ -72,11 +72,17 @@ class ProtectionFunctionConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionFunctionConfiguration":
+        enabled = data.get("enabled", True)
+        blocked = data.get("blocked", False)
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean.")
+        if not isinstance(blocked, bool):
+            raise TypeError("blocked must be a boolean.")
         return cls(
             element_id=str(data["element_id"]), relay_id=str(data["relay_id"]),
             function_code=str(data["function_code"]), settings=dict(data.get("settings") or {}),
-            input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=bool(data.get("enabled", True)),
-            blocked=bool(data.get("blocked", False)), priority=int(data.get("priority", 0)),
+            input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=enabled,
+            blocked=blocked, priority=int(data.get("priority", 0)),
             name=str(data.get("name", "")), metadata=dict(data.get("metadata") or {}),
             action_target_type=data.get("action_target_type"),
             action_target_id=data.get("action_target_id"),
