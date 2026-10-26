@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -129,6 +130,11 @@ class Application:
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._creation_contract_registry = CreationContractRegistry()
+        # Extension factories are durable across project-runtime replacement.
+        # Each factory must bind handlers to the candidate CommandManager rather
+        # than retaining handlers that capture the previous project's runtime.
+        self._extension_handler_factories: dict[str, Callable[[CommandManager], Mapping[str, Any]]] = {}
+        self._extension_handler_command_types: dict[str, tuple[str, ...]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -1220,6 +1226,84 @@ class Application:
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
         return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
+    def register_extension_handler_factory(
+        self,
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+    ) -> None:
+        """Register extension handlers that are rebuilt for every project runtime.
+
+        The factory receives the candidate CommandManager and must return a
+        mapping of command type to handler. It should construct project-bound
+        adapters for that manager; it must not mutate Core or retain a handler
+        bound to a previous project's runtime. Registration is atomic: any
+        collision or factory error leaves the active command registry unchanged.
+        """
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        if not callable(factory):
+            raise TypeError("extension handler factory must be callable.")
+        if extension_id in self._extension_handler_factories:
+            raise ValueError(f"Extension handler factory already registered: {extension_id!r}.")
+
+        handlers = factory(self._command_manager)
+        self._validate_extension_handlers(extension_id, handlers, self._command_manager)
+        installed: list[str] = []
+        try:
+            for command_type, handler in handlers.items():
+                self._command_manager.register_handler(command_type, handler)
+                installed.append(command_type)
+        except Exception:
+            for command_type in reversed(installed):
+                self._command_manager.unregister_handler(command_type)
+            raise
+        self._extension_handler_factories[extension_id] = factory
+        self._extension_handler_command_types[extension_id] = tuple(installed)
+
+    def unregister_extension_handler_factory(self, extension_id: str) -> bool:
+        """Unregister an extension and remove its handlers from the active runtime."""
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        if extension_id not in self._extension_handler_factories:
+            return False
+        for command_type in self._extension_handler_command_types.pop(extension_id, ()):
+            self._command_manager.unregister_handler(command_type)
+        del self._extension_handler_factories[extension_id]
+        return True
+
+    @staticmethod
+    def _validate_extension_handlers(
+        extension_id: str,
+        handlers: Mapping[str, Any],
+        command_manager: CommandManager,
+    ) -> None:
+        """Validate a factory result without changing the target registry."""
+        if not isinstance(handlers, Mapping):
+            raise TypeError(
+                f"Extension {extension_id!r} factory must return a command-type mapping."
+            )
+        seen: set[str] = set()
+        for command_type, handler in handlers.items():
+            if not isinstance(command_type, str) or not command_type.strip():
+                raise ValueError(
+                    f"Extension {extension_id!r} returned an invalid command type."
+                )
+            if command_type in seen:
+                raise ValueError(
+                    f"Extension {extension_id!r} returned duplicate command type {command_type!r}."
+                )
+            if not callable(handler):
+                raise TypeError(
+                    f"Extension {extension_id!r} handler for {command_type!r} is not callable."
+                )
+            if command_manager.has_handler(command_type):
+                raise ValueError(
+                    f"Extension {extension_id!r} conflicts with registered command {command_type!r}."
+                )
+            seen.add(command_type)
+
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService, validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
@@ -1227,8 +1311,28 @@ class Application:
         if self._sld_service is not None:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
+
+        # Rebuild every extension's handlers against the candidate runtime before
+        # swapping any active Application references. A factory failure or command
+        # collision aborts activation and leaves the prior runtime intact.
+        next_extension_types: dict[str, tuple[str, ...]] = {}
+        for extension_id, factory in self._extension_handler_factories.items():
+            extension_handlers = factory(command_manager)
+            self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
+            installed: list[str] = []
+            try:
+                for command_type, handler in extension_handlers.items():
+                    command_manager.register_handler(command_type, handler)
+                    installed.append(command_type)
+            except Exception:
+                for command_type in reversed(installed):
+                    command_manager.unregister_handler(command_type)
+                raise
+            next_extension_types[extension_id] = tuple(installed)
+
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        self._extension_handler_command_types = next_extension_types
         if self._control_engine is not None:
             self._control_cycle = ControlCycleService(
                 self._control_engine,
