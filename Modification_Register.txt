@@ -5240,3 +5240,40 @@ Validation:
     draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-015
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/equipment/equipment_definition.py
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 FRAMEWORK-NEUTRAL PARAMETER TYPE INTRODUCED; FULL CATALOGUE MIGRATION PENDING
+
+Finding:
+    EngineeringParameterDefinition was defined in ui.equipment and imported
+    by ui.creation, while the UI equipment definition also type-referenced
+    CreationDefinition. This made a shared creation parameter schema UI-owned
+    and coupled creation schema construction to the UI package.
+
+Correction:
+    Introduced core.application.creation_schema.EngineeringParameterDefinition
+    as a framework-neutral immutable schema primitive. The UI equipment module
+    imports and continues to expose the type by its existing module import
+    name for compatibility. The UI creation definition now imports the neutral
+    type directly. The new module has no UI, Qt, or plugin lifecycle imports.
+
+Scope boundary:
+    This is a first extraction only. CreationDefinition, terminal/topology
+    requirements, the built-in catalogue, and UI equipment deserialization
+    still require a staged follow-up migration. Application startup contract
+    configuration is intentionally unchanged.
+
+Validation:
+    Source edits and import paths reviewed only; no tests, CI, or runtime
+    imports were executed. PR #674 remains open and unmerged.
+
+======================================================================
