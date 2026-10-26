@@ -595,6 +595,14 @@ def creation_contracts_from_definitions(
             "command_type": definition.command_type,
             "id_field": definition.id_field,
             "terminal_contract": tuple(item.terminal_name for item in definition.terminal_requirements),
+            "terminal_requirements": tuple({
+                "terminal_name": item.terminal_name,
+                "required": item.required,
+                "cardinality": item.cardinality,
+                "allowed_connection_types": item.allowed_connection_types,
+                "acquisition_state": item.acquisition_state,
+                "initial_endpoint_required": item.initial_endpoint_required,
+            } for item in definition.terminal_requirements),
             "parameter_mapping": dict(definition.parameter_mapping),
             "endpoint_mapping": dict(definition.endpoint_mapping),
             "required_connection_terminals": tuple(
