@@ -427,12 +427,30 @@ class SLDCanvasRenderSystem:
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
                 code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
+                symbol_id = None
+                # Diagnose catalogue failures by the failing lookup stage rather
+                # than parsing exception text; retain the original realization
+                # exception as the primary failure.
+                try:
+                    definition = self._item_factory.equipment_registry.require(
+                        node.equipment_type
+                    )
+                except KeyError as lookup_error:
+                    code = "DRAFT_EQUIPMENT_DEFINITION_MISSING"
+                    message = f"{message}; equipment catalogue lookup: {lookup_error}"
+                else:
+                    symbol_id = definition.symbol_id
+                    try:
+                        self._item_factory.symbol_registry.require(symbol_id)
+                    except KeyError as lookup_error:
+                        code = "DRAFT_SYMBOL_DEFINITION_MISSING"
+                        message = f"{message}; symbol catalogue lookup: {lookup_error}"
                 self._unsupported_presentations[render_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=render_id,
                     equipment_id=node.draft_id,
                     equipment_type=node.equipment_type,
-                    symbol_id=None,
+                    symbol_id=symbol_id,
                     requested_presentation="symbol",
                     category="draft_presentation_realization",
                     message=message,
