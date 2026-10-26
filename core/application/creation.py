@@ -195,6 +195,12 @@ class CreationContractRegistry:
                 raise ValueError(f"{equipment_type}: required connection terminal list is invalid.")
             if not set(required_terminals).issubset(set(terminal_contract)):
                 raise ValueError(f"{equipment_type}: required connection terminals exceed the terminal contract.")
+            unmapped_required_terminals = set(required_terminals) - set(endpoint_mapping)
+            if unmapped_required_terminals:
+                raise ValueError(
+                    f"{equipment_type}: required connection terminals have no endpoint "
+                    f"mapping: {sorted(unmapped_required_terminals)!r}."
+                )
             known_parameters = set(parameter_ids)
             for rule in conditional_requirements:
                 if not isinstance(rule, Mapping):
