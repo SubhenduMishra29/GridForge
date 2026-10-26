@@ -4491,3 +4491,38 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #669; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — WIRE COMMAND FAILURE FEEDBACK
+======================================================================
+
+File:
+    ui/tools/wire_tool.py
+
+Finding:
+    WireTool preserved its transient routing preview after a rejected
+    connection, but did not surface the Application rejection reason in the
+    preview. Duplicate endpoint-pair and other validation failures could
+    leave the interaction appearing stuck without actionable feedback.
+
+Correction:
+    - Store unsuccessful result messages in ConnectionPreview validation
+      state and mark the attempted target invalid.
+    - Put the failure reason in the current transient preview segment tooltip.
+    - Latch the failure tooltip while the engineer moves the cursor, clearing it
+      on a new endpoint attempt or when the wire interaction is cancelled/reset.
+    - Preserve the original exception as last_command_result and re-raise it
+      so the existing interaction/error boundary still observes the failure.
+    - Retain the source endpoint for retry or Escape cancellation; clear the
+      preview only after successful connection creation.
+    - Keep all feedback presentation-only; do not bypass Application/Core
+      validation or create electrical topology from graphics.
+
+Verification boundary:
+    Focused source and diff review. No tests or CI run; syntax, imports,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #670; not merged.
+======================================================================

@@ -33,6 +33,7 @@ class WireTool(ToolBase):
         self._current_position: Optional[Tuple[float, float]] = None
         self._last_snap_result: Any = None
         self._last_command_result: Any = None
+        self._failure_reason = ""
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
@@ -74,6 +75,7 @@ class WireTool(ToolBase):
         position = self._position_tuple(snap_result.position)
         endpoint = self._authoring_endpoint(snap_result)
         if self._preview.source_endpoint is None:
+            self._failure_reason = ""
             self._preview.begin(endpoint)
             self._start_snap = snap_result
             self._start_position = position
@@ -82,6 +84,7 @@ class WireTool(ToolBase):
             self._show_preview()
             return True
         self._current_position = position
+        self._failure_reason = ""
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
         endpoint_pair = self._preview.get_endpoint_pair()
@@ -93,16 +96,40 @@ class WireTool(ToolBase):
             )
             self._show_preview()
             return False
-        result = self._execute_connection(
-            endpoint_pair[0],
-            endpoint_pair[1],
-            source_snap=self._start_snap,
-            target_snap=snap_result,
-        )
+        try:
+            result = self._execute_connection(
+                endpoint_pair[0],
+                endpoint_pair[1],
+                source_snap=self._start_snap,
+                target_snap=snap_result,
+            )
+        except Exception as exc:
+            # Preserve the original failure for the interaction/error boundary,
+            # but also retain an actionable reason in the live wire preview.
+            self._last_command_result = exc
+            self._failure_reason = f"Connection was not created: {type(exc).__name__}: {exc}"
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=self._failure_reason,
+            )
+            self._show_preview()
+            raise
+
         self._last_command_result = result
         if not getattr(result, "success", False):
             # A failed Application command is not a committed connection.
-            # Keep the routing preview alive so the user can retry or cancel.
+            # Keep the source endpoint and show why the attempted wire failed.
+            reason = str(getattr(result, "message", "") or "").strip()
+            if not reason:
+                reason = "The Application rejected the connection command."
+            self._failure_reason = f"Connection was not created: {reason}"
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=self._failure_reason,
+            )
+            self._show_preview()
             return False
         self._clear_state()
         return True
@@ -272,6 +299,17 @@ class WireTool(ToolBase):
         if self._start_position is None or self._current_position is None:
             return
         layer.show_segment(self._start_position, self._current_position)
+        # PreviewLayer owns the transient graphics. Attach failure feedback to
+        # its current segment so the engineer can inspect the rejected route
+        # without making the preview item a domain or selection object.
+        reason = self._failure_reason or self._preview.validation_reason
+        items_getter = getattr(layer, "items", None)
+        if reason and callable(items_getter):
+            items = tuple(items_getter())
+            if items:
+                set_tooltip = getattr(items[-1], "setToolTip", None)
+                if callable(set_tooltip):
+                    set_tooltip(reason)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -302,6 +340,7 @@ class WireTool(ToolBase):
                 if callable(clear):
                     clear()
         self._start_position = None
+        self._failure_reason = ""
         self._start_snap = None
         self._current_position = None
         self._preview.reset()
