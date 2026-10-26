@@ -32,6 +32,10 @@ class ProtectionFunctionConfiguration:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value.strip())
         object.__setattr__(self, "function_code", self.function_code.upper())
+        if not isinstance(self.enabled, bool):
+            raise TypeError("enabled must be a boolean.")
+        if not isinstance(self.blocked, bool):
+            raise TypeError("blocked must be a boolean.")
         mapping_values = (self.action_target_type, self.action_target_id, self.action_type)
         if any(value is not None for value in mapping_values) and any(
             not isinstance(value, str) or not value.strip() for value in mapping_values
@@ -79,10 +83,10 @@ class ProtectionFunctionConfiguration:
         if not isinstance(blocked, bool):
             raise TypeError("blocked must be a boolean.")
         return cls(
-            element_id=str(data["element_id"]), relay_id=str(data["relay_id"]),
-            function_code=str(data["function_code"]), settings=dict(data.get("settings") or {}),
+            element_id=data["element_id"], relay_id=data["relay_id"],
+            function_code=data["function_code"], settings=dict(data.get("settings") or {}),
             input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=enabled,
-            blocked=blocked, priority=int(data.get("priority", 0)),
+            blocked=blocked, priority=data.get("priority", 0),
             name=str(data.get("name", "")), metadata=dict(data.get("metadata") or {}),
             action_target_type=data.get("action_target_type"),
             action_target_id=data.get("action_target_id"),
