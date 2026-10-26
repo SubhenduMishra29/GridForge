@@ -29,6 +29,8 @@ class PreparedMeasurementValue:
     engineering_value: float | complex
     unit: str
     available: bool
+    usable: bool
+    validity: str
     quality: str
     timestamp: float | None
 
@@ -83,11 +85,14 @@ class ProtectionPreparation:
                 raise ValueError("measurement input names must be non-empty strings.")
             if not isinstance(channel, MeasurementChannel):
                 raise TypeError("protection preparation requires MeasurementChannel inputs.")
+            validity = channel.validity()
             normalized_measurements[name.strip()] = PreparedMeasurementValue(
                 channel_id=channel.id,
                 engineering_value=channel.engineering_value,
                 unit=channel.unit,
                 available=bool(channel.available),
+                usable=bool(channel.is_usable),
+                validity=getattr(validity, "value", str(validity)),
                 quality=getattr(channel.quality, "value", str(channel.quality)),
                 timestamp=channel.timestamp,
             )
