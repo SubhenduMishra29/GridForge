@@ -4369,3 +4369,36 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #663; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — DEGRADED SLD RENDERING AND RECOVERY
+======================================================================
+
+File:
+    ui/canvas/sld_canvas_render_system.py
+
+Finding:
+    Draft equipment could disappear when its symbol realization failed.
+    Committed nodes already represented by degraded placeholders were not
+    retried on later explicit snapshot synchronization, preventing recovery
+    after the underlying symbol/catalogue issue was corrected. Diagnostics
+    also did not distinguish missing equipment and symbol definitions.
+
+Correction:
+    - Preserve a visible, selectable draft fallback with actionable tooltip
+      diagnostics when symbol realization fails.
+    - Classify missing equipment definitions, missing symbol definitions, and
+      general realization failures by the lookup stage, not exception text.
+    - Retry degraded committed-node realization on subsequent synchronization
+      while keeping the existing fallback visible until replacement succeeds.
+    - Preserve the endpoint-geometry wire refresh correction merged in #662.
+    - Keep Qt graphics dependencies behind ui.core.qt.
+
+Verification boundary:
+    Source and patch review only. No tests or CI run; syntax, import integrity,
+    startup, and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #666; not merged at register-entry time.
+======================================================================
