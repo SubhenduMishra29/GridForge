@@ -4565,3 +4565,32 @@ Verification boundary:
 Disposition:
     Proposed in reconciled PR #671; not merged.
 ======================================================================
+
+
+======================================================================
+2026-10-26 — WIRE INTERACTION LIFECYCLE GUARDS
+======================================================================
+
+File:
+    ui/tools/wire_tool.py
+
+Finding:
+    Forwarding a double-click to the ordinary press handler could start a
+    second wire immediately after a successful connection. Existing draft
+    endpoint pairs could also reach Application dispatch again before the
+    canonical duplicate-wire guard rejected them.
+
+Correction:
+    - Make double-click handling side-effect free.
+    - Check the current draft snapshot for an existing endpoint pair before
+      dispatching another draft-wire command.
+    - Surface duplicate-pair feedback while retaining Application/Core
+      validation as the authoritative guard.
+
+Verification boundary:
+    Source and diff review only. No tests or CI run; syntax, imports, startup,
+    and GUI runtime remain unverified.
+
+Disposition:
+    Proposed in reconciled PR #671; not merged.
+======================================================================
