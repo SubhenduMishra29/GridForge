@@ -4957,3 +4957,51 @@ Validation:
     by this entry. PR #674 remains open, draft, and unmerged.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-008
+======================================================================
+
+Files:
+    core/application/creation.py
+    core/application/bootstrap.py
+    core/application/application.py
+    main.py
+
+Status:
+    🟠 FULL CANONICAL CREATION CATALOGUE NOT LOCATED — DIRECT SOURCE AUDIT REQUIRED
+
+Source-audit findings:
+    core/application/creation.py defines a command-type-to-command-class
+    mapping, including model.create_motor. This mapping validates supported
+    command types and command fields; it is not a complete creation-contract
+    catalogue. It does not provide the complete trusted terminal contracts,
+    engineering parameter schemas, endpoint mappings, and connection rules
+    required by CreationContractRegistry.
+
+    bootstrap.create_application() builds runtime-specific handler mappings
+    and CommandManager instances, including replacement managers during
+    project/network activation. The inspected ordinary composition path does
+    not configure Application.creation_contract_registry.
+
+    main.py constructs the Application and initializes the default plugin
+    manager. The inspected PluginContext construction does not provide a
+    motor_dynamics_composition service. The extension therefore cannot be
+    treated as runtime-activatable based on the existing plugin branch alone.
+
+Decision:
+    Do not infer engineering parameter schemas from command signatures,
+    fabricate a motor-only registry snapshot, or register motor handlers on
+    the current CommandManager. Continue direct inspection to locate the
+    authoritative full equipment creation metadata and establish one trusted
+    composition-time catalogue. Then implement Application-owned extension
+    factories that compose against each candidate runtime, reject duplicate
+    command ownership, and abort candidate publication on partial failure.
+    Supply the motor plugin its composition adapter through PluginContext
+    services only after that host contract exists.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime behavior
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
