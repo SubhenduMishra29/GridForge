@@ -6097,3 +6097,41 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-039
+======================================================================
+
+Files:
+    core/network/electrical_boundary.py
+    Modification_Register.txt
+
+Status:
+    🟡 CT/PT TERMINAL-DOMAIN CLASSIFICATION ALIGNED WITH CANONICAL TYPES;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    EndpointCompatibility._DOMAIN_ROLES keyed CT/PT domains by Python-style
+    names ('current_transformer' and 'potential_transformer'), while the
+    canonical EquipmentType values derive from model TYPE and are 'ct' and
+    'pt'. As a result, CT S1/S2 and PT secondary terminals could fall back
+    to the generic domain, bypassing secondary-domain rejection and
+    allowing incorrect power-network attachment classification.
+
+Correction:
+    - Added canonical 'ct' and 'pt' keys to the domain-role map.
+    - Retained descriptive legacy aliases for compatibility.
+    - CT/PT secondary roles now resolve through the same classifier used by
+      ordinary Simple Wire validation and topology attachment filtering.
+    - No measurement values or topology are inferred from SLD graphics.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime topology rebuild were run.
+    CT/PT/CVT-to-measurement-channel and relay integration remains
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
