@@ -162,6 +162,7 @@ class ProjectPersistenceService:
         self._validate_project_state(
             context, network, presentation, presentation_collection,
             dynamic_models, protection_configuration, control_configuration,
+            measurement_definitions,
         )
         return LoadedProject(
             context=context,
@@ -274,6 +275,7 @@ class ProjectPersistenceService:
         self._validate_project_state(
             context, network, active_presentation, canonical_collection,
             tuple(dynamic_models), protection_configuration, control_configuration,
+            measurement_definitions,
         )
 
         project: dict[str, Any] = {
@@ -454,8 +456,25 @@ class ProjectPersistenceService:
                 raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
 
     @staticmethod
-    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, presentation_collection: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
+    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, presentation_collection: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None, measurement_definitions: Sequence[Mapping[str, Any]] = ()) -> None:
         """Validate cross-domain project invariants at load/save boundaries."""
+        channel_ids: set[str] = set()
+        for definition in measurement_definitions:
+            channel_id = definition.get("channel_id", definition.get("id"))
+            if not isinstance(channel_id, str) or not channel_id.strip():
+                raise ProjectPersistenceError("Persisted measurement channel ID must be a non-empty string.")
+            channel_id = channel_id.strip()
+            if channel_id in channel_ids:
+                raise ProjectPersistenceError(f"Duplicate persisted measurement channel ID: {channel_id}")
+            channel_ids.add(channel_id)
+        if protection_configuration is not None:
+            for configuration in protection_configuration.elements:
+                for input_name, channel_id in configuration.input_channel_ids.items():
+                    if channel_id not in channel_ids:
+                        raise ProjectPersistenceError(
+                            f"Protection configuration '{configuration.element_id}' input '{input_name}' "
+                            f"references missing measurement channel '{channel_id}'."
+                        )
         if not isinstance(context, ProjectContext) or not isinstance(network, Network):
             raise ProjectPersistenceError("Project context or Network is invalid.")
         if presentation_collection is not None:
