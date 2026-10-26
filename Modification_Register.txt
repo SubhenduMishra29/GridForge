@@ -5766,7 +5766,9 @@ Correction:
     preserve core ownership of command execution and project mutation.
 
 Validation:
-    Application source update committed as 9eea4b9bf00d779baf017db289003c58911e587d.
+    Application source updates committed as 9eea4b9bf00d779baf017db289003c58911e587d
+    and 06194f919d9a30b7a8a0f9c0b0cbbd1f4057fd8c (candidate setup completes
+    before the active runtime references are swapped).
     Static source review only. No tests, CI, syntax compilation, import checks, or
     runtime activation were run. The motor-specific host composition adapter and
     canonical DraftNetwork motor service remain absent. PR #674 remains open,
