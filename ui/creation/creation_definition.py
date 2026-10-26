@@ -284,11 +284,14 @@ def creation_definition_for(equipment_type: str, terminal_names: tuple[str, ...]
     )
 
     definitions: dict[str, CreationDefinition] = {
+        # A Bus is a connection-attachment owner, not terminalized equipment.
+        # Bus attachments are represented by canonical attachment IDs in the
+        # network connectivity contract, never by a synthetic "bus" terminal.
         "bus": _definition("bus", "bus", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("in_service", "In service", "bool", required=True, default=True),
-        ), "model.create_bus", "bus_id", terminal_names=terminal_names),
+        ), "model.create_bus", "bus_id"),
         "grid": _definition("grid", "grid", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
