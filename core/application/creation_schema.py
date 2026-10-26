@@ -253,15 +253,29 @@ def _p(parameter_id: str, display_name: str | None = None, datatype: str = "floa
     )
 
 
-def _terminals(names: tuple[str, ...], *, required: bool = True, initial_endpoint_required: bool = False) -> tuple[CreationTerminalRequirement, ...]:
+def _terminals(
+    names: tuple[str, ...],
+    *,
+    required: bool = True,
+    initial_endpoint_required: bool = False,
+    measurement_terminal_names: tuple[str, ...] = (),
+) -> tuple[CreationTerminalRequirement, ...]:
+    """Describe physical terminals without treating measurement interfaces as wires."""
+    measurement_terminals = set(measurement_terminal_names)
+    unknown_measurement_terminals = measurement_terminals - set(names)
+    if unknown_measurement_terminals:
+        raise ValueError(
+            f"Measurement terminals are absent from the terminal inventory: "
+            f"{sorted(unknown_measurement_terminals)!r}"
+        )
     return tuple(
         CreationTerminalRequirement(
             name,
-            required=required,
+            required=False if name in measurement_terminals else required,
             cardinality="single",
-            allowed_connection_types=("electrical",),
-            acquisition_state="required",
-            initial_endpoint_required=initial_endpoint_required,
+            allowed_connection_types=() if name in measurement_terminals else ("electrical",),
+            acquisition_state="optional" if name in measurement_terminals else "required",
+            initial_endpoint_required=False if name in measurement_terminals else initial_endpoint_required,
         )
         for name in names
     )
@@ -280,6 +294,7 @@ def _definition(
     terminal_names: tuple[str, ...] = (),
     conditional: tuple[ConditionalParameterRequirement, ...] = (),
     initial_endpoint_required: bool = False,
+    measurement_terminal_names: tuple[str, ...] = (),
 ) -> CreationDefinition:
     return CreationDefinition(
         equipment_type=equipment_type,
@@ -293,7 +308,11 @@ def _definition(
         # to a Core create command; they do not make every mapped endpoint
         # mandatory. Required topology is declared explicitly per equipment type.
         topology_requirements=topology,
-        terminal_requirements=_terminals(terminal_names, initial_endpoint_required=initial_endpoint_required),
+        terminal_requirements=_terminals(
+            terminal_names,
+            initial_endpoint_required=initial_endpoint_required,
+            measurement_terminal_names=measurement_terminal_names,
+        ),
         conditional_requirements=conditional,
         configuration_required=any(p.required_before_create for p in parameters),
     )
@@ -490,7 +509,8 @@ def creation_definition_for(
            # and are associated through measurement channels, not required to
            # be simple-wire endpoints during equipment creation.
            endpoint_mapping={"P1": "p1_endpoint", "P2": "p2_endpoint"},
-           terminal_names=terminal_names),
+            terminal_names=terminal_names,
+            measurement_terminal_names=("S1", "S2")),
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
             _p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("secondary_voltage_v", unit="V", required=True, minimum=0.0),
@@ -502,7 +522,8 @@ def creation_definition_for(
            # terminals feed measurement channels and are not required to be
            # DraftConnection endpoints at equipment-creation commit.
            endpoint_mapping={"primary_a": "primary_a", "primary_b": "primary_b"},
-           terminal_names=terminal_names),
+            terminal_names=terminal_names,
+            measurement_terminal_names=("secondary_a", "secondary_b")),
         "cvt": _definition("cvt", "cvt", (
             _p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_secondary_voltage_v", unit="V", required=True, minimum=0.0),
@@ -515,7 +536,8 @@ def creation_definition_for(
            # measurement-side terminals and are associated through the
            # measurement-channel boundary rather than required Simple Wires.
            endpoint_mapping={"H1": "h1_endpoint", "H2": "h2_endpoint"},
-           terminal_names=terminal_names),
+            terminal_names=terminal_names,
+            measurement_terminal_names=("X1", "X2")),
         "relay": _definition("relay", "relay", (
             _p("relay_type", "Relay type", "str", required=True),
         ), "model.create_relay", "relay_id"),
