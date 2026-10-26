@@ -6591,3 +6591,27 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-053
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService coerced the draft motor identifier with str(), allowing
+    malformed payload types to become apparently valid domain identifiers.
+
+Correction:
+    Reject non-string or blank motor identifiers at the Application service
+    boundary before creating draft equipment.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
