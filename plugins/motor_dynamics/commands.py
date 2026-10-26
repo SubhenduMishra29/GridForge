@@ -1,9 +1,11 @@
-"""Typed immutable motor commands and CommandManager-compatible handlers.
+"""Typed immutable motor commands aligned with GridForge's electrical model.
 
 Author: Subhendu Mishra
 
-The Application CommandManager owns commit/rollback. Handlers must register
-inverse operations on the supplied Transaction before mutating state.
+A GridForge Motor is a one-terminal injection/load model. It connects to a
+Bus attachment; it is not a series element to be inserted by splitting a wire.
+The canonical Application DraftNetwork/commit path remains the only route from
+draft authoring to authoritative Core topology.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from core.application.transaction import Transaction
 
 
 ADD_DRAFT_MOTOR_PLACEMENT = "motor.add_draft_placement"
-COMMIT_MOTOR_TO_NETWORK = "motor.commit_to_network"
+CONNECT_MOTOR_TO_BUS = "motor.connect_to_bus"
 
 
 class AddDraftMotorPlacementCommand(Command):
@@ -54,34 +56,36 @@ class AddDraftMotorPlacementCommand(Command):
         )
 
 
-class CommitMotorToNetworkCommand(Command):
-    """Request an atomic motor-to-wire topology operation."""
+class ConnectMotorToBusCommand(Command):
+    """Request a draft graph connection from a motor terminal to a Bus attachment.
+
+    This command does not mutate Core topology directly and does not split a
+    SimpleWire. The composition service must translate it to the canonical
+    DraftNetwork connection workflow and let the normal draft commit create
+    Core equipment and connectivity.
+    """
 
     def __init__(
         self,
         motor_id: str,
-        wire_id: str,
-        split_fraction: float = 0.5,
+        bus_id: str,
+        attachment_id: str,
         *,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        if not isinstance(motor_id, str) or not motor_id.strip():
-            raise ValueError("motor_id must be a non-empty string")
-        if not isinstance(wire_id, str) or not wire_id.strip():
-            raise ValueError("wire_id must be a non-empty string")
-        if isinstance(split_fraction, bool) or not isinstance(split_fraction, (int, float)):
-            raise TypeError("split_fraction must be numeric")
-        fraction = float(split_fraction)
-        if not 0.0 < fraction < 1.0:
-            raise ValueError("split_fraction must be inside (0, 1)")
+        for name, value in (("motor_id", motor_id), ("bus_id", bus_id), ("attachment_id", attachment_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if not attachment_id.strip().startswith("attachment-"):
+            raise ValueError("attachment_id must use the canonical Bus attachment identity")
         super().__init__(
-            command_type=COMMIT_MOTOR_TO_NETWORK,
+            command_type=CONNECT_MOTOR_TO_BUS,
             payload={
-                "motor_id": motor_id,
-                "wire_id": wire_id,
-                "split_fraction": fraction,
+                "motor_id": motor_id.strip(),
+                "bus_id": bus_id.strip(),
+                "attachment_id": attachment_id.strip(),
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
@@ -108,21 +112,21 @@ class MotorPlacementCommandHandler:
         if not isinstance(transaction, Transaction):
             raise TypeError("GridForge CommandManager supplies a Transaction")
 
-        if command.command_type == ADD_DRAFT_MOTOR_PLACEMENT:
-            method = getattr(self._motor_service, "add_draft_motor", None)
-        elif command.command_type == COMMIT_MOTOR_TO_NETWORK:
-            method = getattr(self._motor_service, "commit_motor_to_network", None)
-        else:
+        methods = {
+            ADD_DRAFT_MOTOR_PLACEMENT: "add_draft_motor",
+            CONNECT_MOTOR_TO_BUS: "connect_motor_to_bus",
+        }
+        method_name = methods.get(command.command_type)
+        if method_name is None:
             raise ValueError(f"Unsupported motor command type: {command.command_type!r}")
-
+        method = getattr(self._motor_service, method_name, None)
         if not callable(method):
             raise RuntimeError(
                 f"Motor service does not implement the handler for {command.command_type!r}"
             )
 
-        # The service receives the CommandManager-owned transaction and MUST
-        # register undo operations before every mutation. The manager commits
-        # or rolls back; this handler must never do so itself.
+        # Service must register inverses on the supplied Application transaction
+        # before mutation. CommandManager owns commit and rollback.
         result = method(command=command, context=context, transaction=transaction)
         if not isinstance(result, ApplicationResult):
             raise TypeError("Motor service handlers must return ApplicationResult")
@@ -131,8 +135,8 @@ class MotorPlacementCommandHandler:
 
 __all__ = [
     "ADD_DRAFT_MOTOR_PLACEMENT",
-    "COMMIT_MOTOR_TO_NETWORK",
+    "CONNECT_MOTOR_TO_BUS",
     "AddDraftMotorPlacementCommand",
-    "CommitMotorToNetworkCommand",
+    "ConnectMotorToBusCommand",
     "MotorPlacementCommandHandler",
 ]
