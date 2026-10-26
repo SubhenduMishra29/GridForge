@@ -5242,6 +5242,40 @@ Validation:
 ======================================================================
 
 ======================================================================
+GF-MOTOR-019
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 NEUTRAL CATALOGUE-TO-REGISTRY CONVERTER ADDED; CONTRACT VALIDATION PENDING
+
+Finding:
+    The neutral built-in catalogue still required callers to supply terminal
+    names, leaving the terminal inventory implicit in UI registry composition.
+    CreationContractRegistry also expects a distinct immutable mapping shape
+    with parameter metadata, endpoint mapping, and required topology terminals.
+
+Correction:
+    Added the canonical built-in terminal inventory to the neutral schema and
+    made terminal_names optional for creation_definition_for(). Legacy callers
+    may still pass terminal names, but mismatches with the canonical inventory
+    are rejected. Added creation_contracts_from_definitions() to convert the
+    neutral catalogue into the Application registry record shape while
+    preserving parameter metadata, conditional rules, endpoint mapping, and
+    required topology names. The converter deliberately does not configure
+    Application or bypass CreationContractRegistry validation.
+
+Validation:
+    Static source inspection only. No tests, CI, syntax compilation, or runtime
+    imports were executed. Some definitions may be rejected by registry
+    signature/terminal checks; reconcile those explicitly before startup wiring.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
 GF-MOTOR-018
 ======================================================================
 
