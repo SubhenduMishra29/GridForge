@@ -6016,3 +6016,48 @@ Disposition:
     Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
     PR remains unmerged.
 ======================================================================
+
+
+======================================================================
+
+======================================================================
+GF-MOTOR-037
+======================================================================
+
+Files:
+    core/network/topology.py
+    Modification_Register.txt
+
+Status:
+    🟡 INSTRUMENT-TRANSFORMER TERMINAL DOMAINS RECONCILED; STATIC SOURCE REVIEW ONLY
+
+Finding:
+    PT/CVT secondary terminals could be projected as ordinary physical Bus
+    attachments when a Bus was assigned directly, even though ordinary
+    Simple Wire validation rejects measurement-secondary terminals.
+    The preceding CT correction also treated a four-terminal CT as a
+    two-terminal conductive element; that could incorrectly require its
+    measurement secondary to resolve as power topology.
+
+Correction:
+    - Exclude measurement-secondary terminals from power-network Bus
+      attachments and reject direct Bus attachment on those terminals.
+    - Keep PT/CVT primary terminals as measurement-device attachments, not
+      ideal conductive bridges between their primary terminals.
+    - Remove CT from the generic two-terminal topology-element set.
+    - Resolve only CT P1/P2 as the dedicated primary series path; require
+      both primary terminals to resolve for an in-service CT and add the
+      bus adjacency without projecting S1/S2 into power topology.
+    - Reuse EndpointCompatibility.domain as the canonical terminal-domain
+      classifier.
+
+Validation boundary:
+    GitHub source updates and source-level re-fetch only. No tests, CI,
+    syntax compilation, import checks, or runtime topology rebuild were run.
+    The topology behavior and exact terminal-role contracts remain
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
