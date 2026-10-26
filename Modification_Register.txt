@@ -4563,7 +4563,7 @@ Verification boundary:
     startup, and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #671; not merged.
+    Merged in PR #671.
 ======================================================================
 
 
@@ -4592,5 +4592,5 @@ Verification boundary:
     and GUI runtime remain unverified.
 
 Disposition:
-    Proposed in reconciled PR #671; not merged.
+    Merged in PR #671.
 ======================================================================
