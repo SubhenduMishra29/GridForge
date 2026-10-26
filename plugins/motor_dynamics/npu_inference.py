@@ -29,7 +29,10 @@ class MotorNPUDiagnosticNode:
         self.input_type = None
         self.providers: tuple[str, ...] = ()
         self.requested_provider = None
+        self.provider_fallback_used = False
         self.initialization_diagnostics: tuple[str, ...] = ()
+        self._ort = None
+        self._session_options = None
 
         if not self.model_path.is_file():
             raise FileNotFoundError(self.model_path)
@@ -47,6 +50,8 @@ class MotorNPUDiagnosticNode:
 
         diagnostics = []
         options = self._options(ort, intra_op_threads)
+        self._ort = ort
+        self._session_options = options
         for candidate in candidates:
             # Keep CPU in the session's provider list when selecting an
             # accelerator so unsupported graph nodes can fall back safely.
@@ -72,6 +77,7 @@ class MotorNPUDiagnosticNode:
             break
 
         self.initialization_diagnostics = tuple(diagnostics)
+        self.provider_fallback_used = bool(diagnostics)
         if self.session is None:
             detail = "; ".join(diagnostics) or "no candidate provider initialized"
             raise RuntimeError(f"Could not initialize ONNX inference: {detail}")
@@ -139,11 +145,46 @@ class MotorNPUDiagnosticNode:
     def infer(self, features: np.ndarray) -> dict[str, Any]:
         if self.session is None or self.input_name is None:
             raise RuntimeError("Inference session is not initialized.")
-        values = self.session.run(None, {self.input_name: self._prepare(features)})
+        prepared = self._prepare(features)
+        try:
+            values = self.session.run(None, {self.input_name: prepared})
+        except Exception as accelerator_error:
+            if (
+                self.requested_provider == "CPUExecutionProvider"
+                or self._ort is None
+                or self._session_options is None
+            ):
+                raise RuntimeError(
+                    f"Motor inference failed on {self.requested_provider!r}; CPU fallback is unavailable."
+                ) from accelerator_error
+
+            try:
+                cpu_session = self._ort.InferenceSession(
+                    str(self.model_path),
+                    providers=["CPUExecutionProvider"],
+                    sess_options=self._session_options,
+                )
+                cpu_inputs = cpu_session.get_inputs()
+                if not cpu_inputs:
+                    raise ValueError("ONNX model has no input tensor.")
+                cpu_input = cpu_inputs[0]
+                if cpu_input.name != self.input_name:
+                    raise ValueError("CPU fallback session input contract differs from the initialized session.")
+                values = cpu_session.run(None, {cpu_input.name: prepared})
+            except Exception as cpu_error:
+                raise RuntimeError(
+                    "Motor inference failed on the selected provider and CPU-only retry also failed."
+                ) from cpu_error
+
+            self.session = cpu_session
+            self.providers = tuple(cpu_session.get_providers())
+            self.requested_provider = "CPUExecutionProvider"
+            self.provider_fallback_used = True
+
         return {
             "outputs": [np.asarray(value).tolist() for value in values],
             "requested_provider": self.requested_provider,
             "session_providers": list(self.providers),
             "initialization_diagnostics": list(self.initialization_diagnostics),
-            "provider_fallback_used": bool(self.initialization_diagnostics),
+            "provider_fallback_used": self.provider_fallback_used,
         }
