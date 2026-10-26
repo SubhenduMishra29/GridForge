@@ -106,6 +106,7 @@ class UIActionRouter:
         if enabled_error is not None:
             self._report_enabled_provider_failure(canonical, enabled_error)
             return None
+        self._enabled_provider_failures.pop(canonical, None)
         if not enabled:
             return self._report_or_raise(
                 canonical,
