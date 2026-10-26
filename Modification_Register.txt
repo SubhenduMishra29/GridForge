@@ -5668,3 +5668,70 @@ Validation:
 
 ======================================================================
 
+======================================================================
+GF-MOTOR-028
+======================================================================
+
+Files:
+    plugins/motor_dynamics/tools.py
+    Modification_Register.txt
+
+Status:
+    🟡 LEGACY WIRE-INSERTION IMPORT AND MOTOR-TO-WIRE BEHAVIOUR REMOVED
+
+Finding:
+    MotorPlacementTool imported CommitMotorToNetworkCommand, which is not
+    defined/exported by the motor command module, and used a wire hit-test to
+    request insertion into an existing branch. That conflicts with the canonical
+    one-terminal motor injection model and would fail import when the tool module
+    was loaded.
+
+Correction:
+    The tool now imports the defined AddDraftMotorPlacementCommand and
+    ConnectMotorToBusCommand, optionally resolves a Bus attachment through
+    find_bus_attachment_at, and never requests wire splitting/insertion. Invalid
+    Bus hit-test results are rejected before creating the motor draft. Placement
+    without a Bus hit remains a draft for subsequent editing/connection.
+
+Validation:
+    GitHub source update committed as 5573e2065acdee2345e24a7b6c22d17fb025e9c6.
+    Static source inspection only; the host canvas integration and command
+    dispatch path are not yet runtime-verified. No tests or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-029
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    plugins/motor_dynamics/manifest.json
+    Modification_Register.txt
+
+Status:
+    🟡 PROVIDER FALLBACK AND INPUT VALIDATION HARDENED; HARDWARE EXECUTION UNVERIFIED
+
+Finding:
+    The inference adapter only considered Vitis AI and CPU, did not retry after
+    provider initialization failure, and silently truncated or zero-padded input
+    features to fit a model. The manifest claimed INT8 support without an
+    explicit model-specific quantization contract.
+
+Correction:
+    Provider selection now considers Vitis AI, TensorRT, CUDA, and CPU in
+    priority order, requires CPU fallback availability, and records provider
+    initialization diagnostics. Inference input is checked for finite numeric
+    values, exact sample dimensions, and supported floating-point tensor types;
+    integer inputs are rejected unless a future explicit quantization contract
+    is implemented. Manifest metadata now describes provider capability and
+    compatibility limits instead of claiming unverified INT8 support.
+
+Validation:
+    Source updates committed as fed22649252e5b8ebd09a507059185c19a3c371f
+    and 174e6886a7825ca0340b539855fddf58cb85003a. Static review only; no
+    tests, CI, syntax compilation, accelerator runtime, or hardware checks were
+    run. This does not constitute a complete CPU/GPU/NPU motor simulation solver.
+
+======================================================================
+
