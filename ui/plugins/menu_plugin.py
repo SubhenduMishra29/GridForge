@@ -93,7 +93,10 @@ class MenuPlugin(QObject):
                     action.setEnabled(router.is_enabled(action_spec.action_id))
                     if definition.shortcut:
                         action.setShortcut(definition.shortcut)
-                    action.triggered.connect(lambda _checked=False, action_id=action_spec.action_id: router.dispatch(action_id))
+                    action.triggered.connect(
+                        lambda _checked=False, action_id=action_spec.action_id:
+                            self._dispatch_action(action_id)
+                    )
                     menu.addAction(action)
                     self._actions[action_spec.action_id] = action
             self._initialized = True
@@ -118,6 +121,19 @@ class MenuPlugin(QObject):
         router = self._context.action_router
         for action_id, action in tuple(self._actions.items()):
             action.setEnabled(router.is_enabled(action_id))
+
+    def _dispatch_action(self, action_id: str) -> None:
+        """Recheck canonical availability and refresh menu presentation around dispatch."""
+        if self._context is None:
+            return
+        router = self._context.action_router
+        if not router.is_enabled(action_id):
+            self.refresh_enabled_states()
+            return
+        try:
+            router.dispatch(action_id)
+        finally:
+            self.refresh_enabled_states()
 
     def action(self, action_id: str) -> QAction | None:
         return self._actions.get(action_id)
