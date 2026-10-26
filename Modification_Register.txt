@@ -5636,3 +5636,35 @@ Validation:
 
 ======================================================================
 
+======================================================================
+GF-MOTOR-027
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Status:
+    🟡 CANONICAL CREATION REGISTRY CONFIGURED AT COMPOSITION; RUNTIME VALIDATION PENDING
+
+Finding:
+    CommitNetworkHandler depended on an Application-owned CreationContractRegistry,
+    but the canonical bootstrap created the Application without configuring that
+    registry. Draft commits therefore failed with a configuration error even
+    when their equipment contract was part of the built-in catalogue.
+
+Correction:
+    The Application composition root now converts the neutral built-in
+    CreationDefinition catalogue into trusted contract records and configures
+    the Application-owned registry immediately after constructing the facade.
+    Registry signature and mapping validation runs at composition time rather
+    than waiting for an engineer to commit a draft.
+
+Validation:
+    GitHub source update committed as 0f9c93af2f22cabef196c472e6edbb4adb30c879.
+    Static source inspection only; the 22 built-in contracts have not been
+    runtime-validated in this environment. No tests or CI were run. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
