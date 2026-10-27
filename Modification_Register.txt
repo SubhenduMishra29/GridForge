@@ -8004,3 +8004,44 @@ Validation:
     hardware execution, or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-085
+======================================================================
+
+Scope:
+    Backend-neutral numerical capability and dispatch policy
+
+Files:
+    core/numerics/backend.py
+    core/numerics/__init__.py
+
+Status:
+    🟡 IMPLEMENTED — CONSUMER INTEGRATION AND VALIDATION PENDING
+
+Finding:
+    The architecture had backend-specific decisions embedded in individual
+    plugin dispatch code. Future numerical plugins risk duplicating workload
+    suitability, precision support, availability, preference, and fallback
+    policy.
+
+Correction:
+    Added BackendCapability, BackendSelection, and select_backend() as
+    runtime-neutral numerical policy primitives. Runtime adapters supply
+    availability and supported-workload facts; the policy evaluates workload,
+    precision, minimum workload size, explicit requests, automatic preference,
+    CPU fallback, and structured rejection reasons. Exported these primitives
+    from core.numerics.
+
+Boundary:
+    The shared policy does not probe hardware or import CPU/GPU/NPU runtimes.
+    It does not claim NPU support or dispatch existing motor work until the
+    motor plugin is explicitly integrated. Application/study orchestration
+    remains responsible for supplying truthful runtime capability facts and
+    publishing successful results.
+
+Validation:
+    Source-level implementation only. No tests, syntax checks, imports,
+    hardware probing, or CI were run. Consumer integration remains pending.
+
+======================================================================
