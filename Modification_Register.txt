@@ -7519,3 +7519,42 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-085
+======================================================================
+
+Files:
+    plugins/motor_dynamics/read_models.py
+    plugins/motor_dynamics/transient_solver.py
+    plugins/motor_dynamics/dashboard.py
+    Modification_Register.txt
+
+Finding:
+    The dashboard looked only for motor_id in StudyCompleted payloads, while
+    GridForge's canonical StudyService publishes study_id and study metadata.
+    Therefore a canonical completion event could not identify the motor result
+    to render, even when the result had been associated with a study.
+
+Correction:
+    - Added an optional study_id association to read-model publication and a
+      thread-safe lookup from study ID to motor ID.
+    - Added the study_id argument to MotorSimulationResult.publish_to(...).
+    - Updated the dashboard to prefer an explicit motor_id when supplied and
+      otherwise resolve the canonical study_id through the read-model store.
+    - Kept event dispatch and StudyCompleted timing owned by Application; the
+      plugin dashboard remains a read-only projection.
+
+Boundary:
+    This correction closes the event identity mismatch only. A registered
+    motor_transient StudyService handler and its lifecycle-owned registration
+    are still required for end-to-end solver execution through the Application
+    study API. Publication must be coordinated with successful study completion.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    imports, runtime activation, or numerical/hardware validation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
