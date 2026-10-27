@@ -6,6 +6,8 @@ from core.application.bootstrap import create_application
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.creation import CreationCommitIntent, CreationCommandPreparer
 from core.application.creation_schema import creation_contracts_from_definitions
+
+_CANONICAL_CREATION_CONTRACTS = creation_contracts_from_definitions()
 from core.application.draft.network import (
     DraftConnection,
     DraftEndpointReference,
@@ -32,11 +34,20 @@ def _equipment(
     placement: tuple[float, float] = (10.0, 20.0),
     endpoints: dict[str, DraftEndpointReference] | None = None,
 ) -> DraftEquipment:
+    contract = _CANONICAL_CREATION_CONTRACTS[equipment_type]
+    if tuple(terminal_contract) != tuple(contract["terminal_contract"]):
+        raise ValueError(f"{equipment_type}: test fixture terminal inventory is not canonical.")
+    if command_type != contract["command_type"] or id_field != contract["id_field"]:
+        raise ValueError(f"{equipment_type}: test fixture command identity is not canonical.")
+    if dict(parameter_mapping) != dict(contract["parameter_mapping"]):
+        raise ValueError(f"{equipment_type}: test fixture parameter mapping is not canonical.")
+    if dict(endpoint_mapping or {}) != dict(contract["endpoint_mapping"]):
+        raise ValueError(f"{equipment_type}: test fixture endpoint mapping is not canonical.")
     return DraftEquipment(
         draft_id=draft_id,
         equipment_type=equipment_type,
         display_name=equipment_type.title(),
-        terminal_contract=terminal_contract,
+        terminal_contract=tuple(contract["terminal_contract"]),
         engineering_data=values,
         endpoints=endpoints or {},
         placement=placement,
@@ -44,6 +55,9 @@ def _equipment(
         id_field=id_field,
         parameter_mapping=parameter_mapping,
         endpoint_mapping=endpoint_mapping or {},
+        required_connection_terminals=tuple(contract["required_connection_terminals"]),
+        parameter_contract=tuple(contract["parameter_contract"]),
+        conditional_requirements=tuple(contract["conditional_requirements"]),
     )
 
 
@@ -53,7 +67,7 @@ def _bus(draft_id: str) -> DraftEquipment:
         equipment_type="bus",
         command_type="model.create_bus",
         id_field="bus_id",
-        terminal_contract=("bus",),
+        terminal_contract=(),
         values={
             "nominal_voltage_kv": 132.0,
             "frequency_hz": 50.0,
@@ -123,6 +137,7 @@ def _breaker(draft_id: str) -> DraftEquipment:
             "closed": "closed",
             "in_service": "in_service",
         },
+        endpoint_mapping={"from": "endpoint_from", "to": "endpoint_to"},
     )
 
 
@@ -139,6 +154,7 @@ def _commit(app, draft: DraftNetwork):
 
 def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker():
     preparer = CreationCommandPreparer()
+    canonical_contracts = creation_contracts_from_definitions()
 
     intents = (
         CreationCommitIntent(
@@ -150,6 +166,8 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             values=dict(_bus("b1").engineering_data),
             endpoints={},
             position=(1.0, 2.0),
+            parameter_contract=tuple(canonical_contracts["bus"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["bus"]["conditional_requirements"]),
             equipment_type="bus",
         ),
         CreationCommitIntent(
@@ -157,10 +175,12 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             id_field="transformer_id",
             object_id="transformer-t1",
             parameter_mapping=_transformer("t1").parameter_mapping,
-            endpoint_mapping={},
+            endpoint_mapping=dict(_transformer("t1").endpoint_mapping),
             values=dict(_transformer("t1").engineering_data),
             endpoints={},
             position=(3.0, 4.0),
+            parameter_contract=tuple(canonical_contracts["transformer"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["transformer"]["conditional_requirements"]),
             equipment_type="transformer",
         ),
         CreationCommitIntent(
@@ -168,15 +188,16 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             id_field="breaker_id",
             object_id="breaker-k1",
             parameter_mapping=_breaker("k1").parameter_mapping,
-            endpoint_mapping={},
+            endpoint_mapping=dict(_breaker("k1").endpoint_mapping),
             values=dict(_breaker("k1").engineering_data),
             endpoints={},
             position=(5.0, 6.0),
+            parameter_contract=tuple(canonical_contracts["breaker"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["breaker"]["conditional_requirements"]),
             equipment_type="breaker",
         ),
     )
 
-    canonical_contracts = creation_contracts_from_definitions()
     commands = tuple(
         preparer.prepare(intent, canonical_contract=canonical_contracts[intent.equipment_type])
         for intent in intents
