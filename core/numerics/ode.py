@@ -20,6 +20,13 @@ FloatArray = npt.NDArray[np.float64]
 Derivative = Callable[[FloatArray, Any], npt.ArrayLike]
 
 
+def _is_numeric_scalar(value: Any) -> bool:
+    """Accept Python/NumPy real scalars but reject booleans and arrays."""
+    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(
+        value, (bool, np.bool_)
+    )
+
+
 @dataclass(frozen=True)
 class ODESolution:
     """Immutable time grid and contiguous step-major state history."""
@@ -44,7 +51,7 @@ class ODESolution:
 def uniform_time_grid(duration_s: float, maximum_step_s: float) -> tuple[FloatArray, float]:
     """Build a grid ending exactly at duration, without exceeding maximum step."""
     for name, value in (("duration_s", duration_s), ("maximum_step_s", maximum_step_s)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if not _is_numeric_scalar(value):
             raise TypeError(f"{name} must be numeric")
         if not isfinite(float(value)) or float(value) <= 0.0:
             raise ValueError(f"{name} must be finite and positive")
