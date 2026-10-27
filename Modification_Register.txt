@@ -6744,3 +6744,32 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-059
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    Accelerator inference failures could trigger a successful CPU-only retry,
+    but the result did not explain which provider failed or why. This made
+    runtime fallback less diagnosable than initialization fallback.
+
+Correction:
+    - Record the selected provider's runtime exception type and message.
+    - Record successful CPU-only retry as a distinct runtime diagnostic.
+    - Record CPU retry failure diagnostics before raising the existing
+      explicit fallback failure.
+    - Expose runtime_diagnostics separately from initialization_diagnostics
+      in the inference result; keep CPU fallback and provider state updates.
+
+Validation:
+    Source update and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, hardware checks, or inference runs were done.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
