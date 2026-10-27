@@ -374,6 +374,10 @@ def solve_transient_batch(
     n = len(motor_ids)
     if n == 0 or len(parameter_sets) != n or len(load_torque_nm) != n:
         raise ValueError("motor_ids, parameter_sets and load_torque_nm must have the same non-zero length")
+    # Validate the common integration grid before backend capability discovery
+    # or accelerator execution. Invalid time inputs are caller errors, not GPU
+    # failures that should be hidden behind CPU fallback.
+    _validate_time(duration_s, step_s)
     if any(not isinstance(mid, str) or not mid.strip() for mid in motor_ids):
         raise ValueError("every motor_id must be a non-empty string")
     if any(not isinstance(p, MotorParameters) for p in parameter_sets):
