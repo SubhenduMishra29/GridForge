@@ -6993,3 +6993,32 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-067
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._replace_runtime() assumed its CommandManager argument was
+    a separate candidate. It did not enforce that precondition. If passed
+    the active manager, partial SLD-handler registration could mutate the
+    currently active registry before a later duplicate-handler collision
+    raised, undermining candidate rollback isolation.
+
+Correction:
+    - Reject runtime replacement when the supplied CommandManager is the
+      active manager, before registering any SLD or extension handlers.
+    - Preserve the existing candidate-first setup and publish-after-success
+      replacement sequence.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
