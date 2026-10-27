@@ -6665,3 +6665,30 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-056
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+    Modification_Register.txt
+
+Finding:
+    MotorPlacementCommandHandler dispatched on command_type alone after
+    checking only the generic Command base class. A different Command object
+    could claim a motor command type and reach a service with an incompatible
+    payload contract.
+
+Correction:
+    Bind each supported command type to its corresponding typed motor command
+    class and reject mismatched command instances before service dispatch.
+    Preserve Application ownership of transaction commit and rollback.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
