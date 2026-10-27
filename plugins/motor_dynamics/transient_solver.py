@@ -318,6 +318,39 @@ def cuda_available() -> bool:
         return False
 
 
+
+class _MotorCudaBatchAdapter:
+    """Motor-specific adapter for the compatible constant-dq CUDA workload."""
+
+    @property
+    def capability(self) -> BackendCapability:
+        return BackendCapability(
+            name="numba-cuda",
+            kind="gpu",
+            available=cuda_available(),
+            supported_workloads=frozenset({"motor_transient_batch"}),
+            minimum_workload_size=8,
+            precision_modes=frozenset({"float64"}),
+        )
+
+    def solve_batch(
+        self,
+        motor_ids: Sequence[str],
+        parameter_sets: Sequence[MotorParameters],
+        duration_s: float,
+        step_s: float,
+        voltage_d: float,
+        voltage_q: float,
+        electrical_frequency_hz: float,
+        load_torques: Sequence[float],
+    ) -> tuple[MotorSimulationResult, ...]:
+        """Execute only the workload declared by this adapter's capability."""
+        return _solve_batch_cuda(
+            motor_ids, parameter_sets, duration_s, step_s, voltage_d, voltage_q,
+            electrical_frequency_hz, load_torques,
+        )
+
+
 def solve_transient_batch(
     motor_ids: Sequence[str],
     parameter_sets: Sequence[MotorParameters],
@@ -362,6 +395,7 @@ def solve_transient_batch(
 
     # Capability facts come from the runtime adapters; the policy itself never
     # imports/probes accelerator libraries.
+    cuda_adapter = _MotorCudaBatchAdapter()
     capabilities = (
         BackendCapability(
             name="cpu-reference",
@@ -371,14 +405,7 @@ def solve_transient_batch(
             minimum_workload_size=1,
             precision_modes=frozenset({"float64"}),
         ),
-        BackendCapability(
-            name="numba-cuda",
-            kind="gpu",
-            available=cuda_available(),
-            supported_workloads=frozenset({"motor_transient_batch"}),
-            minimum_workload_size=8,
-            precision_modes=frozenset({"float64"}),
-        ),
+        cuda_adapter.capability,
     )
     requested = "gpu" if backend == "cuda" else backend
     selection = select_backend(
@@ -402,7 +429,7 @@ def solve_transient_batch(
 
     if selection.selected.kind == "gpu":
         try:
-            results = _solve_batch_cuda(
+            results = cuda_adapter.solve_batch(
                 motor_ids, parameter_sets, duration_s, step_s, float(vd), float(vq),
                 electrical_frequency_hz, load_torque_nm,
             )
