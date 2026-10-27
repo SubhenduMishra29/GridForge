@@ -7762,3 +7762,8 @@ Disposition:
     Source correction committed to feature/motor-dynamics-extension-v2 for
     PR #674 reconciliation.
 ======================================================================
+
+GF-MOTOR-091 — Extension handler ownership rollback integrity
+- Scope: `core/application/bootstrap.py` project-runtime activation and compensation.
+- Correction: snapshot and restore `_extension_handler_handlers` alongside `_extension_handler_command_types` when candidate runtime activation fails or is rolled back. This keeps exact handler-identity ownership metadata aligned with the restored CommandManager and prevents stale/mismatched extension teardown records.
+- Validation: static source correction only; no tests, CI, syntax/import checks, runtime activation, or hardware validation performed.
