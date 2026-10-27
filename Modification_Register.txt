@@ -7293,3 +7293,40 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-079
+======================================================================
+
+Files:
+    plugins/motor_dynamics/README.md
+    Modification_Register.txt
+
+Finding:
+    The motor-dynamics extension lacked a detailed package-level guide
+    explaining its architecture, command and draft workflow, module roles,
+    inference-provider behavior, persistence contract, and implementation
+    limitations. This made it difficult to distinguish the current scaffold
+    from planned but not yet implemented simulation capabilities.
+
+Correction:
+    - Added a package README describing plugin activation requirements and
+      the Core/Application/UI ownership boundaries.
+    - Documented motor draft placement and Bus attachment semantics, typed
+      commands, transaction/undo expectations, SLD projection, read models,
+      dashboard event flow, diagnostics, ONNX inference, and persistence.
+    - Explicitly documented CPU fallback and capability-dependent inference
+      providers without claiming GPU/NPU motor-physics acceleration.
+    - Identified the missing complete transient solver and flattened 3D
+      Numba/CUDA kernels, along with runtime and hardware validation gaps.
+
+Validation:
+    README and register content were written to the feature branch and
+    subsequently re-fetched for source verification only. No tests, CI,
+    syntax compilation, import checks, runtime activation, or hardware
+    validation were performed.
+
+Disposition:
+    Documentation added to draft PR #674; unmerged.
+======================================================================
