@@ -193,6 +193,10 @@ def create_application(network: Any) -> Application:
         previous_control_execution = application._control_execution
         previous_control_cycle = application._control_cycle
         previous_extension_handler_command_types = dict(application._extension_handler_command_types)
+        previous_extension_handler_handlers = {
+            extension_id: dict(handlers)
+            for extension_id, handlers in application._extension_handler_handlers.items()
+        }
 
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
@@ -206,6 +210,10 @@ def create_application(network: Any) -> Application:
             application._control_execution = previous_control_execution
             application._control_cycle = previous_control_cycle
             application._extension_handler_command_types = previous_extension_handler_command_types
+            application._extension_handler_handlers = {
+                extension_id: dict(handlers)
+                for extension_id, handlers in previous_extension_handler_handlers.items()
+            }
             raise
 
         def rollback() -> None:
