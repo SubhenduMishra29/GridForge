@@ -8,6 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import main
+from core.application.commands.draft_commands import CommitNetworkCommand
 from ui.core.qt import QListWidget, QPointF, QTabWidget, QWidget
 
 
@@ -74,8 +75,30 @@ def main_smoke() -> None:
             raise SystemExit("Runtime smoke: Bus placement did not commit.")
         app.processEvents()
 
-        network = controller.application.read_network()
-        buses = tuple(getattr(network, "buses", ()))
+        application = controller.application
+        draft = application.draft_network
+        draft_buses = tuple(
+            item for item in draft.equipment
+            if str(getattr(item, "equipment_type", "")).lower() == "bus"
+        )
+        if not draft_buses:
+            raise SystemExit("Runtime smoke: placed Bus is absent from DraftNetwork.")
+
+        commit_result = application.execute(
+            CommitNetworkCommand(
+                project_id=draft.project_id,
+                activation_generation=draft.activation_generation,
+                draft_network=draft.to_dict(),
+            )
+        )
+        if not commit_result.success:
+            raise SystemExit(f"Runtime smoke: DraftNetwork commit failed: {commit_result.message}")
+
+        network = application.read_network()
+        buses = tuple(
+            element for element in network.elements
+            if str(getattr(element, "element_type", "")).lower() in {"bus", "buses"}
+        )
         if not buses:
             raise SystemExit("Runtime smoke: committed Bus is absent from Application read model.")
 
@@ -94,7 +117,7 @@ def main_smoke() -> None:
             app.processEvents()
 
         selected_ids = tuple(tool_manager.selection_manager.get_selected_ids())
-        committed_bus_id = str(getattr(buses[-1], "id", getattr(buses[-1], "object_id", "")))
+        committed_bus_id = str(getattr(buses[-1], "object_id", ""))
         if not committed_bus_id or committed_bus_id not in selected_ids:
             raise SystemExit("Runtime smoke: committed Bus was not selected through SelectionManager.")
 
