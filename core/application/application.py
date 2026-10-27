@@ -1438,8 +1438,9 @@ class Application:
             if command_type not in expected_handlers
             or current_registry.get(command_type) is not expected_handlers.get(command_type)
         ]
-        if conflicts:
-            details = ", ".join(repr(command_type) for command_type in conflicts)
+        metadata_drift = set(command_types) != set(expected_handlers)
+        if conflicts or metadata_drift:
+            details = ", ".join(repr(command_type) for command_type in conflicts) or "ownership metadata"
             raise RuntimeError(
                 f"Cannot unregister extension {extension_id!r}: handler ownership "
                 f"drift detected for {details}. The active handlers were left untouched; "
