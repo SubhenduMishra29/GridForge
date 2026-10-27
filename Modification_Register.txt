@@ -7672,3 +7672,29 @@ Verification boundary:
     No tests, CI, syntax compilation, imports, runtime execution, numerical
     validation, GPU hardware validation, or NPU validation were performed.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-089
+======================================================================
+
+Scope:
+    Align motor dynamics documentation and remove unused study state.
+
+Files:
+    plugins/motor_dynamics/README.md
+    plugins/motor_dynamics/study_handler.py
+
+Correction:
+    Updated the README to distinguish implemented source-level
+    StudyService registration/result publication from unperformed
+    end-to-end, numerical, and accelerator validation. Removed an unused
+    pending-results dictionary from the stateless study handler.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+======================================================================
