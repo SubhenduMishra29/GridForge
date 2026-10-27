@@ -395,6 +395,24 @@ class ResolvedConnectivity:
                 return targets
         return ()
 
+    def components(self) -> tuple[tuple[TopologyEndpointReference, ...], ...]:
+        """Return deterministic connected components of this immutable graph snapshot."""
+        remaining = {source for source, _ in self.topology_adjacency}
+        components: list[tuple[TopologyEndpointReference, ...]] = []
+        while remaining:
+            start = min(remaining, key=_topology_reference_key)
+            seen = {start}
+            queue = [start]
+            while queue:
+                current = queue.pop(0)
+                for neighbour in self.neighbours(current):
+                    if neighbour not in seen:
+                        seen.add(neighbour)
+                        queue.append(neighbour)
+            remaining -= seen
+            components.append(tuple(sorted(seen, key=_topology_reference_key)))
+        return tuple(components)
+
     @property
     def terminal_adjacency(
         self,
@@ -493,22 +511,7 @@ class ConnectivityResolver:
 
     def components(self) -> tuple[tuple[TopologyEndpointReference, ...], ...]:
         """Return all deterministic connected components of the endpoint graph."""
-        resolved=self.resolve()
-        remaining={source for source,_ in resolved.topology_adjacency}
-        components=[]
-        while remaining:
-            start=min(remaining,key=_topology_reference_key)
-            seen={start}
-            queue=[start]
-            while queue:
-                current=queue.pop(0)
-                for neighbour in resolved.neighbours(current):
-                    if neighbour not in seen:
-                        seen.add(neighbour)
-                        queue.append(neighbour)
-            remaining-=seen
-            components.append(tuple(sorted(seen,key=_topology_reference_key)))
-        return tuple(components)
+        return self.resolve().components()
 
     def topology_component(
         self,
