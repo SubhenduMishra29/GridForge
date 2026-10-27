@@ -8624,3 +8624,30 @@ Status:
     🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SLD-ROUTE-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Immutable route payload compatibility at SLD persistence boundary
+
+Finding:
+    DraftConnection freezes route payloads using mapping proxies and tuple
+    point sequences. SLDRoute.from_dict accepted only list-valued points, so
+    a valid immutable internal route payload was rejected during DraftNetwork
+    commit despite having the canonical two-coordinate point shape.
+
+Correction:
+    Accept list or tuple as the point sequence container at the SLD boundary;
+    SLDRoute still normalizes and validates coordinates and serializes back to
+    the canonical JSON array representation.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
