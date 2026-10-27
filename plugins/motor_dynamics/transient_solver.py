@@ -144,7 +144,9 @@ class MotorSimulationResult:
             or electrical_frequency_hz < 0
         ):
             raise ValueError("electrical_frequency_hz must be finite and non-negative")
-        publish(
+        if not _is_numeric_scalar(load_torque_nm) or not isfinite(float(load_torque_nm)):
+            raise ValueError("load_torque_nm must be finite and numeric")
+        return publish(
             self.motor_id,
             self.channels(
                 parameters,
