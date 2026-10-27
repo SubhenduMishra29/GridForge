@@ -8045,3 +8045,42 @@ Validation:
     hardware probing, or CI were run. Consumer integration remains pending.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-086
+======================================================================
+
+Scope:
+    Motor transient batch integration with shared backend dispatch policy
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The motor plugin previously contained its own backend selection branch,
+    duplicating workload-size policy and providing incomplete diagnostics for
+    automatic selection and fallback.
+
+Correction:
+    Motor batch dispatch now supplies CPU-reference and optional Numba-CUDA
+    capability facts to core.numerics.backend.select_backend(). CUDA is
+    declared applicable only to the constant-dq, float64 batch workload with
+    at least eight independent motors. Selection diagnostics record requested,
+    selected and executed backends, rejection reasons, and explicit fallback
+    causes. CUDA execution failures retain bounded exception details and
+    fall back to CPU.
+
+Boundary:
+    This integrates the shared policy for the currently implemented CPU and
+    CUDA paths. It does not claim NPU availability or add an NPU runtime.
+    Capability facts still originate from the motor runtime adapter; the
+    shared policy itself remains runtime-neutral.
+
+Validation:
+    Source-level integration only. No tests, syntax checks, imports, CUDA
+    hardware execution, numerical equivalence checks, or CI were run.
+
+======================================================================
