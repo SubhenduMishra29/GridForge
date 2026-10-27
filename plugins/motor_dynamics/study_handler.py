@@ -99,6 +99,7 @@ class MotorTransientResultPublisher:
     def __init__(self, application: Any, read_models: Any) -> None:
         self._application = application
         self._read_models = read_models
+        self.last_error: str | None = None
 
     def __call__(self, event: StudyCompleted) -> None:
         payload = event.payload
@@ -123,10 +124,17 @@ class MotorTransientResultPublisher:
         envelope = result.value
         if not isinstance(envelope, MotorTransientEnvelope):
             return
-        envelope.result.publish_to(
-            self._read_models, envelope.parameters, envelope.electrical_frequency_hz,
-            envelope.load_torque_nm, study_id=study_id,
-        )
+        try:
+            envelope.result.publish_to(
+                self._read_models, envelope.parameters, envelope.electrical_frequency_hz,
+                envelope.load_torque_nm, study_id=study_id,
+            )
+        except Exception as exc:
+            # A projection/read-model failure must not make StudyService turn
+            # an already stored successful engineering result into "failed".
+            self.last_error = f"{type(exc).__name__}: {exc}"
+        else:
+            self.last_error = None
 
 
 __all__ = ["MotorTransientEnvelope", "MotorTransientStudyHandler", "MotorTransientResultPublisher"]
