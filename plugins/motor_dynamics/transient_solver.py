@@ -127,7 +127,8 @@ class MotorSimulationResult:
         load_torque_nm: float,
         *,
         study_id: str | None = None,
-    ) -> None:
+        study_order: int | None = None,
+    ) -> bool:
         """Publish a computed snapshot; caller owns StudyCompleted event timing.
 
         This method never dispatches UI events or mutates Core. The caller
@@ -153,6 +154,7 @@ class MotorSimulationResult:
             self.sample_period_s,
             status="completed",
             study_id=study_id,
+            study_order=study_order,
             diagnostics=self.diagnostics,
         )
 
