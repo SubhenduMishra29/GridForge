@@ -7205,3 +7205,34 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-076
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    unregister_extension_handler_factory() removed ownership metadata before
+    unregistering all handlers. If a handler removal failed partway through,
+    the factory/type metadata could be lost while some handlers remained
+    registered, preventing reliable retry or diagnosis.
+
+Correction:
+    - Snapshot the complete active handler registry before teardown.
+    - On any handler-removal failure, attempt to restore the captured registry
+      and retain extension ownership metadata.
+    - Report rollback failure explicitly, including that the active manager
+      may remain corrupted; remove ownership metadata only after all removals
+      succeed.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
