@@ -7398,3 +7398,40 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-082
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.initialize() swallowed dashboard-close and command
+    teardown failures during initialization rollback. The plugin then re-raised
+    only the setup exception without retaining failed resource handles, making
+    partially registered handlers or a dashboard impossible to retry through
+    shutdown(). Shutdown also used ExceptionGroup despite collecting
+    BaseException instances, which could mask the original cleanup failure.
+
+Correction:
+    - Attempt dashboard close and command teardown independently after setup
+      failure, recording each cleanup failure instead of suppressing it.
+    - If rollback completes, re-raise the original initialization exception
+      without publishing partially initialized plugin state.
+    - If rollback is incomplete, retain only failed resource handles and the
+      context/application/persistence references needed for retry; mark the
+      plugin initialized so shutdown() can retry cleanup.
+    - Aggregate initialization and cleanup failures with BaseExceptionGroup.
+      Use BaseExceptionGroup during shutdown as well, so captured
+      KeyboardInterrupt/SystemExit subclasses do not cause a secondary
+      grouping TypeError that masks cleanup failures.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or plugin runtime activation/shutdown were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
