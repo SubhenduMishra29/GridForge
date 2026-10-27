@@ -198,8 +198,8 @@ class StudyService:
         self._handlers: dict[str, StudyHandler] = {}
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
-        # Track active types separately without changing public result/cancel keys.
-        self._active_study_types: dict[tuple[str, int, UUID], str] = {}
+        # Counts by study type prevent teardown while any execution is active.
+        self._active_study_types: dict[str, int] = {}
         self._lock = RLock()
 
     @property
@@ -237,12 +237,10 @@ class StudyService:
             self._handlers[key] = handler
 
     def unregister(self, study_type: str, handler: StudyHandler | None = None) -> bool:
-        """Remove a handler only when ownership matches and no study of its type is active.
+        """Remove an idle registration, optionally guarded by handler identity.
 
-        Passing the original callable makes plugin teardown identity-safe: an old
-        plugin instance cannot unregister a replacement registered by another
-        component. Returns False for an absent registration or ownership mismatch.
-        Active study types must finish before their handler can be removed.
+        A stale plugin instance cannot remove a replacement registration, and
+        teardown cannot remove a handler while its study type is executing.
         """
         if not isinstance(study_type, str) or not study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
@@ -250,15 +248,12 @@ class StudyService:
             raise TypeError("handler must be callable when supplied.")
         key = study_type.strip()
         with self._lock:
-            registered = self._handlers.get(key)
-            if registered is None:
+            if key not in self._handlers:
                 return False
-            if handler is not None and registered is not handler:
+            if handler is not None and self._handlers.get(key) is not handler:
                 return False
-            if key in self._active_study_types.values():
-                raise RuntimeError(
-                    f"Cannot unregister study type {key!r} while a study of that type is active."
-                )
+            if self._active_study_types.get(key, 0):
+                raise RuntimeError(f"Cannot unregister active study type: {key!r}")
             del self._handlers[key]
             return True
 
@@ -280,7 +275,7 @@ class StudyService:
             if key in self._tokens:
                 raise ValueError(f"Study is already active: {request.study_id}")
             self._tokens[key] = token
-            self._active_study_types[key] = request.study_type
+            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
 
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
@@ -330,7 +325,11 @@ class StudyService:
         finally:
             with self._lock:
                 self._tokens.pop(key, None)
-                self._active_study_types.pop(key, None)
+                active_count = self._active_study_types.get(request.study_type, 0)
+                if active_count <= 1:
+                    self._active_study_types.pop(request.study_type, None)
+                else:
+                    self._active_study_types[request.study_type] = active_count - 1
 
     @property
     def has_active_studies(self) -> bool:
