@@ -15,9 +15,15 @@ class MotorNPUDiagnosticNode:
     """Inference adapter preferring supported accelerators and retaining CPU fallback."""
 
     PROVIDER_PRIORITY = (
+        # NPU-capable providers are preferred when installed. Provider
+        # availability does not guarantee that the device or model is usable.
+        "QNNExecutionProvider",
         "VitisAIExecutionProvider",
+        "OpenVINOExecutionProvider",
+        # GPU providers, followed by the portable CPU fallback.
         "TensorrtExecutionProvider",
         "CUDAExecutionProvider",
+        "DmlExecutionProvider",
         "CPUExecutionProvider",
     )
 
