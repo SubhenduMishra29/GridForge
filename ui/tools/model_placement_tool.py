@@ -148,7 +148,7 @@ class ModelPlacementTool(ToolBase):
         # Application owns the trusted creation contract. The UI's creation
         # definition supplies current values and presentation intent only; it
         # must not author schema metadata that the commit boundary later trusts.
-        registry = getattr(self._application, "creation_contract_registry", None)
+        registry = getattr(self.application, "creation_contract_registry", None)
         if registry is None:
             self._report_feedback("CREATION_INTENT_FAILED: Application creation contract registry is unavailable.")
             return False
