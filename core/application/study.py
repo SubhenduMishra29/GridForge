@@ -246,6 +246,8 @@ class StudyService:
         """
         if not isinstance(study_type, str) or not study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
+        if handler is not None and not callable(handler):
+            raise TypeError("handler must be callable when supplied.")
         key = study_type.strip()
         with self._lock:
             registered = self._handlers.get(key)
