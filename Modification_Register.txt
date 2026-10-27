@@ -4640,3 +4640,55 @@ Disposition:
     frozen or merged; it supplements, and does not supersede, the existing
     frozen GridForge V2 architecture until reviewed and accepted.
 ======================================================================
+
+
+======================================================================
+2026-10-27 — SHARED PLUGIN SDK PROPOSAL RECONCILIATION / FREEZE BOUNDARY
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Static audit findings:
+    - core/application/study.py already owns StudyService execution, typed
+      StudyResult storage, cancellation, and study lifecycle events. Its
+      audited main version exposes register/execute/cancel/result retrieval,
+      but not unregister.
+    - core/application/event_bus.py already owns canonical synchronous
+      Application event delivery and subscribe/unsubscribe.
+    - ui/plugins/plugin_contract.py and ui/plugins/README.md already define
+      UI plugin contracts and separate PluginLoader, PluginRegistry,
+      PluginManager, PluginStateStore, and PluginContext responsibilities.
+    - The engineering plugins/ namespace and ui/plugins/ composition
+      subsystem must remain distinct. A shared SDK must not collapse them
+      into one lifecycle manager.
+    - Motor Dynamics feature branch expects StudyService.unregister(), which
+      is absent from the audited main baseline. This is a concrete integration
+      dependency to reconcile before claiming reference-plugin compatibility.
+
+Correction to proposal:
+    - Made the StudyService callable signature and existing event/result
+      ownership explicit.
+    - Required reuse of ApplicationEventBus.
+    - Preserved existing UI plugin lifecycle ownership.
+    - Froze architecture principles only; concrete SDK package placement,
+      class names, signatures, and any StudyService API additions remain open
+      until a reuse matrix and a second distinct plugin are reconciled.
+    - Prohibited a parallel generic plugin manager or duplicate study/result
+      framework.
+
+Freeze decision:
+    Freeze the reuse and ownership principles as the architectural amendment.
+    Do not freeze speculative implementation APIs before reference-plugin
+    evidence exists.
+
+Verification boundary:
+    Static source inspection and documentation reconciliation only. No tests,
+    CI, syntax checks, imports, runtime, numerical, or hardware validation run.
+
+Disposition:
+    Updated in PR #675 on architecture/shared-plugin-sdk-v2. Pending merge;
+    the existing frozen Core/Application/UI architecture remains authoritative
+    until the amendment is merged.
+======================================================================
