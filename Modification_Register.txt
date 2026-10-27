@@ -6863,3 +6863,32 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-063
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService built its allowed parameter IDs by stringifying
+    values and silently skipping malformed parameter-contract entries.
+    A malformed or duplicated trusted contract could therefore be
+    misinterpreted instead of rejected at the Application boundary.
+
+Correction:
+    - Require the resolved motor creation contract to be a mapping.
+    - Require parameter_contract to be a list or tuple of mappings.
+    - Require each parameter_id to be a canonical non-empty string.
+    - Reject duplicate parameter IDs instead of silently collapsing them.
+    - Keep unknown-parameter rejection before DraftEquipment creation.
+
+Validation:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or application runtime were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
