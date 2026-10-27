@@ -26,6 +26,17 @@ from ..results import ApplicationResult
 from ..transaction import Transaction
 
 
+def _normalize_topology_endpoint(value: EndpointReference | TopologyEndpointReference) -> TopologyEndpointReference:
+    if isinstance(value, TopologyEndpointReference):
+        return value
+    if isinstance(value, EndpointReference):
+        if value.is_terminal:
+            return TopologyEndpointReference.from_terminal(value)
+        if value.is_bus:
+            return TopologyEndpointReference.from_bus(value)
+    raise TypeError("Simple Wire endpoints must identify a terminal, Bus attachment, or registered topology junction.")
+
+
 class SimpleWireConnectionService:
     """Own Simple Wire command orchestration without owning presentation state."""
 
@@ -53,16 +64,8 @@ class SimpleWireConnectionService:
                 details={},
             )
         try:
-            normalized_source = (
-                source
-                if isinstance(source, TopologyEndpointReference)
-                else TopologyEndpointReference.from_terminal(source)
-            )
-            normalized_target = (
-                target
-                if isinstance(target, TopologyEndpointReference)
-                else TopologyEndpointReference.from_terminal(target)
-            )
+            normalized_source = _normalize_topology_endpoint(source)
+            normalized_target = _normalize_topology_endpoint(target)
         except (TypeError, ValueError) as exc:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINT",
@@ -128,6 +131,17 @@ class SimpleWireConnectionService:
                 except (EndpointCompatibilityError, ResourceError, ValidationError) as exc:
                     if isinstance(exc, ValidationError):
                         raise
+                    raise ValidationError(
+                        code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                        message=str(exc),
+                        details={"endpoint": str(endpoint)},
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.BUS:
+                try:
+                    EndpointCompatibility.validate_reference(endpoint.bus_reference, network)
+                except EndpointCompatibilityError as exc:
                     raise ValidationError(
                         code="INVALID_SIMPLE_WIRE_ENDPOINT",
                         message=str(exc),
