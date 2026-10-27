@@ -47,11 +47,17 @@ class MotorDynamicsPlugin:
         self.dashboard: MotorTelemetryDashboardWidget | None = None
         self._unhooks: list[Any] = []
         self._initialized = False
+        self._ready = False
 
     def initialize(self, context: Any) -> None:
         """Initialize from GridForge's canonical PluginContext."""
         if self._initialized:
-            return
+            if self._ready:
+                return
+            raise RuntimeError(
+                "A previous initialization rollback is still pending; call shutdown() "
+                "successfully before retrying initialize()."
+            )
         if context is None or not hasattr(context, "application"):
             raise TypeError("MotorDynamicsPlugin.initialize requires a GridForge PluginContext")
 
@@ -217,6 +223,7 @@ class MotorDynamicsPlugin:
             if failed_token is not None:
                 self._unhooks.append(failed_token)
             self._initialized = True
+            self._ready = False
             raise _aggregate_base_exceptions(
                 "Motor Dynamics plugin initialization failed and rollback was incomplete",
                 [initialization_error, *cleanup_errors],
@@ -230,6 +237,7 @@ class MotorDynamicsPlugin:
         self._unhooks.append(token)
         self.dashboard = dashboard
         self._initialized = True
+        self._ready = True
 
     def shutdown(self) -> None:
         """Release plugin resources without discarding failed teardown handles.
@@ -260,9 +268,11 @@ class MotorDynamicsPlugin:
 
         if errors:
             self._initialized = True
+            self._ready = False
             raise _aggregate_base_exceptions("Motor Dynamics plugin shutdown encountered failures", errors) from None
 
         self._initialized = False
+        self._ready = False
         self.persistence = None
         self.application = None
         self.context = None
