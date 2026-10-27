@@ -18,7 +18,7 @@ from .dashboard import MotorTelemetryDashboardWidget
 from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
 from .study_handler import MotorTransientResultPublisher, MotorTransientStudyHandler
-from core.application.events import StudyCompleted
+from core.application.events import StudyCompleted, StudyStarted
 
 
 def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> BaseException:
@@ -126,10 +126,12 @@ class MotorDynamicsPlugin:
 
             study_unhook = release_study_handler
             publisher = MotorTransientResultPublisher(application, self.read_models)
+            subscribe(StudyStarted, publisher.on_started)
             subscribe(StudyCompleted, publisher)
 
             def release_publisher() -> None:
                 unsubscribe(StudyCompleted, publisher)
+                unsubscribe(StudyStarted, publisher.on_started)
 
             # Register the publisher before the dashboard subscriber so the
             # read-model snapshot exists when the dashboard handles completion.
