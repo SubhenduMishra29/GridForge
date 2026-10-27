@@ -36,7 +36,7 @@ class MotorTransientStudyHandler:
         request: StudyRequest,
         execution_context: StudyExecutionContext,
         cancellation: StudyCancellationToken,
-    ) -> MotorTransientEnvelope:
+    ) -> MotorTransientEnvelope | None:
         del execution_context  # The solver consumes explicit validated study inputs.
         config = request.configuration
         motor_id = config.get("motor_id")
@@ -63,7 +63,7 @@ class MotorTransientStudyHandler:
         if not isinstance(backend, str) or backend not in ("auto", "cpu", "cuda"):
             raise ValueError("backend must be 'auto', 'cpu', or 'cuda'")
         if cancellation.cancelled:
-            raise RuntimeError("Motor transient study was cancelled before solver execution")
+            return None
 
         # GPU API currently supports constant dq voltage inputs. Profiles use
         # the CPU reference integrator; no inference provider is treated as a
@@ -71,8 +71,8 @@ class MotorTransientStudyHandler:
         if isinstance(voltage_d, (int, float)) and not isinstance(voltage_d, bool) and isinstance(voltage_q, (int, float)) and not isinstance(voltage_q, bool):
             result = solve_transient_batch(
                 (motor_id.strip(),), (parameters,), float(duration_s), float(step_s),
-                stator_voltage_d_v=(float(voltage_d),),
-                stator_voltage_q_v=(float(voltage_q),),
+                stator_voltage_d_v=float(voltage_d),
+                stator_voltage_q_v=float(voltage_q),
                 electrical_frequency_hz=frequency,
                 load_torque_nm=(load_torque,),
                 backend=backend,
@@ -87,7 +87,7 @@ class MotorTransientStudyHandler:
                 electrical_frequency_hz=frequency, load_torque_nm=load_torque,
             )
         if cancellation.cancelled:
-            raise RuntimeError("Motor transient study was cancelled during solver execution")
+            return None
         return MotorTransientEnvelope(
             motor_id.strip(), parameters, float(frequency), float(load_torque), result
         )
