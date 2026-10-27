@@ -122,6 +122,8 @@ class MotorSimulationResult:
         parameters: MotorParameters,
         electrical_frequency_hz: float,
         load_torque_nm: float,
+        *,
+        study_id: str | None = None,
     ) -> None:
         """Publish a computed snapshot; caller owns StudyCompleted event timing.
 
@@ -148,6 +150,7 @@ class MotorSimulationResult:
             ),
             self.sample_period_s,
             status="completed",
+            study_id=study_id,
         )
 
     def channels(self, parameters: MotorParameters, electrical_rad_s: float,
