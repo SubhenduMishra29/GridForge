@@ -1,9 +1,21 @@
 """Thread-safe, immutable snapshots for UI projections; never exposes solver ownership."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import RLock
+from types import MappingProxyType
 from typing import Any, Mapping
 import numpy as np
+
+def _freeze_diagnostic(value: Any) -> Any:
+    """Detach and recursively freeze diagnostic metadata for read consumers."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_diagnostic(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_diagnostic(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_diagnostic(item) for item in value)
+    return value
+
 
 @dataclass(frozen=True)
 class SimulationSummary:
@@ -13,6 +25,8 @@ class SimulationSummary:
     sample_period_s: float
     channels: tuple[str, ...]
     fault: str | None = None
+    diagnostics: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
 
 class MotorSimulationReadModelStore:
     def __init__(self) -> None:
@@ -20,7 +34,7 @@ class MotorSimulationReadModelStore:
         self._summaries: dict[str, SimulationSummary] = {}
         self._channels: dict[tuple[str, str], np.ndarray] = {}
         self._study_motor_ids: dict[str, str] = {}
-    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None, *, study_id: str | None = None) -> None:
+    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None, *, study_id: str | None = None, diagnostics: Mapping[str, Any] | None = None) -> None:
         if not isinstance(motor_id, str) or not motor_id.strip():
             raise ValueError("motor_id must be a non-empty string")
         motor_id = motor_id.strip()
@@ -30,6 +44,13 @@ class MotorSimulationReadModelStore:
             raise ValueError("sample_period_s must be finite and positive")
         if not isinstance(channels, Mapping):
             raise TypeError("channels must be a mapping")
+        if diagnostics is not None and not isinstance(diagnostics, Mapping):
+            raise TypeError("diagnostics must be a mapping or None")
+        if diagnostics is not None and any(
+            not isinstance(key, str) or not key.strip() for key in diagnostics
+        ):
+            raise ValueError("diagnostic keys must be non-empty strings")
+        frozen_diagnostics = _freeze_diagnostic(diagnostics or {})
         if not isinstance(status, str) or not status.strip():
             raise ValueError("status must be a non-empty string")
         if fault is not None and not isinstance(fault, str):
@@ -59,6 +80,7 @@ class MotorSimulationReadModelStore:
             sample_period_s=float(sample_period_s),
             channels=tuple(sorted(name for _, name in frozen)),
             fault=fault,
+            diagnostics=frozen_diagnostics,
         )
         with self._lock:
             # A new publication replaces this motor's complete snapshot. Keeping
