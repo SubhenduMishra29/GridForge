@@ -8205,3 +8205,100 @@ GF-MOTOR-102 — Motor study lifecycle cleanup and shutdown safety. The publishe
 GF-MOTOR-103 — Partial initialization rollback hardening. The motor plugin now installs identity-safe study-handler rollback ownership before attempting StudyService registration, and installs publisher close/unsubscribe rollback before the first event subscription. If any subscription fails midway, rollback attempts to close the publisher and unsubscribe every owned lifecycle callback, then unregister the study handler and release command registration. Existing failed-cleanup handles remain retained for retry through shutdown(). Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
 
 GF-MOTOR-104 — Consolidated motor-dynamics closeout audit. Corrected MotorSimulationResult.publish_to() to return the read-model acceptance result and reject non-finite/non-numeric load torque, preventing successful publications from being misreported as stale. Read-model study ordering now rejects duplicate as well as out-of-order completions; study lookup history is bounded to 4096 entries and read models expose clear() to remove cached telemetry/order metadata on successful plugin shutdown. Plugin lifecycle now prevents reinitialization while incomplete rollback remains, unwinds study publisher/handler before command registration, and clears cached projections only after all teardown succeeds. Publisher captures study-result lookup exceptions rather than letting telemetry retrieval errors escape the completion callback. Source-level review only. No tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run. PR mergeability and numerical/runtime acceptance remain unresolved and must not be represented as complete.
+
+======================================================================
+2026-10-27 — SHARED PLUGIN SDK ARCHITECTURE AMENDMENT (PROPOSAL)
+======================================================================
+
+File:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+
+Finding:
+    Future plugin growth would duplicate lifecycle, study orchestration,
+    event handling, result publication, configuration, compute dispatch,
+    diagnostics, and UI projection infrastructure, increasing maintenance
+    cost and creating inconsistent plugin behavior.
+
+Architecture decision proposed:
+    - Reuse one authoritative owner for each shared responsibility; adapt
+      existing Application and plugin-platform services rather than create
+      a competing framework.
+    - Define small typed SDK contracts for plugin identity/capabilities,
+      lifecycle/registration, study integration, event cleanup, result
+      publication, configuration, compute capabilities, diagnostics, and
+      optional read-only UI projections.
+    - Keep Core headless and authoritative; Application owns study execution,
+      controlled mutation, canonical events, and result/read-model contracts.
+    - Keep plugins focused on domain algorithms, inputs, typed results, and
+      genuinely plugin-specific integration/presentation.
+    - Require CPU as the portable baseline where supported; treat GPU/NPU as
+      optional, capability-gated backends. Never imply NPU physics support
+      from inference-provider availability.
+    - Prefer composition and explicit plugin kinds over a universal base
+      class. Do not create duplicate managers, registries, schedulers,
+      event buses, or result stores.
+    - Audit current implementations, refactor Motor Dynamics as the first
+      study-plugin reference, then validate the abstraction against a second
+      distinct plugin before freezing the SDK.
+
+Verification boundary:
+    Architecture source review and repository-path inspection only. No tests,
+    CI, syntax checks, imports, runtime, numerical, or hardware validation run.
+
+Disposition:
+    Proposed in branch architecture/shared-plugin-sdk-v2. This is not yet
+    frozen or merged; it supplements, and does not supersede, the existing
+    frozen GridForge V2 architecture until reviewed and accepted.
+======================================================================
+
+
+======================================================================
+2026-10-27 — SHARED PLUGIN SDK PROPOSAL RECONCILIATION / FREEZE BOUNDARY
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Static audit findings:
+    - core/application/study.py already owns StudyService execution, typed
+      StudyResult storage, cancellation, and study lifecycle events. Its
+      audited main version exposes register/execute/cancel/result retrieval,
+      but not unregister.
+    - core/application/event_bus.py already owns canonical synchronous
+      Application event delivery and subscribe/unsubscribe.
+    - ui/plugins/plugin_contract.py and ui/plugins/README.md already define
+      UI plugin contracts and separate PluginLoader, PluginRegistry,
+      PluginManager, PluginStateStore, and PluginContext responsibilities.
+    - The engineering plugins/ namespace and ui/plugins/ composition
+      subsystem must remain distinct. A shared SDK must not collapse them
+      into one lifecycle manager.
+    - Motor Dynamics feature branch expects StudyService.unregister(), which
+      is absent from the audited main baseline. This is a concrete integration
+      dependency to reconcile before claiming reference-plugin compatibility.
+
+Correction to proposal:
+    - Made the StudyService callable signature and existing event/result
+      ownership explicit.
+    - Required reuse of ApplicationEventBus.
+    - Preserved existing UI plugin lifecycle ownership.
+    - Froze architecture principles only; concrete SDK package placement,
+      class names, signatures, and any StudyService API additions remain open
+      until a reuse matrix and a second distinct plugin are reconciled.
+    - Prohibited a parallel generic plugin manager or duplicate study/result
+      framework.
+
+Freeze decision:
+    Freeze the reuse and ownership principles as the architectural amendment.
+    Do not freeze speculative implementation APIs before reference-plugin
+    evidence exists.
+
+Verification boundary:
+    Static source inspection and documentation reconciliation only. No tests,
+    CI, syntax checks, imports, runtime, numerical, or hardware validation run.
+
+Disposition:
+    Updated in PR #675 on architecture/shared-plugin-sdk-v2. Pending merge;
+    the existing frozen Core/Application/UI architecture remains authoritative
+    until the amendment is merged.
+======================================================================
