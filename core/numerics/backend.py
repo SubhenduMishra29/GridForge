@@ -205,7 +205,11 @@ def execute_numerical_problem(
         expected_times, expected_step = uniform_time_grid(
             problem.duration_s, problem.maximum_step_s
         )
-        if solution.state_count != np.asarray(problem.initial_state).size:
+        if (
+            isinstance(solution.state_count, bool)
+            or not isinstance(solution.state_count, int)
+            or solution.state_count != initial.size
+        ):
             raise ValueError("backend returned an incompatible state count")
         if solution.time_s.dtype != np.float64:
             raise ValueError("backend returned a time grid with incompatible precision")
@@ -213,11 +217,17 @@ def execute_numerical_problem(
             solution.time_s, expected_times
         ):
             raise ValueError("backend returned a time grid that violates the shared ODE contract")
+        if solution.time_s.flags.writeable:
+            raise ValueError("backend returned a mutable time grid")
         expected_size = expected_times.size * solution.state_count
         if solution.state_data.dtype != np.float64:
             raise ValueError("backend returned a state buffer with incompatible precision")
         if solution.state_data.ndim != 1 or solution.state_data.size != expected_size:
             raise ValueError("backend returned an invalid flat state buffer")
+        if not solution.state_data.flags.c_contiguous:
+            raise ValueError("backend returned a non-contiguous flat state buffer")
+        if solution.state_data.flags.writeable:
+            raise ValueError("backend returned a mutable state buffer")
         if not np.isfinite(solution.state_data).all():
             raise FloatingPointError("backend returned non-finite states")
         first_state = solution.state_data[:solution.state_count]
