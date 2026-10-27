@@ -8436,3 +8436,60 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-NET-CONNECTIVITY-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Draft Bus attachment to Core Simple Wire topology translation
+
+Finding:
+    DraftConnectivityResolver emitted EndpointReference.bus() for a Bus
+    attachment, but SimpleWireConnectionService only normalized terminal
+    EndpointReference values and registered junction topology endpoints.
+    Valid DraftNetwork Bus-to-terminal connections therefore failed before
+    the authoritative Core connectivity graph could represent the Bus
+    attachment identity.
+
+Correction:
+    - Add BUS as a first-class TopologyEndpointReference kind carrying the
+      canonical Bus EndpointReference and attachment-N identity.
+    - Validate attachment slots in the supported 0..8 range.
+    - Normalize Bus references in Application command/service boundaries.
+    - Validate Bus membership, index Bus attachments, enforce one connection
+      per attachment slot, and resolve connected Bus IDs from terminal graphs.
+    - Preserve terminal-only compatibility views and explicit Junction nodes.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-STARTUP-VERIFY-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Startup verifier alignment with frozen Workspace ownership
+
+Finding:
+    scripts/verify_startup.py required six QDockWidget wrappers even though
+    the active composition detaches panel widgets into Workspace regions and
+    the Workspace realization is the canonical arrangement authority.
+
+Correction:
+    The verifier now validates the realized Workspace layout instead of
+    requiring legacy dock wrappers to remain attached to MainWindow.
+
+Status:
+    🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
