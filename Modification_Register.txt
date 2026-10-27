@@ -7788,3 +7788,40 @@ GF-MOTOR-094 — CUDA RK4 local-array dtype name correction
 - Finding: five CUDA local arrays referenced `dtype=float64`, but the module did not define or import the bare name `float64`. CUDA kernel compilation could therefore fail before the RK4 integration executes.
 - Correction: use the already-used `np.float64` dtype explicitly for all five local arrays, matching the kernel's state-array dtype contract.
 - Validation: static source correction and re-fetch only; no tests, Numba compilation, syntax/import checks, numerical comparison, CUDA execution, CI, or hardware validation performed.
+
+======================================================================
+GF-MOTOR-079
+======================================================================
+
+Scope:
+    Shared headless ODE integration foundation
+
+Files:
+    core/numerics/ode.py
+
+Status:
+    🟡 IMPLEMENTED — CONSUMER INTEGRATION AND VALIDATION PENDING
+
+Finding:
+    Motor-dynamics integration had a plugin-local CPU RK4 loop. Repeating
+    that loop in each future physics plugin would duplicate numerical
+    integration behavior and error handling.
+
+Correction:
+    Added a domain-neutral, headless RK4 primitive with a uniform time-grid
+    contract, explicit zero-order-hold interval inputs, shape and finiteness
+    validation, a contiguous flat state-history buffer, and read-only result
+    views. The utility imports no Qt, plugin, or accelerator runtime.
+
+Boundary:
+    Physics plugins continue to own their derivative equations, parameters,
+    state definitions, and domain outputs. CPU is the reference integrator.
+    GPU/NPU dispatch remains a separate backend capability and must not be
+    inferred from this CPU primitive.
+
+Remaining:
+    Refactor the motor CPU solver to consume this shared primitive, reconcile
+    CPU/GPU numerical behavior, define backend capability/diagnostic contracts,
+    and validate the implementation. No tests or runtime checks were run.
+
+======================================================================
