@@ -6692,3 +6692,29 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+======================================================================
+GF-MOTOR-057
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsComposition accepted whitespace-padded plugin IDs and
+    assumed the command-handler argument was a mapping. Its teardown
+    callback was not idempotent and could unregister a later registration
+    if an old cleanup callback was invoked again.
+
+Correction:
+    Require a canonical non-blank plugin ID and a mapping containing
+    exactly the two supported callable handlers. Capture a stable handler
+    snapshot and make teardown idempotent to protect later registrations.
+
+Validation:
+    Source-level update and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime lifecycle checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
