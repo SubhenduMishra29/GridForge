@@ -7885,3 +7885,37 @@ Remaining:
     No tests, syntax checks, imports, hardware checks, or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-082
+======================================================================
+
+Scope:
+    CUDA failure observability and CPU fallback diagnostics
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The optional CUDA batch path caught every exception and silently returned
+    CPU results annotated only with a generic fallback note. This obscured
+    the reason acceleration failed and made backend behavior harder to audit.
+
+Correction:
+    Capture the CUDA exception type and message and preserve them in each
+    fallback result's diagnostics. Fallback results now distinguish requested
+    backend (CUDA), executed backend (CPU), and the recorded accelerator
+    failure. CPU fallback remains available when accelerator execution fails.
+
+Boundary:
+    This improves observability; it does not establish CPU/CUDA numerical
+    equivalence or prove that the CUDA kernel runs correctly.
+
+Validation:
+    Source-level patch applied. No tests, syntax checks, imports, CUDA hardware
+    execution, or CI were run.
+
+======================================================================
