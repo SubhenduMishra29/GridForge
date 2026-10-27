@@ -140,12 +140,35 @@ def select_backend(
 
 @dataclass(frozen=True)
 class NumericalExecution:
-    """Validated solution plus transparent dispatch/fallback metadata."""
+    """Validated solution plus immutable, UI-neutral dispatch diagnostics.
+
+    Consumers receive diagnostics as stable string pairs so application/study
+    layers can publish them without depending on accelerator runtimes or
+    mutating numerical/domain state.
+    """
 
     solution: "ODESolution"
     selection: BackendSelection
     executed_backend: str
     fallback_failure: str | None = None
+
+    @property
+    def diagnostics(self) -> tuple[tuple[str, str], ...]:
+        """Return a stable, immutable summary suitable for study results/events."""
+        rejected = ",".join(
+            f"{name}:{reason}" for name, reason in self.selection.rejected
+        ) or "none"
+        return (
+            ("requested_backend", self.selection.requested),
+            ("selected_backend", self.selection.selected.name),
+            ("selected_backend_kind", self.selection.selected.kind),
+            ("selection_reason", self.selection.reason),
+            ("rejected_backends", rejected),
+            ("executed_backend", self.executed_backend),
+            ("fallback_used", "true" if self.fallback_failure is not None else "false"),
+            ("fallback_failure", self.fallback_failure or "none"),
+            ("outcome", "success"),
+        )
 
 
 def execute_numerical_problem(
