@@ -7558,3 +7558,50 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-086
+======================================================================
+
+Scope:
+    Application StudyService integration for motor transient dynamics.
+
+Files:
+    core/application/study.py
+    plugins/motor_dynamics/study_handler.py
+    plugins/motor_dynamics/plugin.py
+
+Finding:
+    The transient solver and dashboard existed, but no lifecycle-owned
+    motor_transient handler connected validated StudyRequest inputs to
+    solver execution and successful StudyCompleted publication.
+
+Correction:
+    Added MotorTransientStudyHandler. It accepts explicit MotorParameters
+    (or a field mapping), simulation interval, dq voltage inputs, frequency,
+    load torque, and backend selection. Constant dq inputs use the solver's
+    CPU/CUDA dispatch with CPU fallback; sampled voltage profiles use the CPU
+    reference integrator. NPU physics execution is not claimed because no
+    applicable motor-physics NPU backend is implemented.
+
+    Added MotorTransientResultPublisher. It retrieves the canonical stored
+    StudyResult after StudyService has recorded completion and publishes only
+    when status is completed and study_type is motor_transient. Failed and
+    cancelled studies do not publish read-model snapshots.
+
+    Added identity-checked StudyService.unregister(...) so plugin teardown
+    cannot remove a replacement handler. Plugin lifecycle registers the study
+    handler and result publisher, unwinds them on initialization failure, and
+    retains teardown handles if cleanup fails. Publisher subscribes before the
+    dashboard so its read-model snapshot is available to the dashboard event.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+    The solver remains an engineering model whose fidelity limitations are
+    documented in the solver source.
+======================================================================
