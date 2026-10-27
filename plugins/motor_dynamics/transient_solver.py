@@ -14,6 +14,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from core.numerics.ode import solve_rk4
+
 _STATE_COUNT = 6
 _PSI_DS, _PSI_QS, _PSI_DR, _PSI_QR, _OMEGA_M, _TEMP_C = range(_STATE_COUNT)
 _STATE_NAMES = (
@@ -255,10 +257,11 @@ def solve_transient_cpu(
     electrical_frequency_hz: float = 50.0,
     load_torque_nm: float = 0.0,
 ) -> MotorSimulationResult:
-    """Integrate the coupled dq electrical, rotor mechanical, and thermal ODEs.
+    """Integrate motor physics through GridForge's shared CPU RK4 engine.
 
-    Uses fixed-step classical RK4. The voltage profiles are dq components in
-    the synchronous reference frame; supply frequency is electrical Hz.
+    Voltage profiles are dq components in the synchronous reference frame.
+    The shared integrator owns time stepping and RK4 stage mechanics; this
+    plugin owns the induction-motor derivative and electrical inputs.
     """
     if not isinstance(motor_id, str) or not motor_id.strip():
         raise ValueError("motor_id must be a non-empty string")
@@ -272,33 +275,28 @@ def solve_transient_cpu(
     count, times = _validate_time(duration_s, step_s)
     vd = _voltage_profile(stator_voltage_d_v, count, "stator_voltage_d_v")
     vq = _voltage_profile(stator_voltage_q_v, count, "stator_voltage_q_v")
-    h = float(times[1] - times[0])
     omega_e = 2.0 * np.pi * float(electrical_frequency_hz)
-    states = np.zeros((count, _STATE_COUNT), dtype=np.float64)
-    states[0, _OMEGA_M] = parameters.initial_speed_rad_s
-    states[0, _TEMP_C] = parameters.initial_temperature_c
+    initial = np.zeros(_STATE_COUNT, dtype=np.float64)
+    initial[_OMEGA_M] = parameters.initial_speed_rad_s
+    initial[_TEMP_C] = parameters.initial_temperature_c
 
-    for i in range(count - 1):
-        y = states[i]
-        # Use the interval's left-end input for all RK stages. For a sampled
-        # waveform, this is zero-order hold and avoids inventing interpolation.
-        args = (parameters, float(vd[i]), float(vq[i]), omega_e, float(load_torque_nm))
-        k1 = _derivative(y, *args)
-        k2 = _derivative(y + 0.5 * h * k1, *args)
-        k3 = _derivative(y + 0.5 * h * k2, *args)
-        k4 = _derivative(y + h * k3, *args)
-        states[i + 1] = y + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        if not np.isfinite(states[i + 1]).all():
-            raise FloatingPointError(
-                f"motor transient diverged at sample {i + 1}; reduce step_s or check machine parameters"
-            )
-    flat = np.ascontiguousarray(states.reshape(-1))
-    flat.setflags(write=False)
+    solution = solve_rk4(
+        lambda state, voltage: _derivative(
+            state, parameters, voltage[0], voltage[1], omega_e, float(load_torque_nm)
+        ),
+        initial,
+        duration_s,
+        step_s,
+        input_at=lambda index, _time: (float(vd[index]), float(vq[index])),
+    )
+    flat = solution.state_data
+    if solution.sample_count != count:
+        raise RuntimeError("shared ODE engine returned an unexpected sample count")
     return MotorSimulationResult(
-        motor_id=motor_id.strip(), time_s=times, state_data=flat,
-        sample_period_s=h, backend="cpu-rk4",
+        motor_id=motor_id.strip(), time_s=solution.time_s, state_data=flat,
+        sample_period_s=solution.sample_period_s, backend="cpu-rk4",
         diagnostics={
-            "integrator": "classical_rk4",
+            "integrator": solution.integrator,
             "state_layout": "flat_motor_major_step_major_state_minor",
             "state_count": _STATE_COUNT,
             "model": "induction_motor_dq_electromechanical_lumped_thermal",
@@ -306,7 +304,8 @@ def solve_transient_cpu(
             "load_torque_nm": float(load_torque_nm),
             "voltage_profile": "zero_order_hold",
             "requested_max_step_s": float(step_s),
-            "effective_step_s": h,
+            "effective_step_s": solution.sample_period_s,
+            "integration_engine": "core.numerics.ode.solve_rk4",
         },
     )
 
