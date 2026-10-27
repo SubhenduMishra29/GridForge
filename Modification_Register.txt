@@ -8703,3 +8703,28 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Exercise the documented placement → DraftNetwork → commit workflow
+
+Finding:
+    Runtime smoke treated successful placement-tool mouse release as an
+    immediate Core commit. The frozen workflow keeps placement in DraftNetwork
+    and requires an explicit Application CommitNetworkCommand to mutate Core.
+
+Correction:
+    Assert that placement created a draft Bus, execute the canonical draft
+    commit command, then assert the Bus appears in the Application read model.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
