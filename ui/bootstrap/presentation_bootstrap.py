@@ -176,6 +176,14 @@ class PresentationBootstrap:
             contracts[definition.equipment_type] = {
                 "equipment_type": definition.equipment_type,
                 "terminal_contract": tuple(equipment.terminal_names),
+                "terminal_requirements": tuple({
+                    "terminal_name": item.terminal_name,
+                    "required": item.required,
+                    "cardinality": item.cardinality,
+                    "allowed_connection_types": tuple(item.allowed_connection_types),
+                    "acquisition_state": item.acquisition_state,
+                    "initial_endpoint_required": item.initial_endpoint_required,
+                } for item in definition.terminal_requirements),
                 "command_type": definition.command_type,
                 "id_field": definition.id_field,
                 "parameter_mapping": dict(definition.parameter_mapping),
