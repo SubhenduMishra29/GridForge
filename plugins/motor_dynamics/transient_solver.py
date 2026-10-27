@@ -543,7 +543,7 @@ def _solve_batch_cuda(
         return True
 
     @cuda.jit
-    def integrate(params, result, motor_count, steps, h, vd0, vq0, we):
+    def integrate(params, result, status, motor_count, steps, h, vd0, vq0, we):
         m = cuda.grid(1)
         if m >= motor_count:
             return
@@ -563,14 +563,17 @@ def _solve_batch_cuda(
         for step in range(steps - 1):
             deriv(y, p, vd0, vq0, we, a)
             if not finite_state(a):
+                status[m] = 1
                 result[base] = float('nan')
                 return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + 0.5 * h * a[j]
             if not finite_state(tmp):
+                status[m] = 2
                 result[base] = float('nan')
                 return
             deriv(tmp, p, vd0, vq0, we, b)
             if not finite_state(b):
+                status[m] = 3
                 result[base] = float('nan')
                 return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + 0.5 * h * b[j]
@@ -579,6 +582,7 @@ def _solve_batch_cuda(
                 return
             deriv(tmp, p, vd0, vq0, we, c)
             if not finite_state(c):
+                status[m] = 5
                 result[base] = float('nan')
                 return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + h * c[j]
@@ -587,24 +591,35 @@ def _solve_batch_cuda(
                 return
             deriv(tmp, p, vd0, vq0, we, d)
             if not finite_state(d):
+                status[m] = 7
                 result[base] = float('nan')
                 return
             for j in range(_STATE_COUNT):
                 y[j] = y[j] + (h / 6.0) * (a[j] + 2.0*b[j] + 2.0*c[j] + d[j])
                 result[base + (step + 1) * _STATE_COUNT + j] = y[j]
             if not finite_state(y):
+                status[m] = 8
                 result[base] = float('nan')
                 return
 
     d_params = cuda.to_device(packed)
     d_output = cuda.to_device(output)
+    d_status = cuda.to_device(np.zeros(n, dtype=np.int32))
     integrate[(n + 31) // 32, 32](
-        d_params, d_output, n, count, dt, float(vds), float(vqs), omega_e
+        d_params, d_output, d_status, n, count, dt, float(vds), float(vqs), omega_e
     )
     cuda.synchronize()
+    status = d_status.copy_to_host()
+    failed = np.flatnonzero(status)
+    if failed.size:
+        index = int(failed[0])
+        raise FloatingPointError(
+            f"CUDA motor transient failed for batch index {index} "
+            f"(stage code {int(status[index])}); batch discarded before result creation"
+        )
     states = d_output.copy_to_host().reshape(n, count, _STATE_COUNT)
     if not np.isfinite(states).all():
-        raise FloatingPointError("CUDA motor transient produced non-finite states")
+        raise FloatingPointError("CUDA motor transient produced non-finite states; batch discarded before result creation")
     results = []
     for i, (mid, p, torque) in enumerate(zip(motor_ids, parameter_sets, load_torques)):
         flat = np.ascontiguousarray(states[i].reshape(-1))
