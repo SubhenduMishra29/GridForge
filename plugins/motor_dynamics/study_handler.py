@@ -76,8 +76,13 @@ class MotorTransientStudyHandler:
             )[0]
         else:
             if backend == "cuda":
-                # Do not silently pretend a variable-profile run used CUDA.
-                backend = "cpu"
+                # An explicit backend request is a contract, not a preference.
+                # Variable dq profiles are not implemented by the CUDA batch
+                # kernel, so fail clearly rather than silently changing backend.
+                raise ValueError(
+                    "backend='cuda' is unsupported for variable stator-voltage "
+                    "profiles; use backend='cpu' or backend='auto'."
+                )
             result = solve_transient_cpu(
                 motor_id.strip(), parameters, float(duration_s), float(step_s),
                 stator_voltage_d_v=voltage_d, stator_voltage_q_v=voltage_q,
