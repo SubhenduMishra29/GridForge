@@ -73,7 +73,7 @@ class MotorParameters:
             "initial_speed_rad_s", "initial_temperature_c",
         ):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
+            if not _is_numeric_scalar(value):
                 raise TypeError(f"{name} must be numeric")
             if not isfinite(float(value)) or (name in ("friction_n_m_s", "thermal_conductance_w_k") and value < 0):
                 raise ValueError(f"{name} must be finite and non-negative" if name in ("friction_n_m_s", "thermal_conductance_w_k") else f"{name} must be finite")
@@ -358,8 +358,7 @@ def solve_transient_batch(
     if not np.isfinite(vd).all() or not np.isfinite(vq).all():
         raise ValueError("batched dq voltage inputs must be finite")
     if (
-        isinstance(electrical_frequency_hz, bool)
-        or not isinstance(electrical_frequency_hz, (int, float))
+        not _is_numeric_scalar(electrical_frequency_hz)
         or not isfinite(float(electrical_frequency_hz))
         or electrical_frequency_hz < 0
     ):
