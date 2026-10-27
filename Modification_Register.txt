@@ -7825,3 +7825,30 @@ Remaining:
     and validate the implementation. No tests or runtime checks were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-080
+======================================================================
+
+Scope:
+    Motor transient solver integration with the shared ODE engine
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — NUMERICAL EQUIVALENCE AND RUNTIME VALIDATION PENDING
+
+Correction:
+    The CPU motor transient path now delegates RK4 stage mechanics, time-grid
+    construction, finite-state checks, and flat state-history production to
+    core.numerics.ode.solve_rk4. The motor plugin retains its induction-motor
+    derivative equations, parameter validation, dq voltage profiles, and
+    motor-specific result channels. The existing optional CUDA kernel remains
+    separate and is not yet proven numerically equivalent to the CPU reference.
+
+Constraints:
+    No tests, syntax checks, imports, GUI launch, hardware checks, or CI were
+    run. Do not claim numerical parity or runtime success until validated.
+
+======================================================================
