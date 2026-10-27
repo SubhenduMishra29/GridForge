@@ -66,6 +66,12 @@ class MotorTelemetryDashboardWidget(QWidget):
         payload = event.payload
         motor_id = payload.get("motor_id")
         if not isinstance(motor_id, str) or not motor_id:
+            # Canonical StudyService events carry study_id, not plugin-specific
+            # motor_id. Resolve the association published with the result snapshot.
+            study_id = payload.get("study_id")
+            resolve_motor = getattr(self.read_models, "get_motor_id_for_study", None)
+            motor_id = resolve_motor(study_id) if callable(resolve_motor) and isinstance(study_id, str) else None
+        if not isinstance(motor_id, str) or not motor_id:
             return
 
         summary = self.read_models.get_simulation_summary(motor_id)
