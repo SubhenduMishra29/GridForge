@@ -1849,7 +1849,7 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
-    def _sld_endpoint_for_committed_mapping(self, mapping: Any) -> dict[str, str]:
+    def _sld_endpoint_for_committed_mapping(self, mapping: Any) -> dict[str, Any]:
         """Translate DraftNetwork endpoint identity into the canonical SLD projection schema."""
         if not isinstance(mapping, Mapping):
             raise TypeError("Committed draft endpoint mapping must be a mapping.")
@@ -1865,6 +1865,8 @@ class Application:
             return {
                 "kind": "bus",
                 "node_id": node_id,
+                "equipment_id": None,
+                "terminal_role": None,
                 "bus_id": object_id,
                 "attachment_id": attachment_id,
             }
@@ -1877,6 +1879,8 @@ class Application:
                 "node_id": node_id,
                 "equipment_id": object_id,
                 "terminal_role": terminal_role,
+                "bus_id": None,
+                "attachment_id": None,
             }
         raise ValueError(f"Unsupported committed draft endpoint kind: {kind!r}.")
 
@@ -1963,7 +1967,7 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
-    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, str]:
+    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, Any]:
         """Resolve an immutable Core endpoint reference to semantic SLD identity only."""
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint presentation coordination.")
@@ -1990,6 +1994,8 @@ class Application:
             return {
                 "kind": "bus",
                 "node_id": str(node.node_id),
+                "equipment_id": None,
+                "terminal_role": None,
                 "bus_id": str(reference.object_id),
                 "attachment_id": attachment_id,
             }
@@ -1999,6 +2005,8 @@ class Application:
             "node_id": str(node.node_id),
             "equipment_id": str(reference.object_id),
             "terminal_role": str(reference.terminal_role),
+            "bus_id": None,
+            "attachment_id": None,
         }
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
