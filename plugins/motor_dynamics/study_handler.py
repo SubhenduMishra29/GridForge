@@ -162,8 +162,13 @@ class MotorTransientResultPublisher:
             return
         get_result = getattr(self._application, "study_result", None)
         if not callable(get_result):
+            self.last_error = "application_study_result_unavailable"
             return
-        result = get_result(parsed_id, project_id=project_id, activation_generation=generation)
+        try:
+            result = get_result(parsed_id, project_id=project_id, activation_generation=generation)
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return
         if not isinstance(result, StudyResult) or result.status != "completed" or result.study_type != "motor_transient":
             return
         envelope = result.value
