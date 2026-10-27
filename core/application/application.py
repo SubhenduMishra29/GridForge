@@ -135,6 +135,9 @@ class Application:
         # than retaining handlers that capture the previous project's runtime.
         self._extension_handler_factories: dict[str, Callable[[CommandManager], Mapping[str, Any]]] = {}
         self._extension_handler_command_types: dict[str, tuple[str, ...]] = {}
+        # Keep exact handler identities so teardown cannot remove a replacement
+        # installed by another owner under a command type we originally owned.
+        self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -1401,6 +1404,7 @@ class Application:
             raise
         self._extension_handler_factories[extension_id] = factory
         self._extension_handler_command_types[extension_id] = tuple(installed)
+        self._extension_handler_handlers[extension_id] = dict(handlers)
 
     def unregister_extension_handler_factory(
         self,
@@ -1422,7 +1426,26 @@ class Application:
         if expected_factory is not None and current_factory is not expected_factory:
             return False
         command_types = self._extension_handler_command_types.get(extension_id, ())
-        original_registry = self._command_manager.handler_registry_snapshot()
+        expected_handlers = self._extension_handler_handlers.get(extension_id)
+        if expected_handlers is None:
+            raise RuntimeError(
+                f"Extension {extension_id!r} has no handler-identity ownership record; "
+                "refusing unsafe teardown."
+            )
+        current_registry = self._command_manager.handler_registry_snapshot()
+        conflicts = [
+            command_type for command_type in command_types
+            if command_type not in expected_handlers
+            or current_registry.get(command_type) is not expected_handlers.get(command_type)
+        ]
+        if conflicts:
+            details = ", ".join(repr(command_type) for command_type in conflicts)
+            raise RuntimeError(
+                f"Cannot unregister extension {extension_id!r}: handler ownership "
+                f"drift detected for {details}. The active handlers were left untouched; "
+                "repair or reconcile the registration before retrying teardown."
+            )
+        original_registry = current_registry
         original_pre_commit_hook = self._command_manager.pre_commit_hook
         try:
             for command_type in command_types:
@@ -1451,6 +1474,7 @@ class Application:
             raise
         # Publish ownership removal only after all registry mutations succeed.
         self._extension_handler_command_types.pop(extension_id, None)
+        self._extension_handler_handlers.pop(extension_id, None)
         del self._extension_handler_factories[extension_id]
         return True
 
@@ -1506,6 +1530,7 @@ class Application:
                     command_manager.register_handler(command_type, handler)
 
             next_extension_types: dict[str, tuple[str, ...]] = {}
+            next_extension_handlers: dict[str, dict[str, Any]] = {}
             for extension_id, factory in self._extension_handler_factories.items():
                 extension_handlers = self._invoke_extension_handler_factory(extension_id, factory, command_manager)
                 self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
@@ -1514,6 +1539,7 @@ class Application:
                     command_manager.register_handler(command_type, handler)
                     installed_extension_types.append(command_type)
                 next_extension_types[extension_id] = tuple(installed_extension_types)
+                next_extension_handlers[extension_id] = dict(extension_handlers)
 
             next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
             next_control_cycle = self._control_cycle
@@ -1553,6 +1579,7 @@ class Application:
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
         self._control_cycle = next_control_cycle
         self._extension_handler_command_types = next_extension_types
+        self._extension_handler_handlers = next_extension_handlers
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
         """Coordinate Core and persistent SLD semantic reconciliation in one transaction.
