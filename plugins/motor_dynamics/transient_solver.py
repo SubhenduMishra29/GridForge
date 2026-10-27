@@ -116,6 +116,40 @@ class MotorSimulationResult:
         view.setflags(write=False)
         return view
 
+    def publish_to(
+        self,
+        read_model_store: Any,
+        parameters: MotorParameters,
+        electrical_frequency_hz: float,
+        load_torque_nm: float,
+    ) -> None:
+        """Publish a computed snapshot; caller owns StudyCompleted event timing.
+
+        This method never dispatches UI events or mutates Core. The caller
+        should emit the canonical StudyCompleted event only after its study
+        orchestration commits successfully.
+        """
+        publish = getattr(read_model_store, "publish", None)
+        if not callable(publish):
+            raise TypeError("read_model_store must expose publish(...)")
+        if (
+            isinstance(electrical_frequency_hz, bool)
+            or not isinstance(electrical_frequency_hz, (int, float))
+            or not isfinite(float(electrical_frequency_hz))
+            or electrical_frequency_hz < 0
+        ):
+            raise ValueError("electrical_frequency_hz must be finite and non-negative")
+        publish(
+            self.motor_id,
+            self.channels(
+                parameters,
+                2.0 * np.pi * float(electrical_frequency_hz),
+                float(load_torque_nm),
+            ),
+            self.sample_period_s,
+            status="completed",
+        )
+
     def channels(self, parameters: MotorParameters, electrical_rad_s: float,
                  load_torque_nm: float) -> dict[str, np.ndarray]:
         """Derive read-model channels from the integrated state trajectory."""
