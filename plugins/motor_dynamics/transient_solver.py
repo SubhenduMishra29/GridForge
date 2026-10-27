@@ -534,6 +534,14 @@ def _solve_batch_cuda(
         out[4] = (torque - p[14] - p[7] * wm) / p[6]
         out[5] = (loss - p[9] * td) / p[8]
 
+    @cuda.jit(device=True)
+    def finite_state(values):
+        for index in range(_STATE_COUNT):
+            value = values[index]
+            if not (value == value and abs(value) < 1.7976931348623157e308):
+                return False
+        return True
+
     @cuda.jit
     def integrate(params, result, motor_count, steps, h, vd0, vq0, we):
         m = cuda.grid(1)
@@ -554,20 +562,39 @@ def _solve_batch_cuda(
             result[base + j] = y[j]
         for step in range(steps - 1):
             deriv(y, p, vd0, vq0, we, a)
+            if not finite_state(a):
+                result[base] = float('nan')
+                return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + 0.5 * h * a[j]
+            if not finite_state(tmp):
+                result[base] = float('nan')
+                return
             deriv(tmp, p, vd0, vq0, we, b)
+            if not finite_state(b):
+                result[base] = float('nan')
+                return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + 0.5 * h * b[j]
+            if not finite_state(tmp):
+                result[base] = float('nan')
+                return
             deriv(tmp, p, vd0, vq0, we, c)
+            if not finite_state(c):
+                result[base] = float('nan')
+                return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + h * c[j]
+            if not finite_state(tmp):
+                result[base] = float('nan')
+                return
             deriv(tmp, p, vd0, vq0, we, d)
+            if not finite_state(d):
+                result[base] = float('nan')
+                return
             for j in range(_STATE_COUNT):
                 y[j] = y[j] + (h / 6.0) * (a[j] + 2.0*b[j] + 2.0*c[j] + d[j])
-                # Match the reference solver's fail-fast contract at each
-                # accepted step; the host detects this sentinel and falls back.
-                if not (y[j] == y[j] and abs(y[j]) < 1.7976931348623157e308):
-                    result[base] = float('nan')
-                    return
                 result[base + (step + 1) * _STATE_COUNT + j] = y[j]
+            if not finite_state(y):
+                result[base] = float('nan')
+                return
 
     d_params = cuda.to_device(packed)
     d_output = cuda.to_device(output)
