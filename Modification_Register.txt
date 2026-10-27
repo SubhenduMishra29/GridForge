@@ -6833,3 +6833,33 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-062
+======================================================================
+
+Files:
+    plugins/motor_dynamics/read_models.py
+    Modification_Register.txt
+
+Finding:
+    The motor simulation read model accepted malformed identifiers and status
+    metadata, non-finite or non-numeric samples, and invalid sample periods.
+    Re-publishing a motor with fewer channels also left omitted channels from
+    the previous simulation cached, allowing a dashboard to mix run results.
+
+Correction:
+    Validate the motor ID, channel mapping and names, real numeric finite
+    channel values, positive finite sample period, status, and fault type before
+    publishing. Prepare read-only arrays and the summary before acquiring the
+    lock. Replace the motor's complete channel snapshot atomically, removing
+    stale channels omitted by the new publication.
+
+Validation:
+    Source update and targeted re-fetch only. No tests, CI, syntax compilation,
+    import checks, dashboard execution, or simulation runs were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
