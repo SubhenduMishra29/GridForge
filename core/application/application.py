@@ -1226,6 +1226,42 @@ class Application:
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
         return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
+    @staticmethod
+    def _invoke_extension_handler_factory(
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+        command_manager: CommandManager,
+    ) -> Mapping[str, Any]:
+        """Invoke a pure handler factory and reject command-registry side effects."""
+        before = set(command_manager.registered_commands)
+        factory_error: BaseException | None = None
+        handlers: Mapping[str, Any] | None = None
+        try:
+            handlers = factory(command_manager)
+        except BaseException as exc:
+            factory_error = exc
+
+        after = set(command_manager.registered_commands)
+        added = after - before
+        if added:
+            for command_type in sorted(added, reverse=True):
+                try:
+                    command_manager.unregister_handler(command_type)
+                except Exception:
+                    pass
+
+        if factory_error is not None:
+            raise factory_error
+        if added:
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} mutated the "
+                f"CommandManager registry; unexpected registrations were "
+                f"removed: {', '.join(sorted(added))}."
+            )
+        # Let the standard handler validator provide the specific type error
+        # if a factory returns None or another non-mapping value.
+        return handlers  # type: ignore[return-value]
+
     def register_extension_handler_factory(
         self,
         extension_id: str,
@@ -1247,7 +1283,7 @@ class Application:
         if extension_id in self._extension_handler_factories:
             raise ValueError(f"Extension handler factory already registered: {extension_id!r}.")
 
-        handlers = factory(self._command_manager)
+        handlers = self._invoke_extension_handler_factory(extension_id, factory, self._command_manager)
         self._validate_extension_handlers(extension_id, handlers, self._command_manager)
         installed: list[str] = []
         try:
@@ -1340,7 +1376,7 @@ class Application:
 
             next_extension_types: dict[str, tuple[str, ...]] = {}
             for extension_id, factory in self._extension_handler_factories.items():
-                extension_handlers = factory(command_manager)
+                extension_handlers = self._invoke_extension_handler_factory(extension_id, factory, command_manager)
                 self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
                 installed_extension_types: list[str] = []
                 for command_type, handler in extension_handlers.items():
