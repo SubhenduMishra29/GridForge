@@ -7236,3 +7236,32 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-077
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    The atomic extension-handler installation rollback restored the handler
+    registry but did not capture or restore the pre-commit hook. A custom
+    CommandManager registration override could mutate that hook before raising,
+    leaving application composition partially changed despite registry restore.
+
+Correction:
+    - Capture the pre-commit hook alongside the registry before installation.
+    - Restore registry and hook independently after registration failure.
+    - Report all rollback failures and warn that the active manager may remain
+      corrupted; preserve the original registration exception details.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
