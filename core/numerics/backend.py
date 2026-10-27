@@ -7,7 +7,10 @@ backend deterministically and records why alternatives were not selected.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import TYPE_CHECKING, Iterable, Literal, Protocol
+
+import numpy as np
 
 if TYPE_CHECKING:
     from .ode import NumericalProblem, ODESolution
@@ -174,7 +177,7 @@ def execute_numerical_problem(
     selection = select_backend(
         (adapter.capability for adapter in registered),
         workload=problem.workload,
-        workload_size=int(np.asarray(problem.initial_state).size),
+        workload_size=1,
         precision=problem.precision,
         requested=requested,
         preference=preference,
@@ -219,7 +222,7 @@ def execute_numerical_problem(
                 and adapter.capability.available
                 and problem.workload in adapter.capability.supported_workloads
                 and problem.precision in adapter.capability.precision_modes
-                and problem.initial_state is not None
+                and 1 >= adapter.capability.minimum_workload_size
             ),
             None,
         )
