@@ -11,7 +11,6 @@ import importlib
 from pathlib import Path
 
 from ui.lifecycle import UILifecyclePhase
-from ui.workspace.workspace_defaults import CANONICAL_PANEL_IDS
 
 SOURCE_ROOTS = (Path("core"), Path("ui"))
 
@@ -86,12 +85,16 @@ def verify_workspace_composition(window, plugin_manager, workspace_controller) -
     if realized_layout is None:
         raise SystemExit("Canonical workspace has not been realized.")
 
-    realized_ids = tuple(
-        placement.panel_id for placement in realized_layout.placements
+    visible_main_areas = tuple(
+        area for area in realized_layout.areas
+        if area.visible
+        and area.metadata.get("role") == "main"
+        and any(region.visible and region.region_id == "canvas" for region in area.editor.regions)
     )
-    if realized_ids != CANONICAL_PANEL_IDS:
+    if len(visible_main_areas) != 1:
         raise SystemExit(
-            f"Canonical workspace dock realization mismatch: {realized_ids!r}"
+            "Canonical Workspace must realize exactly one visible main Area "
+            "with a visible canvas Region."
         )
 
 
