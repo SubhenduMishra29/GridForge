@@ -1320,40 +1320,50 @@ class Application:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
-        if self._sld_service is not None:
-            for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
-                command_manager.register_handler(command_type, handler)
 
-        # Rebuild every extension's handlers against the candidate runtime before
-        # swapping any active Application references. A factory failure or command
-        # collision aborts activation and leaves the prior runtime intact.
-        next_extension_types: dict[str, tuple[str, ...]] = {}
-        for extension_id, factory in self._extension_handler_factories.items():
-            extension_handlers = factory(command_manager)
-            self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
-            installed: list[str] = []
-            try:
+        # Track every handler installed on the candidate manager across the whole
+        # composition, not just within one extension. A later factory, collision,
+        # or control-runtime setup failure must not leave a partially composed
+        # candidate behind. Active Application references are published only at
+        # the end, after all candidate setup succeeds.
+        installed_candidate_types: list[str] = []
+        try:
+            if self._sld_service is not None:
+                for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
+                    command_manager.register_handler(command_type, handler)
+                    installed_candidate_types.append(command_type)
+
+            next_extension_types: dict[str, tuple[str, ...]] = {}
+            for extension_id, factory in self._extension_handler_factories.items():
+                extension_handlers = factory(command_manager)
+                self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
+                installed_extension_types: list[str] = []
                 for command_type, handler in extension_handlers.items():
                     command_manager.register_handler(command_type, handler)
-                    installed.append(command_type)
-            except Exception:
-                for command_type in reversed(installed):
-                    command_manager.unregister_handler(command_type)
-                raise
-            next_extension_types[extension_id] = tuple(installed)
+                    installed_candidate_types.append(command_type)
+                    installed_extension_types.append(command_type)
+                next_extension_types[extension_id] = tuple(installed_extension_types)
 
-        next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        next_control_cycle = self._control_cycle
-        if self._control_engine is not None:
-            next_control_cycle = ControlCycleService(
-                self._control_engine,
-                next_control_execution,
-                signal_mapping=self._control_signal_mapping,
-                read_service=read_service,
-            )
-        # Finish all potentially failing candidate setup before publishing the
-        # replacement runtime through the Application facade.
-        command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+            next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+            next_control_cycle = self._control_cycle
+            if self._control_engine is not None:
+                next_control_cycle = ControlCycleService(
+                    self._control_engine,
+                    next_control_execution,
+                    signal_mapping=self._control_signal_mapping,
+                    read_service=read_service,
+                )
+            command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+        except BaseException:
+            # Preserve the setup failure while best-effort removing only the
+            # handlers this method successfully installed on the candidate.
+            for command_type in reversed(installed_candidate_types):
+                try:
+                    command_manager.unregister_handler(command_type)
+                except Exception:
+                    pass
+            raise
+
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
         self._control_cycle = next_control_cycle
         self._extension_handler_command_types = next_extension_types
