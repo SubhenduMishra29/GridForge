@@ -7055,3 +7055,57 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-071
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension factory rollback could itself fail. Such a failure was not
+    described explicitly, risking confusion about whether composition state
+    had been restored.
+
+Correction:
+    - Attempt registry and pre-commit-hook restoration independently.
+    - If either restoration fails, raise an explicit RuntimeError naming the
+      failed state and warning that the manager may remain corrupted.
+    - Preserve the restoration exception as the chained cause and include
+      the original factory exception in the error details when present.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-072
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    A custom or lazy Mapping returned by a factory could execute behavior
+    during later validation/installation iteration, outside the factory guard,
+    or change its contents between those iterations.
+
+Correction:
+    - Materialize Mapping results to a plain dict inside the guarded invocation.
+    - Detect registry/hook side effects that occur during mapping materialization.
+    - Validate and install the same stable handler mapping.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
