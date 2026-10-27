@@ -6773,3 +6773,33 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-060
+======================================================================
+
+Files:
+    plugins/motor_dynamics/manifest.json
+    Modification_Register.txt
+
+Finding:
+    The inference manifest's provider list and fallback description lagged
+    behind the adapter implementation. It omitted QNN, OpenVINO, and
+    DirectML candidates and did not describe runtime CPU retry diagnostics,
+    leaving plugin metadata inconsistent with the implementation.
+
+Correction:
+    - Align the declared provider priority with the adapter's QNN, Vitis AI,
+      OpenVINO, TensorRT, CUDA, DirectML, and CPU candidate sequence.
+    - Describe initialization fallback and runtime CPU-only retry behavior.
+    - State explicitly that provider availability and session provider
+      listing do not prove accelerator execution or graph placement.
+
+Validation:
+    Manifest JSON was parsed before update. Source and register targeted
+    re-fetch only. No tests, CI, syntax compilation, import checks, inference
+    runs, device discovery, or hardware validation were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
