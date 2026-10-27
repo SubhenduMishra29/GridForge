@@ -1,6 +1,6 @@
 # GridForge V2 — Shared Plugin SDK Architecture Amendment
 
-**Status:** Proposed architecture amendment; becomes part of the frozen V2 architecture only after review and merge.
+**Status:** Architecture-principle freeze candidate; concrete SDK API remains deliberately unfrozen until reference-plugin reconciliation.
 **Authority:** Subordinate to the GridForge V2 Core/Application/UI boundaries and the existing Plugin Platform contract.
 **Scope:** Reusable infrastructure for future domain, study, integration, and UI plugins.
 **Change control:** Reconcile this amendment against the current repository before implementation. Do not create a parallel plugin framework or duplicate an existing authoritative service.
@@ -30,9 +30,9 @@ The SDK should expose small, typed, documented contracts for these capability ar
 1. **Identity and descriptors** — stable plugin ID, version/API compatibility, plugin kind, declared capabilities, dependencies, and metadata.
 2. **Lifecycle** — Discover → Validate → Load → Resolve Dependencies → Register → Activate → Use → Deactivate → Unload. Lifecycle state has one owner; registration and cleanup are deterministic and idempotent where possible.
 3. **Registration** — explicit registries with a single owner, deterministic lookup, conflict detection, and explicit unregister/rollback behavior.
-4. **Study integration** — a typed study-handler contract that delegates scheduling, cancellation, status, error classification, and completion events to the canonical StudyService/Application flow.
-5. **Events** — shared subscription and unsubscription contracts with lifecycle-bound cleanup. Plugins must not create parallel event buses.
-6. **Results and read models** — canonical project/study identity, typed result/status contracts, and publication only through the approved Application/read-model boundary. Failed or cancelled studies must not publish successful results.
+4. **Study integration** — an adapter contract that conforms to the existing `StudyService` callable boundary (`StudyRequest`, `StudyExecutionContext`, `StudyCancellationToken`) and delegates scheduling, cancellation, status, error classification, event emission, and result registration to that canonical Application service. Do not introduce a second study scheduler or a parallel handler lifecycle.
+5. **Events** — use `ApplicationEventBus` and its existing `subscribe`/`unsubscribe` contract, with lifecycle-bound cleanup. Plugins must not create parallel event buses. UI/plugin-specific notification mechanisms may adapt canonical events for presentation but must not become an engineering-truth event source.
+6. **Results and read models** — use the existing `StudyResult` and `StudyService` result-registration contract as the canonical study outcome. Plugin-specific result/read models may project a successfully stored result, preserving project/study/generation/revision identity. Failed or cancelled studies must not publish successful results. Do not create a competing general-purpose result store.
 7. **Configuration** — typed schemas, defaults, validation, versioning/migration hooks, and explicit persistence ownership.
 8. **Compute capabilities** — a common backend interface and capability report for CPU/GPU/NPU or other accelerators. CPU is the required portable baseline when the algorithm supports it; accelerators are optional and capability-gated, with deterministic fallback/reporting. Do not advertise a backend merely because a device or inference provider exists. NPU support requires a suitable implementation for the actual computation and validation.
 9. **Diagnostics** — structured error codes, actionable details, backend selection/fallback explanations, and lifecycle failure reporting.
@@ -40,33 +40,33 @@ The SDK should expose small, typed, documented contracts for these capability ar
 
 These are capability areas, not a mandate to create one file or class per bullet. First reuse existing authoritative services and contracts; extract a shared abstraction only where a real repeated requirement is confirmed.
 
-## 4. Plugin kinds
+## 4. Plugin kinds and existing plugin subsystems
 
-Use a small set of explicit extension contracts rather than forcing all extensions through one oversized base class:
+GridForge already distinguishes the broader `plugins/` extension namespace from `ui/plugins/`, which owns UI composition. The current UI plugin architecture has an explicit `Plugin` contract and separates `PluginLoader`, `PluginRegistry`, `PluginManager`, `PluginStateStore`, and `PluginContext` responsibilities. This amendment does **not** replace that architecture or collapse UI lifecycle and domain/study execution into one manager.
 
-- **Domain/study plugin:** provides a domain algorithm and/or typed study handler.
-- **Integration plugin:** adapts an external format, device, or service through approved Application contracts.
-- **UI/presentation plugin:** contributes views, inspectors, dashboards, tools, or actions without owning domain truth.
-- **Equipment/model extension:** contributes declared equipment/domain capabilities through the established model contracts; it cannot duplicate Core topology or validation.
+Use a small set of capability contracts rather than one oversized base class:
 
-A plugin may declare more than one capability, but each capability must have a clear contract and owner. Do not introduce separate plugin managers for these kinds unless repository evidence demonstrates a necessary boundary.
+- **Domain/study capability:** supplies domain algorithms and/or a callable adapted to the canonical StudyService contract.
+- **Integration capability:** adapts an external format, device, or service through approved Application contracts.
+- **UI/presentation capability:** contributes views, inspectors, dashboards, tools, or actions through the existing `ui/plugins/` composition contracts.
+- **Equipment/model capability:** contributes only through established Core model contracts; it cannot duplicate Core topology or validation.
 
-## 5. Recommended dependency direction
+A plugin package may provide more than one capability, but each capability must have a clear owner and dependency direction. Reuse the existing UI plugin manager for UI composition; do not route headless engineering calculations through UI lifecycle machinery. Do not introduce another manager/registry for a capability already owned by an existing subsystem.
+
+## 5. Dependency direction and ownership
 
 ```text
-Core domain contracts
-        ↑
-Application services (commands, studies, events, results)
-        ↑
-Plugin Platform / SDK (public contracts + lifecycle composition)
-        ↑
-Domain, study, and integration plugins
+Core domain contracts ← Application services (commands, studies, events, results)
+                                ↑
+                  domain/study plugin adapters
 
-UI composition / UI plugins → public Application read models and commands
-UI projection → canonical events/read models
+Existing UI composition: PluginManager → PluginRegistry/PluginStateStore
+                                      → PluginContext → UI plugin
+
+UI plugin/projection → public Application commands, read models, and events
 ```
 
-The SDK may depend on public Application contracts. Core must never depend on the SDK or concrete plugins. UI presentation dependencies must not leak into headless study/domain code.
+The SDK is a **thin public contract/adaptation layer**, not a new architectural tier that owns a second copy of Application services. Its runtime location must be decided only after auditing existing ownership and import dependencies. Core must never depend on the SDK or concrete plugins. UI presentation dependencies must not leak into headless study/domain code. The existing UI lifecycle remains distinct from the Application StudyService lifecycle.
 
 ## 6. New-plugin implementation rule
 
@@ -99,29 +99,58 @@ The actual method names and signatures must match the audited canonical StudySer
 
 ## 8. Migration strategy
 
-1. Audit current plugin and Application implementations and map each repeated responsibility to its current authoritative owner.
-2. Reconcile the proposed contracts with existing `core/application/study.py`, event contracts, plugin contracts/registries, read models, and UI projection infrastructure.
-3. Record a reuse matrix: existing service, duplicate call sites, proposed shared contract, migration owner, and compatibility impact.
-4. Extract only missing common behavior; prefer adapting existing services over moving or renaming them.
-5. Refactor Motor Dynamics as the first study-plugin reference implementation after its StudyService/event/result contracts are source-audited.
-6. Use a second genuinely different plugin to test the abstraction's fit before declaring the SDK stable.
-7. Provide a minimal plugin template and migration guidance only after the contracts are stable.
-8. Freeze the SDK contract and API compatibility policy after review; future changes follow controlled architecture amendment.
+1. Audit current plugin and Application implementations and map repeated responsibilities to their authoritative owners.
+2. Reconcile contracts with `core/application/study.py`, `core/application/event_bus.py`, `core/application/events.py`, the existing `ui/plugins/` lifecycle contract, plugin contexts/registries, read models, and projection infrastructure.
+3. Maintain a reuse matrix: responsibility, current owner/API, proven duplicate call sites, gap, proposed adapter, migration owner, and compatibility impact.
+4. Extract only genuinely missing shared behavior. Prefer adapting existing services over moving or renaming them.
+5. Refactor Motor Dynamics as the first study-plugin reference only after reconciling its current feature-branch assumptions with the canonical base API. In particular, the audited `main` StudyService exposes `register()` but does not currently expose `unregister()`; any lifecycle-safe unregister addition must be separately reconciled and explicitly implemented rather than assumed to exist.
+6. Apply the abstraction to a second, materially different plugin before freezing concrete SDK class names and method signatures.
+7. Publish a minimal plugin template only after the contracts are stable.
+8. Keep the architecture principles frozen after merge, while treating concrete SDK APIs and file placement as a later, evidence-driven design decision subject to controlled amendment.
 
 Do not expand the scope of an unrelated feature PR solely to add the SDK. Prefer a focused architecture PR, then migrate Motor Dynamics in a follow-up or an explicitly scoped follow-on PR.
 
-## 9. Acceptance criteria for freezing
+## 9. Freeze boundary and acceptance criteria
 
-- No parallel or competing plugin lifecycle/registry/study/event/result infrastructure is introduced.
-- Each shared responsibility has exactly one authoritative owner and a documented public contract.
-- Core remains headless; Application owns study execution and mutation; UI remains projection/interaction.
-- Plugin lifecycle, dependencies, registration conflicts, activation rollback, and teardown have explicit semantics.
-- Study success/failure/cancellation and result publication are consistent across plugin kinds.
-- CPU fallback and optional accelerator capabilities are explicit; unsupported GPU/NPU paths are reported rather than implied.
-- A reference plugin and a second distinct plugin can use the shared contracts without copying infrastructure code.
+### Frozen now: architectural principles
+
+- No parallel or competing plugin lifecycle/registry/study/event/result infrastructure.
+- One authoritative owner per shared responsibility; SDK contracts adapt existing owners.
+- Core remains headless; Application owns study execution, controlled mutation, canonical events, and study result registration; UI remains projection/interaction.
+- Existing UI plugin lifecycle remains distinct from the headless StudyService lifecycle.
+- Plugin dependencies, registration conflicts, rollback, and teardown must have explicit semantics in the subsystem that owns them.
+- Study success/failure/cancellation and publication of plugin-specific projections must preserve canonical result identity/status.
+- CPU fallback and optional accelerator capabilities must be explicit; unsupported GPU/NPU paths are reported rather than implied.
 - Architecture and Modification Register are updated together.
-- No tests/CI are run or required unless explicitly authorized; any later verification is reported precisely.
+
+### Not frozen yet: concrete SDK API and implementation layout
+
+- Exact package path, public class names, protocol method signatures, descriptor schema, and versioning mechanism.
+- Whether a missing common service should be added or an existing service extended.
+- The claim that one generic plugin base contract should cover every plugin kind.
+
+These remain open until the current APIs are mapped, Motor Dynamics is reconciled against them, and a second distinct plugin demonstrates the abstraction. No tests/CI are run unless explicitly authorized; any later verification is reported precisely.
 
 ## 10. Relationship to existing architecture
 
-This document is an amendment proposal, not a parallel architecture. It supplements the existing GridForge V2 Architecture Freeze and plugin platform philosophy. If repository contracts conflict, stop and reconcile the conflict before implementation; the existing frozen architecture remains authoritative until this amendment is reviewed and merged.
+This amendment freezes reuse and ownership principles only. It does not supersede the established Core/Application/UI boundaries, the current `ui/plugins/` contract, or the separate `plugins/` engineering-extension namespace. It is not permission to create a parallel plugin framework. Concrete SDK implementation must follow the frozen principles and a separately reconciled API design.
+
+
+## 11. Static reconciliation findings (2026-10-27)
+
+The following repository contracts were inspected directly:
+
+- `core/application/study.py`: `StudyService` is the canonical study execution owner. Its handler is currently a callable accepting `StudyRequest`, `StudyExecutionContext`, and `StudyCancellationToken`. It stores typed `StudyResult` outcomes and emits started/completed/cancelled/failed Application events. The audited `main` version has `register()`, `execute()`, `cancel()`, `get_result()`, and `results()`; it does not have `unregister()`.
+- `core/application/event_bus.py`: `ApplicationEventBus` already provides synchronous event publication plus `subscribe()` and `unsubscribe()`. The SDK must reuse this bus.
+- `ui/plugins/plugin_contract.py` and `ui/plugins/README.md`: UI composition already has a small protocol and separate loader, registry, manager, state-store, and context owners. Do not replace or merge these lifecycle roles with the study-handler contract.
+- `contract.md` and the architecture reconciliation matrix distinguish the broader engineering extension namespace from UI composition. Historical authority statements in the reconciliation matrix must be treated as chronology where superseded, not copied as current repository authority.
+- Motor Dynamics on `feature/motor-dynamics-extension-v2` currently expects `StudyService.unregister()`. That assumption is not present on the audited `main` baseline. This is a concrete integration dependency to reconcile before the plugin is treated as a reference implementation.
+
+Decision:
+    Freeze the reuse/ownership principles in this amendment. Keep concrete SDK APIs,
+    package placement, and any required StudyService API changes open until the
+    reuse matrix and reference-plugin reconciliation are complete.
+
+Verification boundary:
+    Static source inspection only. No tests, CI, syntax checks, imports, runtime,
+    numerical, or hardware validation were run.
