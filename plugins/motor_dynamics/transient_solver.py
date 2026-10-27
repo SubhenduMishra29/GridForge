@@ -394,7 +394,7 @@ def _solve_batch_cuda(
     electrical_frequency_hz: float, load_torques: Sequence[float],
 ) -> tuple[MotorSimulationResult, ...]:
     """Optional Numba CUDA implementation; one CUDA thread integrates one motor."""
-    from numba import cuda, float64
+    from numba import cuda
 
     count, times = _validate_time(duration_s, step_s)
     if isinstance(electrical_frequency_hz, bool) or not isinstance(electrical_frequency_hz, (int, float)) or not isfinite(float(electrical_frequency_hz)) or electrical_frequency_hz < 0:
@@ -441,7 +441,7 @@ def _solve_batch_cuda(
         if m >= motor_count:
             return
         p = params[m]
-        y = cuda.local.array(_STATE_COUNT, dtype=float64)
+        y = cuda.local.array(_STATE_COUNT, dtype=np.float64)
         a = cuda.local.array(_STATE_COUNT, dtype=float64)
         b = cuda.local.array(_STATE_COUNT, dtype=float64)
         c = cuda.local.array(_STATE_COUNT, dtype=float64)
