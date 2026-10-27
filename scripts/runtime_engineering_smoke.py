@@ -8,7 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import main
-from ui.core.qt import QListWidget, QPointF, QTabWidget
+from ui.core.qt import QListWidget, QPointF, QTabWidget, QWidget
 
 
 TARGET_TOOL_IDS = (
@@ -39,10 +39,14 @@ def main_smoke() -> None:
         panels = plugin_manager.get("panels")
         if panels is None:
             raise SystemExit("Runtime smoke: Panels plugin missing.")
-        equipment_dock = panels.get_dock("equipment")
-        if equipment_dock is None:
-            raise SystemExit("Runtime smoke: equipment dock missing.")
-        palette = equipment_dock.widget().findChild(QListWidget, "EquipmentPalette")
+        # Workspace owns panel placement; legacy dock wrappers are not the
+        # authoritative widget lookup once the panel is embedded in an Area.
+        equipment_panel = window.findChild(QWidget, "GridForgePanel_equipment")
+        if equipment_panel is None:
+            equipment_panel = getattr(panels, "_panels", {}).get("equipment")
+        if equipment_panel is None:
+            raise SystemExit("Runtime smoke: equipment panel widget missing.")
+        palette = equipment_panel.findChild(QListWidget, "EquipmentPalette")
         if palette is None:
             raise SystemExit("Runtime smoke: equipment palette widget missing.")
 
