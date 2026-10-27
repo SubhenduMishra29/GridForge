@@ -1705,7 +1705,7 @@ class Application:
                             source_endpoint=source_endpoint,
                             target_endpoint=target_endpoint,
                             connection_kind="SIMPLE_WIRE",
-                            route=item.get("route"),
+                            route=item.get("route") or None,
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
                             core_connection_id=str(item["connection_id"]),
