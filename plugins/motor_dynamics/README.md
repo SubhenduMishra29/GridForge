@@ -3,13 +3,13 @@
 **Plugin ID:** `gridforge.plugin.motor_dynamics`  
 **Version:** `2.0.0`  
 **API contract:** `V2.0`  
-**Status:** Experimental extension with a CPU dq induction-motor transient solver and an optional Numba-CUDA batch backend; numerical validation and end-to-end study integration remain outstanding.
+**Status:** Experimental extension with a CPU dq induction-motor transient solver, optional Numba-CUDA batch dispatch, and a lifecycle-registered `motor_transient` StudyService adapter. Source integration is present; end-to-end execution, numerical reference-case validation, and accelerator hardware validation remain outstanding.
 
 The Motor Dynamics extension adds an optional induction-motor workflow to GridForge: draft placement and Bus connection, a motor symbol projection, simulation-result read models, telemetry charts, signal diagnostics, optional ONNX inference, and versioned plugin-data persistence.
 
 It is designed to integrate with GridForge's Application/Core architecture rather than introduce a separate electrical network. In particular, a motor is modeled as a **one-terminal injection/load connected to a Bus attachment**. It is not a series element, and placing it must not split or rewrite an existing wire.
 
-> **Implementation status matters:** `transient_solver.py` now implements a headless CPU reference solver for coupled induction-motor dq electrical states, rotor mechanics, and one lumped winding-temperature state using fixed-step RK4. An optional Numba-CUDA batch kernel assigns independent motor trajectories to GPU threads and uses a flattened motor-major/step-major/state-minor buffer. This is a defined first engineering model, not a validated high-fidelity digital twin: magnetic saturation, unbalance, switching converters, separate stator/rotor thermal nodes, and parameter/reference-case validation are not yet covered. CPU is always the fallback. NPU acceleration is not currently used for this recurrence-based solver; the existing QNN/Vitis AI/OpenVINO providers are for optional ONNX inference, not proof of NPU physics execution. Solver integration with the host study lifecycle and actual CPU/GPU numerical/hardware validation remain outstanding.
+> **Implementation status matters:** `transient_solver.py` now implements a headless CPU reference solver for coupled induction-motor dq electrical states, rotor mechanics, and one lumped winding-temperature state using fixed-step RK4. An optional Numba-CUDA batch kernel assigns independent motor trajectories to GPU threads and uses a flattened motor-major/step-major/state-minor buffer. This is a defined first engineering model, not a validated high-fidelity digital twin: magnetic saturation, unbalance, switching converters, separate stator/rotor thermal nodes, and parameter/reference-case validation are not yet covered. CPU is always the fallback. NPU acceleration is not currently used for this recurrence-based solver; the existing QNN/Vitis AI/OpenVINO providers are for optional ONNX inference, not proof of NPU physics execution. The `motor_transient` handler is registered through the plugin lifecycle. It returns a detached result envelope; the read-model publisher consumes the canonical `StudyCompleted` event and retrieves the stored successful `StudyResult` before publishing telemetry. This source path has not been exercised end to end. Actual CPU/GPU numerical and hardware validation remain outstanding.
 
 ## Contents
 
@@ -36,7 +36,7 @@ The extension is intended to provide a foundation for:
 6. Calculating preliminary signal features from sampled motor-current data.
 7. Optionally running an ONNX model through available ONNX Runtime execution providers.
 8. Persisting motor configuration records using an explicit schema version.
-9. Integrating a callable CPU transient solver and optional CUDA batch solver with the application-owned study lifecycle.
+9. Integrating a callable CPU transient solver and optional CUDA batch solver with the application-owned study lifecycle; the adapter and completion publisher are now present, subject to end-to-end verification.
 
 This is an **integration scaffold**, not a claim that all motor-analysis capabilities are complete. Numerical motor equations, coupled thermal/mechanical/electrical state integration, validated machine parameter sets, solver convergence controls, and reference-case verification remain separate engineering work.
 
