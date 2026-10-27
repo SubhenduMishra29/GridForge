@@ -7491,3 +7491,31 @@ Disposition:
     application study-lifecycle integration remain required before production
     use.
 ======================================================================
+
+======================================================================
+GF-MOTOR-084
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    Lifecycle failure aggregation used BaseExceptionGroup directly even though
+    the plugin manifest declares Python >=3.10. BaseExceptionGroup is built in
+    only from Python 3.11, so Python 3.10 cleanup-error paths would fail while
+    trying to report the original lifecycle failure.
+
+Correction:
+    - Added a compatibility helper that uses BaseExceptionGroup when available.
+    - On Python 3.10, raises a RuntimeError with all failure summaries and
+      retains the original exception objects in an errors attribute.
+    - Kept initialization rollback and shutdown on the same aggregation path.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    imports, or runtime lifecycle checks were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
