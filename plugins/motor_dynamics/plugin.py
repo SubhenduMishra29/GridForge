@@ -69,35 +69,50 @@ class MotorDynamicsPlugin:
             )
 
         handler = MotorPlacementCommandHandler(motor_service)
+        token = None
+        dashboard = None
+        try:
+            # Do not publish partially initialized state on the plugin instance.
+            # If dashboard setup fails after registration, undo the registration.
+            token = register(
+                plugin=self,
+                command_handlers={
+                    ADD_DRAFT_MOTOR_PLACEMENT: handler,
+                    CONNECT_MOTOR_TO_BUS: handler,
+                },
+            )
+            if not callable(token):
+                raise TypeError(
+                    "register_motor_extension must return a callable teardown "
+                    "for the registered motor command handlers."
+                )
+
+            event_bus = getattr(context, "event_bus", None) or getattr(application, "event_bus", None)
+            parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
+            if parent is not None and event_bus is not None:
+                dashboard = MotorTelemetryDashboardWidget(
+                    self.read_models,
+                    event_bus=event_bus,
+                    parent=parent,
+                )
+        except BaseException:
+            if dashboard is not None:
+                try:
+                    dashboard.close()
+                except BaseException:
+                    pass
+            if callable(token):
+                try:
+                    token()
+                except BaseException:
+                    pass
+            raise
+
         self.context = context
         self.application = application
         self.persistence = MotorPluginPersistenceHandler(application)
-
-        # Adapter contract: atomically register these handlers with the canonical
-        # CommandManager and return a callable teardown. If registration fails,
-        # the adapter must undo any partial registrations before raising.
-        token = register(
-            plugin=self,
-            command_handlers={
-                ADD_DRAFT_MOTOR_PLACEMENT: handler,
-                CONNECT_MOTOR_TO_BUS: handler,
-            },
-        )
-        if callable(token):
-            self._unhooks.append(token)
-        elif token is not None:
-            unregister = getattr(composition, "unregister_motor_extension", None)
-            if callable(unregister):
-                self._unhooks.append(lambda t=token: unregister(t))
-
-        event_bus = getattr(context, "event_bus", None) or getattr(application, "event_bus", None)
-        parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
-        if parent is not None and event_bus is not None:
-            self.dashboard = MotorTelemetryDashboardWidget(
-                self.read_models,
-                event_bus=event_bus,
-                parent=parent,
-            )
+        self._unhooks.append(token)
+        self.dashboard = dashboard
         self._initialized = True
 
     def shutdown(self) -> None:
