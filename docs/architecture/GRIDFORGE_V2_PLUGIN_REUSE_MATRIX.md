@@ -33,7 +33,7 @@
 
 ## Extraction decision
 
-Do **not** create a general SDK runtime, new plugin manager, scheduler, event bus, result store, or configuration store in this change. The proven immediate shared gap is lifecycle-safe unregister for the existing canonical `StudyService`; solve it at that existing owner. Keep SDK descriptors, package placement, protocols, and template open until a second materially different plugin has been mapped against this matrix.
+Do **not** create a general SDK runtime, new plugin manager, scheduler, event bus, result store, or configuration store in this change. The lifecycle-safe `StudyService.unregister()` API is now present on the current `main` baseline and is not duplicated by this PR. This matrix remains an audit artifact for owner reuse and unresolved Motor Dynamics integration dependencies. Keep SDK descriptors, package placement, protocols, and template open until a second materially different plugin has been mapped against this matrix.
 
 ## Verification boundary
 
