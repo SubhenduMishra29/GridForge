@@ -8340,3 +8340,34 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-UI-TERM-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical Bus terminal inventory across Core, creation and SLD presentation
+
+Finding:
+    Core Bus owns one authoritative Terminal(role="bus") and the built-in
+    symbol exposes a "bus" anchor, but the UI EquipmentRegistry declared no
+    Bus terminals and the Application creation schema described an empty
+    terminal inventory. PresentationBootstrap therefore rejected startup with
+    a Core/presentation/creation/symbol terminal contract mismatch.
+
+Correction:
+    - Declare the canonical Bus terminal inventory as ("bus",) in the
+      Application creation schema and UI equipment catalogue.
+    - Keep DraftEndpointReference.bus() as the explicit bus-attachment form;
+      it is not replaced by a terminal-to-terminal connection.
+    - Update regression fixtures to carry canonical terminal, parameter,
+      conditional and required-connection metadata from the trusted schema.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
