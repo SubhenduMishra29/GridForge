@@ -7727,3 +7727,38 @@ Verification boundary:
 Disposition:
     Implemented on feature/motor-dynamics-extension-v2 for PR #674 review.
 ======================================================================
+
+======================================================================
+GF-MOTOR-090
+======================================================================
+
+Scope:
+    Align feature-branch StudyService teardown with the shared Application
+    lifecycle contract.
+
+File:
+    core/application/study.py
+
+Finding:
+    The feature branch implemented handler-identity-safe unregister(), but
+    could unregister a study type while one of its handlers was executing.
+    This allowed plugin teardown to race an active study and diverged from
+    the canonical lifecycle correction proposed in PR #676.
+
+Correction:
+    - Track active executions by study type under the existing StudyService
+      lock, without changing result keys, cancellation tokens, or events.
+    - Refuse to unregister a study type while that type has active work.
+    - Preserve optional handler identity checking so stale owners cannot
+      remove a replacement registration.
+    - Increment active counts atomically with handler lookup/token creation
+      and decrement in the execution finally path.
+
+Verification boundary:
+    Static source inspection only. No tests, CI, syntax compilation, imports,
+    runtime/concurrency, numerical, GPU, or NPU validation were performed.
+
+Disposition:
+    Source correction committed to feature/motor-dynamics-extension-v2 for
+    PR #674 reconciliation.
+======================================================================
