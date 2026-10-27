@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from core.numerics.backend import BackendCapability, select_backend
 from core.numerics.ode import solve_rk4, uniform_time_grid
 
 _STATE_COUNT = 6
@@ -325,11 +326,11 @@ def solve_transient_batch(
     load_torque_nm: Sequence[float],
     backend: str = "auto",
 ) -> tuple[MotorSimulationResult, ...]:
-    """Solve independent motors, using an optional CUDA kernel for a batch.
+    """Solve independent motors through the shared backend selection policy.
 
-    The GPU path is selected only for constant dq voltage profiles and only
-    when CUDA is usable. The CPU path is the fallback and reference. A requested
-    unavailable 'cuda' backend falls back to CPU and records that decision.
+    Runtime availability is supplied by the CPU/CUDA adapters. GPU capability
+    is limited to constant-dq, float64 batch integration with at least eight
+    independent motors. The CPU implementation remains the reference/fallback.
     """
     n = len(motor_ids)
     if n == 0 or len(parameter_sets) != n or len(load_torque_nm) != n:
@@ -352,32 +353,79 @@ def solve_transient_batch(
     ):
         raise ValueError("electrical_frequency_hz must be finite, numeric and non-negative")
     for index, torque in enumerate(load_torque_nm):
-        if (
-            not _is_numeric_scalar(torque)
-            or not isfinite(float(torque))
-        ):
+        if not _is_numeric_scalar(torque) or not isfinite(float(torque)):
             raise ValueError(f"load_torque_nm[{index}] must be finite and numeric")
-    selected = backend
-    if selected == "auto":
-        selected = "cuda" if n >= 8 and cuda_available() else "cpu"
-    if selected == "cuda" and cuda_available():
+
+    # Capability facts come from the runtime adapters; the policy itself never
+    # imports/probes accelerator libraries.
+    capabilities = (
+        BackendCapability(
+            name="cpu-reference",
+            kind="cpu",
+            available=True,
+            supported_workloads=frozenset({"motor_transient_batch"}),
+            minimum_workload_size=1,
+            precision_modes=frozenset({"float64"}),
+        ),
+        BackendCapability(
+            name="numba-cuda",
+            kind="gpu",
+            available=cuda_available(),
+            supported_workloads=frozenset({"motor_transient_batch"}),
+            minimum_workload_size=8,
+            precision_modes=frozenset({"float64"}),
+        ),
+    )
+    requested = "gpu" if backend == "cuda" else backend
+    selection = select_backend(
+        capabilities,
+        workload="motor_transient_batch",
+        workload_size=n,
+        precision="float64",
+        requested=requested,
+        preference=("gpu", "cpu", "npu"),
+    )
+    selection_diagnostics = {
+        "requested_backend": backend,
+        "selected_backend_kind": selection.selected.kind,
+        "selected_backend_name": selection.selected.name,
+        "backend_selection_reason": selection.reason,
+        "backend_rejections": tuple(
+            {"backend": name, "reason": reason}
+            for name, reason in selection.rejected
+        ),
+    }
+
+    if selection.selected.kind == "gpu":
         try:
-            return _solve_batch_cuda(
+            results = _solve_batch_cuda(
                 motor_ids, parameter_sets, duration_s, step_s, float(vd), float(vq),
                 electrical_frequency_hz, load_torque_nm,
             )
+            return tuple(_with_dispatch_diagnostics(r, selection_diagnostics) for r in results)
         except Exception as exc:
-            # Preserve the accelerator failure reason while keeping CPU fallback.
-            failure = {"type": type(exc).__name__, "message": str(exc)}
-            return tuple(
-                _with_backend_note(solve_transient_cpu(
+            # Accelerator execution failures are visible and fall back to CPU.
+            failure = {"type": type(exc).__name__, "message": str(exc)[:512]}
+            results = tuple(
+                solve_transient_cpu(
                     mid, p, duration_s, step_s, stator_voltage_d_v=float(vd),
                     stator_voltage_q_v=float(vq), electrical_frequency_hz=electrical_frequency_hz,
                     load_torque_nm=float(torque),
-                ), "cuda_failed_cpu_fallback", failure=failure)
-                for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
+                ) for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
             )
-    fallback = backend == "cuda"
+            return tuple(
+                _with_dispatch_diagnostics(
+                    r, {
+                        **selection_diagnostics,
+                        "selected_backend_kind": "cpu",
+                        "selected_backend_name": "cpu-reference",
+                        "backend_selection_reason": "gpu_execution_failed_cpu_fallback",
+                    },
+                    failure=failure,
+                )
+                for r in results
+            )
+
     results = tuple(
         solve_transient_cpu(
             mid, p, duration_s, step_s, stator_voltage_d_v=float(vd),
@@ -385,21 +433,18 @@ def solve_transient_batch(
             load_torque_nm=float(torque),
         ) for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
     )
-    if fallback:
-        return tuple(_with_backend_note(r, "cuda_unavailable_cpu_fallback") for r in results)
-    return results
+    return tuple(_with_dispatch_diagnostics(r, selection_diagnostics) for r in results)
 
 
-def _with_backend_note(
+def _with_dispatch_diagnostics(
     result: MotorSimulationResult,
-    note: str,
+    selection: Mapping[str, Any],
     *,
     failure: Mapping[str, str] | None = None,
 ) -> MotorSimulationResult:
-    """Return a result with explicit dispatch/fallback diagnostics."""
+    """Return a result carrying requested/selected/executed backend details."""
     diagnostics = dict(result.diagnostics)
-    diagnostics["requested_backend_note"] = note
-    diagnostics["requested_backend"] = "cuda"
+    diagnostics.update(selection)
     diagnostics["executed_backend"] = result.backend
     if failure is not None:
         diagnostics["accelerator_failure"] = dict(failure)
