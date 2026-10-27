@@ -84,7 +84,12 @@ class MotorNPUDiagnosticNode:
             break
 
         self.initialization_diagnostics = tuple(diagnostics)
-        self.provider_fallback_used = bool(diagnostics)
+        # A failed candidate is not itself a fallback if a later accelerator
+        # initializes successfully. Report initialization fallback only when
+        # CPU was selected after one or more candidate initialization failures.
+        self.provider_fallback_used = (
+            self.requested_provider == "CPUExecutionProvider" and bool(diagnostics)
+        )
         if self.session is None:
             detail = "; ".join(diagnostics) or "no candidate provider initialized"
             raise RuntimeError(f"Could not initialize ONNX inference: {detail}")
