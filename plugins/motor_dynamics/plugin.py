@@ -126,10 +126,6 @@ class MotorDynamicsPlugin:
 
             study_unhook = release_study_handler
             publisher = MotorTransientResultPublisher(application, self.read_models)
-            subscribe(StudyStarted, publisher.on_started)
-            subscribe(StudyCompleted, publisher)
-            subscribe(StudyFailed, publisher.on_terminal)
-            subscribe(StudyCancelled, publisher.on_terminal)
 
             def release_publisher() -> None:
                 # Close first: even if an event callback is already queued, it
@@ -149,8 +145,9 @@ class MotorDynamicsPlugin:
                 if errors:
                     raise _aggregate_base_exceptions("Motor study publisher teardown failed", errors) from None
 
-            # Register the publisher before the dashboard subscriber so the
-            # read-model snapshot exists when the dashboard handles completion.
+            # Install rollback ownership before the first subscription because
+            # any individual subscribe operation may fail after earlier ones
+            # have already registered callbacks.
             study_unhook_original = study_unhook
             def release_study_integration() -> None:
                 errors: list[BaseException] = []
@@ -165,6 +162,13 @@ class MotorDynamicsPlugin:
                 if errors:
                     raise _aggregate_base_exceptions("Motor study integration teardown failed", errors) from None
             study_unhook = release_study_integration
+
+            # Register the publisher before the dashboard subscriber so the
+            # read-model snapshot exists when the dashboard handles completion.
+            subscribe(StudyStarted, publisher.on_started)
+            subscribe(StudyCompleted, publisher)
+            subscribe(StudyFailed, publisher.on_terminal)
+            subscribe(StudyCancelled, publisher.on_terminal)
             parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
             if parent is not None and event_bus is not None:
                 dashboard = MotorTelemetryDashboardWidget(
