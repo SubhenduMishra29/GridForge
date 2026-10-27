@@ -1371,21 +1371,33 @@ class Application:
         # Snapshot before installation so a manager override that mutates then
         # raises cannot leave an untracked handler behind.
         original_registry = self._command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = self._command_manager.pre_commit_hook
         installed: list[str] = []
         try:
             for command_type, handler in handlers.items():
                 self._command_manager.register_handler(command_type, handler)
                 installed.append(command_type)
         except BaseException as registration_error:
+            rollback_errors: list[tuple[str, BaseException]] = []
             try:
                 self._command_manager.restore_handler_registry(original_registry)
             except BaseException as rollback_error:
+                rollback_errors.append(("handler registry", rollback_error))
+            try:
+                self._command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as rollback_error:
+                rollback_errors.append(("pre-commit hook", rollback_error))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
                 raise RuntimeError(
                     f"Extension handler registration for {extension_id!r} failed "
-                    f"({registration_error!r}) and registry rollback also failed "
-                    f"({rollback_error!r}); the active CommandManager may remain "
-                    "corrupted."
-                ) from rollback_error
+                    f"({registration_error!r}) and rollback failed for "
+                    f"{failed_parts} ({details}); the active CommandManager may "
+                    "remain corrupted."
+                ) from rollback_errors[0][1]
             raise
         self._extension_handler_factories[extension_id] = factory
         self._extension_handler_command_types[extension_id] = tuple(installed)
