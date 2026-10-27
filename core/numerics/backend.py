@@ -132,6 +132,110 @@ def select_backend(
     return BackendSelection(requested, compatible[0], "automatic_capability_selection", tuple(rejected))
 
 
+@dataclass(frozen=True)
+class NumericalExecution:
+    """Validated solution plus transparent dispatch/fallback metadata."""
+
+    solution: "ODESolution"
+    selection: BackendSelection
+    executed_backend: str
+    fallback_failure: str | None = None
+
+
+def execute_numerical_problem(
+    problem: "NumericalProblem",
+    adapters: Iterable["NumericalBackendAdapter"],
+    *,
+    requested: str = "auto",
+    preference: tuple[str, ...] = ("gpu", "npu", "cpu"),
+) -> NumericalExecution:
+    """Dispatch one shared ODE problem through registered backend adapters.
+
+    The CPU adapter is the reference fallback. A non-CPU adapter failure or
+    incompatible result is recorded and retried on a compatible CPU adapter.
+    This helper validates the adapter result contract but cannot prove that an
+    accelerator's derivative implementation is physically equivalent to the
+    supplied Python derivative; workload compatibility must be declared by
+    the adapter.
+    """
+    from .ode import NumericalProblem, ODESolution, uniform_time_grid
+
+    if not isinstance(problem, NumericalProblem):
+        raise TypeError("problem must be a NumericalProblem")
+    registered = tuple(adapters)
+    if not registered:
+        raise ValueError("at least one numerical backend adapter is required")
+    for adapter in registered:
+        if not isinstance(adapter.capability, BackendCapability):
+            raise TypeError("adapter capability must be BackendCapability")
+        if not callable(getattr(adapter, "solve", None)):
+            raise TypeError("every backend adapter must implement solve(problem)")
+
+    selection = select_backend(
+        (adapter.capability for adapter in registered),
+        workload=problem.workload,
+        workload_size=int(np.asarray(problem.initial_state).size),
+        precision=problem.precision,
+        requested=requested,
+        preference=preference,
+    )
+    by_name = {adapter.capability.name: adapter for adapter in registered}
+    selected = by_name[selection.selected.name]
+
+    def run(adapter: "NumericalBackendAdapter") -> "ODESolution":
+        solution = adapter.solve(problem)
+        if not isinstance(solution, ODESolution):
+            raise TypeError("backend adapter must return ODESolution")
+        expected_times, expected_step = uniform_time_grid(
+            problem.duration_s, problem.maximum_step_s
+        )
+        if solution.state_count != np.asarray(problem.initial_state).size:
+            raise ValueError("backend returned an incompatible state count")
+        if solution.time_s.shape != expected_times.shape or not np.array_equal(
+            solution.time_s, expected_times
+        ):
+            raise ValueError("backend returned a time grid that violates the shared ODE contract")
+        expected_size = expected_times.size * solution.state_count
+        if solution.state_data.ndim != 1 or solution.state_data.size != expected_size:
+            raise ValueError("backend returned an invalid flat state buffer")
+        if not np.isfinite(solution.state_data).all():
+            raise FloatingPointError("backend returned non-finite states")
+        if not isfinite(float(solution.sample_period_s)) or not np.isclose(
+            solution.sample_period_s, expected_step, rtol=0.0, atol=0.0
+        ):
+            raise ValueError("backend returned an incompatible sample period")
+        return solution
+
+    try:
+        solution = run(selected)
+        return NumericalExecution(solution, selection, selected.capability.name)
+    except Exception as exc:
+        if selected.capability.kind == "cpu":
+            raise
+        cpu = next(
+            (
+                adapter for adapter in registered
+                if adapter.capability.kind == "cpu"
+                and adapter.capability.available
+                and problem.workload in adapter.capability.supported_workloads
+                and problem.precision in adapter.capability.precision_modes
+                and problem.initial_state is not None
+            ),
+            None,
+        )
+        if cpu is None:
+            raise RuntimeError(
+                f"backend {selected.capability.name!r} failed and no compatible CPU adapter exists"
+            ) from exc
+        solution = run(cpu)
+        return NumericalExecution(
+            solution,
+            selection,
+            cpu.capability.name,
+            f"{type(exc).__name__}: {str(exc)[:512]}",
+        )
+
+
 
 class NumericalBackendAdapter(Protocol):
     """Contract implemented by CPU/GPU/NPU adapters for compatible problems.
@@ -152,4 +256,4 @@ class NumericalBackendAdapter(Protocol):
         ...
 
 
-__all__ = ["BackendCapability", "BackendSelection", "BackendKind", "NumericalBackendAdapter", "select_backend"]
+__all__ = ["BackendCapability", "BackendSelection", "BackendKind", "NumericalBackendAdapter", "NumericalExecution", "execute_numerical_problem", "select_backend"]
