@@ -1250,12 +1250,32 @@ class Application:
         except BaseException as exc:
             factory_error = exc
 
-        after = command_manager.handler_registry_snapshot()
+        # The verification read is part of the guarded operation too: an
+        # overridden snapshot/property accessor may fail after the factory has
+        # already mutated the manager. In that case, restore both captured
+        # composition components because the extent of mutation is unknown.
+        verification_error: BaseException | None = None
+        try:
+            after = command_manager.handler_registry_snapshot()
+            after_pre_commit_hook = command_manager.pre_commit_hook
+        except BaseException as exc:
+            verification_error = exc
+            after = None
+            after_pre_commit_hook = None
+
         registry_changed = (
-            before.keys() != after.keys()
-            or any(before[key] is not after[key] for key in before.keys() & after.keys())
+            True
+            if verification_error is not None
+            else (
+                before.keys() != after.keys()
+                or any(before[key] is not after[key] for key in before.keys() & after.keys())
+            )
         )
-        hook_changed = command_manager.pre_commit_hook is not before_pre_commit_hook
+        hook_changed = (
+            True
+            if verification_error is not None
+            else after_pre_commit_hook is not before_pre_commit_hook
+        )
 
         restoration_errors: list[tuple[str, BaseException]] = []
         if registry_changed:
@@ -1281,12 +1301,32 @@ class Application:
                 if factory_error is not None
                 else ""
             )
+            verification_details = (
+                f" Verification exception: {verification_error!r}."
+                if verification_error is not None
+                else ""
+            )
             raise RuntimeError(
-                f"Extension handler factory {extension_id!r} changed CommandManager "
-                f"composition state, and restoration failed for {failed_parts}. "
-                f"The manager may remain corrupted. Restoration errors: "
-                f"{failure_details}.{factory_details}"
+                f"Extension handler factory {extension_id!r} changed or may have "
+                f"changed CommandManager composition state, and restoration failed "
+                f"for {failed_parts}. The manager may remain corrupted. "
+                f"Restoration errors: {failure_details}.{verification_details}"
+                f"{factory_details}"
             ) from restoration_errors[0][1]
+
+        if verification_error is not None:
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Could not verify CommandManager composition after extension "
+                f"factory {extension_id!r}; the captured registry and pre-commit "
+                f"hook were restored, but the factory side effects could not be "
+                f"reliably classified. Verification exception: {verification_error!r}."
+                f"{factory_details}"
+            ) from verification_error
 
         if factory_error is not None:
             raise factory_error
@@ -1405,17 +1445,15 @@ class Application:
                 "the active manager cannot be mutated as a candidate."
             )
 
-        # Track every handler installed on the candidate manager across the whole
-        # composition, not just within one extension. A later factory, collision,
-        # or control-runtime setup failure must not leave a partially composed
-        # candidate behind. Active Application references are published only at
-        # the end, after all candidate setup succeeds.
-        installed_candidate_types: list[str] = []
+        # Snapshot the complete candidate composition before any mutation.
+        # Reverse-unregister bookkeeping alone cannot restore overwritten or
+        # removed entries, the original order, or the previous pre-commit hook.
+        original_registry = command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = command_manager.pre_commit_hook
         try:
             if self._sld_service is not None:
                 for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                     command_manager.register_handler(command_type, handler)
-                    installed_candidate_types.append(command_type)
 
             next_extension_types: dict[str, tuple[str, ...]] = {}
             for extension_id, factory in self._extension_handler_factories.items():
@@ -1424,7 +1462,6 @@ class Application:
                 installed_extension_types: list[str] = []
                 for command_type, handler in extension_handlers.items():
                     command_manager.register_handler(command_type, handler)
-                    installed_candidate_types.append(command_type)
                     installed_extension_types.append(command_type)
                 next_extension_types[extension_id] = tuple(installed_extension_types)
 
@@ -1438,14 +1475,29 @@ class Application:
                     read_service=read_service,
                 )
             command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
-        except BaseException:
-            # Preserve the setup failure while best-effort removing only the
-            # handlers this method successfully installed on the candidate.
-            for command_type in reversed(installed_candidate_types):
-                try:
-                    command_manager.unregister_handler(command_type)
-                except Exception:
-                    pass
+        except BaseException as setup_error:
+            # Restore the whole captured composition, including pre-existing
+            # entries and the hook. A rollback failure must not be silently
+            # swallowed because the candidate may then be unsafe to reuse.
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                command_manager.restore_handler_registry(original_registry)
+            except BaseException as exc:
+                rollback_errors.append(("handler registry", exc))
+            try:
+                command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as exc:
+                rollback_errors.append(("pre-commit hook", exc))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Candidate runtime composition failed ({setup_error!r}) and "
+                    f"rollback failed for {failed_parts}. The candidate "
+                    f"CommandManager may remain corrupted. Rollback errors: {details}."
+                ) from rollback_errors[0][1]
             raise
 
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
