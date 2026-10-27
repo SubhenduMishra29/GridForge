@@ -60,7 +60,7 @@ class TopologyManager:
         for source,targets in resolved_connectivity.topology_adjacency:
             if not source.is_terminal:
                 continue
-            b=boundary.resolve(source)
+            b=boundary.resolve(source.terminal_reference)
             if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
                 source_bus=b.attached_bus_id
                 opposite=boundary.resolve(b.opposite_terminal)
