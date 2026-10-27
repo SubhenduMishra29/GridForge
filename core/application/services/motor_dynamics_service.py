@@ -144,19 +144,38 @@ class MotorDynamicsComposition:
 
     def register_motor_extension(self, *, plugin: Any, command_handlers: Mapping[str, Any]):
         plugin_id = getattr(plugin, "plugin_id", None)
-        if not isinstance(plugin_id, str) or not plugin_id.strip():
-            raise ValueError("Motor extension plugin must expose a stable plugin_id.")
+        if (
+            not isinstance(plugin_id, str)
+            or not plugin_id.strip()
+            or plugin_id != plugin_id.strip()
+        ):
+            raise ValueError(
+                "Motor extension plugin must expose a stable, canonical plugin_id."
+            )
+        if not isinstance(command_handlers, Mapping):
+            raise TypeError("Motor extension command_handlers must be a mapping.")
         expected = {ADD_DRAFT_MOTOR_PLACEMENT, CONNECT_MOTOR_TO_BUS}
         if set(command_handlers) != expected:
             raise ValueError("Motor extension must register exactly its two motor command handlers.")
         if any(not callable(handler) for handler in command_handlers.values()):
             raise TypeError("Motor extension handlers must be callable.")
+
+        # Capture a stable snapshot; caller mutation must not change the handler set.
+        handlers = dict(command_handlers)
         self.application.register_extension_handler_factory(
             plugin_id,
-            lambda _command_manager, handlers=dict(command_handlers): dict(handlers),
+            lambda _command_manager, handlers=handlers: dict(handlers),
         )
+        registered = True
+
         def teardown() -> None:
+            nonlocal registered
+            if not registered:
+                return
+            # A stale callback must not remove a later registration using this ID.
+            registered = False
             self.application.unregister_extension_handler_factory(plugin_id)
+
         return teardown
 
 
