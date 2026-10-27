@@ -118,27 +118,40 @@ class MotorDynamicsPlugin:
         self._initialized = True
 
     def shutdown(self) -> None:
+        """Release plugin resources without discarding failed teardown handles.
+
+        A failed unhook or dashboard close remains attached to the plugin so a
+        caller can diagnose the failure and retry shutdown. Context and service
+        references are cleared only after all owned resources are released.
+        """
         errors: list[BaseException] = []
+        failed_unhooks: list[Any] = []
         for unhook in reversed(self._unhooks):
             try:
                 unhook()
             except BaseException as exc:
                 errors.append(exc)
-        self._unhooks.clear()
+                failed_unhooks.append(unhook)
+        # Preserve original registration order while retaining only failed
+        # teardown handles; successful unhooks must not run a second time.
+        self._unhooks = list(reversed(failed_unhooks))
 
         if self.dashboard is not None:
             try:
                 self.dashboard.close()
             except BaseException as exc:
                 errors.append(exc)
-            self.dashboard = None
+            else:
+                self.dashboard = None
+
+        if errors:
+            self._initialized = True
+            raise ExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
 
         self._initialized = False
         self.persistence = None
         self.application = None
         self.context = None
-        if errors:
-            raise ExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
 
 
 __all__ = ["MotorDynamicsPlugin"]
