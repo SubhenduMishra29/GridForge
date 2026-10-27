@@ -8519,3 +8519,30 @@ Status:
     🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Runtime smoke equipment palette lookup after Workspace composition
+
+Finding:
+    scripts/runtime_engineering_smoke.py required PanelsPlugin.get_dock("equipment")
+    to return a dock wrapper and queried the palette through that wrapper. The
+    canonical Workspace owns Area/Region placement and may reparent the panel
+    widget independently of legacy dock-wrapper availability.
+
+Correction:
+    Locate the canonical equipment panel widget by its stable object name in
+    MainWindow, with the PanelsPlugin-owned widget registry as a fallback, and
+    find EquipmentPalette from the panel widget itself.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
