@@ -8371,3 +8371,37 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-APP-CREATION-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Creation contract snapshot parity, position-field isolation, and strict draft fixtures
+
+Findings:
+    - PresentationBootstrap produced a reduced parameter contract missing
+      editable/derived fields, then attempted to reconfigure the already
+      initialized Application registry with a structurally different snapshot.
+    - CreationCommandPreparer treated generic command fields x/y as possible
+      presentation coordinates, colliding with the transformer's legitimate
+      engineering reactance field x.
+    - Draft commit regression fixtures expected commit success with required
+      branch terminals disconnected, contrary to strict commit-time validation.
+
+Corrections:
+    - Include editable and derived metadata in the UI-side snapshot so it is
+      structurally identical to the canonical Application creation contract.
+    - Map authored presentation position only to presentation_x/presentation_y;
+      never overwrite engineering fields named x/y.
+    - Make draft commit fixtures supply canonical metadata and connect every
+      required transformer/breaker terminal before expecting a successful commit.
+
+Status:
+    🟡 SOURCE CORRECTIONS APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
