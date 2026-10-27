@@ -118,13 +118,15 @@ class MotorDynamicsPlugin:
             if not callable(subscribe) or not callable(unsubscribe):
                 raise RuntimeError("Motor transient studies require the canonical Application event bus")
             study_handler = MotorTransientStudyHandler()
-            study_register("motor_transient", study_handler)
 
             def release_study_handler() -> None:
                 # Identity-safe unregister cannot remove a replacement handler.
                 study_unregister("motor_transient", study_handler)
 
+            # Own rollback before registration: a service that partially registers
+            # and then raises still gets an identity-safe unregister attempt.
             study_unhook = release_study_handler
+            study_register("motor_transient", study_handler)
             publisher = MotorTransientResultPublisher(application, self.read_models)
 
             def release_publisher() -> None:
