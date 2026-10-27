@@ -157,6 +157,11 @@ class CommandManager:
         return tuple(self._handlers.keys())
 
     @property
+    def pre_commit_hook(self) -> PreCommitHook | None:
+        """Return the currently configured pre-commit hook for composition guards."""
+        return self._pre_commit_hook
+
+    @property
     def integrity_state(self) -> str:
         """Return CLEAN or DEGRADED for the command/Core synchronization boundary."""
         return self._integrity_state
