@@ -188,13 +188,14 @@ class MotorDynamicsComposition:
             nonlocal registered
             if not registered:
                 return
-            registered = False
-            # The Application checks factory identity so a stale callback cannot
-            # remove a later registration that reused this plugin ID.
+            # Keep this callback retryable if Application teardown raises before
+            # ownership removal completes. A False result means this factory no
+            # longer owns the registration (for example, stale teardown).
             self.application.unregister_extension_handler_factory(
                 plugin_id,
                 expected_factory=factory,
             )
+            registered = False
 
         return teardown
 
