@@ -8145,3 +8145,41 @@ Validation:
     or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-093
+======================================================================
+
+Scope:
+    Batch time-grid validation before backend dispatch
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — SOURCE REVIEW ONLY
+
+Finding:
+    Batch time validation was reached inside the selected solver. Invalid
+    duration or step values could therefore trigger accelerator selection and
+    be recorded as an accelerator failure before the CPU reference path
+    rejected the same invalid user input.
+
+Correction:
+    The batch API now calls the shared _validate_time adapter immediately
+    after validating non-empty, matching batch lengths and before capability
+    discovery or backend dispatch. Invalid duration/step values fail at the
+    public API boundary and are not classified as CUDA failures or masked by
+    accelerator-to-CPU fallback. The single-motor path continues to use the
+    same shared uniform_time_grid contract.
+
+Boundary:
+    This correction centralizes time-grid validation timing; it does not
+    validate backend runtime behavior or prove CPU/CUDA numerical parity.
+
+Validation:
+    Source edits and source re-fetch only. No tests, syntax checks, imports,
+    Numba compilation, CUDA/NPU hardware execution, numerical comparisons,
+    performance measurements, or CI were run.
+
+======================================================================
