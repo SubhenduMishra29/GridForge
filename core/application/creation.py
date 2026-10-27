@@ -579,7 +579,7 @@ class CreationCommandPreparer:
         generated_position_fields = set()
         if intent.position is not None:
             generated_position_fields = {
-                field for field in ("presentation_x", "presentation_y", "x", "y")
+                field for field in ("presentation_x", "presentation_y")
                 if field in fields
             }
             position_collisions = mapped_fields & generated_position_fields
@@ -606,8 +606,6 @@ class CreationCommandPreparer:
             x, y = intent.position
             if "presentation_x" in fields: payload["presentation_x"] = x
             if "presentation_y" in fields: payload["presentation_y"] = y
-            if "x" in fields: payload["x"] = x
-            if "y" in fields: payload["y"] = y
         unknown = set(payload) - fields
         if unknown:
             raise ValueError(f"{intent.command_type}: unmapped creation payload fields: {sorted(unknown)!r}")
