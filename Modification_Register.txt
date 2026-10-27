@@ -7172,3 +7172,36 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-075
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension handler installation on the active CommandManager tracked a
+    command type only after register_handler() returned. If an overridden
+    registration method mutated the registry and then raised, that mutation
+    could escape rollback. The previous per-name cleanup also could not restore
+    the complete original registry if cleanup itself failed.
+
+Correction:
+    - Snapshot the active handler registry immediately before installation.
+    - On any registration failure, restore the full captured registry rather
+      than unregistering only successfully tracked names.
+    - If restoration fails, raise an explicit RuntimeError including both
+      registration and rollback failures and warning that the active manager
+      may remain corrupted. If restoration succeeds, re-raise the original
+      registration exception.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
