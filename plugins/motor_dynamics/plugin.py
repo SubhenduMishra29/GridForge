@@ -19,6 +19,19 @@ from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
 
 
+def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> BaseException:
+    """Aggregate lifecycle failures while retaining Python 3.10 compatibility."""
+    try:
+        group_type = BaseExceptionGroup
+    except NameError:  # BaseExceptionGroup was introduced in Python 3.11.
+        error = RuntimeError(
+            message + ": " + "; ".join(f"{type(item).__name__}: {item}" for item in errors)
+        )
+        error.errors = tuple(errors)  # type: ignore[attr-defined]
+        return error
+    return group_type(message, errors)
+
+
 class MotorDynamicsPlugin:
     @property
     def plugin_id(self) -> str:
@@ -129,7 +142,7 @@ class MotorDynamicsPlugin:
             if failed_token is not None:
                 self._unhooks.append(failed_token)
             self._initialized = True
-            raise BaseExceptionGroup(
+            raise _aggregate_base_exceptions(
                 "Motor Dynamics plugin initialization failed and rollback was incomplete",
                 [initialization_error, *cleanup_errors],
             ) from None
@@ -170,7 +183,7 @@ class MotorDynamicsPlugin:
 
         if errors:
             self._initialized = True
-            raise BaseExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
+            raise _aggregate_base_exceptions("Motor Dynamics plugin shutdown encountered failures", errors) from None
 
         self._initialized = False
         self.persistence = None
