@@ -6640,3 +6640,28 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-055
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService coerced motor, Bus, and attachment identifiers to
+    strings and did not independently enforce the canonical attachment ID.
+
+Correction:
+    Reject non-string/blank connection identifiers and require attachment
+    IDs in canonical attachment-0 through attachment-8 form before resolving
+    draft equipment or authoring a connection.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
