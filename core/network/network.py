@@ -307,6 +307,15 @@ class Network:
                     ) from exc
                 continue
 
+            if endpoint.kind is TopologyEndpointReferenceKind.BUS:
+                try:
+                    EndpointCompatibility.validate_reference(endpoint.bus_reference, self)
+                except (TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Invalid Bus topology endpoint: {endpoint}"
+                    ) from exc
+                continue
+
             if endpoint.kind is TopologyEndpointReferenceKind.JUNCTION:
                 junction_id = endpoint.junction_id
                 try:
