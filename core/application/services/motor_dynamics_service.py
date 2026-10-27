@@ -8,6 +8,7 @@ recorded in DraftNetwork and pass through the existing Application transaction.
 from __future__ import annotations
 
 from math import isfinite
+import re
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -90,9 +91,20 @@ class MotorDraftService:
     def connect_motor_to_bus(self, *, command: Any, context: Any, transaction: Any) -> ApplicationResult[Any]:
         draft = self._draft()
         payload = command.payload
-        motor_id = str(payload.get("motor_id", "")).strip()
-        bus_id = str(payload.get("bus_id", "")).strip()
-        attachment_id = str(payload.get("attachment_id", "")).strip()
+        identifiers = {}
+        for field in ("motor_id", "bus_id", "attachment_id"):
+            value = payload.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Motor connection {field} must be a non-empty string.")
+            identifiers[field] = value.strip()
+        motor_id = identifiers["motor_id"]
+        bus_id = identifiers["bus_id"]
+        attachment_id = identifiers["attachment_id"]
+        if not re.fullmatch(r"attachment-(?:[0-8])", attachment_id):
+            raise ValueError(
+                "attachment_id must use canonical 'attachment-N' form "
+                "with an index in the supported range 0..8."
+            )
         motor = draft.require_equipment(motor_id)
         if motor.equipment_type != "motor":
             raise ValueError(f"Draft equipment {motor_id!r} is not a motor.")
