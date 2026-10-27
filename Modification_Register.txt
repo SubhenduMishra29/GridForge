@@ -8857,3 +8857,28 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-005
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Switching-boundary traversal over topology endpoint graph
+
+Finding:
+    A second topology rebuild path (switching-boundary analysis) passed the
+    terminal TopologyEndpointReference wrapper directly to the electrical
+    boundary resolver after the component traversal path had been corrected.
+
+Correction:
+    Unwrap source.terminal_reference before resolving switching-boundary
+    attachment and opposite-terminal state.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
