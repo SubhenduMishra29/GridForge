@@ -3,13 +3,13 @@
 **Plugin ID:** `gridforge.plugin.motor_dynamics`  
 **Version:** `2.0.0`  
 **API contract:** `V2.0`  
-**Status:** Experimental extension scaffold; not yet a complete motor-transient simulation engine.
+**Status:** Experimental extension with a CPU dq induction-motor transient solver and an optional Numba-CUDA batch backend; numerical validation and end-to-end study integration remain outstanding.
 
 The Motor Dynamics extension adds an optional induction-motor workflow to GridForge: draft placement and Bus connection, a motor symbol projection, simulation-result read models, telemetry charts, signal diagnostics, optional ONNX inference, and versioned plugin-data persistence.
 
 It is designed to integrate with GridForge's Application/Core architecture rather than introduce a separate electrical network. In particular, a motor is modeled as a **one-terminal injection/load connected to a Bus attachment**. It is not a series element, and placing it must not split or rewrite an existing wire.
 
-> **Implementation status matters:** the repository currently contains the plugin adapters and supporting services described below, but does not yet contain a complete induction-motor multi-physics transient solver or production-ready flattened 3D Numba/CUDA kernels. Accelerator-provider selection is implemented for optional ONNX inference only; it should not be interpreted as GPU/NPU acceleration of the motor physics solver. End-to-end application activation, GUI behavior, model/provider compatibility, and hardware execution have not been runtime-validated.
+> **Implementation status matters:** `transient_solver.py` now implements a headless CPU reference solver for coupled induction-motor dq electrical states, rotor mechanics, and one lumped winding-temperature state using fixed-step RK4. An optional Numba-CUDA batch kernel assigns independent motor trajectories to GPU threads and uses a flattened motor-major/step-major/state-minor buffer. This is a defined first engineering model, not a validated high-fidelity digital twin: magnetic saturation, unbalance, switching converters, separate stator/rotor thermal nodes, and parameter/reference-case validation are not yet covered. CPU is always the fallback. NPU acceleration is not currently used for this recurrence-based solver; the existing QNN/Vitis AI/OpenVINO providers are for optional ONNX inference, not proof of NPU physics execution. Solver integration with the host study lifecycle and actual CPU/GPU numerical/hardware validation remain outstanding.
 
 ## Contents
 
@@ -36,6 +36,7 @@ The extension is intended to provide a foundation for:
 6. Calculating preliminary signal features from sampled motor-current data.
 7. Optionally running an ONNX model through available ONNX Runtime execution providers.
 8. Persisting motor configuration records using an explicit schema version.
+9. Integrating a callable CPU transient solver and optional CUDA batch solver with the application-owned study lifecycle.
 
 This is an **integration scaffold**, not a claim that all motor-analysis capabilities are complete. Numerical motor equations, coupled thermal/mechanical/electrical state integration, validated machine parameter sets, solver convergence controls, and reference-case verification remain separate engineering work.
 
@@ -153,7 +154,7 @@ On publication, it:
 
 An `RLock` protects store access. Channel getters return read-only views; the store does not expose ownership of a solver's mutable arrays.
 
-The read model is infrastructure for results, not a numerical solver and not a source of electrical network truth.
+The read model is infrastructure for results, not a source of electrical network truth. `MotorSimulationResult.channels(...)` derives telemetry arrays from solver state; study orchestration must publish these channels only after a successful solve and emit the canonical `StudyCompleted` event after publication.
 
 ### 7. Telemetry dashboard
 
@@ -178,6 +179,7 @@ These charts display published result data. They do not calculate motor current 
 | `service.py` | Compatibility exports for the Application-owned motor service and composition adapter. |
 | `tools.py` | Canvas placement preview and command dispatch. |
 | `graphics.py` | SLD motor symbol projection. |
+| `transient_solver.py` | CPU RK4 induction-motor dq electrical/mechanical/lumped-thermal transient solver; optional Numba-CUDA batch execution; flat contiguous state buffer and derived telemetry channels. |
 | `read_models.py` | Thread-safe simulation summaries and read-only channel snapshots. |
 | `dashboard.py` | `StudyCompleted`-driven current and temperature charts. |
 | `diagnostics.py` | Preliminary current-signal feature extraction and diagnostic labels. |
@@ -228,16 +230,19 @@ A successfully created session does not prove that the model is compatible with 
 
 ## CPU, GPU, and NPU policy
 
-The design requirement is **CPU as the mandatory portable baseline**, with GPU/NPU execution used only when the workload, model, provider, driver, and hardware support it.
+CPU is mandatory and defines the reference implementation. The transient API is in `transient_solver.py`:
 
-Current implementation scope:
+- `MotorParameters` validates SI machine constants and the inductance matrix.
+- `solve_transient_cpu(...)` integrates stator/rotor flux-linkage states, rotor speed, and lumped winding temperature with classical RK4. It accepts constant or sample-aligned dq voltage profiles using zero-order hold.
+- `solve_transient_batch(..., backend="cpu"|"cuda"|"auto")` solves independent motors. The optional Numba-CUDA kernel maps one motor trajectory to each CUDA thread and stores state in one flat contiguous buffer. `auto` only considers CUDA for batches of at least eight motors; unavailable or failed CUDA attempts fall back to CPU and record the reason in result diagnostics.
+- `MotorSimulationResult.channels(...)` derives current magnitude/components, torque, speed, slip, and winding-temperature channels for the read-model boundary.
+- `cuda_available()` performs optional capability detection without making Numba a mandatory import for CPU operation.
 
-- **CPU:** required as the fallback for the optional ONNX inference path.
-- **GPU:** CUDA and TensorRT providers may be considered when installed; DirectML may be considered where available.
-- **NPU / accelerator providers:** QNN, Vitis AI, and OpenVINO are considered when ONNX Runtime reports them as available.
-- **Motor physics simulation:** no complete CPU transient solver or GPU/NPU motor-physics kernel is currently delivered by this plugin scaffold.
+The first solver model is deliberately bounded: balanced squirrel-cage induction motor, synchronous dq reference frame, linear inductances, constant load torque, and one lumped thermal node. It is not yet a validated high-fidelity model. It does not model magnetic saturation, unbalanced phase faults, PWM switching, separate stator/rotor thermal nodes, or load-torque curves. Choose the integration step based on the fastest electrical time constant and validate against trusted reference cases before using results for engineering decisions.
 
-Do not infer GPU/NPU solver support from the provider list. A future accelerated solver should preserve the same validated model inputs and results contract across backends, keep the CPU path usable, detect capabilities rather than assume hardware, and provide a documented fallback when an optional backend is unavailable.
+**NPU policy:** the solver's time recurrence has a dependency between consecutive integration steps and is not currently mapped to an NPU kernel. QNN, Vitis AI, and other ONNX Runtime NPU providers remain applicable to optional learned diagnostics/inference, not this physics integration. Do not report NPU motor-physics acceleration unless a compatible kernel/runtime is implemented and validated. CPU remains available if GPU support is absent or fails.
+
+Provider discovery alone does not prove model compatibility or that a workload executes on a specific accelerator. Hardware capability, actual execution placement, and numerical equivalence require runtime verification.
 
 ## Persistence
 
