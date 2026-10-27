@@ -1249,12 +1249,36 @@ class Application:
         )
         hook_changed = command_manager.pre_commit_hook is not before_pre_commit_hook
 
+        restoration_errors: list[tuple[str, BaseException]] = []
         if registry_changed:
             # Restore additions, removals, replacements, and the original order
             # before surfacing the factory contract violation.
-            command_manager.restore_handler_registry(before)
+            try:
+                command_manager.restore_handler_registry(before)
+            except BaseException as exc:
+                restoration_errors.append(("handler registry", exc))
         if hook_changed:
-            command_manager.set_pre_commit_hook(before_pre_commit_hook)
+            try:
+                command_manager.set_pre_commit_hook(before_pre_commit_hook)
+            except BaseException as exc:
+                restoration_errors.append(("pre-commit hook", exc))
+
+        if restoration_errors:
+            failed_parts = ", ".join(part for part, _ in restoration_errors)
+            failure_details = "; ".join(
+                f"{part}: {error!r}" for part, error in restoration_errors
+            )
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} changed CommandManager "
+                f"composition state, and restoration failed for {failed_parts}. "
+                f"The manager may remain corrupted. Restoration errors: "
+                f"{failure_details}.{factory_details}"
+            ) from restoration_errors[0][1]
 
         if factory_error is not None:
             raise factory_error
