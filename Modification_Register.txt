@@ -7640,3 +7640,35 @@ Verification boundary:
     No tests, CI, syntax compilation, imports, runtime execution, numerical
     validation, or GPU hardware validation were performed.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-088
+======================================================================
+
+Scope:
+    Preserve canonical StudyService outcome when motor read-model
+    publication fails.
+
+File:
+    plugins/motor_dynamics/study_handler.py
+
+Finding:
+    StudyService publishes StudyCompleted synchronously after storing the
+    completed StudyResult. An exception escaping the motor completion
+    subscriber could bubble back into StudyService.execute and cause its
+    exception path to overwrite the result status as failed after completion.
+
+Correction:
+    MotorTransientResultPublisher now isolates read-model publication
+    exceptions from the canonical study execution path and retains a
+    last_error diagnostic. A read-model failure cannot rewrite a completed
+    engineering StudyResult into a failed study.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+======================================================================
