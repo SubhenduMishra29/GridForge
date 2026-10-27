@@ -146,6 +146,11 @@ class Network:
         from .connectivity import ConnectivityResolver
         resolver = ConnectivityResolver(self)
         for element in self.registry._objects.values():
+            # Bus attachment slots are explicit Bus topology vertices, not
+            # equipment-terminal EndpointReferences. They are resolved through
+            # ConnectivityResolver's BUS endpoint kind.
+            if str(getattr(element, "element_type", "")).strip().lower() in {"bus", "buses"}:
+                continue
             for terminal in getattr(element, "terminals", ()):
                 reference = self._reference_for_terminal(element, terminal.role)
                 buses = resolver.bus_ids_for_terminal(reference)
