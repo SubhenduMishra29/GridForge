@@ -7597,11 +7597,46 @@ Correction:
     dashboard so its read-model snapshot is available to the dashboard event.
 
 Status:
-    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFIED.
 
 Verification boundary:
     No tests, CI, syntax compilation, imports, runtime execution, numerical
     validation, GPU hardware validation, or NPU validation were performed.
     The solver remains an engineering model whose fidelity limitations are
     documented in the solver source.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-087
+======================================================================
+
+Scope:
+    Motor study event-bus authority and CUDA sample-time metadata.
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    plugins/motor_dynamics/transient_solver.py
+
+Findings:
+    The plugin could prefer a context-provided event bus over the
+    Application-owned bus used by StudyService, preventing completion
+    publication from observing the canonical StudyCompleted event.
+
+    CUDA results recorded the requested step_s as sample_period_s even when
+    the uniform integration grid uses a smaller effective interval because
+    duration_s is not an exact multiple of step_s.
+
+Correction:
+    Plugin study publisher and dashboard now prefer Application.event_bus.
+    CUDA MotorSimulationResult.sample_period_s now records the effective
+    integration interval, keeping plotted time axes consistent with the
+    returned sample grid.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, or GPU hardware validation were performed.
 ======================================================================
