@@ -234,6 +234,23 @@ class StudyService:
                 raise ValueError(f"Study type already registered: {key!r}")
             self._handlers[key] = handler
 
+    def unregister(self, study_type: str, handler: StudyHandler) -> bool:
+        """Remove a registration only when the caller still owns that exact handler.
+
+        This identity check prevents plugin teardown from unregistering a
+        replacement installed by another lifecycle owner.
+        """
+        if not isinstance(study_type, str) or not study_type.strip():
+            raise ValueError("study_type must be a non-empty string.")
+        if not callable(handler):
+            raise TypeError("handler must be callable.")
+        key = study_type.strip()
+        with self._lock:
+            if self._handlers.get(key) is not handler:
+                return False
+            del self._handlers[key]
+            return True
+
     def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
