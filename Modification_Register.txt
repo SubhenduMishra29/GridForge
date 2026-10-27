@@ -7774,3 +7774,10 @@ GF-MOTOR-092 — Retryable motor extension teardown
 - Finding: the callback marked itself unregistered before calling Application teardown. If teardown raised before removing the registration, the callback became permanently non-retryable while ownership could remain installed.
 - Correction: set the local `registered` flag to false only after `unregister_extension_handler_factory()` returns. Exceptions preserve retryability; a normal false return still closes the stale callback because it no longer owns the registration.
 - Validation: source-level correction only; no tests, CI, syntax/import checks, runtime lifecycle checks, or hardware validation performed.
+
+
+GF-MOTOR-093 — Motor solver capability and result-lifecycle documentation reconciliation
+- Scope: `plugins/motor_dynamics/README.md`.
+- Finding: the README simultaneously described the transient solver as absent and documented its RK4 implementation; it also described publication before `StudyCompleted`, contrary to the implemented StudyService subscriber flow.
+- Correction: describe the existing solver as preliminary and unvalidated, distinguish its implemented CPU/RK4 path from the limited optional CUDA batch path and inference-only NPU providers, and document that the result publisher verifies the stored successful `StudyResult` after `StudyCompleted` before publishing read-model channels.
+- Validation: documentation/source reconciliation only; no tests, CI, numerical validation, syntax/import checks, runtime lifecycle checks, or hardware validation performed.
