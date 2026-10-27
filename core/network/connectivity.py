@@ -440,9 +440,10 @@ class ConnectivityResolver:
                 continue
             if not reference.is_terminal:
                 continue
-            equipment = self._network.get_by_identity(reference.object_id)
+            terminal_reference = reference.terminal_reference
+            equipment = self._network.get_by_identity(terminal_reference.object_id)
             for terminal_obj in getattr(equipment, "terminals", ()):
-                if terminal_obj.owner is equipment and terminal_obj.role == reference.terminal_role:
+                if terminal_obj.owner is equipment and terminal_obj.role == terminal_reference.terminal_role:
                     attached = getattr(terminal_obj, "endpoint", None)
                     if attached is not None and attached in self._network.buses:
                         bus_ids.add(str(attached.id))
