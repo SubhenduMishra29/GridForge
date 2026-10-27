@@ -7265,3 +7265,31 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-078
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension teardown rollback restored the handler registry but not the
+    pre-commit hook. A custom unregister override could change the hook before
+    raising, leaving composition partially mutated after registry restoration.
+
+Correction:
+    - Capture the hook before handler teardown.
+    - Restore registry and hook independently when teardown fails.
+    - Aggregate rollback errors, retain extension ownership metadata, and
+      explicitly warn if the active manager may remain corrupted.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
