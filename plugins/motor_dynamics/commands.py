@@ -121,13 +121,25 @@ class MotorPlacementCommandHandler:
         if not isinstance(transaction, Transaction):
             raise TypeError("GridForge CommandManager supplies a Transaction")
 
-        methods = {
-            ADD_DRAFT_MOTOR_PLACEMENT: "add_draft_motor",
-            CONNECT_MOTOR_TO_BUS: "connect_motor_to_bus",
+        command_contracts = {
+            ADD_DRAFT_MOTOR_PLACEMENT: (
+                AddDraftMotorPlacementCommand,
+                "add_draft_motor",
+            ),
+            CONNECT_MOTOR_TO_BUS: (
+                ConnectMotorToBusCommand,
+                "connect_motor_to_bus",
+            ),
         }
-        method_name = methods.get(command.command_type)
-        if method_name is None:
+        contract = command_contracts.get(command.command_type)
+        if contract is None:
             raise ValueError(f"Unsupported motor command type: {command.command_type!r}")
+        expected_command_type, method_name = contract
+        if not isinstance(command, expected_command_type):
+            raise TypeError(
+                f"Motor command type {command.command_type!r} requires "
+                f"{expected_command_type.__name__}, got {type(command).__name__}."
+            )
         method = getattr(self._motor_service, method_name, None)
         if not callable(method):
             raise RuntimeError(
