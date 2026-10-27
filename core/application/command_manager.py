@@ -157,6 +157,11 @@ class CommandManager:
         return tuple(self._handlers.keys())
 
     @property
+    def pre_commit_hook(self) -> PreCommitHook | None:
+        """Return the currently configured pre-commit hook for composition guards."""
+        return self._pre_commit_hook
+
+    @property
     def integrity_state(self) -> str:
         """Return CLEAN or DEGRADED for the command/Core synchronization boundary."""
         return self._integrity_state
@@ -191,6 +196,25 @@ class CommandManager:
     # ========================================================
     # HANDLER REGISTRATION
     # ========================================================
+
+    def handler_registry_snapshot(self) -> dict[str, CommandHandler]:
+        """Return a shallow snapshot for atomic Application composition rollback."""
+        return dict(self._handlers)
+
+    def restore_handler_registry(
+        self,
+        snapshot: Mapping[str, CommandHandler],
+    ) -> None:
+        """Restore a previously captured handler registry without changing handler objects."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("handler registry snapshot must be a mapping.")
+        restored: dict[str, CommandHandler] = {}
+        for command_type, handler in snapshot.items():
+            self._validate_command_type(command_type)
+            if not callable(handler):
+                raise TypeError("handler registry snapshot contains a non-callable handler.")
+            restored[command_type] = handler
+        self._handlers = restored
 
     def register_handler(
         self,

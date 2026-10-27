@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -32,6 +33,10 @@ class ProtectionFunctionConfiguration:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value.strip())
         object.__setattr__(self, "function_code", self.function_code.upper())
+        if not isinstance(self.enabled, bool):
+            raise TypeError("enabled must be a boolean.")
+        if not isinstance(self.blocked, bool):
+            raise TypeError("blocked must be a boolean.")
         mapping_values = (self.action_target_type, self.action_target_id, self.action_type)
         if any(value is not None for value in mapping_values) and any(
             not isinstance(value, str) or not value.strip() for value in mapping_values
@@ -49,6 +54,43 @@ class ProtectionFunctionConfiguration:
             object.__setattr__(self, "action_type", action_type)
         if isinstance(self.priority, bool) or not isinstance(self.priority, int):
             raise TypeError("priority must be an integer.")
+        for field_name in ("settings", "input_channel_ids", "metadata"):
+            value = getattr(self, field_name)
+            if not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping.")
+        def validate_setting_value(value: Any, path: str) -> None:
+            if value is None or isinstance(value, (str, bool, int)):
+                return
+            if isinstance(value, float):
+                if not math.isfinite(value):
+                    raise ValueError(f"{path} must not contain NaN or infinity.")
+                return
+            if isinstance(value, Mapping):
+                for nested_key, nested_value in value.items():
+                    if not isinstance(nested_key, str) or not nested_key.strip():
+                        raise ValueError(f"{path} mapping keys must be non-empty strings.")
+                    validate_setting_value(nested_value, f"{path}.{nested_key}")
+                return
+            if isinstance(value, (list, tuple)):
+                for index, nested_value in enumerate(value):
+                    validate_setting_value(nested_value, f"{path}[{index}]")
+                return
+            raise TypeError(f"{path} contains unsupported setting value type: {type(value).__name__}.")
+
+        for setting_name, setting_value in self.settings.items():
+            if not isinstance(setting_name, str) or not setting_name.strip():
+                raise ValueError("setting names must be non-empty strings.")
+            validate_setting_value(setting_value, f"settings.{setting_name}")
+        for input_name, channel_id in self.input_channel_ids.items():
+            if not isinstance(input_name, str) or not input_name.strip():
+                raise ValueError("input_channel_ids keys must be non-empty strings.")
+            if not isinstance(channel_id, str) or not channel_id.strip():
+                raise ValueError("input_channel_ids values must be non-empty strings.")
+            if channel_id != channel_id.strip():
+                raise ValueError("input channel IDs must not contain surrounding whitespace.")
+        for metadata_key in self.metadata:
+            if not isinstance(metadata_key, str) or not metadata_key.strip():
+                raise ValueError("metadata keys must be non-empty strings.")
         object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
         object.__setattr__(self, "input_channel_ids", MappingProxyType(dict(self.input_channel_ids)))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -72,11 +114,24 @@ class ProtectionFunctionConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionFunctionConfiguration":
+        if not isinstance(data, Mapping):
+            raise TypeError("protection function configuration must be a mapping.")
+        enabled = data.get("enabled", True)
+        blocked = data.get("blocked", False)
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean.")
+        if not isinstance(blocked, bool):
+            raise TypeError("blocked must be a boolean.")
+        mapping_fields = ("settings", "input_channel_ids", "metadata")
+        for field_name in mapping_fields:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping.")
         return cls(
-            element_id=str(data["element_id"]), relay_id=str(data["relay_id"]),
-            function_code=str(data["function_code"]), settings=dict(data.get("settings") or {}),
-            input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=bool(data.get("enabled", True)),
-            blocked=bool(data.get("blocked", False)), priority=int(data.get("priority", 0)),
+            element_id=data["element_id"], relay_id=data["relay_id"],
+            function_code=data["function_code"], settings=dict(data.get("settings") or {}),
+            input_channel_ids=dict(data.get("input_channel_ids") or {}), enabled=enabled,
+            blocked=blocked, priority=data.get("priority", 0),
             name=str(data.get("name", "")), metadata=dict(data.get("metadata") or {}),
             action_target_type=data.get("action_target_type"),
             action_target_id=data.get("action_target_id"),
@@ -128,8 +183,14 @@ class ProtectionProjectConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionProjectConfiguration":
-        result = cls(str(data["project_id"]))
-        for item in data.get("elements", ()):
+        if not isinstance(data, Mapping):
+            raise TypeError("protection project configuration must be a mapping.")
+        project_id = data["project_id"]
+        elements = data.get("elements", ())
+        if not isinstance(elements, (list, tuple)):
+            raise TypeError("protection configuration elements must be a list or tuple.")
+        result = cls(project_id)
+        for item in elements:
             result.add(ProtectionFunctionConfiguration.from_dict(item))
         return result
 

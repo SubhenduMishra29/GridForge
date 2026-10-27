@@ -4597,6 +4597,3616 @@ Disposition:
 
 
 ======================================================================
+2026-10-26 — MOTOR DYNAMICS EXTENSION Qt CHARTS AND EVENT BOUNDARY
+======================================================================
+
+Files:
+    ui/core/qt.py
+    plugins/motor_dynamics/dashboard.py
+
+Finding:
+    The initial motor telemetry dashboard imported Qt Charts classes from
+    ui.core.qt even though the canonical boundary did not export those
+    classes. It also subscribed to ApplicationEventBus with a string event
+    name, while the actual bus requires an ApplicationEvent subclass and
+    publishes synchronously. Direct chart mutation from a synchronous event
+    callback could therefore violate Qt widget thread affinity.
+
+Correction:
+    - Export QChart, QChartView, QLineSeries, and QValueAxis through the
+      existing PySide6-only ui.core.qt boundary.
+    - Subscribe using the canonical StudyCompleted event class.
+    - Marshal event delivery to the widget through a Qt signal bridge before
+      updating chart series and axes.
+    - Unsubscribe using the same event class and handler during close.
+
+Verification boundary:
+    Source-contract reconciliation only. No tests or CI run. Qt Charts
+    availability in the target runtime, syntax/import integrity, and GUI
+    thread behavior remain unverified.
+
+Disposition:
+    Proposed in draft PR #674; not merged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-001
+======================================================================
+
+Scope:
+    plugins/motor_dynamics/commands.py
+    plugins/motor_dynamics/plugin.py
+    Core Application command / transaction boundary
+
+Status:
+    🟡 COMMAND ENVELOPE RECONCILED — DOMAIN SERVICE CONTRACT BLOCKED
+
+Source-audit findings:
+    Motor commands now use the canonical immutable Command envelope.
+    Handler shape follows CommandManager:
+        handler(command, context, transaction) -> ApplicationResult
+
+    CommandManager owns transaction commit/rollback. Motor handlers must
+    register inverse operations on the supplied Transaction before each
+    mutation and must not begin, commit, or roll back a separate transaction.
+
+    The existing DraftNetwork commit path prepares canonical equipment
+    creation commands and SimpleWire commands. No verified production
+    operation was found that splits an existing SimpleWire and inserts a
+    motor while preserving endpoint identity, topology invariants, undo,
+    and redo semantics.
+
+Decision:
+    Do not emulate wire splitting by editing SLD graphics or by inventing
+    a second topology service. Motor-to-wire insertion remains blocked
+    until a Core/Application-owned atomic topology operation is defined
+    against the canonical Network and SimpleWire contracts.
+
+Remaining integration requirements:
+    1. Provide the explicit motor_dynamics_composition adapter.
+    2. Provide an actual motor draft service and atomic motor topology
+       operation.
+    3. Register handlers through the host CommandManager composition.
+    4. Record inverse operations on the host transaction before mutation.
+    5. Verify StudyCompleted payload semantics before dashboard refresh.
+
+Validation:
+    No tests or CI run, per project instruction.
+    Runtime activation and import integrity remain unverified.
+
+======================================================================
+
+
+======================================================================
+GF-MOTOR-002
+======================================================================
+
+File:
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟢 SOURCE-LEVEL COMPOSITION RESPONSIBILITY CORRECTED
+
+Finding:
+    The plugin had passed the registration/composition adapter itself to
+    MotorPlacementCommandHandler as though it were the motor domain
+    service. This conflated host composition with domain operations.
+
+Correction:
+    Plugin initialization now requires a distinct composition.motor_service
+    and passes that service to the command handler. The composition adapter
+    remains responsible for registering handlers with the canonical
+    CommandManager.
+
+Adapter contract remains an integration requirement:
+    - register_motor_extension(plugin, command_handlers=...)
+    - expose motor_service implementing the explicit command service methods
+    - register handlers atomically or clean up partial registration on error
+    - return a teardown callable or unregister token
+
+Limitations:
+    No production adapter or motor service exists in the host yet.
+    No runtime activation is claimed. No tests or CI run.
+
+======================================================================
+
+
+======================================================================
+GF-MOTOR-003
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟢 ELECTRICAL TOPOLOGY SEMANTICS CORRECTED AT COMMAND CONTRACT
+
+Source-audit finding:
+    Canonical core/model/motor.py defines Motor as an Injection with exactly
+    one authoritative Terminal. It is a load/injection attached to a Bus,
+    not a two-terminal series element inserted into a SimpleWire.
+
+Correction:
+    Removed the motor command's wire_id/split_fraction wire-splitting
+    semantics. The typed request is now ConnectMotorToBusCommand and carries
+    motor_id, bus_id, and canonical Bus attachment_id. The plugin registers
+    the corrected command type.
+
+Architecture:
+    This request must be translated by an explicit Application composition
+    service into the canonical DraftNetwork connection graph. Core topology
+    is created only through the existing DraftNetwork commit and
+    SimpleWireConnectionService path. The command does not directly mutate
+    Core or SLD graphics.
+
+Remaining blocker:
+    The host motor_dynamics_composition adapter and motor_service are not
+    implemented. Runtime activation remains blocked. Bus attachment identity
+    and draft endpoint construction must be validated against the active
+    draft contract before implementation is considered complete.
+
+Validation:
+    No tests or CI run. Runtime activation and import integrity remain
+    unverified.
+
+======================================================================
+
+
+======================================================================
+GF-MOTOR-004
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+
+Status:
+    🟢 INPUT CONTRACT VALIDATION CORRECTED
+    🟠 CANONICAL CREATION CONTRACT STILL REQUIRES COMPOSITION INTEGRATION
+
+Source-audit finding:
+    Core Motor creation is already represented by
+    core.application.commands.motor_commands.CreateMotorCommand and the
+    canonical Application creation preparer. The Core Motor has one terminal
+    with role "terminal". DraftNetwork validates Bus attachment IDs against
+    the exact canonical form attachment-0 through attachment-8.
+
+Correction:
+    Motor placement command now rejects NaN/infinite coordinates, rejects a
+    non-mapping parameter payload, and normalizes the motor ID before placing
+    it in the immutable command payload. Motor-to-Bus requests now validate
+    the exact canonical attachment ID form instead of accepting any string
+    beginning with "attachment-".
+
+Remaining integration:
+    The motor plugin still has no host motor_dynamics_composition service.
+    The service must construct DraftEquipment from the canonical trusted
+    creation contract for "motor", using command type "model.create_motor",
+    ID field "motor_id", terminal contract ("terminal",), endpoint mapping
+    {"terminal": "endpoint"}, and explicit parameter mappings/contracts for
+    the canonical CreateMotorCommand fields. The trusted registry must be
+    supplied by Application composition; the plugin must not create a parallel
+    contract registry or bypass CreationCommandPreparer.
+    The motor's Bus attachment must be represented as a DraftConnection in
+    DraftNetwork, not by directly attaching a Core Motor during placement.
+
+Validation:
+    No tests or CI run. Runtime, import integrity, and actual composition
+    registration remain unverified.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-005
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    core/application/application.py
+    main.py
+    ui/plugins/plugin_context.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟠 HOST EXTENSION COMPOSITION PATH MISSING — SOURCE TRACE CONFIRMED
+
+Source-audit findings:
+    create_application() composes one CommandManager and registers the
+    built-in handler families in core/application/bootstrap.py. Its draft
+    commit handler resolves the Application-owned CreationContractRegistry.
+
+    Application exposes configure_creation_contracts() and
+    creation_contract_registry, but direct inspection of main.py found no
+    call configuring the registry. The registry is constructed empty by
+    Application.__init__ and resolve() rejects an unconfigured registry.
+
+    Application does not expose a verified public extension handler
+    registration/unregistration API. Built-in handler registration occurs
+    inside bootstrap composition, while project activation rebuilds the
+    CommandManager. Registering only against the current private
+    _command_manager would therefore bypass the public boundary and would
+    not establish lifecycle-safe registration across project transitions.
+
+    main.py creates PluginContext without services. The default PluginManager
+    definitions also do not include motor_dynamics. Consequently the plugin's
+    required motor_dynamics_composition service is not provided by startup
+    composition and the plugin is not activated by the default plugin set.
+
+Decision:
+    Do not add a plugin-local workaround or mutate the private
+    Application._command_manager. Before motor runtime activation, define
+    one Application-owned extension composition seam that:
+      1. supplies trusted motor creation metadata to the existing
+         CreationContractRegistry;
+      2. registers extension handlers atomically with each active
+         CommandManager runtime and supports teardown;
+      3. survives project/runtime replacement without duplicate handlers;
+      4. injects the explicit motor composition adapter and motor service
+         through PluginContext.services only after those services exist.
+    Preserve the canonical DraftNetwork → CreationCommandPreparer → Core
+    mutation path. Do not create a parallel creation registry or topology.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime behavior,
+    import integrity, or project-transition activation was validated.
+    PR #674 remains draft and must not be merged without explicit instruction.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-006
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    core/application/application.py
+    core/application/command_manager.py
+    core/application/project_lifecycle.py
+
+Status:
+    🟠 EXTENSION REGISTRATION MUST BE RUNTIME-FACTORY BASED
+
+Source-audit findings:
+    bootstrap.create_application() defines build_runtime(active_network),
+    which constructs network-scoped ModelService, relay/protection handlers,
+    CommandManager, ElectricalInsertionService, DraftCommandHandlers, and
+    CommitNetworkHandler. Project activation calls build_runtime again for
+    each candidate Network and atomically installs the new manager through
+    Application._replace_runtime(); the lifecycle owns rollback callbacks.
+
+    CommandManager exposes register_handler() and unregister_handler(), but
+    those methods affect only that manager instance. Registering a fixed set
+    of plugin handlers against the current manager would not register them
+    on future managers created by build_runtime().
+
+    A handler factory must be composed for every runtime generation and must
+    receive the active Network/runtime dependencies. Factories must be invoked
+    before the candidate runtime is published, and any partial failure must
+    abort candidate runtime construction without mutating the active runtime.
+    Project activation rollback must restore the prior runtime and must not
+    leave duplicate extension registrations.
+
+    The existing Application._replace_runtime() also adds SLD handlers to the
+    candidate manager before publishing it. This is the closest established
+    lifecycle pattern, but extension registration needs an explicit public
+    contract and should not expose the private manager to plugins.
+
+Decision:
+    Do not register motor handlers directly on the live CommandManager.
+    Implement a host-owned extension factory registry at the Application
+    composition boundary, with stable extension IDs, duplicate command-owner
+    detection, atomic candidate-runtime composition, deterministic teardown,
+    and trusted creation-contract configuration. The motor plugin should
+    provide a factory/adapter, not retain handlers bound to a stale Network.
+
+Validation:
+    Source inspection only. No tests or CI run. No code/runtime behavior
+    was changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-007
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/creation.py
+    core/application/bootstrap.py
+    plugins/motor_dynamics/plugin.py
+
+Status:
+    🟠 CREATION-CONTRACT COMPOSITION MUST PRECEDE MOTOR ACTIVATION
+
+Source-audit findings:
+    Application.__init__ constructs an empty CreationContractRegistry.
+    Application.configure_creation_contracts() delegates to its configure()
+    method. CreationContractRegistry rejects resolve() while empty and refuses
+    replacement with a structurally different contract set after configuration.
+
+    Repository source search and main.py inspection found no call site that
+    configures this registry on the ordinary startup path. The canonical
+    CreationCommandPreparer therefore cannot prepare a DraftEquipment commit
+    until the host composition supplies a complete trusted contract snapshot.
+
+    The registry's configure() operation expects a non-empty contract mapping
+    and the canonical registry is not a motor-only additive registry. Configuring
+    just a motor contract later would risk omitting existing equipment contracts
+    or conflicting with an already frozen full snapshot. Extension registration
+    must not silently replace the trusted registry.
+
+    bootstrap.create_application() closes over build_runtime(active_network).
+    That function constructs candidate handler mappings before creating the
+    candidate CommandManager; project activation invokes it again. This is the
+    correct location to compose runtime-specific extension handler factories,
+    but a registration API must also define how trusted creation metadata is
+    merged and frozen before the first draft commit.
+
+Decision:
+    Do not implement a motor-only contract overwrite or claim that runtime
+    registration alone completes motor creation. Before motor activation,
+    reconcile the complete canonical creation-contract catalog and establish
+    one composition-time configuration call. Then add runtime extension
+    factories to candidate CommandManager construction with duplicate ownership
+    checks and rollback-safe publication. The plugin must consume the resulting
+    Application-owned adapter via PluginContext.services.
+
+Validation:
+    Source inspection only. No tests or CI run. No runtime changes were made
+    by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-008
+======================================================================
+
+Files:
+    core/application/creation.py
+    core/application/bootstrap.py
+    core/application/application.py
+    main.py
+
+Status:
+    🟠 FULL CANONICAL CREATION CATALOGUE NOT LOCATED — DIRECT SOURCE AUDIT REQUIRED
+
+Source-audit findings:
+    core/application/creation.py defines a command-type-to-command-class
+    mapping, including model.create_motor. This mapping validates supported
+    command types and command fields; it is not a complete creation-contract
+    catalogue. It does not provide the complete trusted terminal contracts,
+    engineering parameter schemas, endpoint mappings, and connection rules
+    required by CreationContractRegistry.
+
+    bootstrap.create_application() builds runtime-specific handler mappings
+    and CommandManager instances, including replacement managers during
+    project/network activation. The inspected ordinary composition path does
+    not configure Application.creation_contract_registry.
+
+    main.py constructs the Application and initializes the default plugin
+    manager. The inspected PluginContext construction does not provide a
+    motor_dynamics_composition service. The extension therefore cannot be
+    treated as runtime-activatable based on the existing plugin branch alone.
+
+Decision:
+    Do not infer engineering parameter schemas from command signatures,
+    fabricate a motor-only registry snapshot, or register motor handlers on
+    the current CommandManager. Continue direct inspection to locate the
+    authoritative full equipment creation metadata and establish one trusted
+    composition-time catalogue. Then implement Application-owned extension
+    factories that compose against each candidate runtime, reject duplicate
+    command ownership, and abort candidate publication on partial failure.
+    Supply the motor plugin its composition adapter through PluginContext
+    services only after that host contract exists.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime behavior
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-009
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/creation/command_factory.py
+    ui/equipment/equipment_registry.py
+    core/application/creation.py
+    core/application/bootstrap.py
+
+Status:
+    🟠 CATALOGUE FOUND — OWNERSHIP / ADAPTER BOUNDARY RECONCILIATION REQUIRED
+
+Source-audit findings:
+    ui/creation/creation_definition.py provides declarative equipment
+    CreationDefinition values with engineering parameter definitions,
+    command type and ID field, parameter mapping, endpoint mapping,
+    terminal requirements, topology requirements, and conditional rules.
+
+    ui/equipment/equipment_registry.py composes the built-in equipment
+    catalogue through creation_definition_for(), including a motor
+    definition for model.create_motor and a single terminal topology.
+
+    ui/creation/command_factory.py translates UI creation drafts into
+    CreationCommitIntent and verifies those definitions against canonical
+    command signatures.
+
+    core/application/creation.py separately owns CreationContractRegistry,
+    which requires a trusted complete mapping and currently has no ordinary
+    composition-time configuration call identified in the inspected path.
+    Application/Core must not import UI modules to obtain this catalogue.
+
+Decision:
+    The missing source data is no longer considered wholly absent. The
+    remaining defect is a layer-ownership and composition integration gap:
+    creation metadata is authored in UI while commit validation trusts an
+    Application-owned registry. Do not add a UI import to Core/Application,
+    and do not copy a partial motor-only schema into the registry.
+
+    Next reconcile canonical ownership of the framework-neutral creation
+    schema. Establish one dependency-safe catalogue/contract representation
+    consumed by both UI authoring and Application commit validation, with
+    complete equipment coverage and explicit terminal/topology semantics.
+    Then configure the immutable Application registry once at composition
+    and resume runtime-scoped extension handler work.
+
+Validation:
+    Direct GitHub source inspection only. No tests or CI run. No runtime code
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-010
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_definition.py
+    ui/equipment/equipment_registry.py
+    core/application/creation.py
+
+Status:
+    🟠 CREATION SCHEMA AUTHORITY IS IN THE WRONG LAYER
+
+Source-audit findings:
+    ui/creation/creation_definition.py explicitly describes itself as the
+    single creation-schema authority, but it imports
+    EngineeringParameterDefinition from ui/equipment/equipment_definition.py.
+    That makes the complete creation schema transitively UI-owned.
+
+    ui/equipment/equipment_registry.py builds its catalogue by calling
+    creation_definition_for() and passes the result into UI EquipmentDefinition.
+    core/application/creation.py independently owns the trusted commit-time
+    CreationContractRegistry and command class mapping. There is no
+    dependency-safe canonical contract source shared by both layers.
+
+    This is not solved by configuring Application from main.py using a UI
+    EquipmentRegistry instance: doing so would make Application trust a
+    UI-owned object and could allow presentation/plugin registration to
+    become authoritative engineering schema.
+
+Decision:
+    Reconcile the shared schema types and built-in catalogue into a
+    framework-neutral Application/domain contract module with no UI imports.
+    Keep UI EquipmentDefinition and EquipmentRegistry as presentation/tool
+    adapters over that shared catalogue. Application composition should
+    configure CreationContractRegistry from the trusted framework-neutral
+    catalogue before draft commit. Extension contracts require explicit
+    Application-owned registration/validation and must not mutate the frozen
+    built-in snapshot implicitly.
+
+Validation:
+    Direct source inspection only. No tests or CI run. No runtime code
+    changed by this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-011
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    core/application/creation.py
+    core/application/draft/handlers.py
+
+Status:
+    🟠 CONTRACT CONVERSION SEMANTICS MUST BE PRESERVED
+
+Source-audit findings:
+    CreationDefinition has distinct terminal_requirements and
+    topology_requirements. Its endpoint_mapping maps semantic endpoint roles
+    to immutable create-command fields. The Application CreationContractRegistry
+    separately validates terminal_contract, endpoint_mapping, and
+    required_connection_terminals.
+
+    A conversion must not collapse these concepts. In particular, a model's
+    complete terminal inventory is not identical to its required topology
+    connections. Measurement-device secondary terminals are model terminals,
+    while primary electrical endpoints are the relevant SimpleWire/draft
+    topology endpoints. Required connection cardinality remains a commit-time
+    policy and must be derived from explicit topology requirements, not inferred
+    merely because a terminal exists or has an endpoint field.
+
+    The current registry's endpoint mapping validation requires mapped role
+    keys to be present in terminal_contract. The converter must validate this
+    invariant against the full catalogue before any registry configuration.
+    It must also preserve parameter defaults, units, choices, numeric bounds,
+    validation rules, and conditional requirements when converting parameter
+    definitions to the immutable Application contract representation.
+
+Decision:
+    Implement a framework-neutral schema/catalogue source and an explicit,
+    deterministic conversion to CreationContractRegistry's contract shape.
+    Reconcile all built-in equipment types and command signatures before
+    wiring configuration into startup. Reject incomplete or conflicting
+    contracts at composition rather than silently weakening commit validation.
+
+Validation:
+    Source inspection only. No tests or CI run. No runtime code changed by
+    this entry. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-012
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_registry.py
+
+Status:
+    🟡 CORRECTED IN SOURCE; STATIC VERIFICATION ONLY
+
+Finding:
+    The built-in catalogue represented Bus with a synthetic terminal named
+    "bus". The canonical connectivity contract instead models Bus as the owner
+    of named attachment points (attachment-0 through attachment-8). Treating
+    the Bus as ordinary terminalized equipment conflates two distinct
+    endpoint forms and risks routing Bus connectivity through an invented
+    terminal role.
+
+Correction:
+    Removed the synthetic Bus terminal from EquipmentRegistry's built-in
+    definition and stopped supplying terminal requirements to the Bus
+    CreationDefinition. Bus attachment IDs remain the canonical connectivity
+    representation; this does not change Core Bus models or attachment rules.
+
+Validation:
+    Source diff only. No tests or CI run. Startup behavior/import integrity
+    have not been executed. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-013
+======================================================================
+
+Files:
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 SOURCE CORRECTION COMMITTED; RUNTIME COMPATIBILITY NOT EXECUTED
+
+Finding:
+    CreationDefinition is declared as a frozen dataclass and described as an
+    immutable creation contract, but its parameter_mapping and endpoint_mapping
+    were copied into ordinary mutable dictionaries in __post_init__. Frozen
+    dataclasses prevent field reassignment but do not freeze nested mappings;
+    callers could therefore mutate a registered definition after validation.
+
+Correction:
+    Wrap both normalized mapping values in types.MappingProxyType. The mapping
+    contents remain readable and iterable by the existing consumers but cannot
+    be modified through the stored contract object.
+
+Validation:
+    Source diff only. No tests, CI, or runtime compatibility checks were run.
+    Serialization/copy compatibility remains to be checked as part of the
+    framework-neutral catalogue migration. PR #674 remains open, draft, and
+    unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-014
+======================================================================
+
+Files:
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SOURCE CORRECTION COMMITTED; RUNTIME COMPATIBILITY NOT EXECUTED
+
+Finding:
+    EngineeringParameterDefinition is a frozen dataclass, but its validation
+    field was normalized to a mutable dict. This left nested parameter rules
+    mutable after creation-catalogue validation, undermining the immutability
+    contract established for CreationDefinition mappings.
+
+Correction:
+    Wrap the copied validation mapping in types.MappingProxyType. Existing
+    consumers should treat validation as a read-only Mapping; conversion to a
+    plain dict remains available where serialization requires it.
+
+Validation:
+    Source inspection only. No tests, CI, or runtime imports were executed.
+    Serialization/copy compatibility remains unverified. PR #674 remains open,
+    draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-019
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 NEUTRAL CATALOGUE-TO-REGISTRY CONVERTER ADDED; CONTRACT VALIDATION PENDING
+
+Finding:
+    The neutral built-in catalogue still required callers to supply terminal
+    names, leaving the terminal inventory implicit in UI registry composition.
+    CreationContractRegistry also expects a distinct immutable mapping shape
+    with parameter metadata, endpoint mapping, and required topology terminals.
+
+Correction:
+    Added the canonical built-in terminal inventory to the neutral schema and
+    made terminal_names optional for creation_definition_for(). Legacy callers
+    may still pass terminal names, but mismatches with the canonical inventory
+    are rejected. Added creation_contracts_from_definitions() to convert the
+    neutral catalogue into the Application registry record shape while
+    preserving parameter metadata, conditional rules, endpoint mapping, and
+    required topology names. The converter deliberately does not configure
+    Application or bypass CreationContractRegistry validation.
+
+Validation:
+    Static source inspection only. No tests, CI, syntax compilation, or runtime
+    imports were executed. Some definitions may be rejected by registry
+    signature/terminal checks; reconcile those explicitly before startup wiring.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-018
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 BUILT-IN CREATION CATALOGUE MOVED TO FRAMEWORK-NEUTRAL MODULE
+
+Finding:
+    The shared creation dataclasses were neutral, but the authoritative
+    creation_definition_for() built-in catalogue and its schema constructors
+    remained in ui.creation.creation_definition.py. Application therefore
+    still could not obtain trusted built-in definitions without a UI-layer
+    dependency.
+
+Correction:
+    Moved the catalogue helper functions and complete built-in
+    creation_definition_for() catalogue into core.application.creation_schema.
+    The UI creation module now imports and re-exports the neutral catalogue
+    function and shared schema types, preserving existing import names. No
+    Application startup wiring or registry conversion is introduced by this
+    change.
+
+Validation:
+    Source transformation and static ownership review only. No tests, CI,
+    syntax compilation, or runtime imports were executed. Complete catalogue
+    reconciliation against Application command signatures and registry shape
+    remains pending. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-017
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/creation/creation_definition.py
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SHARED CREATION CONTRACT TYPES MOVED TO FRAMEWORK-NEUTRAL MODULE
+
+Finding:
+    CreationTerminalRequirement, CreationTopologyRequirement,
+    ConditionalParameterRequirement, and CreationDefinition were still defined
+    in ui.creation.creation_definition.py. Application could not consume the
+    contract types without depending on UI, and EquipmentDefinition retained a
+    runtime reconstruction import into the UI package.
+
+Correction:
+    Moved the immutable creation contract dataclasses and parameter validation
+    helper into core.application.creation_schema. The UI catalogue module now
+    imports and re-exports those shared types while retaining the built-in
+    catalogue factory. This step intentionally does not move the built-in
+    catalogue or configure Application's registry; those require a complete
+    command/schema reconciliation first.
+
+Validation:
+    Source transformation and import ownership reviewed statically only. No
+    tests, CI, syntax compilation, or runtime imports were executed. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-016
+======================================================================
+
+Files:
+    ui/equipment/equipment_definition.py
+
+Status:
+    🟡 SERIALIZED CREATION CONTRACT ROUND-TRIP PRESERVED IN SOURCE
+
+Finding:
+    EquipmentDefinition.to_dict() serialized only a subset of CreationDefinition
+    fields, omitting command_type, parameter definitions, terminal/topology
+    requirements, conditional rules, and creation behavior flags. from_dict()
+    then ignored the serialized mappings and silently rebuilt a built-in
+    contract using creation_definition_for(). Custom or changed contracts could
+    therefore lose schema information during a serialization round trip.
+
+Correction:
+    Serialize the complete CreationDefinition contract and reconstruct it from
+    the serialized fields, including immutable schema parameter metadata,
+    terminal and topology requirements, conditional requirements, and behavior
+    flags. The deserializer no longer substitutes a built-in catalogue entry
+    for a serialized contract. Older partial creation_definition payloads that
+    lack required identity fields now fail explicitly instead of silently
+    changing contract meaning.
+
+Validation:
+    Source-level edit and target replacement reviewed only. No tests, CI, or
+    runtime imports were executed. Serialization compatibility remains to be
+    checked during the wider framework-neutral catalogue migration. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-015
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    ui/equipment/equipment_definition.py
+    ui/creation/creation_definition.py
+
+Status:
+    🟡 FRAMEWORK-NEUTRAL PARAMETER TYPE INTRODUCED; FULL CATALOGUE MIGRATION PENDING
+
+Finding:
+    EngineeringParameterDefinition was defined in ui.equipment and imported
+    by ui.creation, while the UI equipment definition also type-referenced
+    CreationDefinition. This made a shared creation parameter schema UI-owned
+    and coupled creation schema construction to the UI package.
+
+Correction:
+    Introduced core.application.creation_schema.EngineeringParameterDefinition
+    as a framework-neutral immutable schema primitive. The UI equipment module
+    imports and continues to expose the type by its existing module import
+    name for compatibility. The UI creation definition now imports the neutral
+    type directly. The new module has no UI, Qt, or plugin lifecycle imports.
+
+Scope boundary:
+    This is a first extraction only. CreationDefinition, terminal/topology
+    requirements, the built-in catalogue, and UI equipment deserialization
+    still require a staged follow-up migration. Application startup contract
+    configuration is intentionally unchanged.
+
+Validation:
+    Source edits and import paths reviewed only; no tests, CI, or runtime
+    imports were executed. PR #674 remains open and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-020
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 EXPLICIT CATALOGUE INPUT VALIDATION CORRECTED; REGISTRY RECONCILIATION OPEN
+
+Finding and correction:
+    creation_contracts_from_definitions() previously used truthiness fallback,
+    so an explicitly supplied empty mapping silently selected the built-in
+    catalogue. It now selects defaults only when definitions is None, rejects
+    non-mapping inputs with TypeError, and rejects an explicit empty mapping
+    with ValueError. Application startup configuration remains unchanged.
+
+Validation:
+    Source change committed as 8714f12dd2b199815e5e9c4a92e2e8785913957f.
+    Static review only; no tests, CI, syntax compilation, or runtime imports.
+    Full reconciliation of all 22 definitions against command signatures and
+    registry invariants remains open. PR #674 remains draft and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-021
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 REQUIRED COMMAND-SOURCE INVARIANT ADDED; FULL CATALOGUE CHECK PENDING
+
+Finding:
+    CreationContractRegistry validated that declared mappings targeted real
+    constructor fields, but did not reject a contract that omitted a required
+    constructor argument entirely. Such a contract could pass configuration
+    and fail later when CreationCommandPreparer invoked the command constructor.
+
+Correction:
+    Registry configuration now computes required constructor fields from the
+    canonical command signature and requires each to be sourced by the object
+    ID, parameter mapping, or endpoint mapping. The registry rejects missing
+    sources before publishing its immutable contract snapshot.
+
+Validation:
+    Source edit committed as df54ed65c65c14c784ba7f3425e770cf6b0b9763.
+    Static review only; no tests, CI, syntax compilation, or runtime imports.
+    Full 22-definition reconciliation and runtime startup configuration remain
+    blocked pending complete validation. PR #674 remains draft and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-022
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 CONTRACT DESTINATION COLLISION CHECKS ADDED; CATALOGUE RECONCILIATION OPEN
+
+Finding:
+    CreationCommandPreparer already rejects duplicate parameter destinations,
+    duplicate endpoint destinations, cross-category collisions, and mappings
+    that overwrite the object ID. CreationContractRegistry.configure() did not
+    apply these checks before accepting a trusted catalogue snapshot, allowing
+    invalid mappings to remain configured until a later creation attempt.
+
+Correction:
+    Registry configuration now rejects duplicate parameter targets, duplicate
+    endpoint targets, parameter/endpoint cross-collisions, and mappings that
+    collide with the canonical ID field. This moves these structural failures
+    to configuration time while retaining the preparer's defensive checks.
+
+Validation:
+    Source change committed as a34d28645f92866f6cd24fe8ada35ab148b6e57a.
+    Static source review only; no tests, CI, syntax compilation, or runtime
+    imports. All 22 built-in contracts still require full reconciliation before
+    startup activation. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-023
+======================================================================
+
+Files:
+    core/application/creation.py
+
+Status:
+    🟡 REQUIRED TERMINAL MAPPING INVARIANT ADDED; CATALOGUE RECONCILIATION OPEN
+
+Finding:
+    Registry configuration verified that required connection terminals were
+    present in the terminal inventory, but did not require each such terminal
+    to have an endpoint mapping. A contract could therefore declare a terminal
+    mandatory for topology while failing to pass its endpoint to the create
+    command.
+
+Correction:
+    CreationContractRegistry.configure() now rejects any required connection
+    terminal absent from endpoint_mapping. This preserves the separation
+    between the terminal inventory and the subset of terminals that must be
+    connected at commit, while ensuring every required terminal can be
+    represented in the command payload.
+
+Validation:
+    Source change committed as 9b4670f9c114f74cd126fa4dc94e8c1bf1a62e31.
+    Static source review only; no tests, CI, syntax compilation, or runtime
+    imports. All 22 built-in definitions still require complete reconciliation.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-024
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+
+Status:
+    🟡 MEASUREMENT-TERMINAL ACQUISITION SEMANTICS CORRECTED; STATIC REVIEW ONLY
+
+Finding:
+    The built-in CT, PT, and CVT catalogue correctly excluded secondary
+    measurement terminals from required electrical topology, but the shared
+    terminal helper still marked every physical terminal as required and
+    allowed only "electrical" connections. That left S1/S2, secondary_a/b,
+    and X1/X2 described as mandatory electrical acquisition terminals in the
+    creation schema despite their measurement-channel role.
+
+Correction:
+    Added explicit measurement_terminal_names metadata to the terminal helper.
+    CT S1/S2, PT secondary_a/secondary_b, and CVT X1/X2 remain in the canonical
+    physical terminal inventory but are optional acquisition interfaces and
+    are no longer declared as ordinary electrical-wire terminals. Primary
+    endpoint mappings and required topology remain unchanged.
+
+Validation:
+    Source-level inspection only. No tests, CI, syntax compilation, or runtime
+    imports were run. The Application registry converter currently retains
+    terminal names but not the richer terminal acquisition metadata; that
+    separate contract-propagation gap remains to be reconciled before startup
+    configuration. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-025
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    core/application/creation.py
+
+Status:
+    🟡 TERMINAL ACQUISITION METADATA PROPAGATED; STATIC REVIEW ONLY
+
+Finding:
+    The neutral catalogue now distinguished CT/PT/CVT measurement interfaces,
+    but creation_contracts_from_definitions() reduced terminal requirements
+    to a tuple of names. The Application registry consequently lost required,
+    cardinality, allowed connection type, acquisition state, and initial
+    endpoint metadata during conversion.
+
+Correction:
+    The catalogue converter now emits immutable-schema terminal requirement
+    records alongside the existing terminal name inventory. The Application
+    CreationContractRegistry validates that rich records cover the canonical
+    terminal inventory exactly once, validates field shapes/enumerated values,
+    and preserves them in its normalized contract snapshot. Legacy caller
+    records that contain only terminal names receive conservative optional,
+    non-connected metadata; the built-in catalogue supplies full records.
+
+Validation:
+    Source-level inspection only. No tests, CI, syntax compilation, or runtime
+    imports were run. Downstream creation intent metadata comparison and any
+    terminal-consumer use of the new normalized field remain to be reconciled.
+    PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-026
+======================================================================
+
+Files:
+    core/application/draft/handlers.py
+    Modification_Register.txt
+
+Status:
+    🟡 CANONICAL TERMINAL CONNECTION POLICY ENFORCED; STATIC REVIEW ONLY
+
+Finding:
+    Draft connection validation checked whether a terminal existed in the
+    physical terminal inventory, but did not enforce the trusted creation
+    contract's allowed_connection_types. CT/PT/CVT measurement-secondary
+    terminals could therefore be connected through ordinary Simple Wire
+    topology despite being declared acquisition interfaces.
+
+Correction:
+    CommitNetworkHandler now validates every terminal endpoint in each draft
+    Simple Wire against the trusted canonical terminal requirement before
+    DraftNetwork validation and before any Core mutation. Unknown or mismatched
+    draft terminal identities and terminals without an electrical/simple_wire
+    allowance are rejected with a connection-specific diagnostic. Bus
+    attachment endpoints remain governed by the existing Bus endpoint contract.
+
+Validation:
+    GitHub source update committed as b829bf8e971d642bbb853f3926caf4476f5ce07f.
+    Static source inspection only; no tests, CI, syntax compilation, or runtime
+    imports were run. Full built-in catalogue reconciliation and host runtime
+    integration remain open. PR #674 remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-027
+======================================================================
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Status:
+    🟡 CANONICAL CREATION REGISTRY CONFIGURED AT COMPOSITION; RUNTIME VALIDATION PENDING
+
+Finding:
+    CommitNetworkHandler depended on an Application-owned CreationContractRegistry,
+    but the canonical bootstrap created the Application without configuring that
+    registry. Draft commits therefore failed with a configuration error even
+    when their equipment contract was part of the built-in catalogue.
+
+Correction:
+    The Application composition root now converts the neutral built-in
+    CreationDefinition catalogue into trusted contract records and configures
+    the Application-owned registry immediately after constructing the facade.
+    Registry signature and mapping validation runs at composition time rather
+    than waiting for an engineer to commit a draft.
+
+Validation:
+    GitHub source update committed as 0f9c93af2f22cabef196c472e6edbb4adb30c879.
+    Static source inspection only; the 22 built-in contracts have not been
+    runtime-validated in this environment. No tests or CI were run. PR #674
+    remains open, draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-028
+======================================================================
+
+Files:
+    plugins/motor_dynamics/tools.py
+    Modification_Register.txt
+
+Status:
+    🟡 LEGACY WIRE-INSERTION IMPORT AND MOTOR-TO-WIRE BEHAVIOUR REMOVED
+
+Finding:
+    MotorPlacementTool imported CommitMotorToNetworkCommand, which is not
+    defined/exported by the motor command module, and used a wire hit-test to
+    request insertion into an existing branch. That conflicts with the canonical
+    one-terminal motor injection model and would fail import when the tool module
+    was loaded.
+
+Correction:
+    The tool now imports the defined AddDraftMotorPlacementCommand and
+    ConnectMotorToBusCommand, optionally resolves a Bus attachment through
+    find_bus_attachment_at, and never requests wire splitting/insertion. Invalid
+    Bus hit-test results are rejected before creating the motor draft. Placement
+    without a Bus hit remains a draft for subsequent editing/connection.
+    A failed placement result is returned without dispatching the follow-up Bus
+    connection command.
+
+Validation:
+    Source updates committed as 5573e2065acdee2345e24a7b6c22d17fb025e9c6
+    and 6fd98604d2091f469883730ffc4e230373f4a6a6.
+    Static source inspection only; the host canvas integration and command
+    dispatch path are not yet runtime-verified. No tests or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-029
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    plugins/motor_dynamics/manifest.json
+    Modification_Register.txt
+
+Status:
+    🟡 PROVIDER FALLBACK AND INPUT VALIDATION HARDENED; HARDWARE EXECUTION UNVERIFIED
+
+Finding:
+    The inference adapter only considered Vitis AI and CPU, did not retry after
+    provider initialization failure, and silently truncated or zero-padded input
+    features to fit a model. The manifest claimed INT8 support without an
+    explicit model-specific quantization contract.
+
+Correction:
+    Provider selection now considers Vitis AI, TensorRT, CUDA, and CPU in
+    priority order, requires CPU fallback availability, and records provider
+    initialization diagnostics. Inference input is checked for finite numeric
+    values, exact sample dimensions, and supported floating-point tensor types;
+    integer inputs are rejected unless a future explicit quantization contract
+    is implemented. Manifest metadata now describes provider capability and
+    compatibility limits instead of claiming unverified INT8 support.
+
+Validation:
+    Source updates committed as fed22649252e5b8ebd09a507059185c19a3c371f,
+    174e6886a7825ca0340b539855fddf58cb85003a, and
+    8516439c217bbb8f2dacd3195571818aaf4d9422. Complex-valued features are
+    also rejected so their imaginary components cannot be silently discarded. Static review only; no
+    tests, CI, syntax compilation, accelerator runtime, or hardware checks were
+    run. This does not constitute a complete CPU/GPU/NPU motor simulation solver.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-030
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Status:
+    🟡 RUNTIME-SAFE EXTENSION HANDLER FACTORY CONTRACT ADDED; MOTOR SERVICE INTEGRATION OPEN
+
+Finding:
+    Application project activation replaces CommandManager instances. Extension
+    handlers registered only on the current manager would be lost, while handlers
+    closing over project-bound services could remain bound to a stale Network.
+
+Correction:
+    Application now exposes register_extension_handler_factory() and
+    unregister_extension_handler_factory(). Factories produce command handlers
+    against the current/candidate CommandManager. Runtime replacement materializes
+    and validates all extension handler mappings before swapping active Application
+    references; collisions or factory errors abort the candidate replacement.
+    Registration and unregistration update the active registry atomically and
+    preserve core ownership of command execution and project mutation.
+
+Validation:
+    Application source updates committed as 9eea4b9bf00d779baf017db289003c58911e587d
+    and 06194f919d9a30b7a8a0f9c0b0cbbd1f4057fd8c (candidate setup completes
+    before the active runtime references are swapped).
+    Bootstrap now snapshots and restores extension-handler ownership metadata on
+    both activation failure and explicit lifecycle rollback; update committed as
+    d0816a1c17de50c4d01e1f067e237a1b8ea963f7.
+    Static source review only. No tests, CI, syntax compilation, import checks, or
+    runtime activation were run. The motor-specific host composition adapter and
+    canonical DraftNetwork motor service remain absent. PR #674 remains open,
+    draft, and unmerged.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-031
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    core/application/bootstrap.py
+    main.py
+    plugins/motor_dynamics/service.py
+    Modification_Register.txt
+
+Status:
+    🟡 CANONICAL MOTOR DRAFT SERVICE AND PLUGIN SERVICE INJECTION ADDED;
+        DEFAULT PLUGIN ACTIVATION AND END-TO-END VALIDATION REMAIN OPEN
+
+Finding:
+    Motor placement commands had no host-owned implementation that translated
+    the extension's typed commands into the canonical Application DraftNetwork.
+    PluginContext also did not provide the required motor_dynamics_composition
+    service, so MotorDynamicsPlugin could not initialize from the normal UI
+    composition path.
+
+Correction:
+    Added a headless Application service that builds DraftEquipment from the
+    trusted motor creation contract and records motor-to-Bus topology as a typed
+    DraftConnection. Both operations use the existing CommandManager transaction
+    and record the exact draft snapshot as the undo inverse. The service does
+    not create Core models, mutate graphics, or bypass the canonical commit path.
+    Added MotorDynamicsComposition, which registers the two extension handlers
+    through Application.register_extension_handler_factory so handlers survive
+    project-runtime replacement. Application bootstrap exposes the composition
+    adapter, and main.py injects it into PluginContext.services. The implementation
+    lives in core/application/services to keep the headless composition root free
+    of UI plugin imports; the plugin service module is a compatibility re-export.
+
+Commits:
+    62fb9fb5b82a8223cb801d16b2d17dadb9620918
+    6572fdbacf602bae2cc5a71667bc92ed5f5981d5
+    7e45e0c5981b5a89759323a4e5e615d6201e7439
+    ed687e90d947fed94972eed9907a915d2fa2f70b
+
+Validation:
+    Source files and key integration markers were re-fetched after writes.
+    No tests, CI, syntax compilation, import checks, or runtime activation were
+    run. The motor plugin remains opt-in; the default plugin set was not changed.
+    The transient motor solver, full parameter-acquisition UX, and full
+    end-to-end project lifecycle validation remain open.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-032
+======================================================================
+
+Files:
+    core/network/electrical_boundary.py
+    core/application/draft/network.py
+    Modification_Register.txt
+
+Status:
+    🟡 SOURCE-LEVEL POLICY RECONCILIATION APPLIED; RUNTIME UNVERIFIED
+
+Finding:
+    DraftNetwork.validate_connection_candidate() checked endpoint identity,
+    role membership, and duplicate pairs, but did not invoke the canonical
+    Core EndpointCompatibility policy. The Core policy also returned early
+    for Bus pairs before rejecting measurement-secondary terminal domains.
+    Consequently, a CT/PT/CVT secondary endpoint could pass draft preflight
+    when connected directly to a Bus, despite the recorded GF-MOTOR-026
+    requirement.
+
+Correction:
+    - Core EndpointCompatibility.validate_pair() now rejects a measurement
+      secondary endpoint before its Bus fast path.
+    - DraftNetwork candidate validation converts both canonical draft
+      endpoints to Core EndpointReference values and invokes the same Core
+      compatibility policy before authoring mutation.
+    - Draft authoring continues to own no electrical compatibility rules;
+      it delegates to Core and raises a contextual ValueError for the caller.
+    - No alternate topology source or UI-derived electrical truth was added.
+
+Validation boundary:
+    Source inspection and targeted replacement checks only. No tests, CI,
+    syntax compilation, import checks, runtime activation, or hardware checks
+    were run. Confirm behavior through the existing SimpleWire service and
+    Core endpoint policy during a separately requested verification pass.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-033
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    Modification_Register.txt
+
+Status:
+    🟡 SOURCE-LEVEL VALIDATION CONSISTENCY CORRECTED; RUNTIME UNVERIFIED
+
+Finding:
+    The framework-neutral EngineeringParameterDefinition validator accepted
+    non-finite float values because NaN comparisons do not trigger minimum or
+    maximum checks. Its integer conversion path could also raise inconsistent
+    conversion errors for non-finite values. Unsupported datatypes fell through
+    without an explicit rejection. The Application commit validator separately
+    performed stricter finite-number and datatype checks, creating inconsistent
+    draft/pre-commit feedback.
+
+Correction:
+    - Shared schema validation now rejects NaN and positive/negative infinity.
+    - Integer validation checks finiteness and integral value before conversion.
+    - Unknown parameter datatypes fail explicitly.
+    - Application commit validation remains authoritative; this aligns earlier
+      schema feedback with its finite-number and datatype contract.
+
+Validation boundary:
+    Source replacement and repository re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime validation were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-034
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    Modification_Register.txt
+
+Status:
+    🟡 NORMALIZED-VALUE VALIDATION RULES ALIGNED; STATIC SOURCE REVIEW ONLY
+
+Finding:
+    The neutral creation-schema validator converted numeric parameters for
+    datatype and range checks, but then applied nonzero and allowed_values
+    rules to the original input. Numeric strings such as "0" could therefore
+    bypass nonzero checks, and equivalent numeric inputs could receive
+    different allowed_values results than the Application commit validator.
+
+Correction:
+    The schema validator now applies non_empty, nonzero, and allowed_values
+    rules to the datatype-normalized value, matching the Application
+    pre-commit validator's normalization contract without changing Core
+    authority or placement-time behavior.
+
+Validation boundary:
+    Exact source-block replacement and GitHub source update only. No tests,
+    CI, syntax compilation, import checks, or runtime validation were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-035
+======================================================================
+
+Files:
+    core/application/creation_schema.py
+    Modification_Register.txt
+
+Status:
+    🟡 UNIT-METADATA CONTRACT ALIGNED; STATIC SOURCE REVIEW ONLY
+
+Finding:
+    The neutral schema validator accepted unit metadata when the canonical
+    parameter declared no unit, unlike Application pre-commit validation.
+    It also extracted a missing value key from a value/unit mapping as None,
+    obscuring the malformed input contract.
+
+Correction:
+    The schema now rejects unit metadata when no canonical unit is declared,
+    requires a value/unit mapping to contain an explicit 'value' key, and
+    retains exact unit matching when a unit is defined. This keeps the
+    placement/schema feedback aligned with the trusted commit contract.
+
+Validation boundary:
+    Source replacement and repository re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime validation were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+
+======================================================================
+GF-MOTOR-036
+======================================================================
+
+Files:
+    core/network/topology.py
+    core/network/electrical_boundary.py
+    Modification_Register.txt
+
+Status:
+    🟡 CT PRIMARY TOPOLOGY PATH RECONCILED; STATIC SOURCE REVIEW ONLY
+
+Finding:
+    CurrentTransformer was included in registered physical attachments but
+    excluded from TopologyManager's conductive equipment set. A CT primary
+    connected between two distinct Buses could therefore be represented as
+    two terminal attachments without the zero-impedance series path that
+    its primary conductor requires. The secondary measurement circuit remains
+    a separate interface and must not enter ordinary Simple Wire topology.
+
+Correction:
+    - Added CurrentTransformer to the canonical topology element types.
+    - Defined an in-service CT as a conductive primary path for topology
+      projection; out-of-service CTs do not bridge their attached Buses.
+    - Kept CT secondary rejection in EndpointCompatibility, ahead of the
+      Bus endpoint fast path. No CT secondary wire or measurement circuit
+      was added to the power-network graph.
+
+Validation boundary:
+    GitHub source updates and source-level re-fetch only. No tests, CI,
+    syntax compilation, import checks, or runtime topology rebuild were run.
+    The resulting CT primary bus-to-bus projection and interactions with
+    network-specific terminal attachment semantics remain runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+
+======================================================================
+GF-MOTOR-037
+======================================================================
+
+Files:
+    core/network/topology.py
+    Modification_Register.txt
+
+Status:
+    🟡 INSTRUMENT-TRANSFORMER TERMINAL DOMAINS RECONCILED; STATIC SOURCE REVIEW ONLY
+
+Finding:
+    PT/CVT secondary terminals could be projected as ordinary physical Bus
+    attachments when a Bus was assigned directly, even though ordinary
+    Simple Wire validation rejects measurement-secondary terminals.
+    The preceding CT correction also treated a four-terminal CT as a
+    two-terminal conductive element; that could incorrectly require its
+    measurement secondary to resolve as power topology.
+
+Correction:
+    - Exclude measurement-secondary terminals from power-network Bus
+      attachments and reject direct Bus attachment on those terminals.
+    - Keep PT/CVT primary terminals as measurement-device attachments, not
+      ideal conductive bridges between their primary terminals.
+    - Remove CT from the generic two-terminal topology-element set.
+    - Resolve only CT P1/P2 as the dedicated primary series path; require
+      both primary terminals to resolve for an in-service CT and add the
+      bus adjacency without projecting S1/S2 into power topology.
+    - Reuse EndpointCompatibility.domain as the canonical terminal-domain
+      classifier.
+
+Validation boundary:
+    GitHub source updates and source-level re-fetch only. No tests, CI,
+    syntax compilation, import checks, or runtime topology rebuild were run.
+    The topology behavior and exact terminal-role contracts remain
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-038
+======================================================================
+
+Files:
+    core/model/relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 RELAY MEASUREMENT-CHANNEL BINDING CONTRACT TIGHTENED;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    Relay.bind_input() validated that a channel had an 'id' attribute,
+    but did not verify that the channel exposed a supported live-value
+    interface. Invalid objects could be accepted as relay inputs and fail
+    later when a protection function attempted to read a measurement.
+
+Correction:
+    - Require a non-empty string channel identity.
+    - Require either a 'value' attribute or callable get_value() method,
+      matching the interfaces consumed by Relay.get_input_value().
+    - Keep the Relay independent of a concrete MeasurementChannel class
+      and do not copy/cache measurement values or derive them from SLD data.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime protection/measurement flow were
+    run. The concrete measurement-channel implementation and end-to-end
+    CT/PT/CVT-to-relay integration remain to be audited.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-039
+======================================================================
+
+Files:
+    core/network/electrical_boundary.py
+    Modification_Register.txt
+
+Status:
+    🟡 CT/PT TERMINAL-DOMAIN CLASSIFICATION ALIGNED WITH CANONICAL TYPES;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    EndpointCompatibility._DOMAIN_ROLES keyed CT/PT domains by Python-style
+    names ('current_transformer' and 'potential_transformer'), while the
+    canonical EquipmentType values derive from model TYPE and are 'ct' and
+    'pt'. As a result, CT S1/S2 and PT secondary terminals could fall back
+    to the generic domain, bypassing secondary-domain rejection and
+    allowing incorrect power-network attachment classification.
+
+Correction:
+    - Added canonical 'ct' and 'pt' keys to the domain-role map.
+    - Retained descriptive legacy aliases for compatibility.
+    - CT/PT secondary roles now resolve through the same classifier used by
+      ordinary Simple Wire validation and topology attachment filtering.
+    - No measurement values or topology are inferred from SLD graphics.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime topology rebuild were run.
+    CT/PT/CVT-to-measurement-channel and relay integration remains
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-040
+======================================================================
+
+Files:
+    core/measurement/measurement_generation.py
+    Modification_Register.txt
+
+Status:
+    🟡 MEASUREMENT SOURCE FAMILY AND PRIMARY TERMINAL CONTRACT TIGHTENED;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    MeasurementGeneration validated source identity and that the supplied
+    terminal role existed on the source, but it did not enforce the
+    instrument family or primary-side role required by the conversion.
+    A CT secondary terminal (S1/S2), PT secondary terminal, or CVT
+    secondary terminal could therefore be supplied as the source terminal
+    while the implementation converted a primary-side network quantity
+    through the instrument ratio.
+
+Correction:
+    - Current and short-circuit generation now require a CT source.
+    - Voltage generation now requires a PT or CVT source.
+    - The source terminal must be an authoritative primary-side terminal:
+      CT P1/P2, PT primary_a/primary_b, or CVT H1/H2.
+    - Preserve explicit source identity and terminal membership checks.
+    - Keep analysis values sourced from prepared solver/result contracts;
+      no SLD graphics or UI state is consulted.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime measurement generation were run.
+    Measurement provisioning, channel persistence, and relay consumption
+    still require end-to-end integration audit.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-041
+======================================================================
+
+Files:
+    core/model/relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 RELAY CONSUMPTION ALIGNED WITH ENGINEERING SIGNAL SEMANTICS;
+        STATIC SOURCE REVIEW ONLY
+
+Finding:
+    MeasurementChannel.value is explicitly a compatibility alias for
+    raw_value. The channel's consumer-facing engineering signal is exposed
+    through signal/engineering_value, which applies scale and polarity.
+    Relay.get_input_value() preferred value and therefore returned the raw
+    sample, silently bypassing channel-level scale/polarity. It also did
+    not reject a channel whose is_usable state explicitly indicated invalid,
+    unavailable, unknown-quality, or stale data.
+
+Correction:
+    - Prefer signal, then engineering_value, before legacy get_value/value
+      interfaces so canonical MeasurementChannel consumers receive the
+      engineering-scaled and polarity-adjusted value.
+    - If the channel exposes is_usable, require it to evaluate to True
+      before returning a value.
+    - Preserve compatibility for generic channel adapters without the
+      optional usability interface.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime relay/protection execution were
+    run. End-to-end measurement generation and protection consumption remain
+    runtime-unverified.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-042
+======================================================================
+
+Files:
+    core/protection/preparation.py
+    Modification_Register.txt
+
+Status:
+    🟡 DETACHED PROTECTION SNAPSHOT PRESERVES MEASUREMENT USABILITY;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    ProtectionPreparation detached channel values into PreparedMeasurementValue
+    with availability and quality only. It omitted the canonical channel's
+    is_usable/validity state, so offline protection consumers could receive a
+    numerical engineering value without an explicit indication that the
+    measurement was invalid, unavailable, unknown-quality, or otherwise unusable.
+
+Correction:
+    - Snapshot the channel's basic is_usable state and validity classification
+      alongside the engineering value.
+    - Keep MeasurementChannel authoritative; the preparation layer records a
+      detached view and does not mutate the channel or infer protection logic.
+    - Staleness remains time-dependent and is not evaluated here because this
+      preparation API has no evaluation-time argument; that requires a separate
+      execution-time contract rather than guessing a clock.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or offline protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-043
+======================================================================
+
+Files:
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Status:
+    🟡 PERSISTED PROTECTION INPUT REFERENCES VALIDATED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Project persistence validated the shape of measurement definitions but did
+    not cross-check ProtectionFunctionConfiguration.input_channel_ids against
+    the persisted channel definitions at load/save boundaries. A protection
+    input could therefore refer to a channel absent from the project package,
+    leaving a dangling binding until a later activation or execution path.
+    Duplicate persisted channel IDs were also not rejected at this boundary.
+
+Correction:
+    - Validate that each persisted channel ID is a non-empty string and unique.
+    - Validate every persisted protection input channel ID against the project's
+      measurement channel ID set during both load and save validation.
+    - Fail with ProjectPersistenceError and include the protection element/input
+      context rather than silently retaining a dangling association.
+    - Keep live MeasurementChannel instances and sample state under the
+      Application MeasurementChannelService; persistence checks configuration
+      identity only.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or project round-trip runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-044
+======================================================================
+
+Files:
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION MEASUREMENT REFERENCES REQUIRE CANONICAL IDENTIFIERS;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    The persistence boundary checked that protection input channel references
+    existed, but did not first validate their type and canonical form.
+    Malformed persisted mappings could therefore trigger an incidental
+    TypeError during set membership (for example, a list-valued channel ID),
+    or permit empty/whitespace-only input names to pass the boundary.
+
+Correction:
+    - Require each protection input name to be a non-empty string.
+    - Require each channel reference to be a non-empty string with no
+      surrounding whitespace before checking membership against persisted
+      channel IDs.
+    - Preserve the existing missing-reference rejection and duplicate
+      persisted-channel-ID validation.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or project round-trip runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-045
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PERSISTED PROTECTION ENABLE/BLOCK FLAGS REQUIRE STRICT BOOLEAN TYPES;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    ProtectionFunctionConfiguration.from_dict() used bool(value) coercion for
+    enabled and blocked. Non-empty strings such as "false" and "0" therefore
+    became True, while malformed persisted configuration could silently change
+    whether a protection function was enabled or blocked.
+
+Correction:
+    - Require enabled and blocked to be actual booleans when deserializing.
+    - Preserve defaults for omitted fields (enabled=True, blocked=False).
+    - Reject malformed persisted values instead of guessing intent.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-046
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION CONFIGURATION DESERIALIZATION NO LONGER COERCES IDENTITY
+    OR PRIORITY TYPES; SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    GF-MOTOR-045 corrected boolean coercion on persisted enable/block flags.
+    Follow-up audit found the same trust-boundary issue for element_id,
+    relay_id, function_code, and priority: from_dict() stringified identities
+    and int()-coerced priority. This could turn null identities into the
+    literal string "None" or truncate non-integral numeric priority values.
+
+Correction:
+    - Pass persisted identity values to the canonical constructor without
+      string coercion, allowing its non-empty-string contract to reject
+      malformed types.
+    - Pass priority without int() coercion so the existing strict integer
+      contract rejects booleans, strings, and non-integer values.
+    - Enforce enabled/blocked Boolean types in __post_init__ as well as
+      from_dict, covering direct construction and deserialization paths.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-047
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION CONFIGURATION DESERIALIZATION REQUIRES MAPPING SHAPES;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Protection configuration deserialization accepted malformed container
+    shapes through dict() coercion and stringified project_id. This could
+    transform pair sequences into mappings, fail with incidental errors, or
+    accept a non-string project identifier after coercion.
+
+Correction:
+    - Require protection-function and project configuration payloads to be
+      mappings.
+    - Require settings, input_channel_ids, and metadata to be mappings when
+      supplied, rather than coercing arbitrary iterables through dict().
+    - Require the aggregate elements collection to be a list or tuple.
+    - Pass project_id through without string coercion so the canonical
+      constructor validates the original type.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-048
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION MAPPING INTERNAL TYPES HARDENED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Frozen protection configuration wrapped dict(self.mapping) without
+    validating the direct-construction inputs or the key/value contract of
+    input_channel_ids. Pair sequences could be silently converted to maps,
+    and malformed channel identifiers could be retained until later use.
+
+Correction:
+    - Require settings, input_channel_ids, and metadata to be mappings in
+      direct construction as well as during deserialization.
+    - Require setting names and metadata keys to be non-empty strings.
+    - Require input-channel names and channel IDs to be non-empty strings;
+      reject channel IDs with surrounding whitespace.
+    - Preserve immutable MappingProxyType snapshots after validation.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-049
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Status:
+    🟡 PROTECTION SETTING VALUE SHAPES AND FINITE NUMBERS VALIDATED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    Protection settings accepted arbitrary nested Python objects and
+    non-finite floating-point values. NaN and infinity can defeat threshold
+    comparisons, while unsupported objects may not persist or serialize
+    consistently.
+
+Correction:
+    - Validate setting values recursively during direct configuration
+      construction, covering persisted and programmatic configuration paths.
+    - Permit JSON-like scalar values, mappings with non-empty string keys,
+      and lists/tuples.
+    - Reject NaN and positive/negative infinity.
+    - Reject unsupported object types instead of accepting opaque runtime
+      objects as settings.
+    - Keep function-specific engineering ranges and required setting names
+      for validation at the protection-function schema/evaluation boundary.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-050
+======================================================================
+
+Files:
+    core/protection/overcurrent/instantaneous_relay.py
+    core/protection/overcurrent/iec_relay.py
+    Modification_Register.txt
+
+Status:
+    🟡 ANSI 50/51 BOOLEAN-TO-NUMERIC COERCION REJECTED;
+        SOURCE-LEVEL CORRECTION ONLY
+
+Finding:
+    ANSI 50 and 51 settings converted pickup and time-multiplier inputs
+    using float() before checking their numeric contract. Python booleans
+    are numeric subclasses, so True could be accepted as 1.0 for a pickup
+    or TMS value and silently alter protection behaviour.
+
+Correction:
+    - Reject Boolean pickup values for ANSI 50 and ANSI 51.
+    - Reject Boolean TMS values for ANSI 51.
+    - Preserve existing finite-positive numeric validation and IEC curve
+      normalization.
+
+Validation boundary:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or protection runtime were run.
+
+Disposition:
+    Proposed on feature/motor-dynamics-extension-v2 in draft PR #674.
+    PR remains unmerged.
+======================================================================
+======================================================================
+GF-MOTOR-051
+======================================================================
+
+Files:
+    core/protection/function_catalog.py
+    Modification_Register.txt
+
+Finding:
+    Validate ProtectionFunctionSpecification metadata types before normalization
+    or enum identity checks. Require string code/name, enum status, class-or-None
+    implementation, and contract-or-None input_contract. Existing invariants
+    remain; ANSI 87 remains explicitly NOT_IMPLEMENTED without implementation
+    or contract.
+
+Validation:
+    Source-level re-fetch only. No tests, CI, syntax, import, or runtime checks.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+======================================================================
+GF-MOTOR-052
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    ONNX inference included CPU during provider setup but did not retry on a
+    CPU-only session if the selected accelerator failed during inference.
+    The provider_fallback_used result also reflected initialization failures
+    only and could be false/misleading for runtime fallback behavior.
+
+Correction:
+    - Retain ONNX Runtime and session options for a controlled CPU-only retry.
+    - On selected non-CPU provider inference failure, retry once on CPU.
+    - Validate that the CPU session exposes the expected input name.
+    - Update active provider/session diagnostics and fallback state after retry.
+    - If CPU retry also fails, raise an explicit error chained from the failure.
+
+Validation:
+    Source-level re-fetch only. No tests, CI, syntax, import, or runtime checks.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-053
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService coerced the draft motor identifier with str(), allowing
+    malformed payload types to become apparently valid domain identifiers.
+
+Correction:
+    Reject non-string or blank motor identifiers at the Application service
+    boundary before creating draft equipment.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-054
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    The Application motor service relied on command-constructor validation
+    for coordinates and did not independently reject Boolean/non-finite
+    coordinates or malformed parameter keys.
+
+Correction:
+    Validate finite numeric x/y coordinates (excluding bool) and require
+    non-empty string parameter names before creating draft equipment.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-055
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService coerced motor, Bus, and attachment identifiers to
+    strings and did not independently enforce the canonical attachment ID.
+
+Correction:
+    Reject non-string/blank connection identifiers and require attachment
+    IDs in canonical attachment-0 through attachment-8 form before resolving
+    draft equipment or authoring a connection.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-056
+======================================================================
+
+Files:
+    plugins/motor_dynamics/commands.py
+    Modification_Register.txt
+
+Finding:
+    MotorPlacementCommandHandler dispatched on command_type alone after
+    checking only the generic Command base class. A different Command object
+    could claim a motor command type and reach a service with an incompatible
+    payload contract.
+
+Correction:
+    Bind each supported command type to its corresponding typed motor command
+    class and reject mismatched command instances before service dispatch.
+    Preserve Application ownership of transaction commit and rollback.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax, import, or runtime
+    checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+======================================================================
+GF-MOTOR-057
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsComposition accepted whitespace-padded plugin IDs and
+    assumed the command-handler argument was a mapping. Its teardown
+    callback was not idempotent and could unregister a later registration
+    if an old cleanup callback was invoked again.
+
+Correction:
+    Require a canonical non-blank plugin ID and a mapping containing
+    exactly the two supported callable handlers. Capture a stable handler
+    snapshot and make teardown idempotent to protect later registrations.
+
+Validation:
+    Source-level update and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime lifecycle checks were run.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+======================================================================
+GF-MOTOR-058
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    Optional ONNX Runtime inference selected only Vitis AI, TensorRT, CUDA,
+    or CPU providers. This omitted additional installed NPU-capable and
+    GPU-capable execution providers from discovery.
+
+Correction:
+    Add QNN and OpenVINO providers to the preferred provider candidates,
+    and DirectML (DmlExecutionProvider) to GPU candidates. Keep CPU as the
+    required final fallback. Availability remains a capability signal only;
+    it does not guarantee device execution or model compatibility.
+
+Validation:
+    Source-level update and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, device discovery, or inference runs were done.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-059
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    Accelerator inference failures could trigger a successful CPU-only retry,
+    but the result did not explain which provider failed or why. This made
+    runtime fallback less diagnosable than initialization fallback.
+
+Correction:
+    - Record the selected provider's runtime exception type and message.
+    - Record successful CPU-only retry as a distinct runtime diagnostic.
+    - Record CPU retry failure diagnostics before raising the existing
+      explicit fallback failure.
+    - Expose runtime_diagnostics separately from initialization_diagnostics
+      in the inference result; keep CPU fallback and provider state updates.
+
+Validation:
+    Source update and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, hardware checks, or inference runs were done.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-060
+======================================================================
+
+Files:
+    plugins/motor_dynamics/manifest.json
+    Modification_Register.txt
+
+Finding:
+    The inference manifest's provider list and fallback description lagged
+    behind the adapter implementation. It omitted QNN, OpenVINO, and
+    DirectML candidates and did not describe runtime CPU retry diagnostics,
+    leaving plugin metadata inconsistent with the implementation.
+
+Correction:
+    - Align the declared provider priority with the adapter's QNN, Vitis AI,
+      OpenVINO, TensorRT, CUDA, DirectML, and CPU candidate sequence.
+    - Describe initialization fallback and runtime CPU-only retry behavior.
+    - State explicitly that provider availability and session provider
+      listing do not prove accelerator execution or graph placement.
+
+Validation:
+    Manifest JSON was parsed before update. Source and register targeted
+    re-fetch only. No tests, CI, syntax compilation, import checks, inference
+    runs, device discovery, or hardware validation were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-061
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    provider_fallback_used was set from whether any earlier candidate failed
+    initialization. That incorrectly reported a fallback even when a later
+    accelerator provider initialized successfully, so the diagnostic did not
+    distinguish candidate discovery failures from actual CPU fallback.
+
+Correction:
+    Set provider_fallback_used at initialization only when CPU is the selected
+    provider and at least one earlier candidate failed. Successful accelerator
+    selection remains false even if a higher-priority candidate was unavailable
+    or failed initialization. The existing runtime CPU retry still sets the
+    flag true after it succeeds.
+
+Validation:
+    Source-contract correction and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, inference runs, or hardware checks were done.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-062
+======================================================================
+
+Files:
+    plugins/motor_dynamics/read_models.py
+    Modification_Register.txt
+
+Finding:
+    The motor simulation read model accepted malformed identifiers and status
+    metadata, non-finite or non-numeric samples, and invalid sample periods.
+    Re-publishing a motor with fewer channels also left omitted channels from
+    the previous simulation cached, allowing a dashboard to mix run results.
+
+Correction:
+    Validate the motor ID, channel mapping and names, real numeric finite
+    channel values, positive finite sample period, status, and fault type before
+    publishing. Prepare read-only arrays and the summary before acquiring the
+    lock. Replace the motor's complete channel snapshot atomically, removing
+    stale channels omitted by the new publication.
+
+Validation:
+    Source update and targeted re-fetch only. No tests, CI, syntax compilation,
+    import checks, dashboard execution, or simulation runs were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-063
+======================================================================
+
+Files:
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDraftService built its allowed parameter IDs by stringifying
+    values and silently skipping malformed parameter-contract entries.
+    A malformed or duplicated trusted contract could therefore be
+    misinterpreted instead of rejected at the Application boundary.
+
+Correction:
+    - Require the resolved motor creation contract to be a mapping.
+    - Require parameter_contract to be a list or tuple of mappings.
+    - Require each parameter_id to be a canonical non-empty string.
+    - Reject duplicate parameter IDs instead of silently collapsing them.
+    - Keep unknown-parameter rejection before DraftEquipment creation.
+
+Validation:
+    Source update and targeted source re-fetch only. No tests, CI, syntax
+    compilation, import checks, or application runtime were performed.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-064
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsComposition returned an idempotent local teardown callback,
+    but Application.unregister_extension_handler_factory() removed whichever
+    registration currently occupied the plugin ID. If an older teardown
+    callback survived after its registration was removed and the same ID was
+    registered again, invoking the stale callback could remove the newer
+    registration. The previous comment claiming stale callbacks were safe was
+    not enforced by the Application API.
+
+Correction:
+    - Application unregistration accepts an optional expected_factory owner
+      and leaves the active registration untouched when the owner differs.
+    - MotorDynamicsComposition retains the exact factory object it registered
+      and supplies it as the expected owner during teardown.
+    - Existing callers that omit expected_factory retain the prior API
+      behavior; the motor lifecycle now uses ownership-checked teardown.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or application runtime were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-065
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.initialize() registered command handlers before
+    constructing the optional telemetry dashboard. If dashboard construction
+    failed, initialization exited with _initialized still false while the
+    command registration remained active. A retry could then collide with
+    the existing extension registration. The previous implementation also
+    accepted a non-callable registration token without guaranteeing teardown.
+
+Correction:
+    - Stage the teardown token, persistence handler and dashboard in local
+      variables before publishing initialized state on the plugin instance.
+    - Require register_motor_extension() to return a callable teardown.
+    - On initialization failure, attempt to close a constructed dashboard and
+      invoke the registration teardown before re-raising the original error.
+    - Publish context, application, persistence, dashboard and initialized
+      state only after all setup steps succeed.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-066
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._replace_runtime() rolled back handlers only within the
+    extension currently being registered. If a later extension factory,
+    handler registration, or control-runtime setup failed, handlers from
+    earlier extensions and SLD registration could remain on the candidate
+    CommandManager even though the Application retained its previous runtime.
+
+Correction:
+    - Track each SLD and extension handler successfully installed on the
+      candidate manager across the entire runtime composition.
+    - On any candidate setup failure, unregister those newly installed
+      handlers in reverse order on a best-effort basis, preserving the
+      original setup exception.
+    - Keep publication of the new Application runtime references after all
+      candidate composition and control setup has succeeded.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-067
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._replace_runtime() assumed its CommandManager argument was
+    a separate candidate. It did not enforce that precondition. If passed
+    the active manager, partial SLD-handler registration could mutate the
+    currently active registry before a later duplicate-handler collision
+    raised, undermining candidate rollback isolation.
+
+Correction:
+    - Reject runtime replacement when the supplied CommandManager is the
+      active manager, before registering any SLD or extension handlers.
+    - Preserve the existing candidate-first setup and publish-after-success
+      replacement sequence.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-068
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension handler factories receive a CommandManager and were trusted
+    not to mutate its registry. A factory that registered handlers before
+    returning or raising could leave registrations outside Application's
+    ownership tracking and runtime-composition rollback list.
+
+Correction:
+    - Route factory invocation through an Application-owned guard that
+      snapshots the complete CommandManager handler registry and pre-commit hook.
+    - Detect additions, removals, handler replacements, and hook replacement;
+      restore the prior registry, handler identities, registration order, and hook.
+    - Preserve and re-raise the original factory exception when the factory
+      mutates composition state and raises.
+    - Apply the guard during extension registration and runtime reconstruction.
+    - Add CommandManager snapshot/restore support and a read-only pre-commit
+      hook accessor for controlled composition rollback.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-071
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension factory rollback could itself fail. Such a failure was not
+    described explicitly, risking confusion about whether composition state
+    had been restored.
+
+Correction:
+    - Attempt registry and pre-commit-hook restoration independently.
+    - If either restoration fails, raise an explicit RuntimeError naming the
+      failed state and warning that the manager may remain corrupted.
+    - Preserve the restoration exception as the chained cause and include
+      the original factory exception in the error details when present.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-072
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    A custom or lazy Mapping returned by a factory could execute behavior
+    during later validation/installation iteration, outside the factory guard,
+    or change its contents between those iterations.
+
+Correction:
+    - Materialize Mapping results to a plain dict inside the guarded invocation.
+    - Detect registry/hook side effects that occur during mapping materialization.
+    - Validate and install the same stable handler mapping.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-073
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension-factory side-effect detection performed its post-factory
+    registry snapshot and pre-commit-hook read outside an error boundary. If
+    either verification accessor failed after the factory mutated the
+    CommandManager, the error could escape without attempting restoration or
+    clearly describing the uncertain composition state.
+
+Correction:
+    - Guard post-factory verification reads.
+    - When verification fails, attempt restoration of both captured registry
+      and pre-commit hook because the mutation extent cannot be classified.
+    - Report verification and rollback failures explicitly, including the
+      original factory exception when available; do not claim restoration if
+      rollback failed.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-074
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Candidate runtime rollback removed only newly tracked handler names and
+    silently swallowed unregister failures. That did not restore the full
+    original candidate registry or pre-commit hook, and could leave a damaged
+    candidate manager without reporting rollback failure.
+
+Correction:
+    - Snapshot the candidate manager's complete registry and pre-commit hook
+      before composition begins.
+    - On setup failure, restore both captured components independently.
+    - If rollback fails, raise an explicit RuntimeError identifying the
+      failed component(s), include the setup exception details, and warn that
+      the candidate manager may remain corrupted. If rollback succeeds, re-raise
+      the original setup exception.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-075
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension handler installation on the active CommandManager tracked a
+    command type only after register_handler() returned. If an overridden
+    registration method mutated the registry and then raised, that mutation
+    could escape rollback. The previous per-name cleanup also could not restore
+    the complete original registry if cleanup itself failed.
+
+Correction:
+    - Snapshot the active handler registry immediately before installation.
+    - On any registration failure, restore the full captured registry rather
+      than unregistering only successfully tracked names.
+    - If restoration fails, raise an explicit RuntimeError including both
+      registration and rollback failures and warning that the active manager
+      may remain corrupted. If restoration succeeds, re-raise the original
+      registration exception.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-076
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    unregister_extension_handler_factory() removed ownership metadata before
+    unregistering all handlers. If a handler removal failed partway through,
+    the factory/type metadata could be lost while some handlers remained
+    registered, preventing reliable retry or diagnosis.
+
+Correction:
+    - Snapshot the complete active handler registry before teardown.
+    - On any handler-removal failure, attempt to restore the captured registry
+      and retain extension ownership metadata.
+    - Report rollback failure explicitly, including that the active manager
+      may remain corrupted; remove ownership metadata only after all removals
+      succeed.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-077
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    The atomic extension-handler installation rollback restored the handler
+    registry but did not capture or restore the pre-commit hook. A custom
+    CommandManager registration override could mutate that hook before raising,
+    leaving application composition partially changed despite registry restore.
+
+Correction:
+    - Capture the pre-commit hook alongside the registry before installation.
+    - Restore registry and hook independently after registration failure.
+    - Report all rollback failures and warn that the active manager may remain
+      corrupted; preserve the original registration exception details.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-078
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension teardown rollback restored the handler registry but not the
+    pre-commit hook. A custom unregister override could change the hook before
+    raising, leaving composition partially mutated after registry restoration.
+
+Correction:
+    - Capture the hook before handler teardown.
+    - Restore registry and hook independently when teardown fails.
+    - Aggregate rollback errors, retain extension ownership metadata, and
+      explicitly warn if the active manager may remain corrupted.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-079
+======================================================================
+
+Files:
+    plugins/motor_dynamics/README.md
+    Modification_Register.txt
+
+Finding:
+    The motor-dynamics extension lacked a detailed package-level guide
+    explaining its architecture, command and draft workflow, module roles,
+    inference-provider behavior, persistence contract, and implementation
+    limitations. This made it difficult to distinguish the current scaffold
+    from planned but not yet implemented simulation capabilities.
+
+Correction:
+    - Added a package README describing plugin activation requirements and
+      the Core/Application/UI ownership boundaries.
+    - Documented motor draft placement and Bus attachment semantics, typed
+      commands, transaction/undo expectations, SLD projection, read models,
+      dashboard event flow, diagnostics, ONNX inference, and persistence.
+    - Explicitly documented CPU fallback and capability-dependent inference
+      providers without claiming GPU/NPU motor-physics acceleration.
+    - Identified the missing complete transient solver and flattened 3D
+      Numba/CUDA kernels, along with runtime and hardware validation gaps.
+
+Validation:
+    README and register content were written to the feature branch and
+    subsequently re-fetched for source verification only. No tests, CI,
+    syntax compilation, import checks, runtime activation, or hardware
+    validation were performed.
+
+Disposition:
+    Documentation added to draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-080
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension teardown tracked command names but not the exact handler objects
+    installed by each extension. If a handler was removed and another handler
+    later occupied the same command key, extension teardown could unregister
+    the replacement. Missing handlers and inconsistent ownership metadata were
+    also silently treated as normal teardown.
+
+Correction:
+    - Record the exact handler object for each extension-owned command when
+      registration succeeds.
+    - Before teardown, compare the active registry against those identities
+      and verify the command-name and handler-identity records agree.
+    - Refuse teardown before mutation when ownership drift is detected, leaving
+      replacement or missing handlers untouched and retaining metadata for
+      explicit reconciliation.
+    - Rebuild identity records for candidate runtime handlers and publish them
+      only after the complete candidate runtime composition succeeds.
+    - Clear identity metadata only after successful teardown.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-081
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.shutdown() discarded all teardown callbacks even when
+    one failed, cleared the dashboard reference even when close() failed, and
+    reset application/context state unconditionally. A failed resource release
+    could therefore become impossible to retry through the plugin lifecycle.
+
+Correction:
+    - Retain only teardown callbacks that raised; successful callbacks are not
+      repeated on a subsequent shutdown attempt.
+    - Retain the dashboard reference when close() fails and clear it only after
+      close() returns successfully.
+    - Preserve initialized state and application/context/persistence references
+      whenever resource teardown fails, allowing diagnosis and retry.
+    - Clear lifecycle references only after all owned resources are released.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or plugin runtime activation/shutdown were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-082
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.initialize() swallowed dashboard-close and command
+    teardown failures during initialization rollback. The plugin then re-raised
+    only the setup exception without retaining failed resource handles, making
+    partially registered handlers or a dashboard impossible to retry through
+    shutdown(). Shutdown also used ExceptionGroup despite collecting
+    BaseException instances, which could mask the original cleanup failure.
+
+Correction:
+    - Attempt dashboard close and command teardown independently after setup
+      failure, recording each cleanup failure instead of suppressing it.
+    - If rollback completes, re-raise the original initialization exception
+      without publishing partially initialized plugin state.
+    - If rollback is incomplete, retain only failed resource handles and the
+      context/application/persistence references needed for retry; mark the
+      plugin initialized so shutdown() can retry cleanup.
+    - Aggregate initialization and cleanup failures with BaseExceptionGroup.
+      Use BaseExceptionGroup during shutdown as well, so captured
+      KeyboardInterrupt/SystemExit subclasses do not cause a secondary
+      grouping TypeError that masks cleanup failures.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or plugin runtime activation/shutdown were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-083
+======================================================================
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+    plugins/motor_dynamics/__init__.py
+    plugins/motor_dynamics/manifest.json
+    plugins/motor_dynamics/README.md
+    Modification_Register.txt
+
+Finding:
+    The motor extension exposed telemetry/read-model scaffolding but lacked a
+    numerical transient solver. Optional ONNX Runtime accelerator providers
+    did not provide motor-physics execution and could be mistaken for GPU/NPU
+    solver support.
+
+Correction:
+    - Added a headless NumPy CPU reference solver for a balanced squirrel-cage
+      induction motor in a synchronous dq frame, integrating stator/rotor flux
+      linkages, rotor speed, and a lumped winding-temperature state with
+      fixed-step classical RK4.
+    - Added SI parameter and time/profile validation, inductance-matrix
+      nonsingularity checks, finite-state failure detection, and a uniform
+      integration grid ending exactly at the requested simulation duration.
+    - Stores trajectory state in one contiguous flat motor-major,
+      step-major, state-minor buffer and exposes read-only state/channel views.
+    - Added an optional Numba-CUDA batch kernel mapping independent motor
+      trajectories to GPU threads. CPU remains the reference/fallback; CUDA
+      unavailability or execution failure falls back to CPU with diagnostics.
+    - Added result-to-read-model publication support. The application study
+      orchestrator remains responsible for publishing only successful results
+      and emitting the canonical StudyCompleted event.
+    - Exported the solver API, declared its capabilities in the plugin
+      manifest, and documented the model boundary and acceleration policy.
+    - Explicitly recorded that NPU acceleration is not currently applicable to
+      this recurrent integration kernel; ONNX NPU providers remain separate
+      inference capabilities and are not represented as physics acceleration.
+
+Model boundary:
+    Balanced induction motor; synchronous dq frame; linear inductances;
+    constant load torque; one lumped thermal state. Magnetic saturation,
+    unbalanced faults, PWM switching, separate stator/rotor thermal nodes,
+    load torque curves, and validated reference cases remain outstanding.
+
+Validation:
+    Targeted source/document/register re-fetch only. No tests, CI, syntax
+    compilation, imports, runtime activation, numerical benchmark, CPU/GPU
+    equivalence run, or hardware validation was performed.
+
+Disposition:
+    Implemented in draft PR #674; unmerged. Numerical validation and
+    application study-lifecycle integration remain required before production
+    use.
+======================================================================
+
+======================================================================
+GF-MOTOR-084
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    Lifecycle failure aggregation used BaseExceptionGroup directly even though
+    the plugin manifest declares Python >=3.10. BaseExceptionGroup is built in
+    only from Python 3.11, so Python 3.10 cleanup-error paths would fail while
+    trying to report the original lifecycle failure.
+
+Correction:
+    - Added a compatibility helper that uses BaseExceptionGroup when available.
+    - On Python 3.10, raises a RuntimeError with all failure summaries and
+      retains the original exception objects in an errors attribute.
+    - Kept initialization rollback and shutdown on the same aggregation path.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    imports, or runtime lifecycle checks were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-085
+======================================================================
+
+Files:
+    plugins/motor_dynamics/read_models.py
+    plugins/motor_dynamics/transient_solver.py
+    plugins/motor_dynamics/dashboard.py
+    Modification_Register.txt
+
+Finding:
+    The dashboard looked only for motor_id in StudyCompleted payloads, while
+    GridForge's canonical StudyService publishes study_id and study metadata.
+    Therefore a canonical completion event could not identify the motor result
+    to render, even when the result had been associated with a study.
+
+Correction:
+    - Added an optional study_id association to read-model publication and a
+      thread-safe lookup from study ID to motor ID.
+    - Added the study_id argument to MotorSimulationResult.publish_to(...).
+    - Updated the dashboard to prefer an explicit motor_id when supplied and
+      otherwise resolve the canonical study_id through the read-model store.
+    - Kept event dispatch and StudyCompleted timing owned by Application; the
+      plugin dashboard remains a read-only projection.
+
+Boundary:
+    This correction closes the event identity mismatch only. A registered
+    motor_transient StudyService handler and its lifecycle-owned registration
+    are still required for end-to-end solver execution through the Application
+    study API. Publication must be coordinated with successful study completion.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    imports, runtime activation, or numerical/hardware validation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-086
+======================================================================
+
+Scope:
+    Application StudyService integration for motor transient dynamics.
+
+Files:
+    core/application/study.py
+    plugins/motor_dynamics/study_handler.py
+    plugins/motor_dynamics/plugin.py
+
+Finding:
+    The transient solver and dashboard existed, but no lifecycle-owned
+    motor_transient handler connected validated StudyRequest inputs to
+    solver execution and successful StudyCompleted publication.
+
+Correction:
+    Added MotorTransientStudyHandler. It accepts explicit MotorParameters
+    (or a field mapping), simulation interval, dq voltage inputs, frequency,
+    load torque, and backend selection. Constant dq inputs use the solver's
+    CPU/CUDA dispatch with CPU fallback; sampled voltage profiles use the CPU
+    reference integrator. NPU physics execution is not claimed because no
+    applicable motor-physics NPU backend is implemented.
+
+    Added MotorTransientResultPublisher. It retrieves the canonical stored
+    StudyResult after StudyService has recorded completion and publishes only
+    when status is completed and study_type is motor_transient. Failed and
+    cancelled studies do not publish read-model snapshots.
+
+    Added identity-checked StudyService.unregister(...) so plugin teardown
+    cannot remove a replacement handler. Plugin lifecycle registers the study
+    handler and result publisher, unwinds them on initialization failure, and
+    retains teardown handles if cleanup fails. Publisher subscribes before the
+    dashboard so its read-model snapshot is available to the dashboard event.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFIED.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+    The solver remains an engineering model whose fidelity limitations are
+    documented in the solver source.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-087
+======================================================================
+
+Scope:
+    Motor study event-bus authority and CUDA sample-time metadata.
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    plugins/motor_dynamics/transient_solver.py
+
+Findings:
+    The plugin could prefer a context-provided event bus over the
+    Application-owned bus used by StudyService, preventing completion
+    publication from observing the canonical StudyCompleted event.
+
+    CUDA results recorded the requested step_s as sample_period_s even when
+    the uniform integration grid uses a smaller effective interval because
+    duration_s is not an exact multiple of step_s.
+
+Correction:
+    Plugin study publisher and dashboard now prefer Application.event_bus.
+    CUDA MotorSimulationResult.sample_period_s now records the effective
+    integration interval, keeping plotted time axes consistent with the
+    returned sample grid.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, or GPU hardware validation were performed.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-088
+======================================================================
+
+Scope:
+    Preserve canonical StudyService outcome when motor read-model
+    publication fails.
+
+File:
+    plugins/motor_dynamics/study_handler.py
+
+Finding:
+    StudyService publishes StudyCompleted synchronously after storing the
+    completed StudyResult. An exception escaping the motor completion
+    subscriber could bubble back into StudyService.execute and cause its
+    exception path to overwrite the result status as failed after completion.
+
+Correction:
+    MotorTransientResultPublisher now isolates read-model publication
+    exceptions from the canonical study execution path and retains a
+    last_error diagnostic. A read-model failure cannot rewrite a completed
+    engineering StudyResult into a failed study.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+======================================================================
+
+
+======================================================================
+GF-MOTOR-089
+======================================================================
+
+Scope:
+    Align motor dynamics documentation and remove unused study state.
+
+Files:
+    plugins/motor_dynamics/README.md
+    plugins/motor_dynamics/study_handler.py
+
+Correction:
+    Updated the README to distinguish implemented source-level
+    StudyService registration/result publication from unperformed
+    end-to-end, numerical, and accelerator validation. Removed an unused
+    pending-results dictionary from the stateless study handler.
+
+Status:
+    SOURCE CORRECTION COMMITTED — STATIC RE-FETCH VERIFICATION PENDING.
+
+Verification boundary:
+    No tests, CI, syntax compilation, imports, runtime execution, numerical
+    validation, GPU hardware validation, or NPU validation were performed.
+======================================================================
+
+
+======================================================================
+2026-10-27 — MOTOR DYNAMICS EXPLICIT BACKEND CONTRACT
+======================================================================
+
+File:
+    plugins/motor_dynamics/study_handler.py
+
+Finding:
+    A motor transient request selecting backend='cuda' with variable stator
+    voltage profiles was silently rewritten to CPU execution. This violated
+    the explicit backend selection contract and could mislead users about
+    accelerator use.
+
+Correction:
+    - Reject an explicit CUDA request for variable dq-voltage profiles with
+      a descriptive ValueError.
+    - Keep CPU/auto fallback available for profiles through the CPU reference
+      integrator.
+    - Preserve CUDA dispatch only for the implemented constant-input batch
+      path; do not claim NPU physics support.
+
+Verification boundary:
+    Static source review only. No tests, CI, numerical or hardware validation.
+
+Disposition:
+    Implemented on feature/motor-dynamics-extension-v2 for PR #674 review.
+======================================================================
+
+======================================================================
+GF-MOTOR-090
+======================================================================
+
+Scope:
+    Align feature-branch StudyService teardown with the shared Application
+    lifecycle contract.
+
+File:
+    core/application/study.py
+
+Finding:
+    The feature branch implemented handler-identity-safe unregister(), but
+    could unregister a study type while one of its handlers was executing.
+    This allowed plugin teardown to race an active study and diverged from
+    the canonical lifecycle correction proposed in PR #676.
+
+Correction:
+    - Track active executions by study type under the existing StudyService
+      lock, without changing result keys, cancellation tokens, or events.
+    - Refuse to unregister a study type while that type has active work.
+    - Preserve optional handler identity checking so stale owners cannot
+      remove a replacement registration.
+    - Increment active counts atomically with handler lookup/token creation
+      and decrement in the execution finally path.
+
+Verification boundary:
+    Static source inspection only. No tests, CI, syntax compilation, imports,
+    runtime/concurrency, numerical, GPU, or NPU validation were performed.
+
+Disposition:
+    Source correction committed to feature/motor-dynamics-extension-v2 for
+    PR #674 reconciliation.
+======================================================================
+
+GF-MOTOR-091 — Extension handler ownership rollback integrity
+- Scope: `core/application/bootstrap.py` project-runtime activation and compensation.
+- Correction: snapshot and restore `_extension_handler_handlers` alongside `_extension_handler_command_types` when candidate runtime activation fails or is rolled back. This keeps exact handler-identity ownership metadata aligned with the restored CommandManager and prevents stale/mismatched extension teardown records.
+- Validation: static source correction only; no tests, CI, syntax/import checks, runtime activation, or hardware validation performed.
+
+
+GF-MOTOR-092 — Retryable motor extension teardown
+- Scope: `core/application/services/motor_dynamics_service.py`, `MotorDynamicsComposition.register_motor_extension()` teardown callback.
+- Finding: the callback marked itself unregistered before calling Application teardown. If teardown raised before removing the registration, the callback became permanently non-retryable while ownership could remain installed.
+- Correction: set the local `registered` flag to false only after `unregister_extension_handler_factory()` returns. Exceptions preserve retryability; a normal false return still closes the stale callback because it no longer owns the registration.
+- Validation: source-level correction only; no tests, CI, syntax/import checks, runtime lifecycle checks, or hardware validation performed.
+
+
+GF-MOTOR-093 — Motor solver capability and result-lifecycle documentation reconciliation
+- Scope: `plugins/motor_dynamics/README.md`.
+- Finding: the README simultaneously described the transient solver as absent and documented its RK4 implementation; it also described publication before `StudyCompleted`, contrary to the implemented StudyService subscriber flow.
+- Correction: describe the existing solver as preliminary and unvalidated, distinguish its implemented CPU/RK4 path from the limited optional CUDA batch path and inference-only NPU providers, and document that the result publisher verifies the stored successful `StudyResult` after `StudyCompleted` before publishing read-model channels.
+- Validation: documentation/source reconciliation only; no tests, CI, numerical validation, syntax/import checks, runtime lifecycle checks, or hardware validation performed.
+
+
+GF-MOTOR-094 — CUDA RK4 local-array dtype name correction
+- Scope: `plugins/motor_dynamics/transient_solver.py`, nested Numba CUDA `integrate` kernel.
+- Finding: five CUDA local arrays referenced `dtype=float64`, but the module did not define or import the bare name `float64`. CUDA kernel compilation could therefore fail before the RK4 integration executes.
+- Correction: use the already-used `np.float64` dtype explicitly for all five local arrays, matching the kernel's state-array dtype contract.
+- Validation: static source correction and re-fetch only; no tests, Numba compilation, syntax/import checks, numerical comparison, CUDA execution, CI, or hardware validation performed.
+
+======================================================================
+GF-MOTOR-079
+======================================================================
+
+Scope:
+    Shared headless ODE integration foundation
+
+Files:
+    core/numerics/ode.py
+
+Status:
+    🟡 IMPLEMENTED — CONSUMER INTEGRATION AND VALIDATION PENDING
+
+Finding:
+    Motor-dynamics integration had a plugin-local CPU RK4 loop. Repeating
+    that loop in each future physics plugin would duplicate numerical
+    integration behavior and error handling.
+
+Correction:
+    Added a domain-neutral, headless RK4 primitive with a uniform time-grid
+    contract, explicit zero-order-hold interval inputs, shape and finiteness
+    validation, a contiguous flat state-history buffer, and read-only result
+    views. The utility imports no Qt, plugin, or accelerator runtime.
+
+Boundary:
+    Physics plugins continue to own their derivative equations, parameters,
+    state definitions, and domain outputs. CPU is the reference integrator.
+    GPU/NPU dispatch remains a separate backend capability and must not be
+    inferred from this CPU primitive.
+
+Remaining:
+    Refactor the motor CPU solver to consume this shared primitive, reconcile
+    CPU/GPU numerical behavior, define backend capability/diagnostic contracts,
+    and validate the implementation. No tests or runtime checks were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-080
+======================================================================
+
+Scope:
+    Motor transient solver integration with the shared ODE engine
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — NUMERICAL EQUIVALENCE AND RUNTIME VALIDATION PENDING
+
+Correction:
+    The CPU motor transient path now delegates RK4 stage mechanics, time-grid
+    construction, finite-state checks, and flat state-history production to
+    core.numerics.ode.solve_rk4. The motor plugin retains its induction-motor
+    derivative equations, parameter validation, dq voltage profiles, and
+    motor-specific result channels. The existing optional CUDA kernel remains
+    separate and is not yet proven numerically equivalent to the CPU reference.
+
+Constraints:
+    No tests, syntax checks, imports, GUI launch, hardware checks, or CI were
+    run. Do not claim numerical parity or runtime success until validated.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-081
+======================================================================
+
+Scope:
+    Motor batch input validation before backend dispatch
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — STATIC REVIEW ONLY
+
+Finding:
+    Batch input validation previously checked shapes and model object types,
+    but finite voltage, finite/non-negative electrical frequency, and finite
+    numeric load torque were not all rejected before CUDA selection. Invalid
+    input could therefore enter the accelerator path before the CPU fallback
+    reported the input problem.
+
+Correction:
+    Added backend-independent validation for scalar dq voltage inputs,
+    electrical frequency, and each load torque before CPU/CUDA dispatch.
+    Invalid user input now fails at the batch API boundary rather than being
+    treated as an accelerator failure.
+
+Remaining:
+    Validate error consistency and CPU/CUDA numerical equivalence when
+    runtime validation is authorized and suitable hardware is available.
+    No tests, syntax checks, imports, hardware checks, or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-082
+======================================================================
+
+Scope:
+    CUDA failure observability and CPU fallback diagnostics
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The optional CUDA batch path caught every exception and silently returned
+    CPU results annotated only with a generic fallback note. This obscured
+    the reason acceleration failed and made backend behavior harder to audit.
+
+Correction:
+    Capture the CUDA exception type and message and preserve them in each
+    fallback result's diagnostics. Fallback results now distinguish requested
+    backend (CUDA), executed backend (CPU), and the recorded accelerator
+    failure. CPU fallback remains available when accelerator execution fails.
+
+Boundary:
+    This improves observability; it does not establish CPU/CUDA numerical
+    equivalence or prove that the CUDA kernel runs correctly.
+
+Validation:
+    Source-level patch applied. No tests, syntax checks, imports, CUDA hardware
+    execution, or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-083
+======================================================================
+
+Scope:
+    CPU/CUDA model parity review and NumPy scalar input validation
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Audit finding:
+    Static comparison found the CPU and CUDA kernels use matching state order,
+    inductance/current reconstruction, temperature-adjusted resistance,
+    electromagnetic torque, copper-loss calculation, dq flux derivatives,
+    mechanical equation, thermal equation, initial speed/temperature, RK4
+    stages, uniform time grid, and flat step-major state layout. This is a
+    source-level comparison only; numerical parity is not established.
+
+Confirmed defect:
+    Public scalar validation accepted Python int/float but rejected some
+    NumPy integer/floating scalar values, even though these are ordinary
+    numerical inputs commonly produced by NumPy-based callers. The check was
+    inconsistent across parameter, time, frequency, torque, and batch paths.
+
+Correction:
+    Added a shared numeric-scalar predicate that accepts Python and NumPy
+    integer/floating scalars while rejecting Python and NumPy booleans and
+    non-scalar values. Applied it across motor parameter, time, frequency,
+    torque, and batch validation. Positive-integer pole-pair validation also
+    accepts NumPy integer scalars while rejecting booleans.
+
+Boundary:
+    This fixes scalar type compatibility and documents the static parity
+    findings. It does not prove CPU/CUDA equivalence, convergence, or physical
+    model validity. The CPU and CUDA derivative equations remain separately
+    implemented because the CUDA kernel must be device-compilable.
+
+Validation:
+    Source-level changes only. No tests, syntax checks, imports, CUDA/NPU
+    hardware execution, or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-084
+======================================================================
+
+Scope:
+    Shared ODE time-grid contract across motor CPU and CUDA paths
+
+Files:
+    core/numerics/ode.py
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The motor plugin maintained a duplicate time-grid implementation alongside
+    core.numerics.ode.uniform_time_grid. Duplicate implementations can drift
+    in validation, sample counts, endpoint handling, and effective step size.
+    The shared time-grid validator also rejected NumPy numeric scalar inputs.
+
+Correction:
+    The shared ODE time-grid validator now accepts Python and NumPy integer
+    and floating-point scalars while rejecting booleans and non-scalar inputs.
+    Motor CPU and CUDA paths now obtain their sample count and timestamps from
+    core.numerics.ode.uniform_time_grid via the plugin's _validate_time adapter.
+    Removed the now-unused duplicate ceil dependency from the motor plugin.
+
+Boundary:
+    This centralizes the CPU/CUDA time-grid contract and input type handling.
+    It does not make the CUDA kernel use the shared CPU RK4 implementation;
+    the CUDA kernel retains device-compilable RK4 mechanics. Numerical parity
+    and convergence remain unverified.
+
+Validation:
+    Source-level edits only. No tests, syntax checks, imports, accelerator
+    hardware execution, or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-085
+======================================================================
+
+Scope:
+    Backend-neutral numerical capability and dispatch policy
+
+Files:
+    core/numerics/backend.py
+    core/numerics/__init__.py
+
+Status:
+    🟡 IMPLEMENTED — CONSUMER INTEGRATION AND VALIDATION PENDING
+
+Finding:
+    The architecture had backend-specific decisions embedded in individual
+    plugin dispatch code. Future numerical plugins risk duplicating workload
+    suitability, precision support, availability, preference, and fallback
+    policy.
+
+Correction:
+    Added BackendCapability, BackendSelection, and select_backend() as
+    runtime-neutral numerical policy primitives. Runtime adapters supply
+    availability and supported-workload facts; the policy evaluates workload,
+    precision, minimum workload size, explicit requests, automatic preference,
+    CPU fallback, and structured rejection reasons. Exported these primitives
+    from core.numerics.
+
+Boundary:
+    The shared policy does not probe hardware or import CPU/GPU/NPU runtimes.
+    It does not claim NPU support or dispatch existing motor work until the
+    motor plugin is explicitly integrated. Application/study orchestration
+    remains responsible for supplying truthful runtime capability facts and
+    publishing successful results.
+
+Validation:
+    Source-level implementation only. No tests, syntax checks, imports,
+    hardware probing, or CI were run. Consumer integration remains pending.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-086
+======================================================================
+
+Scope:
+    Motor transient batch integration with shared backend dispatch policy
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The motor plugin previously contained its own backend selection branch,
+    duplicating workload-size policy and providing incomplete diagnostics for
+    automatic selection and fallback.
+
+Correction:
+    Motor batch dispatch now supplies CPU-reference and optional Numba-CUDA
+    capability facts to core.numerics.backend.select_backend(). CUDA is
+    declared applicable only to the constant-dq, float64 batch workload with
+    at least eight independent motors. Selection diagnostics record requested,
+    selected and executed backends, rejection reasons, and explicit fallback
+    causes. CUDA execution failures retain bounded exception details and
+    fall back to CPU.
+
+Boundary:
+    This integrates the shared policy for the currently implemented CPU and
+    CUDA paths. It does not claim NPU availability or add an NPU runtime.
+    Capability facts still originate from the motor runtime adapter; the
+    shared policy itself remains runtime-neutral.
+
+Validation:
+    Source-level integration only. No tests, syntax checks, imports, CUDA
+    hardware execution, numerical equivalence checks, or CI were run.
+
+======================================================================
+
+
+GF-MOTOR-087 — Reusable numerical-plugin problem contract
+Files: core/numerics/ode.py; core/numerics/__init__.py
+Status: Implemented; validation pending.
+Added frozen NumericalProblem with problem identity, workload key, plugin derivative, initial state, duration, maximum step, optional interval input sampler, and float64 precision declaration. Added solve_numerical_problem() to route plugin-defined ODEs through shared CPU RK4. Physics equations remain plugin-owned; accelerator adapters remain separate and must prove workload/precision compatibility. This does not yet migrate the motor solver to the new contract or provide generic GPU/NPU execution. No tests, syntax checks, imports, hardware execution, or CI were run.
+
+GF-MOTOR-088 — Motor solver adopts shared NumericalProblem contract; numerical backend adapter Protocol added to core.numerics.backend and exported. CPU motor equations now populate the common problem envelope and call solve_numerical_problem(), preserving plugin-owned derivative/state definitions. The adapter contract requires compatible state ordering, time-grid, precision, and input-sampling semantics; runtime adapters supply capability facts and own runtime-specific failures. GPU adapter conformance and actual NPU runtime are not implemented by this change. No tests, syntax checks, imports, hardware execution, numerical comparison, or CI were run.
+
+GF-MOTOR-089 — Motor CUDA batch adapter integration. Added a motor-specific CUDA batch adapter whose capability declaration explicitly limits execution to motor_transient_batch, float64, and batches of at least eight independent motors. Shared dispatch selects from the adapter-provided capability and execution now passes through its solve_batch entry point. CPU and CUDA result diagnostics now identify workload and precision consistently; both paths use the shared uniform time-grid contract. CUDA exceptions still trigger diagnosed CPU fallback. This is source-level only: no numerical equivalence, syntax, import, test, CUDA hardware, performance, or CI checks were run. The generic NumericalBackendAdapter protocol remains distinct from this motor-specific batch adapter because the current CUDA kernel cannot execute arbitrary plugin derivative callables.
+
+GF-MOTOR-090 — CPU/CUDA transient parity audit and fail-fast correction. Source comparison confirmed the CUDA derivative equations match the CPU motor derivative for the supported constant-dq workload, including temperature-adjusted resistance, slip, torque, copper loss, mechanical acceleration, and lumped thermal dynamics. Both paths use the shared uniform grid rule (ceil(duration/max_step), exact duration endpoint) and initialize flux states to zero with configured speed/temperature. Corrected one identified failure-contract discrepancy: CUDA now writes a non-finite sentinel and exits when an accepted RK4 state becomes non-finite; the host finite-state check raises into the existing diagnosed CPU fallback. This improves divergence handling but does not prove bitwise or tolerance-based numerical equivalence. No tests, syntax checks, imports, numerical comparison, CUDA hardware execution, performance measurement, or CI were run.
+
+GF-MOTOR-091 — RK4 intermediate-stage failure contract aligned. The shared CPU reference solver now rejects a non-finite intermediate stage state before invoking the derivative, in addition to its existing derivative-output and accepted-state checks. The CUDA motor batch kernel now checks each RK4 derivative vector and constructed intermediate stage, then marks the motor output as failed so the host finite-state guard enters the existing diagnosed CPU fallback. This narrows the CPU/GPU failure-contract gap; it does not establish identical exception timing or numerical equivalence. No tests, syntax checks, imports, numerical comparisons, CUDA hardware execution, performance measurement, or CI were run.
+
+======================================================================
+GF-MOTOR-092
+======================================================================
+
+Scope:
+    CUDA motor-batch failure attribution and batch-result integrity
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — SOURCE REVIEW PENDING; RUNTIME VALIDATION DEFERRED
+
+Finding:
+    The CUDA kernel marked only one output scalar as non-finite when a motor
+    integration stage failed. The host-wide finite-state check prevented that
+    partial batch from being returned, but the reported failure did not
+    identify the affected motor or RK4 stage.
+
+Correction:
+    Added a per-motor integer status buffer. The CUDA kernel records the first
+    failed RK4 derivative/intermediate/accepted-state stage for that motor.
+    The host copies and inspects status before constructing any result objects;
+    if any motor failed, it discards the entire accelerator batch and raises a
+    diagnostic identifying the first failing batch index and stage code. The
+    existing non-finite output guard remains as a secondary integrity check.
+    The existing batch dispatcher records the exception and retries the
+    complete batch through the CPU reference solver.
+
+Stage codes:
+    1 k1 derivative; 2 k2 input state; 3 k2 derivative;
+    4 k3 input state; 5 k3 derivative; 6 k4 input state;
+    7 k4 derivative; 8 accepted RK4 state.
+
+Boundary:
+    A stage code is diagnostic metadata, not a proof of physical divergence
+    or backend parity. A failed GPU batch is never returned as partially
+    successful results. CPU fallback can still fail independently and then
+    propagates that CPU failure.
+
+Validation:
+    Source edits only. No tests, syntax checks, imports, Numba compilation,
+    CUDA hardware execution, numerical comparisons, performance measurements,
+    or CI were run.
+
+======================================================================
+
+======================================================================
+GF-MOTOR-093
+======================================================================
+
+Scope:
+    Batch time-grid validation before backend dispatch
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — SOURCE REVIEW ONLY
+
+Finding:
+    Batch time validation was reached inside the selected solver. Invalid
+    duration or step values could therefore trigger accelerator selection and
+    be recorded as an accelerator failure before the CPU reference path
+    rejected the same invalid user input.
+
+Correction:
+    The batch API now calls the shared _validate_time adapter immediately
+    after validating non-empty, matching batch lengths and before capability
+    discovery or backend dispatch. Invalid duration/step values fail at the
+    public API boundary and are not classified as CUDA failures or masked by
+    accelerator-to-CPU fallback. The single-motor path continues to use the
+    same shared uniform_time_grid contract.
+
+Boundary:
+    This correction centralizes time-grid validation timing; it does not
+    validate backend runtime behavior or prove CPU/CUDA numerical parity.
+
+Validation:
+    Source edits and source re-fetch only. No tests, syntax checks, imports,
+    Numba compilation, CUDA/NPU hardware execution, numerical comparisons,
+    performance measurements, or CI were run.
+
+======================================================================
+
+GF-MOTOR-094 — Shared numerical backend execution contract. Added execute_numerical_problem() and NumericalExecution in core/numerics/backend.py, exported through core/numerics/__init__.py. The shared entry point selects an adapter from declared capability facts, validates the returned ODESolution type, state count, exact shared time grid, flat buffer length, finite state values, and sample period. A failed or incompatible non-CPU adapter is retried using a compatible declared CPU adapter; fallback failure details and the actual executed adapter are retained. CPU failures propagate. This standardizes dispatch/result integrity, not plugin physics or accelerator compilation; NPU remains adapter/workload-dependent and is not claimed for motor transients. Source edits and source re-fetch only; no tests, syntax/import checks, runtime adapter execution, accelerator hardware, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-095 — Shared backend compatibility hardening. Explicit backend requests now choose the first compatible adapter of the requested kind rather than considering only the first registered adapter of that kind. execute_numerical_problem validates the initial state shape and finiteness, time-grid inputs, and float64 precision before backend selection/invocation, keeping malformed problem inputs outside accelerator-failure fallback. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-096 — Numerical result-contract integrity. The shared backend runner now rejects adapter results whose time-grid or flat state-buffer dtype violates the float64 contract, and verifies that the first returned state exactly preserves the problem's declared initial state. These checks strengthen result integrity but do not establish physical equivalence of plugin-specific derivatives or accelerator kernels; those remain workload-adapter responsibilities. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-097 — Shared ODE solution immutability and storage contract. The backend runner now validates that state_count is a positive, non-boolean integer matching the declared initial-state dimension, the time grid is read-only, and the flat state buffer is contiguous and read-only in addition to existing float64, shape, finite-value, initial-state, and time-grid checks. Invalid accelerator outputs are rejected before they can be returned to consumers and enter the declared CPU fallback path. This validates storage and interface semantics only, not physical equivalence of specialized kernels. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-098 — Immutable backend execution diagnostics. NumericalExecution now exposes a read-only tuple of stable key/value strings covering requested and selected backend, backend kind, selection reason, rejected adapters, actual executed backend, runtime fallback status/failure, and successful outcome. This is a numerical result envelope only: application/study layers may publish the metadata through their existing result/event lifecycle, while the numerical core remains unaware of UI, Qt, and electrical-domain mutation. The diagnostics report the adapter's declared capability and execution path; they do not certify physical equivalence. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-099 — Distinguish policy fallback from runtime fallback. NumericalExecution diagnostics now separately report policy_fallback_used and runtime_fallback_used, plus a fallback_kind classification (none, policy, runtime, or policy_and_runtime). An explicit accelerator request that is rejected during capability selection and intentionally selects CPU is now correctly identified as a fallback even when no runtime exception occurred. Runtime fallback remains tied to an actual accelerator execution/result-contract failure. This is diagnostic metadata only and does not publish study results or mutate domain state; application integration must still use the existing StudyCompleted/result lifecycle. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-100 — Publish solver diagnostics through the existing successful-study projection lifecycle. MotorSimulationResult.publish_to now forwards its dispatch/integrator diagnostics into MotorSimulationReadModelStore; SimulationSummary exposes detached, recursively immutable diagnostic metadata. The existing MotorTransientResultPublisher remains the only bridge: it reacts to StudyCompleted, retrieves the already-stored StudyResult, verifies completed status and motor_transient type, then publishes channels and diagnostics together. No new event bus, direct UI dispatch, or Core mutation path was introduced. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-101 — Reject stale/out-of-order motor study completions. The plugin now subscribes to canonical StudyStarted as well as StudyCompleted events. MotorTransientResultPublisher records a monotonic order for each motor-transient study at start and supplies it to the read-model publication. MotorSimulationReadModelStore rejects a result whose start order is older than the latest accepted result for that motor, and replaces channel arrays plus summary/diagnostics atomically under one lock. Missing start-order metadata fails closed rather than publishing an unorderable result. This protects against an older, slower study completing after a newer study; a newer study still running does not invalidate an older result until the newer result is actually published. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-102 — Motor study lifecycle cleanup and shutdown safety. The publisher now discards ordering metadata on StudyFailed and StudyCancelled, removes a study's ordering record on every valid StudyCompleted path (including missing/invalid stored results), and exposes close() to clear retained IDs and reject future callbacks. Plugin teardown closes the publisher before unsubscribing; publication is serialized against close under the publisher lifecycle lock so shutdown waits for any in-flight read-model publication and no new publication can begin after close returns. Terminal event subscriptions are included in the teardown path. Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-103 — Partial initialization rollback hardening. The motor plugin now installs identity-safe study-handler rollback ownership before attempting StudyService registration, and installs publisher close/unsubscribe rollback before the first event subscription. If any subscription fails midway, rollback attempts to close the publisher and unsubscribe every owned lifecycle callback, then unregister the study handler and release command registration. Existing failed-cleanup handles remain retained for retry through shutdown(). Source review only; no tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run.
+
+GF-MOTOR-104 — Consolidated motor-dynamics closeout audit. Corrected MotorSimulationResult.publish_to() to return the read-model acceptance result and reject non-finite/non-numeric load torque, preventing successful publications from being misreported as stale. Read-model study ordering now rejects duplicate as well as out-of-order completions; study lookup history is bounded to 4096 entries and read models expose clear() to remove cached telemetry/order metadata on successful plugin shutdown. Plugin lifecycle now prevents reinitialization while incomplete rollback remains, unwinds study publisher/handler before command registration, and clears cached projections only after all teardown succeeds. Publisher captures study-result lookup exceptions rather than letting telemetry retrieval errors escape the completion callback. Source-level review only. No tests, syntax/import checks, runtime execution, hardware execution, numerical comparisons, performance measurements, or CI were run. PR mergeability and numerical/runtime acceptance remain unresolved and must not be represented as complete.
+
+======================================================================
 2026-10-27 — SHARED PLUGIN SDK ARCHITECTURE AMENDMENT (PROPOSAL)
 ======================================================================
 

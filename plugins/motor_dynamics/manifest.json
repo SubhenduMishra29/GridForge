@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "plugin_id": "gridforge.plugin.motor_dynamics",
+  "name": "Multi-Physics Dynamic Motor Extension",
+  "version": "2.0.0",
+  "api_version": "V2.0",
+  "description": "Headless induction-motor dynamics, diagnostics, and telemetry projections.",
+  "author": "Subhendu Mishra",
+  "entry_point": "plugin.MotorDynamicsPlugin",
+  "capabilities": [
+    "commands",
+    "sld_graphics",
+    "study_dashboard",
+    "persistence",
+    "transient_solver",
+    "cpu_transient_simulation",
+    "optional_cuda_batch_simulation"
+  ],
+  "runtime": {
+    "python": ">=3.10",
+    "numerics": [
+      "numpy",
+      "scipy",
+      "numba (optional; CUDA backend only)"
+    ],
+    "ui": "GridForge ui.core.qt (PySide6 boundary)",
+    "acceleration": {
+      "cpu": "mandatory reference solver and fallback",
+      "gpu": "optional Numba CUDA batch kernel for independent motor trajectories",
+      "npu": "not currently applicable to the recurrent numerical integration kernel; optional ONNX inference providers are separate",
+      "fallback": "CPU execution remains available when CUDA is absent or fails"
+    }
+  },
+  "inference": {
+    "providers": [
+      "QNNExecutionProvider",
+      "VitisAIExecutionProvider",
+      "OpenVINOExecutionProvider",
+      "TensorrtExecutionProvider",
+      "CUDAExecutionProvider",
+      "DmlExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "dispatch": "tries installed providers in configured priority order; session initialization failure proceeds to the next candidate; CPU-only retry is attempted after a selected non-CPU provider fails at inference time",
+    "fallback": "CPUExecutionProvider is required; successful runtime fallback is reported in runtime_diagnostics",
+    "input_policy": "finite numeric tensors with statically specified sample dimensions; quantized integer inputs require an explicit model-specific quantization contract",
+    "compatibility": "provider availability and session provider listing do not prove model compatibility or that every graph node executes on the accelerator; hardware/device configuration and actual execution placement require runtime verification"
+  }
+}

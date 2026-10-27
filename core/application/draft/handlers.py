@@ -205,6 +205,61 @@ class CommitNetworkHandler:
             )
         return resolved
 
+    @staticmethod
+    def _validate_connection_terminal_compatibility(snapshot, canonical_contracts, registry):
+        """Reject Simple Wire endpoints not approved by trusted terminal contracts.
+
+        Terminal inventories describe physical terminals; they do not imply that
+        every terminal participates in ordinary electrical topology. CT/PT/CVT
+        measurement-secondary terminals must use measurement/acquisition workflows.
+        """
+        draft_by_id = {item.draft_id: item for item in snapshot.equipment}
+        for connection in snapshot.connections:
+            if connection.connection_kind != "simple_wire":
+                raise ValueError(
+                    f"{connection.connection_id}: unsupported connection kind "
+                    f"{connection.connection_kind!r}."
+                )
+            for endpoint in (connection.source, connection.target):
+                if not endpoint.is_terminal:
+                    continue
+                if endpoint.scope == "draft":
+                    item = draft_by_id.get(endpoint.object_id)
+                    if item is None:
+                        raise ValueError(
+                            f"{connection.connection_id}: terminal endpoint references "
+                            f"unknown draft equipment {endpoint.object_id!r}."
+                        )
+                    if str(item.equipment_type).strip().lower() != endpoint.equipment_type:
+                        raise ValueError(
+                            f"{connection.connection_id}: endpoint equipment type does "
+                            "not match its canonical draft equipment."
+                        )
+                    contract = canonical_contracts[item.draft_id]
+                else:
+                    contract = registry.resolve(endpoint.equipment_type or "")
+
+                requirements = contract.get("terminal_requirements", ())
+                requirement = next(
+                    (record for record in requirements
+                     if record.get("terminal_name") == endpoint.terminal_role),
+                    None,
+                )
+                if requirement is None:
+                    raise ValueError(
+                        f"{connection.connection_id}: terminal "
+                        f"{endpoint.equipment_type}.{endpoint.terminal_role} is not "
+                        "present in the trusted canonical creation contract."
+                    )
+                allowed = set(requirement.get("allowed_connection_types", ()))
+                if not ({"electrical", "simple_wire"} & allowed):
+                    raise ValueError(
+                        f"{connection.connection_id}: terminal "
+                        f"{endpoint.equipment_type}.{endpoint.terminal_role} does not "
+                        "permit ordinary electrical Simple Wire connections; use the "
+                        "dedicated measurement/acquisition workflow where applicable."
+                    )
+
     def __call__(self, command, context, transaction):
         payload = command.payload
         active_draft = self._draft_provider()
@@ -254,6 +309,10 @@ class CommitNetworkHandler:
                 canonical_contract=canonical_contract,
             )
             canonical_contracts[item.draft_id] = canonical_contract
+
+        self._validate_connection_terminal_compatibility(
+            snapshot, canonical_contracts, registry
+        )
 
         errors = snapshot.validate(getattr(context, "network", None))
         errors += snapshot.validate_required_connections()

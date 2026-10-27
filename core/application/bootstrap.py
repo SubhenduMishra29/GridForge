@@ -63,6 +63,8 @@ from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
 from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
+from .creation_schema import creation_contracts_from_definitions
+from .services.motor_dynamics_service import MotorDynamicsComposition
 
 
 def create_application(network: Any) -> Application:
@@ -164,6 +166,14 @@ def create_application(network: Any) -> Application:
         control_service=control_service,
     )
 
+    # Configure trusted creation contracts at the canonical Application
+    # composition boundary. The registry validates all definitions against
+    # actual command constructor signatures before any draft can be committed.
+    application.configure_creation_contracts(creation_contracts_from_definitions())
+    # Optional UI plugin consumes this adapter through PluginContext.services.
+    # No motor handlers are registered until that plugin is explicitly loaded.
+    application.motor_dynamics_composition = MotorDynamicsComposition(application)
+
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
     initial_protection_runtime = ProtectionRuntime(
@@ -182,6 +192,11 @@ def create_application(network: Any) -> Application:
         previous_protection_read_service = application._protection_read_service
         previous_control_execution = application._control_execution
         previous_control_cycle = application._control_cycle
+        previous_extension_handler_command_types = dict(application._extension_handler_command_types)
+        previous_extension_handler_handlers = {
+            extension_id: dict(handlers)
+            for extension_id, handlers in application._extension_handler_handlers.items()
+        }
 
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
@@ -194,6 +209,11 @@ def create_application(network: Any) -> Application:
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
             application._control_cycle = previous_control_cycle
+            application._extension_handler_command_types = previous_extension_handler_command_types
+            application._extension_handler_handlers = {
+                extension_id: dict(handlers)
+                for extension_id, handlers in previous_extension_handler_handlers.items()
+            }
             raise
 
         def rollback() -> None:
@@ -203,6 +223,11 @@ def create_application(network: Any) -> Application:
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
             application._control_cycle = previous_control_cycle
+            application._extension_handler_command_types = previous_extension_handler_command_types
+            application._extension_handler_handlers = {
+                extension_id: dict(handlers)
+                for extension_id, handlers in previous_extension_handler_handlers.items()
+            }
 
         return rollback
 

@@ -322,6 +322,21 @@ class DraftNetwork:
         if connection.source == connection.target:
             raise ValueError(f"{connection.connection_id}: self-connection is invalid.")
 
+        # Reuse the canonical Core electrical-domain policy during draft
+        # preflight; never wait until commit to reject measurement-secondary
+        # terminals or other incompatible Simple Wire endpoint pairs.
+        from core.network.electrical_boundary import (
+            EndpointCompatibility,
+            EndpointCompatibilityError,
+        )
+        try:
+            EndpointCompatibility.validate_pair(
+                connection.source.to_core_reference(),
+                connection.target.to_core_reference(),
+            )
+        except EndpointCompatibilityError as exc:
+            raise ValueError(f"{connection.connection_id}: {exc}") from exc
+
         candidate_pair = self._endpoint_pair_key(connection.source, connection.target)
         for existing in self._connections.values():
             if self._endpoint_pair_key(existing.source, existing.target) == candidate_pair:

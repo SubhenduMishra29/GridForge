@@ -27,42 +27,13 @@ GridForge V2 — Equipment Definition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping
+
+from core.application.creation_schema import EngineeringParameterDefinition
 
 if TYPE_CHECKING:
     from ui.creation.creation_definition import CreationDefinition
-
-@dataclass(frozen=True, slots=True)
-class EngineeringParameterDefinition:
-    """Canonical engineering parameter contract for equipment creation."""
-    parameter_id: str
-    display_name: str
-    datatype: str = "str"
-    unit: str | None = None
-    required_before_create: bool = False
-    default_value: Any = None
-    editable: bool = True
-    derived: bool = False
-    choices: tuple[Any, ...] = ()
-    minimum: float | None = None
-    maximum: float | None = None
-    validation: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.parameter_id, str) or not self.parameter_id.strip():
-            raise ValueError("parameter_id must be non-empty")
-        if not isinstance(self.display_name, str) or not self.display_name.strip():
-            raise ValueError("display_name must be non-empty")
-        if not isinstance(self.datatype, str) or not self.datatype.strip():
-            raise ValueError("datatype must be non-empty")
-        if self.derived and self.editable:
-            raise ValueError("derived parameters cannot be editable")
-        object.__setattr__(self, "parameter_id", self.parameter_id.strip())
-        object.__setattr__(self, "display_name", self.display_name.strip())
-        object.__setattr__(self, "datatype", self.datatype.strip())
-        object.__setattr__(self, "choices", tuple(self.choices))
-        object.__setattr__(self, "validation", dict(self.validation))
-
 
 @dataclass(frozen=True)
 class EquipmentDefinition:
@@ -354,7 +325,62 @@ class EquipmentDefinition:
                 self.default_properties
             ),
             "category": self.category,
-            "creation_definition": None if self.creation_definition is None else {"equipment_type": self.creation_definition.equipment_type, "tool_id": self.creation_definition.tool_id, "id_field": self.creation_definition.id_field, "parameter_mapping": dict(self.creation_definition.parameter_mapping), "endpoint_mapping": dict(self.creation_definition.endpoint_mapping)},
+            "creation_definition": None if self.creation_definition is None else {
+                "equipment_type": self.creation_definition.equipment_type,
+                "tool_id": self.creation_definition.tool_id,
+                "command_type": self.creation_definition.command_type,
+                "id_field": self.creation_definition.id_field,
+                "parameter_mapping": dict(self.creation_definition.parameter_mapping),
+                "endpoint_mapping": dict(self.creation_definition.endpoint_mapping),
+                "parameter_definitions": [
+                    {
+                        "parameter_id": item.parameter_id,
+                        "display_name": item.display_name,
+                        "datatype": item.datatype,
+                        "unit": item.unit,
+                        "required_before_create": item.required_before_create,
+                        "default_value": item.default_value,
+                        "editable": item.editable,
+                        "derived": item.derived,
+                        "choices": list(item.choices),
+                        "minimum": item.minimum,
+                        "maximum": item.maximum,
+                        "validation": dict(item.validation),
+                    }
+                    for item in self.creation_definition.parameter_definitions
+                ],
+                "terminal_requirements": [
+                    {
+                        "terminal_name": item.terminal_name,
+                        "required": item.required,
+                        "cardinality": item.cardinality,
+                        "allowed_connection_types": list(item.allowed_connection_types),
+                        "acquisition_state": item.acquisition_state,
+                        "initial_endpoint_required": item.initial_endpoint_required,
+                    }
+                    for item in self.creation_definition.terminal_requirements
+                ],
+                "topology_requirements": [
+                    {
+                        "name": item.name,
+                        "required": item.required,
+                        "cardinality": item.cardinality,
+                        "allowed_connection_types": list(item.allowed_connection_types),
+                    }
+                    for item in self.creation_definition.topology_requirements
+                ],
+                "conditional_requirements": [
+                    {
+                        "label": item.label,
+                        "require_any": list(item.require_any),
+                        "require_all": list(item.require_all),
+                    }
+                    for item in self.creation_definition.conditional_requirements
+                ],
+                "placement_required": self.creation_definition.placement_required,
+                "preview_supported": self.creation_definition.preview_supported,
+                "configuration_required": self.creation_definition.configuration_required,
+            },
             "engineering_parameters": [
                 {"parameter_id": item.parameter_id, "display_name": item.display_name,
                  "datatype": item.datatype, "unit": item.unit,
@@ -410,9 +436,76 @@ class EquipmentDefinition:
             )
 
         creation_definition = None
-        if data.get('creation_definition') is not None:
-            from ui.creation.creation_definition import creation_definition_for
-            creation_definition = creation_definition_for(data['equipment_type'], tuple(data.get('terminal_names', ())))
+        raw_creation = data.get("creation_definition")
+        if raw_creation is not None:
+            if not isinstance(raw_creation, Mapping):
+                raise TypeError("creation_definition must be a mapping or None")
+            from core.application.creation_schema import (
+                ConditionalParameterRequirement,
+                CreationDefinition,
+                CreationTerminalRequirement,
+                CreationTopologyRequirement,
+            )
+
+            def parameter_from_dict(item: Mapping[str, Any]) -> EngineeringParameterDefinition:
+                return EngineeringParameterDefinition(
+                    parameter_id=item["parameter_id"],
+                    display_name=item["display_name"],
+                    datatype=item.get("datatype", "str"),
+                    unit=item.get("unit"),
+                    required_before_create=item.get("required_before_create", False),
+                    default_value=item.get("default_value"),
+                    editable=item.get("editable", True),
+                    derived=item.get("derived", False),
+                    choices=tuple(item.get("choices", ())),
+                    minimum=item.get("minimum"),
+                    maximum=item.get("maximum"),
+                    validation=item.get("validation", {}),
+                )
+
+            creation_definition = CreationDefinition(
+                equipment_type=raw_creation["equipment_type"],
+                tool_id=raw_creation["tool_id"],
+                command_type=raw_creation["command_type"],
+                id_field=raw_creation["id_field"],
+                parameter_definitions=tuple(
+                    parameter_from_dict(item)
+                    for item in raw_creation.get("parameter_definitions", ())
+                ),
+                parameter_mapping=raw_creation.get("parameter_mapping", {}),
+                endpoint_mapping=raw_creation.get("endpoint_mapping", {}),
+                terminal_requirements=tuple(
+                    CreationTerminalRequirement(
+                        terminal_name=item["terminal_name"],
+                        required=item.get("required", False),
+                        cardinality=item.get("cardinality", "single"),
+                        allowed_connection_types=tuple(item.get("allowed_connection_types", ())),
+                        acquisition_state=item.get("acquisition_state", "required"),
+                        initial_endpoint_required=item.get("initial_endpoint_required", False),
+                    )
+                    for item in raw_creation.get("terminal_requirements", ())
+                ),
+                topology_requirements=tuple(
+                    CreationTopologyRequirement(
+                        name=item["name"],
+                        required=item.get("required", False),
+                        cardinality=item.get("cardinality", "single"),
+                        allowed_connection_types=tuple(item.get("allowed_connection_types", ())),
+                    )
+                    for item in raw_creation.get("topology_requirements", ())
+                ),
+                conditional_requirements=tuple(
+                    ConditionalParameterRequirement(
+                        label=item["label"],
+                        require_any=tuple(item.get("require_any", ())),
+                        require_all=tuple(item.get("require_all", ())),
+                    )
+                    for item in raw_creation.get("conditional_requirements", ())
+                ),
+                placement_required=raw_creation.get("placement_required", True),
+                preview_supported=raw_creation.get("preview_supported", True),
+                configuration_required=raw_creation.get("configuration_required", False),
+            )
 
         return cls(
             equipment_type=data[

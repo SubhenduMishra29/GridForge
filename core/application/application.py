@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -129,6 +130,14 @@ class Application:
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._creation_contract_registry = CreationContractRegistry()
+        # Extension factories are durable across project-runtime replacement.
+        # Each factory must bind handlers to the candidate CommandManager rather
+        # than retaining handlers that capture the previous project's runtime.
+        self._extension_handler_factories: dict[str, Callable[[CommandManager], Mapping[str, Any]]] = {}
+        self._extension_handler_command_types: dict[str, tuple[str, ...]] = {}
+        # Keep exact handler identities so teardown cannot remove a replacement
+        # installed by another owner under a command type we originally owned.
+        self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -1220,23 +1229,358 @@ class Application:
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
         return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
+    @staticmethod
+    def _invoke_extension_handler_factory(
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+        command_manager: CommandManager,
+    ) -> Mapping[str, Any]:
+        """Invoke a pure handler factory and reject command-registry side effects."""
+        before = command_manager.handler_registry_snapshot()
+        before_pre_commit_hook = command_manager.pre_commit_hook
+        factory_error: BaseException | None = None
+        handlers: Mapping[str, Any] | None = None
+        try:
+            factory_result = factory(command_manager)
+            # Materialize custom/lazy mappings inside the guarded window so
+            # iteration-time side effects are detected and the validated
+            # handlers cannot change between validation and installation.
+            handlers = (
+                dict(factory_result)
+                if isinstance(factory_result, Mapping)
+                else factory_result
+            )
+        except BaseException as exc:
+            factory_error = exc
+
+        # The verification read is part of the guarded operation too: an
+        # overridden snapshot/property accessor may fail after the factory has
+        # already mutated the manager. In that case, restore both captured
+        # composition components because the extent of mutation is unknown.
+        verification_error: BaseException | None = None
+        try:
+            after = command_manager.handler_registry_snapshot()
+            after_pre_commit_hook = command_manager.pre_commit_hook
+        except BaseException as exc:
+            verification_error = exc
+            after = None
+            after_pre_commit_hook = None
+
+        registry_changed = (
+            True
+            if verification_error is not None
+            else (
+                before.keys() != after.keys()
+                or any(before[key] is not after[key] for key in before.keys() & after.keys())
+            )
+        )
+        hook_changed = (
+            True
+            if verification_error is not None
+            else after_pre_commit_hook is not before_pre_commit_hook
+        )
+
+        restoration_errors: list[tuple[str, BaseException]] = []
+        if registry_changed:
+            # Restore additions, removals, replacements, and the original order
+            # before surfacing the factory contract violation.
+            try:
+                command_manager.restore_handler_registry(before)
+            except BaseException as exc:
+                restoration_errors.append(("handler registry", exc))
+        if hook_changed:
+            try:
+                command_manager.set_pre_commit_hook(before_pre_commit_hook)
+            except BaseException as exc:
+                restoration_errors.append(("pre-commit hook", exc))
+
+        if restoration_errors:
+            failed_parts = ", ".join(part for part, _ in restoration_errors)
+            failure_details = "; ".join(
+                f"{part}: {error!r}" for part, error in restoration_errors
+            )
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            verification_details = (
+                f" Verification exception: {verification_error!r}."
+                if verification_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} changed or may have "
+                f"changed CommandManager composition state, and restoration failed "
+                f"for {failed_parts}. The manager may remain corrupted. "
+                f"Restoration errors: {failure_details}.{verification_details}"
+                f"{factory_details}"
+            ) from restoration_errors[0][1]
+
+        if verification_error is not None:
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Could not verify CommandManager composition after extension "
+                f"factory {extension_id!r}; the captured registry and pre-commit "
+                f"hook were restored, but the factory side effects could not be "
+                f"reliably classified. Verification exception: {verification_error!r}."
+                f"{factory_details}"
+            ) from verification_error
+
+        if factory_error is not None:
+            raise factory_error
+        if registry_changed or hook_changed:
+            changed_state = []
+            if registry_changed:
+                changed_state.append("handler registry")
+            if hook_changed:
+                changed_state.append("pre-commit hook")
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} mutated the "
+                f"CommandManager {' and '.join(changed_state)}; the original "
+                "composition state was restored."
+            )
+        # Let the standard handler validator provide the specific type error
+        # if a factory returns None or another non-mapping value.
+        return handlers  # type: ignore[return-value]
+
+    def register_extension_handler_factory(
+        self,
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+    ) -> None:
+        """Register extension handlers that are rebuilt for every project runtime.
+
+        The factory receives the candidate CommandManager and must return a
+        mapping of command type to handler. It should construct project-bound
+        adapters for that manager; it must not mutate Core or retain a handler
+        bound to a previous project's runtime. Registration is atomic: any
+        collision or factory error leaves the active command registry unchanged.
+        """
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        if not callable(factory):
+            raise TypeError("extension handler factory must be callable.")
+        if extension_id in self._extension_handler_factories:
+            raise ValueError(f"Extension handler factory already registered: {extension_id!r}.")
+
+        handlers = self._invoke_extension_handler_factory(extension_id, factory, self._command_manager)
+        self._validate_extension_handlers(extension_id, handlers, self._command_manager)
+        # Snapshot before installation so a manager override that mutates then
+        # raises cannot leave an untracked handler behind.
+        original_registry = self._command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = self._command_manager.pre_commit_hook
+        installed: list[str] = []
+        try:
+            for command_type, handler in handlers.items():
+                self._command_manager.register_handler(command_type, handler)
+                installed.append(command_type)
+        except BaseException as registration_error:
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                self._command_manager.restore_handler_registry(original_registry)
+            except BaseException as rollback_error:
+                rollback_errors.append(("handler registry", rollback_error))
+            try:
+                self._command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as rollback_error:
+                rollback_errors.append(("pre-commit hook", rollback_error))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Extension handler registration for {extension_id!r} failed "
+                    f"({registration_error!r}) and rollback failed for "
+                    f"{failed_parts} ({details}); the active CommandManager may "
+                    "remain corrupted."
+                ) from rollback_errors[0][1]
+            raise
+        self._extension_handler_factories[extension_id] = factory
+        self._extension_handler_command_types[extension_id] = tuple(installed)
+        self._extension_handler_handlers[extension_id] = dict(handlers)
+
+    def unregister_extension_handler_factory(
+        self,
+        extension_id: str,
+        *,
+        expected_factory: Callable[[CommandManager], Mapping[str, Any]] | None = None,
+    ) -> bool:
+        """Unregister an extension, optionally requiring ownership of its registration.
+
+        The expected_factory guard prevents stale teardown callbacks from
+        removing a later registration that reused the same extension ID.
+        """
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        current_factory = self._extension_handler_factories.get(extension_id)
+        if current_factory is None:
+            return False
+        if expected_factory is not None and current_factory is not expected_factory:
+            return False
+        command_types = self._extension_handler_command_types.get(extension_id, ())
+        expected_handlers = self._extension_handler_handlers.get(extension_id)
+        if expected_handlers is None:
+            raise RuntimeError(
+                f"Extension {extension_id!r} has no handler-identity ownership record; "
+                "refusing unsafe teardown."
+            )
+        current_registry = self._command_manager.handler_registry_snapshot()
+        conflicts = [
+            command_type for command_type in command_types
+            if command_type not in expected_handlers
+            or current_registry.get(command_type) is not expected_handlers.get(command_type)
+        ]
+        metadata_drift = set(command_types) != set(expected_handlers)
+        if conflicts or metadata_drift:
+            details = ", ".join(repr(command_type) for command_type in conflicts) or "ownership metadata"
+            raise RuntimeError(
+                f"Cannot unregister extension {extension_id!r}: handler ownership "
+                f"drift detected for {details}. The active handlers were left untouched; "
+                "repair or reconcile the registration before retrying teardown."
+            )
+        original_registry = current_registry
+        original_pre_commit_hook = self._command_manager.pre_commit_hook
+        try:
+            for command_type in command_types:
+                self._command_manager.unregister_handler(command_type)
+        except BaseException as teardown_error:
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                self._command_manager.restore_handler_registry(original_registry)
+            except BaseException as rollback_error:
+                rollback_errors.append(("handler registry", rollback_error))
+            try:
+                self._command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as rollback_error:
+                rollback_errors.append(("pre-commit hook", rollback_error))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Extension handler teardown for {extension_id!r} failed "
+                    f"({teardown_error!r}) and rollback failed for {failed_parts} "
+                    f"({details}); the active CommandManager may remain corrupted. "
+                    "Extension ownership metadata was retained."
+                ) from rollback_errors[0][1]
+            raise
+        # Publish ownership removal only after all registry mutations succeed.
+        self._extension_handler_command_types.pop(extension_id, None)
+        self._extension_handler_handlers.pop(extension_id, None)
+        del self._extension_handler_factories[extension_id]
+        return True
+
+    @staticmethod
+    def _validate_extension_handlers(
+        extension_id: str,
+        handlers: Mapping[str, Any],
+        command_manager: CommandManager,
+    ) -> None:
+        """Validate a factory result without changing the target registry."""
+        if not isinstance(handlers, Mapping):
+            raise TypeError(
+                f"Extension {extension_id!r} factory must return a command-type mapping."
+            )
+        seen: set[str] = set()
+        for command_type, handler in handlers.items():
+            if not isinstance(command_type, str) or not command_type.strip():
+                raise ValueError(
+                    f"Extension {extension_id!r} returned an invalid command type."
+                )
+            if command_type in seen:
+                raise ValueError(
+                    f"Extension {extension_id!r} returned duplicate command type {command_type!r}."
+                )
+            if not callable(handler):
+                raise TypeError(
+                    f"Extension {extension_id!r} handler for {command_type!r} is not callable."
+                )
+            if command_manager.has_handler(command_type):
+                raise ValueError(
+                    f"Extension {extension_id!r} conflicts with registered command {command_type!r}."
+                )
+            seen.add(command_type)
+
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService, validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
-        if self._sld_service is not None:
-            for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
-                command_manager.register_handler(command_type, handler)
-        next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
-        if self._control_engine is not None:
-            self._control_cycle = ControlCycleService(
-                self._control_engine,
-                next_control_execution,
-                signal_mapping=self._control_signal_mapping,
-                read_service=read_service,
+        if command_manager is self._command_manager:
+            raise ValueError(
+                "Runtime replacement requires a distinct candidate CommandManager; "
+                "the active manager cannot be mutated as a candidate."
             )
-        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+
+        # Snapshot the complete candidate composition before any mutation.
+        # Reverse-unregister bookkeeping alone cannot restore overwritten or
+        # removed entries, the original order, or the previous pre-commit hook.
+        original_registry = command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = command_manager.pre_commit_hook
+        try:
+            if self._sld_service is not None:
+                for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
+                    command_manager.register_handler(command_type, handler)
+
+            next_extension_types: dict[str, tuple[str, ...]] = {}
+            next_extension_handlers: dict[str, dict[str, Any]] = {}
+            for extension_id, factory in self._extension_handler_factories.items():
+                extension_handlers = self._invoke_extension_handler_factory(extension_id, factory, command_manager)
+                self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
+                installed_extension_types: list[str] = []
+                for command_type, handler in extension_handlers.items():
+                    command_manager.register_handler(command_type, handler)
+                    installed_extension_types.append(command_type)
+                next_extension_types[extension_id] = tuple(installed_extension_types)
+                next_extension_handlers[extension_id] = dict(extension_handlers)
+
+            next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+            next_control_cycle = self._control_cycle
+            if self._control_engine is not None:
+                next_control_cycle = ControlCycleService(
+                    self._control_engine,
+                    next_control_execution,
+                    signal_mapping=self._control_signal_mapping,
+                    read_service=read_service,
+                )
+            command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+        except BaseException as setup_error:
+            # Restore the whole captured composition, including pre-existing
+            # entries and the hook. A rollback failure must not be silently
+            # swallowed because the candidate may then be unsafe to reuse.
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                command_manager.restore_handler_registry(original_registry)
+            except BaseException as exc:
+                rollback_errors.append(("handler registry", exc))
+            try:
+                command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as exc:
+                rollback_errors.append(("pre-commit hook", exc))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Candidate runtime composition failed ({setup_error!r}) and "
+                    f"rollback failed for {failed_parts}. The candidate "
+                    f"CommandManager may remain corrupted. Rollback errors: {details}."
+                ) from rollback_errors[0][1]
+            raise
+
+        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        self._control_cycle = next_control_cycle
+        self._extension_handler_command_types = next_extension_types
+        self._extension_handler_handlers = next_extension_handlers
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
         """Coordinate Core and persistent SLD semantic reconciliation in one transaction.

@@ -93,7 +93,7 @@ class MeasurementGeneration:
         prepared_power_flow: Any,
     ) -> float | complex:
         """Convert PU current -> physical primary A -> CT secondary A."""
-        self._validate_source(context, source)
+        self._validate_source(context, source, expected_types=frozenset({'CT'}))
         self._validate_channel(channel, MeasurementSignalType.CURRENT)
         quantity = context.quantity
         if isinstance(quantity, LineFlowResult):
@@ -118,7 +118,7 @@ class MeasurementGeneration:
         prepared_power_flow: Any,
     ) -> float:
         """Convert PU voltage -> physical primary kV -> PT/CVT secondary V."""
-        self._validate_source(context, source)
+        self._validate_source(context, source, expected_types=frozenset({'PT', 'CVT'}))
         self._validate_channel(channel, MeasurementSignalType.VOLTAGE)
         if not isinstance(context.quantity, PowerFlowResult):
             raise UnsupportedMeasurementQuantity(
@@ -155,7 +155,7 @@ class MeasurementGeneration:
         current is produced from PU prefault voltage and PU fault impedance.
         Applying a CT ratio directly to that value is therefore prohibited.
         """
-        self._validate_source(context, source)
+        self._validate_source(context, source, expected_types=frozenset({'CT'}))
         self._validate_channel(channel, MeasurementSignalType.CURRENT)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
@@ -296,20 +296,51 @@ class MeasurementGeneration:
         raise ValueError("Authoritative CT source must expose a supported physical polarity convention.")
 
     @staticmethod
-    def _validate_source(context: PreparedMeasurementContext, source: Any) -> None:
+    def _validate_source(
+        context: PreparedMeasurementContext,
+        source: Any,
+        *,
+        expected_types: frozenset[str],
+    ) -> None:
         if source is None or not hasattr(source, "id"):
             raise TypeError("authoritative measurement source must expose id.")
         if source.id != context.source_id:
             raise ValueError(
                 f"Prepared source_id {context.source_id!r} does not match authoritative source id {source.id!r}."
             )
+
+        source_type = str(
+            getattr(source, "element_type", type(source).__name__)
+        ).strip().upper()
+        if source_type not in expected_types:
+            raise UnsupportedMeasurementQuantity(
+                f"Measurement source {context.source_id!r} has type {source_type!r}; "
+                f"expected one of {sorted(expected_types)!r}."
+            )
+
         terminals = getattr(source, "terminals", None)
         if terminals is not None:
             roles = {getattr(terminal, "role", None) for terminal in terminals}
-            if context.source_terminal.terminal_role not in roles:
+            terminal_role = context.source_terminal.terminal_role
+            if terminal_role not in roles:
                 raise UnsupportedMeasurementQuantity(
-                    f"Prepared source_terminal={context.source_terminal.terminal_role!r} is not an authoritative "
+                    f"Prepared source_terminal={terminal_role!r} is not an authoritative "
                     f"terminal of source_id={context.source_id!r}."
+                )
+
+            # Measurement generation converts primary-side network quantities
+            # through the instrument ratio. A secondary terminal is not a
+            # valid source for that conversion, even if it belongs to the
+            # correct instrument and appears in its terminal list.
+            primary_roles = {
+                "CT": frozenset({"P1", "P2"}),
+                "PT": frozenset({"primary_a", "primary_b"}),
+                "CVT": frozenset({"H1", "H2"}),
+            }[source_type]
+            if terminal_role not in primary_roles:
+                raise UnsupportedMeasurementQuantity(
+                    f"Measurement generation requires a primary-side terminal for "
+                    f"{source_type} source {context.source_id!r}; received {terminal_role!r}."
                 )
 
     @staticmethod

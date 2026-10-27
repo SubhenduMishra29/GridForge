@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 from collections import deque
-from core.model import Branch,Breaker,Cable,Disconnector,Fuse,Line,Switch,Transformer
+from core.model import Branch,Breaker,Cable,CurrentTransformer,Disconnector,Fuse,Line,Switch,Transformer,PT,CVT
 from core.model.endpoint_reference import EndpointReference
 from .connectivity import ConnectivityResolver
 from .electrical_boundary import ElectricalBoundaryResolver,ElectricalBoundaryType,EndpointCompatibilityError,conduction_state
+from .electrical_boundary import EndpointCompatibility
 from .topology_snapshot import ConductiveEdge,EquipmentBusAttachment,TopologySnapshot
 class TopologyManager:
     """Build and expose topology through the Network-owned lifecycle only.
@@ -95,6 +96,25 @@ class TopologyManager:
                 graph.setdefault(bus_b,set()).add(bus_a)
                 adjacency[bus_a.id].add(bus_b.id)
                 adjacency[bus_b.id].add(bus_a.id)
+        # CTs have four terminals, but only P1/P2 form the primary series path.
+        # S1/S2 are measurement interfaces and must never enter power topology.
+        for ct in self._registered_equipment():
+            if not isinstance(ct, CurrentTransformer) or not getattr(ct, "in_service", True):
+                continue
+            primary = {t.role: t for t in getattr(ct, "terminals", ()) if t.owner is ct}
+            if set(("P1", "P2")) - set(primary):
+                raise EndpointCompatibilityError(f"CurrentTransformer '{ct.id}' must expose primary terminals P1 and P2.")
+            primary_refs = tuple(self._reference_for_terminal(ct, role) for role in ("P1", "P2"))
+            resolved = tuple(boundary.resolve(ref) for ref in primary_refs)
+            if any(item.attached_bus_id is None for item in resolved):
+                raise EndpointCompatibilityError(f"In-service CurrentTransformer '{ct.id}' has an unresolved primary terminal.")
+            bus_a = self.network.get_by_identity(resolved[0].attached_bus_id)
+            bus_b = self.network.get_by_identity(resolved[1].attached_bus_id)
+            if bus_a in active_buses and bus_b in active_buses and bus_a is not bus_b:
+                graph.setdefault(bus_a, set()).add(bus_b)
+                graph.setdefault(bus_b, set()).add(bus_a)
+                adjacency[bus_a.id].add(bus_b.id)
+                adjacency[bus_b.id].add(bus_a.id)
         for e in self._topology_elements():
             if conduction_state(e) and isinstance(e,(Line,Cable,Transformer)):
                 a=boundary.resolve(self._reference_for_terminal(e,e.from_terminal.role))
@@ -112,6 +132,12 @@ class TopologyManager:
             if not getattr(e,"in_service",True):continue
             for t in sorted(getattr(e,"terminals",()),key=lambda x:x.role):
                 reference=self._reference_for_terminal(e,t.role)
+                if EndpointCompatibility.domain(reference) == "secondary":
+                    if t.endpoint is not None:
+                        raise EndpointCompatibilityError(
+                            f"Measurement-secondary terminal '{t.role}' on '{e.id}' cannot attach to a power-network Bus."
+                        )
+                    continue
                 resolved=boundary.resolve(reference)
                 bus_id=resolved.attached_bus_id
                 if bus_id is None or str(bus_id) not in active_bus_ids:continue
