@@ -7366,3 +7366,35 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-081
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.shutdown() discarded all teardown callbacks even when
+    one failed, cleared the dashboard reference even when close() failed, and
+    reset application/context state unconditionally. A failed resource release
+    could therefore become impossible to retry through the plugin lifecycle.
+
+Correction:
+    - Retain only teardown callbacks that raised; successful callbacks are not
+      repeated on a subsequent shutdown attempt.
+    - Retain the dashboard reference when close() fails and clear it only after
+      close() returns successfully.
+    - Preserve initialized state and application/context/persistence references
+      whenever resource teardown fails, allowing diagnosis and retry.
+    - Clear lifecycle references only after all owned resources are released.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or plugin runtime activation/shutdown were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
