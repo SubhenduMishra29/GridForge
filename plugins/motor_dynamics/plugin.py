@@ -71,9 +71,10 @@ class MotorDynamicsPlugin:
         handler = MotorPlacementCommandHandler(motor_service)
         token = None
         dashboard = None
+        persistence = None
         try:
             # Do not publish partially initialized state on the plugin instance.
-            # If dashboard setup fails after registration, undo the registration.
+            # If any subsequent setup fails, undo the registration.
             token = register(
                 plugin=self,
                 command_handlers={
@@ -87,6 +88,7 @@ class MotorDynamicsPlugin:
                     "for the registered motor command handlers."
                 )
 
+            persistence = MotorPluginPersistenceHandler(application)
             event_bus = getattr(context, "event_bus", None) or getattr(application, "event_bus", None)
             parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
             if parent is not None and event_bus is not None:
@@ -110,7 +112,7 @@ class MotorDynamicsPlugin:
 
         self.context = context
         self.application = application
-        self.persistence = MotorPluginPersistenceHandler(application)
+        self.persistence = persistence
         self._unhooks.append(token)
         self.dashboard = dashboard
         self._initialized = True
