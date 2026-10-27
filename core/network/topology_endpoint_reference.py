@@ -247,14 +247,13 @@ class TopologyEndpointReference:
 
     def __str__(self) -> str:
         if self.is_terminal:
+            return f"TopologyEndpointReference(terminal:{self.terminal_reference})"
+        if self.is_bus:
             return (
                 "TopologyEndpointReference("
-                f"terminal:{self.terminal_reference})"
+                f"bus:{self.bus_reference.object_id}:{self.bus_reference.attachment_id})"
             )
-        return (
-            "TopologyEndpointReference("
-            f"junction:{self.junction_id})"
-        )
+        return f"TopologyEndpointReference(junction:{self.junction_id})"
 
 
 def _is_canonical_attachment_id(value: str) -> bool:
