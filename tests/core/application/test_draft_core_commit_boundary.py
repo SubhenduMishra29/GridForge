@@ -5,6 +5,7 @@ import pytest
 from core.application.bootstrap import create_application
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.creation import CreationCommitIntent, CreationCommandPreparer
+from core.application.creation_schema import creation_contracts_from_definitions
 from core.application.draft.network import (
     DraftConnection,
     DraftEndpointReference,
@@ -149,6 +150,7 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             values=dict(_bus("b1").engineering_data),
             endpoints={},
             position=(1.0, 2.0),
+            equipment_type="bus",
         ),
         CreationCommitIntent(
             command_type="model.create_transformer",
@@ -159,6 +161,7 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             values=dict(_transformer("t1").engineering_data),
             endpoints={},
             position=(3.0, 4.0),
+            equipment_type="transformer",
         ),
         CreationCommitIntent(
             command_type="model.create_breaker",
@@ -169,10 +172,15 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             values=dict(_breaker("k1").engineering_data),
             endpoints={},
             position=(5.0, 6.0),
+            equipment_type="breaker",
         ),
     )
 
-    commands = tuple(preparer.prepare(intent) for intent in intents)
+    canonical_contracts = creation_contracts_from_definitions()
+    commands = tuple(
+        preparer.prepare(intent, canonical_contract=canonical_contracts[intent.equipment_type])
+        for intent in intents
+    )
 
     assert [command.command_type for command in commands] == [
         "model.create_bus",
