@@ -91,7 +91,7 @@ class MotorSimulationReadModelStore:
             # Study-start order, not completion order, prevents an older long
             # running study from overwriting a newer study that finished first.
             previous_order = self._study_orders_by_motor.get(motor_id)
-            if study_order is not None and previous_order is not None and study_order < previous_order:
+            if study_order is not None and previous_order is not None and study_order <= previous_order:
                 return False
             # Replace channels and summary atomically so diagnostics can never
             # describe a different trajectory than the visible channel vectors.
