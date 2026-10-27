@@ -7852,3 +7852,36 @@ Constraints:
     run. Do not claim numerical parity or runtime success until validated.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-081
+======================================================================
+
+Scope:
+    Motor batch input validation before backend dispatch
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — STATIC REVIEW ONLY
+
+Finding:
+    Batch input validation previously checked shapes and model object types,
+    but finite voltage, finite/non-negative electrical frequency, and finite
+    numeric load torque were not all rejected before CUDA selection. Invalid
+    input could therefore enter the accelerator path before the CPU fallback
+    reported the input problem.
+
+Correction:
+    Added backend-independent validation for scalar dq voltage inputs,
+    electrical frequency, and each load torque before CPU/CUDA dispatch.
+    Invalid user input now fails at the batch API boundary rather than being
+    treated as an accelerator failure.
+
+Remaining:
+    Validate error consistency and CPU/CUDA numerical equivalence when
+    runtime validation is authorized and suitable hardware is available.
+    No tests, syntax checks, imports, hardware checks, or CI were run.
+
+======================================================================
