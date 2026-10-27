@@ -120,8 +120,11 @@ def select_backend(
             rejected.append((item.name, issue))
 
     if requested != "auto":
-        explicit = next((item for item in items if item.kind == requested), None)
-        if explicit is not None and explicit in compatible:
+        explicit = next(
+            (item for item in compatible if item.kind == requested),
+            None,
+        )
+        if explicit is not None:
             return BackendSelection(requested, explicit, "explicit_request_supported", tuple(rejected))
         cpu = next((item for item in items if item.kind == "cpu" and item in compatible), None)
         if cpu is None:
@@ -168,6 +171,16 @@ def execute_numerical_problem(
     registered = tuple(adapters)
     if not registered:
         raise ValueError("at least one numerical backend adapter is required")
+    # Validate problem inputs before selecting or invoking any backend, so
+    # malformed inputs cannot be misclassified as accelerator failures.
+    initial = np.asarray(problem.initial_state, dtype=np.float64)
+    if initial.ndim != 1 or initial.size == 0:
+        raise ValueError("problem initial_state must be a non-empty one-dimensional vector")
+    if not np.isfinite(initial).all():
+        raise ValueError("problem initial_state must contain only finite values")
+    uniform_time_grid(problem.duration_s, problem.maximum_step_s)
+    if problem.precision != "float64":
+        raise ValueError("shared numerical execution currently supports float64 only")
     for adapter in registered:
         if not isinstance(adapter.capability, BackendCapability):
             raise TypeError("adapter capability must be BackendCapability")
