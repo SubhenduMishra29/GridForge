@@ -7435,3 +7435,59 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-083
+======================================================================
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+    plugins/motor_dynamics/__init__.py
+    plugins/motor_dynamics/manifest.json
+    plugins/motor_dynamics/README.md
+    Modification_Register.txt
+
+Finding:
+    The motor extension exposed telemetry/read-model scaffolding but lacked a
+    numerical transient solver. Optional ONNX Runtime accelerator providers
+    did not provide motor-physics execution and could be mistaken for GPU/NPU
+    solver support.
+
+Correction:
+    - Added a headless NumPy CPU reference solver for a balanced squirrel-cage
+      induction motor in a synchronous dq frame, integrating stator/rotor flux
+      linkages, rotor speed, and a lumped winding-temperature state with
+      fixed-step classical RK4.
+    - Added SI parameter and time/profile validation, inductance-matrix
+      nonsingularity checks, finite-state failure detection, and a uniform
+      integration grid ending exactly at the requested simulation duration.
+    - Stores trajectory state in one contiguous flat motor-major,
+      step-major, state-minor buffer and exposes read-only state/channel views.
+    - Added an optional Numba-CUDA batch kernel mapping independent motor
+      trajectories to GPU threads. CPU remains the reference/fallback; CUDA
+      unavailability or execution failure falls back to CPU with diagnostics.
+    - Added result-to-read-model publication support. The application study
+      orchestrator remains responsible for publishing only successful results
+      and emitting the canonical StudyCompleted event.
+    - Exported the solver API, declared its capabilities in the plugin
+      manifest, and documented the model boundary and acceleration policy.
+    - Explicitly recorded that NPU acceleration is not currently applicable to
+      this recurrent integration kernel; ONNX NPU providers remain separate
+      inference capabilities and are not represented as physics acceleration.
+
+Model boundary:
+    Balanced induction motor; synchronous dq frame; linear inductances;
+    constant load torque; one lumped thermal state. Magnetic saturation,
+    unbalanced faults, PWM switching, separate stator/rotor thermal nodes,
+    load torque curves, and validated reference cases remain outstanding.
+
+Validation:
+    Targeted source/document/register re-fetch only. No tests, CI, syntax
+    compilation, imports, runtime activation, numerical benchmark, CPU/GPU
+    equivalence run, or hardware validation was performed.
+
+Disposition:
+    Implemented in draft PR #674; unmerged. Numerical validation and
+    application study-lifecycle integration remain required before production
+    use.
+======================================================================
