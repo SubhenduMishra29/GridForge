@@ -6946,13 +6946,13 @@ Finding:
     accepted a non-callable registration token without guaranteeing teardown.
 
 Correction:
-    - Stage the teardown token and dashboard in local variables before
-      publishing initialized state on the plugin instance.
+    - Stage the teardown token, persistence handler and dashboard in local
+      variables before publishing initialized state on the plugin instance.
     - Require register_motor_extension() to return a callable teardown.
     - On initialization failure, attempt to close a constructed dashboard and
       invoke the registration teardown before re-raising the original error.
     - Publish context, application, persistence, dashboard and initialized
-      state only after registration and dashboard setup succeed.
+      state only after all setup steps succeed.
 
 Validation:
     Targeted source re-fetch only. No tests, CI, syntax compilation, import
