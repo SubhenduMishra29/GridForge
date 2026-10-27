@@ -482,7 +482,7 @@ def _solve_batch_cuda(
         flat = np.ascontiguousarray(states[i].reshape(-1))
         flat.setflags(write=False)
         results.append(MotorSimulationResult(
-            str(mid).strip(), times, flat, float(step_s), "cuda-numba-rk4",
+            str(mid).strip(), times, flat, dt, "cuda-numba-rk4",
             {"integrator": "classical_rk4", "state_layout": "flat_motor_major_step_major_state_minor",
              "state_count": _STATE_COUNT, "model": "induction_motor_dq_electromechanical_lumped_thermal",
              "electrical_frequency_hz": float(electrical_frequency_hz), "load_torque_nm": float(torque),
