@@ -28,9 +28,6 @@ class MotorTransientEnvelope:
 class MotorTransientStudyHandler:
     """Execute one motor transient StudyRequest without publishing UI state."""
 
-    def __init__(self) -> None:
-        self._pending: dict[str, MotorTransientEnvelope] = {}
-
     def __call__(
         self,
         request: StudyRequest,
