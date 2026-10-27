@@ -424,7 +424,7 @@ def test_commit_route_is_not_replaced_by_generated_routing():
     draft.add_equipment(_transformer("t1"))
     authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [{"x": 901.0, "y": 902.0}, {"x": 903.0, "y": 904.0}, {"x": 905.0, "y": 906.0}]}
     _connect_terminal(draft, connection_id="wire-distinctive", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
-    _connect_terminal(draft, connection_id="wire-distinctive-to", bus_id="b2", attachment_id="attachment-to", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-distinctive-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
 
@@ -439,7 +439,7 @@ def test_commit_route_undo_redo_restores_the_same_persistent_sld_route():
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
     _connect_terminal(draft, connection_id="wire-history", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
-    _connect_terminal(draft, connection_id="wire-history-to", bus_id="b2", attachment_id="attachment-to", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-history-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
     assert result.success
@@ -459,7 +459,7 @@ def test_commit_route_save_reload_preserves_persistent_sld_route(tmp_path):
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
     _connect_terminal(draft, connection_id="wire-persist", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
-    _connect_terminal(draft, connection_id="wire-persist-to", bus_id="b2", attachment_id="attachment-to", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-persist-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
     assert result.success
