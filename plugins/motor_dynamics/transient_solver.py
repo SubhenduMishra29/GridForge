@@ -157,11 +157,13 @@ def _validate_time(duration_s: float, step_s: float) -> tuple[int, np.ndarray]:
             raise TypeError(f"{name} must be numeric")
         if not isfinite(float(value)) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
-    count = int(ceil(float(duration_s) / float(step_s))) + 1
+    intervals = int(ceil(float(duration_s) / float(step_s)))
+    count = intervals + 1
     if count < 2:
         raise ValueError("simulation requires at least two samples")
-    time = np.arange(count, dtype=np.float64) * float(step_s)
-    time[-1] = min(time[-1], float(duration_s))
+    # Keep a uniform integration grid that ends exactly at duration_s. The
+    # effective step is <= the requested maximum step, avoiding hidden overshoot.
+    time = np.linspace(0.0, float(duration_s), count, dtype=np.float64)
     time.setflags(write=False)
     return count, time
 
@@ -233,7 +235,7 @@ def solve_transient_cpu(
     count, times = _validate_time(duration_s, step_s)
     vd = _voltage_profile(stator_voltage_d_v, count, "stator_voltage_d_v")
     vq = _voltage_profile(stator_voltage_q_v, count, "stator_voltage_q_v")
-    h = float(step_s)
+    h = float(times[1] - times[0])
     omega_e = 2.0 * np.pi * float(electrical_frequency_hz)
     states = np.zeros((count, _STATE_COUNT), dtype=np.float64)
     states[0, _OMEGA_M] = parameters.initial_speed_rad_s
@@ -266,6 +268,8 @@ def solve_transient_cpu(
             "electrical_frequency_hz": float(electrical_frequency_hz),
             "load_torque_nm": float(load_torque_nm),
             "voltage_profile": "zero_order_hold",
+            "requested_max_step_s": float(step_s),
+            "effective_step_s": h,
         },
     )
 
@@ -300,6 +304,10 @@ def solve_transient_batch(
     n = len(motor_ids)
     if n == 0 or len(parameter_sets) != n or len(load_torque_nm) != n:
         raise ValueError("motor_ids, parameter_sets and load_torque_nm must have the same non-zero length")
+    if any(not isinstance(mid, str) or not mid.strip() for mid in motor_ids):
+        raise ValueError("every motor_id must be a non-empty string")
+    if any(not isinstance(p, MotorParameters) for p in parameter_sets):
+        raise TypeError("every parameter_sets entry must be MotorParameters")
     if backend not in ("auto", "cpu", "cuda"):
         raise ValueError("backend must be 'auto', 'cpu', or 'cuda'")
     vd, vq = np.asarray(stator_voltage_d_v, dtype=np.float64), np.asarray(stator_voltage_q_v, dtype=np.float64)
@@ -355,6 +363,8 @@ def _solve_batch_cuda(
     from numba import cuda, float64
 
     count, times = _validate_time(duration_s, step_s)
+    if isinstance(electrical_frequency_hz, bool) or not isinstance(electrical_frequency_hz, (int, float)) or not isfinite(float(electrical_frequency_hz)) or electrical_frequency_hz < 0:
+        raise ValueError("electrical_frequency_hz must be finite, numeric and non-negative")
     omega_e = 2.0 * np.pi * float(electrical_frequency_hz)
     n = len(motor_ids)
     # Packed numeric contract: Rs,Rr,Lls,Llr,Lm,p,J,B,Cth,Gth,Tamb,alpha,
@@ -368,7 +378,7 @@ def _solve_batch_cuda(
         p.initial_speed_rad_s, p.initial_temperature_c, float(t),
     ] for p, t in zip(parameter_sets, load_torques)], dtype=np.float64)
     output = np.zeros((n * count * _STATE_COUNT,), dtype=np.float64)
-    dt = float(step_s)
+    dt = float(times[1] - times[0])
 
     @cuda.jit(device=True)
     def deriv(y, p, vd0, vq0, we, out):
@@ -439,7 +449,8 @@ def _solve_batch_cuda(
             {"integrator": "classical_rk4", "state_layout": "flat_motor_major_step_major_state_minor",
              "state_count": _STATE_COUNT, "model": "induction_motor_dq_electromechanical_lumped_thermal",
              "electrical_frequency_hz": float(electrical_frequency_hz), "load_torque_nm": float(torque),
-             "voltage_profile": "constant_dq", "precision": "float64"},
+             "voltage_profile": "constant_dq", "precision": "float64",
+             "requested_max_step_s": float(step_s), "effective_step_s": dt},
         ))
     return tuple(results)
 
