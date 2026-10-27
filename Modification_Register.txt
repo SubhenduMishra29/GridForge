@@ -8599,3 +8599,28 @@ Status:
     🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SLD-TEST-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical persistent SLD route payload shape in commit regression tests
+
+Finding:
+    The route fixtures used point mappings ({x, y}), while SLDRoute's
+    persisted schema is a list of two-coordinate arrays. This produced
+    KeyError during the SLD transaction's rollback-signature construction.
+
+Correction:
+    Align route fixtures with the canonical SLDRoute representation while
+    retaining the authored route ownership and exact coordinate assertions.
+
+Status:
+    🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
