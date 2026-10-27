@@ -7109,3 +7109,66 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-073
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension-factory side-effect detection performed its post-factory
+    registry snapshot and pre-commit-hook read outside an error boundary. If
+    either verification accessor failed after the factory mutated the
+    CommandManager, the error could escape without attempting restoration or
+    clearly describing the uncertain composition state.
+
+Correction:
+    - Guard post-factory verification reads.
+    - When verification fails, attempt restoration of both captured registry
+      and pre-commit hook because the mutation extent cannot be classified.
+    - Report verification and rollback failures explicitly, including the
+      original factory exception when available; do not claim restoration if
+      rollback failed.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
+
+======================================================================
+GF-MOTOR-074
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Candidate runtime rollback removed only newly tracked handler names and
+    silently swallowed unregister failures. That did not restore the full
+    original candidate registry or pre-commit hook, and could leave a damaged
+    candidate manager without reporting rollback failure.
+
+Correction:
+    - Snapshot the candidate manager's complete registry and pre-commit hook
+      before composition begins.
+    - On setup failure, restore both captured components independently.
+    - If rollback fails, raise an explicit RuntimeError identifying the
+      failed component(s), include the setup exception details, and warn that
+      the candidate manager may remain corrupted. If rollback succeeds, re-raise
+      the original setup exception.
+
+Validation:
+    Targeted source update and subsequent re-fetch only. No tests, CI, syntax
+    compilation, import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
