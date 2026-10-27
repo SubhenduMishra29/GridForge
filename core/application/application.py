@@ -1409,8 +1409,24 @@ class Application:
             return False
         if expected_factory is not None and current_factory is not expected_factory:
             return False
-        for command_type in self._extension_handler_command_types.pop(extension_id, ()):
-            self._command_manager.unregister_handler(command_type)
+        command_types = self._extension_handler_command_types.get(extension_id, ())
+        original_registry = self._command_manager.handler_registry_snapshot()
+        try:
+            for command_type in command_types:
+                self._command_manager.unregister_handler(command_type)
+        except BaseException as teardown_error:
+            try:
+                self._command_manager.restore_handler_registry(original_registry)
+            except BaseException as rollback_error:
+                raise RuntimeError(
+                    f"Extension handler teardown for {extension_id!r} failed "
+                    f"({teardown_error!r}) and registry rollback also failed "
+                    f"({rollback_error!r}); the active CommandManager may remain "
+                    "corrupted. Extension ownership metadata was retained."
+                ) from rollback_error
+            raise
+        # Publish ownership removal only after all registry mutations succeed.
+        self._extension_handler_command_types.pop(extension_id, None)
         del self._extension_handler_factories[extension_id]
         return True
 
