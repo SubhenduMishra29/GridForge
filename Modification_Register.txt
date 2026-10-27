@@ -4692,3 +4692,42 @@ Disposition:
     the existing frozen Core/Application/UI architecture remains authoritative
     until the amendment is merged.
 ======================================================================
+
+
+======================================================================
+2026-10-27 — STUDY HANDLER LIFECYCLE AND PLUGIN REUSE MATRIX
+======================================================================
+
+Files:
+    core/application/study.py
+    docs/architecture/GRIDFORGE_V2_PLUGIN_REUSE_MATRIX.md
+    Modification_Register.txt
+
+Finding:
+    The frozen shared Plugin SDK principles require plugins to reuse the
+    canonical Application StudyService. Motor Dynamics teardown expects
+    StudyService.unregister(study_type, handler), but the prior main
+    baseline exposes registration without handler removal. Without a
+    canonical teardown API, plugin shutdown cannot safely release its
+    study handler and can leave stale registrations or collide on reactivation.
+
+Correction:
+    - Add StudyService.unregister(study_type, handler=None) at the existing
+      authoritative service rather than creating another registry.
+    - Use callable identity when supplied so a stale plugin cannot unregister
+      a replacement handler.
+    - Refuse to remove a handler while a study of that type is active.
+    - Track active study types internally while preserving the existing
+      public cancellation/result key and event/result contracts.
+    - Add a reuse matrix identifying existing owners, plugin rules, concrete
+      gaps, and the remaining Motor Dynamics host-composition dependency.
+    - Keep the shared SDK API/package layout open; do not add a parallel
+      manager, scheduler, event bus, or result store.
+
+Verification boundary:
+    Static source and documentation review only. No tests, CI, syntax checks,
+    imports, runtime, numerical, or hardware validation were run.
+
+Disposition:
+    Implemented on fix/study-service-handler-lifecycle for review. Not merged.
+======================================================================
