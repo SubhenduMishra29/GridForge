@@ -170,10 +170,15 @@ class MotorTransientResultPublisher:
         if not isinstance(envelope, MotorTransientEnvelope):
             return
         try:
-            accepted = envelope.result.publish_to(
-                self._read_models, envelope.parameters, envelope.electrical_frequency_hz,
-                envelope.load_torque_nm, study_id=study_id, study_order=study_order,
-            )
+            # Hold the lifecycle lock across publication: close() waits for an
+            # in-flight publication and guarantees none can begin after it returns.
+            with self._order_lock:
+                if not self._active:
+                    return
+                accepted = envelope.result.publish_to(
+                    self._read_models, envelope.parameters, envelope.electrical_frequency_hz,
+                    envelope.load_torque_nm, study_id=study_id, study_order=study_order,
+                )
             if not accepted:
                 self.last_error = "stale_study_result_ignored"
                 return
