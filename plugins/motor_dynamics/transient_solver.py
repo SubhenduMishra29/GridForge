@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from core.numerics.ode import solve_rk4
+from core.numerics.ode import solve_rk4, uniform_time_grid
 
 _STATE_COUNT = 6
 _PSI_DS, _PSI_QS, _PSI_DR, _PSI_QR, _OMEGA_M, _TEMP_C = range(_STATE_COUNT)
@@ -197,21 +197,9 @@ def _is_numeric_scalar(value: Any) -> bool:
 
 
 def _validate_time(duration_s: float, step_s: float) -> tuple[int, np.ndarray]:
-    for name, value in (("duration_s", duration_s), ("step_s", step_s)):
-        if not _is_numeric_scalar(value):
-            raise TypeError(f"{name} must be numeric")
-        if not isfinite(float(value)) or value <= 0:
-            raise ValueError(f"{name} must be finite and positive")
-    intervals = int(ceil(float(duration_s) / float(step_s)))
-    count = intervals + 1
-    if count < 2:
-        raise ValueError("simulation requires at least two samples")
-    # Keep a uniform integration grid that ends exactly at duration_s. The
-    # effective step is <= the requested maximum step, avoiding hidden overshoot.
-    time = np.linspace(0.0, float(duration_s), count, dtype=np.float64)
-    time.setflags(write=False)
-    return count, time
-
+    """Use the shared numerical time-grid contract for all motor backends."""
+    times, _effective_step = uniform_time_grid(duration_s, step_s)
+    return int(times.size), times
 
 def _voltage_profile(value: float | Sequence[float] | np.ndarray, count: int, name: str) -> np.ndarray:
     arr = np.asarray(value, dtype=np.float64)
