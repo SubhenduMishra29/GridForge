@@ -8493,3 +8493,29 @@ Status:
     🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-STARTUP-VERIFY-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Verify the Area-based WorkspaceLayout contract
+
+Finding:
+    After removal of the legacy dock requirement, the verifier still treated
+    WorkspaceLayout as a collection of panel placements. The frozen model
+    stores canonical AreaDefinition records instead.
+
+Correction:
+    Validate that the realized WorkspaceLayout contains exactly one visible
+    main Area with a visible canvas Region. Do not inspect non-existent panel
+    placements or derive workspace policy from dock wrappers.
+
+Status:
+    🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
