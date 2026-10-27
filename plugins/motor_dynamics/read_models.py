@@ -34,7 +34,8 @@ class MotorSimulationReadModelStore:
         self._summaries: dict[str, SimulationSummary] = {}
         self._channels: dict[tuple[str, str], np.ndarray] = {}
         self._study_motor_ids: dict[str, str] = {}
-    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None, *, study_id: str | None = None, diagnostics: Mapping[str, Any] | None = None) -> None:
+        self._study_orders_by_motor: dict[str, int] = {}
+    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None, *, study_id: str | None = None, study_order: int | None = None, diagnostics: Mapping[str, Any] | None = None) -> bool:
         if not isinstance(motor_id, str) or not motor_id.strip():
             raise ValueError("motor_id must be a non-empty string")
         motor_id = motor_id.strip()
@@ -59,6 +60,10 @@ class MotorSimulationReadModelStore:
             raise ValueError("study_id must be a non-empty string when provided")
         if study_id is not None:
             study_id = study_id.strip()
+        if study_order is not None and (
+            isinstance(study_order, bool) or not isinstance(study_order, int) or study_order < 1
+        ):
+            raise ValueError("study_order must be a positive integer when provided")
 
         frozen: dict[tuple[str, str], np.ndarray] = {}
         for name, values in channels.items():
@@ -83,15 +88,23 @@ class MotorSimulationReadModelStore:
             diagnostics=frozen_diagnostics,
         )
         with self._lock:
-            # A new publication replaces this motor's complete snapshot. Keeping
-            # omitted old channels would mix results from different simulations.
+            # Study-start order, not completion order, prevents an older long
+            # running study from overwriting a newer study that finished first.
+            previous_order = self._study_orders_by_motor.get(motor_id)
+            if study_order is not None and previous_order is not None and study_order < previous_order:
+                return False
+            # Replace channels and summary atomically so diagnostics can never
+            # describe a different trajectory than the visible channel vectors.
             stale_keys = [key for key in self._channels if key[0] == motor_id]
             for key in stale_keys:
                 del self._channels[key]
             self._channels.update(frozen)
             self._summaries[motor_id] = summary
+            if study_order is not None:
+                self._study_orders_by_motor[motor_id] = study_order
             if study_id is not None:
                 self._study_motor_ids[study_id] = motor_id
+        return True
     def get_motor_id_for_study(self, study_id: str) -> str | None:
         """Resolve a successful StudyCompleted event's ID to its motor result."""
         if not isinstance(study_id, str) or not study_id.strip():
