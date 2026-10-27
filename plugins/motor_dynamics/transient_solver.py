@@ -445,11 +445,11 @@ def _solve_batch_cuda(
             return
         p = params[m]
         y = cuda.local.array(_STATE_COUNT, dtype=np.float64)
-        a = cuda.local.array(_STATE_COUNT, dtype=float64)
-        b = cuda.local.array(_STATE_COUNT, dtype=float64)
-        c = cuda.local.array(_STATE_COUNT, dtype=float64)
-        d = cuda.local.array(_STATE_COUNT, dtype=float64)
-        tmp = cuda.local.array(_STATE_COUNT, dtype=float64)
+        a = cuda.local.array(_STATE_COUNT, dtype=np.float64)
+        b = cuda.local.array(_STATE_COUNT, dtype=np.float64)
+        c = cuda.local.array(_STATE_COUNT, dtype=np.float64)
+        d = cuda.local.array(_STATE_COUNT, dtype=np.float64)
+        tmp = cuda.local.array(_STATE_COUNT, dtype=np.float64)
         for j in range(_STATE_COUNT):
             y[j] = 0.0
         y[4], y[5] = p[12], p[13]
