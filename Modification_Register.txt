@@ -8405,3 +8405,34 @@ Status:
     🟡 SOURCE CORRECTIONS APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-APP-CREATION-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Full canonical terminal metadata parity and draft attachment fixture correctness
+
+Findings:
+    - The UI-built creation snapshot omitted terminal_requirements metadata,
+      so reconfiguration differed from the already configured Application
+      registry even after parameter metadata was aligned.
+    - Draft commit fixtures used non-canonical Bus attachment identifiers and
+      explicitly passed route=None, which violated the DraftConnection payload
+      contract.
+
+Corrections:
+    - Include full terminal requirement records in the UI snapshot: role,
+      required flag, cardinality, allowed connection types, acquisition state,
+      and initial endpoint requirement.
+    - Use supported attachment-N identifiers and omit the route argument when
+      no authored route exists.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
