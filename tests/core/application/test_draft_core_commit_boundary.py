@@ -67,7 +67,7 @@ def _bus(draft_id: str) -> DraftEquipment:
         equipment_type="bus",
         command_type="model.create_bus",
         id_field="bus_id",
-        terminal_contract=(),
+        terminal_contract=("bus",),
         values={
             "nominal_voltage_kv": 132.0,
             "frequency_hz": 50.0,
