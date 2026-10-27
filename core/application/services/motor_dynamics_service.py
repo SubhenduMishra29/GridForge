@@ -180,19 +180,21 @@ class MotorDynamicsComposition:
 
         # Capture a stable snapshot; caller mutation must not change the handler set.
         handlers = dict(command_handlers)
-        self.application.register_extension_handler_factory(
-            plugin_id,
-            lambda _command_manager, handlers=handlers: dict(handlers),
-        )
+        factory = lambda _command_manager, handlers=handlers: dict(handlers)
+        self.application.register_extension_handler_factory(plugin_id, factory)
         registered = True
 
         def teardown() -> None:
             nonlocal registered
             if not registered:
                 return
-            # A stale callback must not remove a later registration using this ID.
             registered = False
-            self.application.unregister_extension_handler_factory(plugin_id)
+            # The Application checks factory identity so a stale callback cannot
+            # remove a later registration that reused this plugin ID.
+            self.application.unregister_extension_handler_factory(
+                plugin_id,
+                expected_factory=factory,
+            )
 
         return teardown
 
