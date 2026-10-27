@@ -8780,3 +8780,53 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    UI placement draft metadata parity with canonical Application contracts
+
+Finding:
+    ModelPlacementTool constructed parameter_contract records without the
+    editable/derived fields that the trusted Application creation registry
+    requires. The runtime workflow could place a Bus but commit rejected the
+    draft metadata as non-canonical.
+
+Correction:
+    Include editable and derived metadata in the placement-produced draft
+    contract, matching the canonical schema and PresentationBootstrap snapshot.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-NET-RESOLUTION-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Connected-component API on resolved topology snapshots
+
+Finding:
+    Network topology rebuild called `ResolvedConnectivity.components()`, but
+    the method existed only on ConnectivityResolver. Save/reload validation
+    failed when topology rebuild consumed the immutable resolved snapshot.
+
+Correction:
+    Add deterministic component traversal to ResolvedConnectivity and make
+    ConnectivityResolver.components() delegate to the resolved snapshot API.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
