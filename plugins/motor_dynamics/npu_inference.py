@@ -37,6 +37,7 @@ class MotorNPUDiagnosticNode:
         self.requested_provider = None
         self.provider_fallback_used = False
         self.initialization_diagnostics: tuple[str, ...] = ()
+        self.runtime_diagnostics: tuple[str, ...] = ()
         self._ort = None
         self._session_options = None
 
@@ -155,6 +156,10 @@ class MotorNPUDiagnosticNode:
         try:
             values = self.session.run(None, {self.input_name: prepared})
         except Exception as accelerator_error:
+            runtime_diagnostics = [
+                f"{self.requested_provider} inference failed: "
+                f"{type(accelerator_error).__name__}: {accelerator_error}"
+            ]
             if (
                 self.requested_provider == "CPUExecutionProvider"
                 or self._ort is None
@@ -178,10 +183,21 @@ class MotorNPUDiagnosticNode:
                     raise ValueError("CPU fallback session input contract differs from the initialized session.")
                 values = cpu_session.run(None, {cpu_input.name: prepared})
             except Exception as cpu_error:
+                self.runtime_diagnostics = tuple(
+                    runtime_diagnostics
+                    + [
+                        f"CPUExecutionProvider retry failed: "
+                        f"{type(cpu_error).__name__}: {cpu_error}"
+                    ]
+                )
                 raise RuntimeError(
                     "Motor inference failed on the selected provider and CPU-only retry also failed."
                 ) from cpu_error
 
+            runtime_diagnostics.append(
+                "CPUExecutionProvider retry succeeded after provider runtime failure."
+            )
+            self.runtime_diagnostics = tuple(runtime_diagnostics)
             self.session = cpu_session
             self.providers = tuple(cpu_session.get_providers())
             self.requested_provider = "CPUExecutionProvider"
@@ -192,5 +208,6 @@ class MotorNPUDiagnosticNode:
             "requested_provider": self.requested_provider,
             "session_providers": list(self.providers),
             "initialization_diagnostics": list(self.initialization_diagnostics),
+            "runtime_diagnostics": list(self.runtime_diagnostics),
             "provider_fallback_used": self.provider_fallback_used,
         }
