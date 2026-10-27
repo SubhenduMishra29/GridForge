@@ -47,7 +47,7 @@ class TopologyManager:
             buses=tuple(sorted({
                 str(resolved.attached_bus_id)
                 for reference in terminals
-                for resolved in (boundary.resolve(reference),)
+                for resolved in (boundary.resolve(reference.terminal_reference),)
                 if resolved.attached_bus_id is not None
                 and str(resolved.attached_bus_id) in active_bus_ids
             }))
