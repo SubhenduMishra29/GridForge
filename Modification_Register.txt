@@ -7919,3 +7919,49 @@ Validation:
     execution, or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-083
+======================================================================
+
+Scope:
+    CPU/CUDA model parity review and NumPy scalar input validation
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Audit finding:
+    Static comparison found the CPU and CUDA kernels use matching state order,
+    inductance/current reconstruction, temperature-adjusted resistance,
+    electromagnetic torque, copper-loss calculation, dq flux derivatives,
+    mechanical equation, thermal equation, initial speed/temperature, RK4
+    stages, uniform time grid, and flat step-major state layout. This is a
+    source-level comparison only; numerical parity is not established.
+
+Confirmed defect:
+    Public scalar validation accepted Python int/float but rejected some
+    NumPy integer/floating scalar values, even though these are ordinary
+    numerical inputs commonly produced by NumPy-based callers. The check was
+    inconsistent across parameter, time, frequency, torque, and batch paths.
+
+Correction:
+    Added a shared numeric-scalar predicate that accepts Python and NumPy
+    integer/floating scalars while rejecting Python and NumPy booleans and
+    non-scalar values. Applied it across motor parameter, time, frequency,
+    torque, and batch validation. Positive-integer pole-pair validation also
+    accepts NumPy integer scalars while rejecting booleans.
+
+Boundary:
+    This fixes scalar type compatibility and documents the static parity
+    findings. It does not prove CPU/CUDA equivalence, convergence, or physical
+    model validity. The CPU and CUDA derivative equations remain separately
+    implemented because the CUDA kernel must be device-compilable.
+
+Validation:
+    Source-level changes only. No tests, syntax checks, imports, CUDA/NPU
+    hardware execution, or CI were run.
+
+======================================================================
