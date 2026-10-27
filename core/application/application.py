@@ -1261,12 +1261,24 @@ class Application:
         self._extension_handler_factories[extension_id] = factory
         self._extension_handler_command_types[extension_id] = tuple(installed)
 
-    def unregister_extension_handler_factory(self, extension_id: str) -> bool:
-        """Unregister an extension and remove its handlers from the active runtime."""
+    def unregister_extension_handler_factory(
+        self,
+        extension_id: str,
+        *,
+        expected_factory: Callable[[CommandManager], Mapping[str, Any]] | None = None,
+    ) -> bool:
+        """Unregister an extension, optionally requiring ownership of its registration.
+
+        The expected_factory guard prevents stale teardown callbacks from
+        removing a later registration that reused the same extension ID.
+        """
         if not isinstance(extension_id, str) or not extension_id.strip():
             raise ValueError("extension_id must be a non-empty string.")
         extension_id = extension_id.strip()
-        if extension_id not in self._extension_handler_factories:
+        current_factory = self._extension_handler_factories.get(extension_id)
+        if current_factory is None:
+            return False
+        if expected_factory is not None and current_factory is not expected_factory:
             return False
         for command_type in self._extension_handler_command_types.pop(extension_id, ()):
             self._command_manager.unregister_handler(command_type)
