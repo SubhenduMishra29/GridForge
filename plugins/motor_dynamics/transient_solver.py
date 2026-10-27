@@ -153,6 +153,7 @@ class MotorSimulationResult:
             self.sample_period_s,
             status="completed",
             study_id=study_id,
+            diagnostics=self.diagnostics,
         )
 
     def channels(self, parameters: MotorParameters, electrical_rad_s: float,
