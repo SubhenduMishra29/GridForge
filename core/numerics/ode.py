@@ -116,3 +116,36 @@ def solve_rk4(
     flat = np.ascontiguousarray(states.reshape(-1))
     flat.setflags(write=False)
     return ODESolution(times, flat, int(initial.size), h)
+
+
+@dataclass(frozen=True)
+class NumericalProblem:
+    """Reusable plugin contract for a first-order ODE initial-value problem."""
+    problem_id: str
+    workload: str
+    derivative: Derivative
+    initial_state: npt.ArrayLike
+    duration_s: float
+    maximum_step_s: float
+    input_at: Callable[[int, float], Any] | None = None
+    precision: str = "float64"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.problem_id, str) or not self.problem_id.strip():
+            raise ValueError("problem_id must be a non-empty string")
+        if not isinstance(self.workload, str) or not self.workload.strip():
+            raise ValueError("workload must be a non-empty string")
+        if not callable(self.derivative):
+            raise TypeError("derivative must be callable")
+        if self.input_at is not None and not callable(self.input_at):
+            raise TypeError("input_at must be callable or None")
+        if self.precision != "float64":
+            raise ValueError("shared reference solver supports float64 only")
+
+
+def solve_numerical_problem(problem: NumericalProblem) -> ODESolution:
+    """Run a plugin problem through the common CPU RK4 implementation."""
+    if not isinstance(problem, NumericalProblem):
+        raise TypeError("problem must be a NumericalProblem")
+    return solve_rk4(problem.derivative, problem.initial_state, problem.duration_s,
+                     problem.maximum_step_s, input_at=problem.input_at)
