@@ -7781,3 +7781,10 @@ GF-MOTOR-093 — Motor solver capability and result-lifecycle documentation reco
 - Finding: the README simultaneously described the transient solver as absent and documented its RK4 implementation; it also described publication before `StudyCompleted`, contrary to the implemented StudyService subscriber flow.
 - Correction: describe the existing solver as preliminary and unvalidated, distinguish its implemented CPU/RK4 path from the limited optional CUDA batch path and inference-only NPU providers, and document that the result publisher verifies the stored successful `StudyResult` after `StudyCompleted` before publishing read-model channels.
 - Validation: documentation/source reconciliation only; no tests, CI, numerical validation, syntax/import checks, runtime lifecycle checks, or hardware validation performed.
+
+
+GF-MOTOR-094 — CUDA RK4 local-array dtype name correction
+- Scope: `plugins/motor_dynamics/transient_solver.py`, nested Numba CUDA `integrate` kernel.
+- Finding: five CUDA local arrays referenced `dtype=float64`, but the module did not define or import the bare name `float64`. CUDA kernel compilation could therefore fail before the RK4 integration executes.
+- Correction: use the already-used `np.float64` dtype explicitly for all five local arrays, matching the kernel's state-array dtype contract.
+- Validation: static source correction and re-fetch only; no tests, Numba compilation, syntax/import checks, numerical comparison, CUDA execution, CI, or hardware validation performed.
