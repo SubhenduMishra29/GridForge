@@ -8098,3 +8098,50 @@ GF-MOTOR-089 — Motor CUDA batch adapter integration. Added a motor-specific CU
 GF-MOTOR-090 — CPU/CUDA transient parity audit and fail-fast correction. Source comparison confirmed the CUDA derivative equations match the CPU motor derivative for the supported constant-dq workload, including temperature-adjusted resistance, slip, torque, copper loss, mechanical acceleration, and lumped thermal dynamics. Both paths use the shared uniform grid rule (ceil(duration/max_step), exact duration endpoint) and initialize flux states to zero with configured speed/temperature. Corrected one identified failure-contract discrepancy: CUDA now writes a non-finite sentinel and exits when an accepted RK4 state becomes non-finite; the host finite-state check raises into the existing diagnosed CPU fallback. This improves divergence handling but does not prove bitwise or tolerance-based numerical equivalence. No tests, syntax checks, imports, numerical comparison, CUDA hardware execution, performance measurement, or CI were run.
 
 GF-MOTOR-091 — RK4 intermediate-stage failure contract aligned. The shared CPU reference solver now rejects a non-finite intermediate stage state before invoking the derivative, in addition to its existing derivative-output and accepted-state checks. The CUDA motor batch kernel now checks each RK4 derivative vector and constructed intermediate stage, then marks the motor output as failed so the host finite-state guard enters the existing diagnosed CPU fallback. This narrows the CPU/GPU failure-contract gap; it does not establish identical exception timing or numerical equivalence. No tests, syntax checks, imports, numerical comparisons, CUDA hardware execution, performance measurement, or CI were run.
+
+======================================================================
+GF-MOTOR-092
+======================================================================
+
+Scope:
+    CUDA motor-batch failure attribution and batch-result integrity
+
+Files:
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — SOURCE REVIEW PENDING; RUNTIME VALIDATION DEFERRED
+
+Finding:
+    The CUDA kernel marked only one output scalar as non-finite when a motor
+    integration stage failed. The host-wide finite-state check prevented that
+    partial batch from being returned, but the reported failure did not
+    identify the affected motor or RK4 stage.
+
+Correction:
+    Added a per-motor integer status buffer. The CUDA kernel records the first
+    failed RK4 derivative/intermediate/accepted-state stage for that motor.
+    The host copies and inspects status before constructing any result objects;
+    if any motor failed, it discards the entire accelerator batch and raises a
+    diagnostic identifying the first failing batch index and stage code. The
+    existing non-finite output guard remains as a secondary integrity check.
+    The existing batch dispatcher records the exception and retries the
+    complete batch through the CPU reference solver.
+
+Stage codes:
+    1 k1 derivative; 2 k2 input state; 3 k2 derivative;
+    4 k3 input state; 5 k3 derivative; 6 k4 input state;
+    7 k4 derivative; 8 accepted RK4 state.
+
+Boundary:
+    A stage code is diagnostic metadata, not a proof of physical divergence
+    or backend parity. A failed GPU batch is never returned as partially
+    successful results. CPU fallback can still fail independently and then
+    propagates that CPU failure.
+
+Validation:
+    Source edits only. No tests, syntax checks, imports, Numba compilation,
+    CUDA hardware execution, numerical comparisons, performance measurements,
+    or CI were run.
+
+======================================================================
