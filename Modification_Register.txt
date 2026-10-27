@@ -7698,3 +7698,32 @@ Verification boundary:
     No tests, CI, syntax compilation, imports, runtime execution, numerical
     validation, GPU hardware validation, or NPU validation were performed.
 ======================================================================
+
+
+======================================================================
+2026-10-27 — MOTOR DYNAMICS EXPLICIT BACKEND CONTRACT
+======================================================================
+
+File:
+    plugins/motor_dynamics/study_handler.py
+
+Finding:
+    A motor transient request selecting backend='cuda' with variable stator
+    voltage profiles was silently rewritten to CPU execution. This violated
+    the explicit backend selection contract and could mislead users about
+    accelerator use.
+
+Correction:
+    - Reject an explicit CUDA request for variable dq-voltage profiles with
+      a descriptive ValueError.
+    - Keep CPU/auto fallback available for profiles through the CPU reference
+      integrator.
+    - Preserve CUDA dispatch only for the implemented constant-input batch
+      path; do not claim NPU physics support.
+
+Verification boundary:
+    Static source review only. No tests, CI, numerical or hardware validation.
+
+Disposition:
+    Implemented on feature/motor-dynamics-extension-v2 for PR #674 review.
+======================================================================
