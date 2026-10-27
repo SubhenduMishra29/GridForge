@@ -153,6 +153,13 @@ class MotorTransientResultPublisher:
             parsed_id = UUID(study_id)
         except (TypeError, ValueError):
             return
+        with self._order_lock:
+            if not self._active:
+                return
+            study_order = self._study_orders.pop(study_id, None)
+        if study_order is None:
+            self.last_error = "missing_study_start_order"
+            return
         get_result = getattr(self._application, "study_result", None)
         if not callable(get_result):
             return
@@ -161,13 +168,6 @@ class MotorTransientResultPublisher:
             return
         envelope = result.value
         if not isinstance(envelope, MotorTransientEnvelope):
-            return
-        with self._order_lock:
-            if not self._active:
-                return
-            study_order = self._study_orders.pop(study_id, None)
-        if study_order is None:
-            self.last_error = "missing_study_start_order"
             return
         try:
             accepted = envelope.result.publish_to(
