@@ -11,7 +11,7 @@ from threading import RLock
 from collections.abc import Mapping
 from typing import Any
 
-from core.application.events import StudyCompleted, StudyStarted
+from core.application.events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
 from core.application.study import StudyRequest, StudyExecutionContext, StudyCancellationToken, StudyResult
 from .transient_solver import MotorParameters, MotorSimulationResult, solve_transient_batch, solve_transient_cpu
 
@@ -106,6 +106,7 @@ class MotorTransientResultPublisher:
         self._order_lock = RLock()
         self._next_study_order = 0
         self._study_orders: dict[str, int] = {}
+        self._active = True
 
     def on_started(self, event: StudyStarted) -> None:
         """Record submission order so late completion cannot replace newer output."""
@@ -116,11 +117,30 @@ class MotorTransientResultPublisher:
         if not isinstance(study_id, str) or not study_id.strip():
             return
         with self._order_lock:
+            if not self._active:
+                return
             self._next_study_order += 1
             self._study_orders[study_id] = self._next_study_order
 
+    def on_terminal(self, event: StudyFailed | StudyCancelled) -> None:
+        """Discard ordering metadata for studies that will never publish results."""
+        study_id = event.payload.get("study_id")
+        if not isinstance(study_id, str):
+            return
+        with self._order_lock:
+            self._study_orders.pop(study_id, None)
+
+    def close(self) -> None:
+        """Prevent late events from publishing and release retained study IDs."""
+        with self._order_lock:
+            self._active = False
+            self._study_orders.clear()
+
     def __call__(self, event: StudyCompleted) -> None:
         payload = event.payload
+        with self._order_lock:
+            if not self._active:
+                return
         study_id = payload.get("study_id")
         project_id = payload.get("project_id")
         generation = payload.get("activation_generation")
@@ -143,6 +163,8 @@ class MotorTransientResultPublisher:
         if not isinstance(envelope, MotorTransientEnvelope):
             return
         with self._order_lock:
+            if not self._active:
+                return
             study_order = self._study_orders.pop(study_id, None)
         if study_order is None:
             self.last_error = "missing_study_start_order"
