@@ -11,15 +11,25 @@
     "commands",
     "sld_graphics",
     "study_dashboard",
-    "persistence"
+    "persistence",
+    "transient_solver",
+    "cpu_transient_simulation",
+    "optional_cuda_batch_simulation"
   ],
   "runtime": {
     "python": ">=3.10",
     "numerics": [
       "numpy",
-      "scipy"
+      "scipy",
+      "numba (optional; CUDA backend only)"
     ],
-    "ui": "GridForge ui.core.qt (PySide6 boundary)"
+    "ui": "GridForge ui.core.qt (PySide6 boundary)",
+    "acceleration": {
+      "cpu": "mandatory reference solver and fallback",
+      "gpu": "optional Numba CUDA batch kernel for independent motor trajectories",
+      "npu": "not currently applicable to the recurrent numerical integration kernel; optional ONNX inference providers are separate",
+      "fallback": "CPU execution remains available when CUDA is absent or fails"
+    }
   },
   "inference": {
     "providers": [
