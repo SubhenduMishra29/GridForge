@@ -8546,3 +8546,56 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Safe snapshots and rollback of transient equipment creation state
+
+Finding:
+    CreationContext used deepcopy(CreationDraft), recursively copying immutable
+    creation definitions, mapping proxies, and endpoint adapters. Runtime
+    smoke observed a failure while cancelling a live preview because a Qt-
+    backed adapter could not be deep-copied.
+
+Correction:
+    Clone only mutable authoring state (values, validation and preview maps).
+    Retain immutable creation definition/parameter schema/requirements and
+    endpoint identity objects by reference; keep endpoint mapping independent.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-SLD-TEST-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Headless SLD route persistence regression fixture
+
+Finding:
+    Route persistence tests attached SLDService without a symbol presentation
+    factory. Draft commit correctly refused to create an equipment SLD node
+    without either an explicit renderer-neutral presentation or a configured
+    factory.
+
+Correction:
+    Configure a deterministic test-only renderer-neutral symbol presentation
+    factory for the route persistence fixture. This preserves the production
+    invariant that equipment nodes must not silently invent missing symbols.
+
+Status:
+    🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
