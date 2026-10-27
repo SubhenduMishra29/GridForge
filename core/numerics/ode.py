@@ -89,6 +89,10 @@ def solve_rk4(
     states[0] = initial
 
     def evaluate(y: FloatArray, u: Any, index: int) -> FloatArray:
+        if not np.isfinite(y).all():
+            raise FloatingPointError(
+                f"ODE intermediate state became non-finite at interval {index}"
+            )
         stage = y.view()
         stage.setflags(write=False)
         raw = np.asarray(derivative(stage, u), dtype=np.float64)
