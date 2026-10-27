@@ -4704,30 +4704,27 @@ Files:
     Modification_Register.txt
 
 Finding:
-    The frozen shared Plugin SDK principles require plugins to reuse the
-    canonical Application StudyService. Motor Dynamics teardown expects
-    StudyService.unregister(study_type, handler), but the prior main
-    baseline exposes registration without handler removal. Without a
-    canonical teardown API, plugin shutdown cannot safely release its
-    study handler and can leave stale registrations or collide on reactivation.
+    This branch originally addressed the absence of StudyService.unregister()
+    on its then-current main baseline. A fresh audit of current main now
+    confirms that the canonical service already provides identity-aware
+    unregister and active-study protection. Keeping a separate implementation
+    here would duplicate an already integrated API and increase divergence.
 
 Correction:
-    - Add StudyService.unregister(study_type, handler=None) at the existing
-      authoritative service rather than creating another registry.
-    - Use callable identity when supplied so a stale plugin cannot unregister
-      a replacement handler.
-    - Refuse to remove a handler while a study of that type is active.
-    - Track active study types internally while preserving the existing
-      public cancellation/result key and event/result contracts.
-    - Add a reuse matrix identifying existing owners, plugin rules, concrete
-      gaps, and the remaining Motor Dynamics host-composition dependency.
-    - Keep the shared SDK API/package layout open; do not add a parallel
-      manager, scheduler, event bus, or result store.
+    - Reconciled core/application/study.py byte-for-byte with current main;
+      this PR no longer carries a duplicate StudyService implementation.
+    - Retained the Plugin Infrastructure Reuse Matrix as an audit artifact.
+    - Corrected the matrix to identify unregister as present on current main.
+    - Preserve the rule against parallel managers, schedulers, event buses,
+      result stores, or configuration stores.
+    - Motor Dynamics host-composition and end-to-end integration remain
+      separate unresolved acceptance gates.
 
 Verification boundary:
-    Static source and documentation review only. No tests, CI, syntax checks,
-    imports, runtime, numerical, or hardware validation were run.
+    GitHub source comparison and textual reconciliation only. No tests, CI,
+    syntax checks, imports, runtime, numerical, or hardware validation were run.
 
 Disposition:
-    Implemented on fix/study-service-handler-lifecycle for review. Not merged.
+    Duplicate StudyService change removed from this branch. Matrix and register
+    reconciliation remain for review; PR is not merged.
 ======================================================================
