@@ -75,10 +75,7 @@ def main_smoke() -> None:
         app.processEvents()
 
         network = controller.application.read_network()
-        buses = tuple(
-            element for element in network.elements
-            if str(getattr(element, "element_type", "")).lower() in {"bus", "buses"}
-        )
+        buses = tuple(getattr(network, "buses", ()))
         if not buses:
             raise SystemExit("Runtime smoke: committed Bus is absent from Application read model.")
 
@@ -97,7 +94,8 @@ def main_smoke() -> None:
             app.processEvents()
 
         selected_ids = tuple(tool_manager.selection_manager.get_selected_ids())
-        if str(buses[-1].object_id) not in selected_ids:
+        committed_bus_id = str(getattr(buses[-1], "id", getattr(buses[-1], "object_id", "")))
+        if not committed_bus_id or committed_bus_id not in selected_ids:
             raise SystemExit("Runtime smoke: committed Bus was not selected through SelectionManager.")
 
         print("RUNTIME VERIFIED: palette icons, tool activation, live previews, Bus placement, read-model visibility, and selection.")
