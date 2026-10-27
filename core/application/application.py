@@ -1234,6 +1234,7 @@ class Application:
     ) -> Mapping[str, Any]:
         """Invoke a pure handler factory and reject command-registry side effects."""
         before = command_manager.handler_registry_snapshot()
+        before_pre_commit_hook = command_manager.pre_commit_hook
         factory_error: BaseException | None = None
         handlers: Mapping[str, Any] | None = None
         try:
@@ -1246,17 +1247,27 @@ class Application:
             before.keys() != after.keys()
             or any(before[key] is not after[key] for key in before.keys() & after.keys())
         )
+        hook_changed = command_manager.pre_commit_hook is not before_pre_commit_hook
+
         if registry_changed:
             # Restore additions, removals, replacements, and the original order
             # before surfacing the factory contract violation.
             command_manager.restore_handler_registry(before)
+        if hook_changed:
+            command_manager.set_pre_commit_hook(before_pre_commit_hook)
 
         if factory_error is not None:
             raise factory_error
-        if registry_changed:
+        if registry_changed or hook_changed:
+            changed_state = []
+            if registry_changed:
+                changed_state.append("handler registry")
+            if hook_changed:
+                changed_state.append("pre-commit hook")
             raise RuntimeError(
                 f"Extension handler factory {extension_id!r} mutated the "
-                "CommandManager registry; the original registry was restored."
+                f"CommandManager {' and '.join(changed_state)}; the original "
+                "composition state was restored."
             )
         # Let the standard handler validator provide the specific type error
         # if a factory returns None or another non-mapping value.
