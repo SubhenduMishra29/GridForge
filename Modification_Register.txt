@@ -8651,3 +8651,55 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SLD-ENDPOINT-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Draft endpoint identity translation into persistent SLD presentation
+
+Finding:
+    DraftNetwork committed endpoint mappings use Core/Application identity
+    fields (kind, object_id, terminal_role, attachment_id). The SLD presentation
+    schema instead requires node_id plus equipment_id/terminal_role or
+    bus_id/attachment_id. Passing draft mappings directly into SLDService
+    caused canonical endpoint parsing to reject object_id.
+
+Correction:
+    Add an explicit Application-side projection adapter that resolves the
+    committed object to its unique SLD node and emits the strict SLDEndpoint
+    mapping. Core endpoint identity remains authoritative; SLD stays projection.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-STARTUP-SMOKE-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Runtime smoke assertion for committed Bus visibility
+
+Finding:
+    Runtime smoke inspected a non-canonical read-model `elements` collection
+    and inferred Bus type from a display attribute. The authoritative Network
+    exposes its registered Bus collection directly.
+
+Correction:
+    Assert committed Bus presence against the canonical Network `buses`
+    registry and use its stable identity for the selection assertion.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
