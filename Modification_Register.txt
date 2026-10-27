@@ -7039,14 +7039,14 @@ Finding:
 
 Correction:
     - Route factory invocation through an Application-owned guard that
-      snapshots the complete CommandManager handler registry.
-    - Detect additions, removals, and handler replacements, then restore the
-      prior registry, including handler object identities and registration order.
+      snapshots the complete CommandManager handler registry and pre-commit hook.
+    - Detect additions, removals, handler replacements, and hook replacement;
+      restore the prior registry, handler identities, registration order, and hook.
     - Preserve and re-raise the original factory exception when the factory
-      mutates the registry and raises.
+      mutates composition state and raises.
     - Apply the guard during extension registration and runtime reconstruction.
-    - Add CommandManager snapshot/restore APIs for controlled composition
-      rollback without introducing Core or UI dependencies.
+    - Add CommandManager snapshot/restore support and a read-only pre-commit
+      hook accessor for controlled composition rollback.
 
 Validation:
     Targeted source re-fetch only. No tests, CI, syntax compilation, import
