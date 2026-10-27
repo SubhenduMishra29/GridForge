@@ -23,14 +23,17 @@
   },
   "inference": {
     "providers": [
+      "QNNExecutionProvider",
       "VitisAIExecutionProvider",
+      "OpenVINOExecutionProvider",
       "TensorrtExecutionProvider",
       "CUDAExecutionProvider",
+      "DmlExecutionProvider",
       "CPUExecutionProvider"
     ],
-    "dispatch": "capability-based; provider initialization failure falls through to the next available provider",
-    "fallback": "CPUExecutionProvider is required",
+    "dispatch": "tries installed providers in configured priority order; session initialization failure proceeds to the next candidate; CPU-only retry is attempted after a selected non-CPU provider fails at inference time",
+    "fallback": "CPUExecutionProvider is required; successful runtime fallback is reported in runtime_diagnostics",
     "input_policy": "finite numeric tensors with statically specified sample dimensions; quantized integer inputs require an explicit model-specific quantization contract",
-    "compatibility": "provider availability does not prove model compatibility or accelerator execution of every graph node"
+    "compatibility": "provider availability and session provider listing do not prove model compatibility or that every graph node executes on the accelerator; hardware/device configuration and actual execution placement require runtime verification"
   }
 }
