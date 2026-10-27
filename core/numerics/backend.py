@@ -158,6 +158,14 @@ class NumericalExecution:
         rejected = ",".join(
             f"{name}:{reason}" for name, reason in self.selection.rejected
         ) or "none"
+        policy_fallback = self.selection.reason == "explicit_request_cpu_fallback"
+        runtime_fallback = self.fallback_failure is not None
+        fallback_kind = (
+            "policy_and_runtime" if policy_fallback and runtime_fallback
+            else "policy" if policy_fallback
+            else "runtime" if runtime_fallback
+            else "none"
+        )
         return (
             ("requested_backend", self.selection.requested),
             ("selected_backend", self.selection.selected.name),
@@ -165,7 +173,10 @@ class NumericalExecution:
             ("selection_reason", self.selection.reason),
             ("rejected_backends", rejected),
             ("executed_backend", self.executed_backend),
-            ("fallback_used", "true" if self.fallback_failure is not None else "false"),
+            ("policy_fallback_used", "true" if policy_fallback else "false"),
+            ("runtime_fallback_used", "true" if runtime_fallback else "false"),
+            ("fallback_used", "true" if fallback_kind != "none" else "false"),
+            ("fallback_kind", fallback_kind),
             ("fallback_failure", self.fallback_failure or "none"),
             ("outcome", "success"),
         )
