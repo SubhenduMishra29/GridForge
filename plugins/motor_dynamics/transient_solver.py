@@ -578,6 +578,7 @@ def _solve_batch_cuda(
                 return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + 0.5 * h * b[j]
             if not finite_state(tmp):
+                status[m] = 4
                 result[base] = float('nan')
                 return
             deriv(tmp, p, vd0, vq0, we, c)
@@ -587,6 +588,7 @@ def _solve_batch_cuda(
                 return
             for j in range(_STATE_COUNT): tmp[j] = y[j] + h * c[j]
             if not finite_state(tmp):
+                status[m] = 6
                 result[base] = float('nan')
                 return
             deriv(tmp, p, vd0, vq0, we, d)
