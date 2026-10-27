@@ -6961,3 +6961,35 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-066
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._replace_runtime() rolled back handlers only within the
+    extension currently being registered. If a later extension factory,
+    handler registration, or control-runtime setup failed, handlers from
+    earlier extensions and SLD registration could remain on the candidate
+    CommandManager even though the Application retained its previous runtime.
+
+Correction:
+    - Track each SLD and extension handler successfully installed on the
+      candidate manager across the entire runtime composition.
+    - On any candidate setup failure, unregister those newly installed
+      handlers in reverse order on a best-effort basis, preserving the
+      original setup exception.
+    - Keep publication of the new Application runtime references after all
+      candidate composition and control setup has succeeded.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
