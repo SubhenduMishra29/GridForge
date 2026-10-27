@@ -232,9 +232,11 @@ class MotorDynamicsPlugin:
         self.context = context
         self.application = application
         self.persistence = persistence
+        # Shutdown unwinds in reverse order: close/unregister study
+        # publication before removing the command registration.
+        self._unhooks.append(token)
         if callable(study_unhook):
             self._unhooks.append(study_unhook)
-        self._unhooks.append(token)
         self.dashboard = dashboard
         self._initialized = True
         self._ready = True
@@ -271,6 +273,11 @@ class MotorDynamicsPlugin:
             self._ready = False
             raise _aggregate_base_exceptions("Motor Dynamics plugin shutdown encountered failures", errors) from None
 
+        # No callbacks remain after successful teardown, so cached result
+        # projections can be cleared before a later initialize() cycle.
+        clear_read_models = getattr(self.read_models, "clear", None)
+        if callable(clear_read_models):
+            clear_read_models()
         self._initialized = False
         self._ready = False
         self.persistence = None
