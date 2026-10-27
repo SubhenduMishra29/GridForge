@@ -97,18 +97,42 @@ class MotorDynamicsPlugin:
                     event_bus=event_bus,
                     parent=parent,
                 )
-        except BaseException:
+        except BaseException as initialization_error:
+            cleanup_errors: list[BaseException] = []
+            dashboard_retained = False
+            failed_token = None
+
             if dashboard is not None:
                 try:
                     dashboard.close()
-                except BaseException:
-                    pass
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+                    dashboard_retained = True
+
             if callable(token):
                 try:
                     token()
-                except BaseException:
-                    pass
-            raise
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+                    failed_token = token
+
+            if not cleanup_errors:
+                raise
+
+            # Publish only the handles that could not be released. The normal
+            # initialization path remains atomic, while failed rollback remains
+            # owned and retryable through shutdown().
+            self.context = context
+            self.application = application
+            self.persistence = persistence
+            self.dashboard = dashboard if dashboard_retained else None
+            if failed_token is not None:
+                self._unhooks.append(failed_token)
+            self._initialized = True
+            raise BaseExceptionGroup(
+                "Motor Dynamics plugin initialization failed and rollback was incomplete",
+                [initialization_error, *cleanup_errors],
+            ) from None
 
         self.context = context
         self.application = application
@@ -146,7 +170,7 @@ class MotorDynamicsPlugin:
 
         if errors:
             self._initialized = True
-            raise ExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
+            raise BaseExceptionGroup("Motor Dynamics plugin shutdown encountered failures", errors)
 
         self._initialized = False
         self.persistence = None
