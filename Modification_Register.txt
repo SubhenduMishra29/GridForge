@@ -6892,3 +6892,38 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-064
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/services/motor_dynamics_service.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsComposition returned an idempotent local teardown callback,
+    but Application.unregister_extension_handler_factory() removed whichever
+    registration currently occupied the plugin ID. If an older teardown
+    callback survived after its registration was removed and the same ID was
+    registered again, invoking the stale callback could remove the newer
+    registration. The previous comment claiming stale callbacks were safe was
+    not enforced by the Application API.
+
+Correction:
+    - Application unregistration accepts an optional expected_factory owner
+      and leaves the active registration untouched when the owner differs.
+    - MotorDynamicsComposition retains the exact factory object it registered
+      and supplies it as the expected owner during teardown.
+    - Existing callers that omit expected_factory retain the prior API
+      behavior; the motor lifecycle now uses ownership-checked teardown.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or application runtime were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
