@@ -19,7 +19,8 @@ class MotorSimulationReadModelStore:
         self._lock = RLock()
         self._summaries: dict[str, SimulationSummary] = {}
         self._channels: dict[tuple[str, str], np.ndarray] = {}
-    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None) -> None:
+        self._study_motor_ids: dict[str, str] = {}
+    def publish(self, motor_id: str, channels: Mapping[str, Any], sample_period_s: float, status: str = "completed", fault: str | None = None, *, study_id: str | None = None) -> None:
         if not isinstance(motor_id, str) or not motor_id.strip():
             raise ValueError("motor_id must be a non-empty string")
         motor_id = motor_id.strip()
@@ -33,6 +34,10 @@ class MotorSimulationReadModelStore:
             raise ValueError("status must be a non-empty string")
         if fault is not None and not isinstance(fault, str):
             raise TypeError("fault must be a string or None")
+        if study_id is not None and (not isinstance(study_id, str) or not study_id.strip()):
+            raise ValueError("study_id must be a non-empty string when provided")
+        if study_id is not None:
+            study_id = study_id.strip()
 
         frozen: dict[tuple[str, str], np.ndarray] = {}
         for name, values in channels.items():
@@ -63,6 +68,14 @@ class MotorSimulationReadModelStore:
                 del self._channels[key]
             self._channels.update(frozen)
             self._summaries[motor_id] = summary
+            if study_id is not None:
+                self._study_motor_ids[study_id] = motor_id
+    def get_motor_id_for_study(self, study_id: str) -> str | None:
+        """Resolve a successful StudyCompleted event's ID to its motor result."""
+        if not isinstance(study_id, str) or not study_id.strip():
+            return None
+        with self._lock:
+            return self._study_motor_ids.get(study_id.strip())
     def get_simulation_summary(self, motor_id: str) -> SimulationSummary | None:
         with self._lock: return self._summaries.get(motor_id)
     def get_raw_channel_vector(self, motor_id: str, channel: str) -> np.ndarray | None:
