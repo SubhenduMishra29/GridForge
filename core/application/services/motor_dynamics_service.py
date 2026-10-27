@@ -60,11 +60,29 @@ class MotorDraftService:
             raise TypeError("Motor parameters must be a mapping.")
         if any(not isinstance(key, str) or not key.strip() for key in parameters):
             raise TypeError("Motor parameter names must be non-empty strings.")
-        allowed_parameters = {
-            str(item.get("parameter_id"))
-            for item in contract.get("parameter_contract", ())
-            if isinstance(item, Mapping)
-        }
+        if not isinstance(contract, Mapping):
+            raise TypeError("Resolved motor creation contract must be a mapping.")
+        parameter_contract = contract.get("parameter_contract")
+        if not isinstance(parameter_contract, (list, tuple)):
+            raise TypeError("Motor parameter_contract must be a list or tuple.")
+        allowed_parameters = set()
+        for item in parameter_contract:
+            if not isinstance(item, Mapping):
+                raise TypeError("Each motor parameter contract entry must be a mapping.")
+            parameter_id = item.get("parameter_id")
+            if (
+                not isinstance(parameter_id, str)
+                or not parameter_id
+                or parameter_id != parameter_id.strip()
+            ):
+                raise ValueError(
+                    "Each motor parameter contract entry requires a canonical non-empty parameter_id."
+                )
+            if parameter_id in allowed_parameters:
+                raise ValueError(
+                    f"Duplicate motor parameter contract ID: {parameter_id!r}."
+                )
+            allowed_parameters.add(parameter_id)
         unknown = set(parameters) - allowed_parameters
         if unknown:
             raise ValueError("Unsupported motor engineering parameters: " + ", ".join(sorted(unknown)))
