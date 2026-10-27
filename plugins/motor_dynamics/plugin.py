@@ -18,7 +18,7 @@ from .dashboard import MotorTelemetryDashboardWidget
 from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
 from .study_handler import MotorTransientResultPublisher, MotorTransientStudyHandler
-from core.application.events import StudyCompleted, StudyStarted
+from core.application.events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
 
 
 def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> BaseException:
@@ -128,10 +128,26 @@ class MotorDynamicsPlugin:
             publisher = MotorTransientResultPublisher(application, self.read_models)
             subscribe(StudyStarted, publisher.on_started)
             subscribe(StudyCompleted, publisher)
+            subscribe(StudyFailed, publisher.on_terminal)
+            subscribe(StudyCancelled, publisher.on_terminal)
 
             def release_publisher() -> None:
-                unsubscribe(StudyCompleted, publisher)
-                unsubscribe(StudyStarted, publisher.on_started)
+                # Close first: even if an event callback is already queued, it
+                # cannot publish after plugin teardown begins.
+                publisher.close()
+                errors: list[BaseException] = []
+                for event_type, callback in (
+                    (StudyCompleted, publisher),
+                    (StudyStarted, publisher.on_started),
+                    (StudyFailed, publisher.on_terminal),
+                    (StudyCancelled, publisher.on_terminal),
+                ):
+                    try:
+                        unsubscribe(event_type, callback)
+                    except BaseException as exc:
+                        errors.append(exc)
+                if errors:
+                    raise _aggregate_base_exceptions("Motor study publisher teardown failed", errors) from None
 
             # Register the publisher before the dashboard subscriber so the
             # read-model snapshot exists when the dashboard handles completion.
