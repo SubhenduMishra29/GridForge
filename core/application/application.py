@@ -1238,7 +1238,15 @@ class Application:
         factory_error: BaseException | None = None
         handlers: Mapping[str, Any] | None = None
         try:
-            handlers = factory(command_manager)
+            factory_result = factory(command_manager)
+            # Materialize custom/lazy mappings inside the guarded window so
+            # iteration-time side effects are detected and the validated
+            # handlers cannot change between validation and installation.
+            handlers = (
+                dict(factory_result)
+                if isinstance(factory_result, Mapping)
+                else factory_result
+            )
         except BaseException as exc:
             factory_error = exc
 
