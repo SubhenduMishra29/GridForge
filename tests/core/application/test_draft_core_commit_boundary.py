@@ -359,9 +359,9 @@ def _route() -> dict:
         "routing_mode": "orthogonal",
         "ownership": "engineer",
         "points": [
-            {"x": 100.0, "y": 200.0},
-            {"x": 150.0, "y": 200.0},
-            {"x": 150.0, "y": 300.0},
+            [100.0, 200.0],
+            [150.0, 200.0],
+            [150.0, 300.0],
         ],
     }
 
@@ -428,7 +428,7 @@ def test_commit_route_is_not_replaced_by_generated_routing():
     draft.add_equipment(_bus("b1"))
     draft.add_equipment(_bus("b2"))
     draft.add_equipment(_transformer("t1"))
-    authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [{"x": 901.0, "y": 902.0}, {"x": 903.0, "y": 904.0}, {"x": 905.0, "y": 906.0}]}
+    authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [[901.0, 902.0], [903.0, 904.0], [905.0, 906.0]]}
     _connect_terminal(draft, connection_id="wire-distinctive", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
     _connect_terminal(draft, connection_id="wire-distinctive-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
