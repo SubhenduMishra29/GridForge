@@ -107,7 +107,7 @@ class MotorDynamicsPlugin:
                 )
 
             persistence = MotorPluginPersistenceHandler(application)
-            event_bus = getattr(context, "event_bus", None) or getattr(application, "event_bus", None)
+            event_bus = getattr(application, "event_bus", None) or getattr(context, "event_bus", None)
             study_service = getattr(application, "study_service", None)
             study_register = getattr(study_service, "register", None)
             study_unregister = getattr(study_service, "unregister", None)
