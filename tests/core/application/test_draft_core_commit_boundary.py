@@ -166,16 +166,18 @@ def _connect_terminal(
     route: dict | None = None,
 ) -> None:
     """Connect one required equipment terminal to a canonical Bus attachment."""
-    draft.add_connection(DraftConnection(
-        connection_id=connection_id,
-        source=DraftEndpointReference.bus(bus_id=bus_id, attachment_id=attachment_id),
-        target=DraftEndpointReference.terminal(
+    connection_fields = {
+        "connection_id": connection_id,
+        "source": DraftEndpointReference.bus(bus_id=bus_id, attachment_id=attachment_id),
+        "target": DraftEndpointReference.terminal(
             draft_id=equipment_id,
             equipment_type=equipment_type,
             terminal_role=terminal_role,
         ),
-        route=route,
-    ))
+    }
+    if route is not None:
+        connection_fields["route"] = route
+    draft.add_connection(DraftConnection(**connection_fields))
 
 
 def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker():
@@ -247,10 +249,10 @@ def test_commit_prepares_multiple_equipment_deterministically_and_clears_draft()
     draft.add_equipment(_bus("b2"))
     draft.add_equipment(_bus("b3"))
     draft.add_equipment(_breaker("k1"))
-    _connect_terminal(draft, connection_id="wire-t2-from", bus_id="b1", attachment_id="t2-from", equipment_id="t2", equipment_type="transformer", terminal_role="FROM")
-    _connect_terminal(draft, connection_id="wire-t2-to", bus_id="b2", attachment_id="t2-to", equipment_id="t2", equipment_type="transformer", terminal_role="TO")
-    _connect_terminal(draft, connection_id="wire-k1-from", bus_id="b2", attachment_id="k1-from", equipment_id="k1", equipment_type="breaker", terminal_role="from")
-    _connect_terminal(draft, connection_id="wire-k1-to", bus_id="b3", attachment_id="k1-to", equipment_id="k1", equipment_type="breaker", terminal_role="to")
+    _connect_terminal(draft, connection_id="wire-t2-from", bus_id="b1", attachment_id="attachment-0", equipment_id="t2", equipment_type="transformer", terminal_role="FROM")
+    _connect_terminal(draft, connection_id="wire-t2-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t2", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-k1-from", bus_id="b2", attachment_id="attachment-1", equipment_id="k1", equipment_type="breaker", terminal_role="from")
+    _connect_terminal(draft, connection_id="wire-k1-to", bus_id="b3", attachment_id="attachment-0", equipment_id="k1", equipment_type="breaker", terminal_role="to")
 
     result = _commit(app, draft)
 
@@ -405,7 +407,7 @@ def test_commit_persists_engineer_authored_draft_route_structurally():
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
     _connect_terminal(draft, connection_id="wire-route", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
-    _connect_terminal(draft, connection_id="wire-route-to", bus_id="b2", attachment_id="attachment-to", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-route-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
 
