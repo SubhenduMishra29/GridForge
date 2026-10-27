@@ -339,7 +339,7 @@ def _definition(
 
 
 _BUILTIN_TERMINAL_NAMES: Mapping[str, tuple[str, ...]] = MappingProxyType({
-    "bus": (),
+    "bus": ("bus",),
     "grid": ("terminal",),
     "generator": ("terminal",),
     "load": ("terminal",),
@@ -402,14 +402,14 @@ def creation_definition_for(
     )
 
     definitions: dict[str, CreationDefinition] = {
-        # A Bus is a connection-attachment owner, not terminalized equipment.
-        # Bus attachments are represented by canonical attachment IDs in the
-        # network connectivity contract, never by a synthetic "bus" terminal.
+        # Core Bus owns one authoritative Terminal(role="bus"). Draft bus
+        # attachment references remain a separate connectivity form, but the
+        # equipment/presentation/creation terminal inventory must still agree.
         "bus": _definition("bus", "bus", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("in_service", "In service", "bool", required=True, default=True),
-        ), "model.create_bus", "bus_id"),
+        ), "model.create_bus", "bus_id", terminal_names=_BUILTIN_TERMINAL_NAMES["bus"]),
         "grid": _definition("grid", "grid", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
