@@ -7,7 +7,10 @@ backend deterministically and records why alternatives were not selected.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import TYPE_CHECKING, Iterable, Literal, Protocol
+
+if TYPE_CHECKING:
+    from .ode import NumericalProblem, ODESolution
 
 BackendKind = Literal["cpu", "gpu", "npu"]
 
@@ -129,4 +132,24 @@ def select_backend(
     return BackendSelection(requested, compatible[0], "automatic_capability_selection", tuple(rejected))
 
 
-__all__ = ["BackendCapability", "BackendSelection", "BackendKind", "select_backend"]
+
+class NumericalBackendAdapter(Protocol):
+    """Contract implemented by CPU/GPU/NPU adapters for compatible problems.
+
+    Adapters must report capability facts without making the shared policy
+    probe hardware. solve() must preserve the problem's state ordering, time
+    grid, precision declaration, and input-sampling semantics, or reject the
+    problem explicitly. Implementations own runtime-specific failures.
+    """
+
+    @property
+    def capability(self) -> BackendCapability:
+        """Return the adapter's current runtime capability declaration."""
+        ...
+
+    def solve(self, problem: "NumericalProblem") -> "ODESolution":
+        """Execute a compatible numerical problem and return its solution."""
+        ...
+
+
+__all__ = ["BackendCapability", "BackendSelection", "BackendKind", "NumericalBackendAdapter", "select_backend"]
