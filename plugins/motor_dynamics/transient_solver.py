@@ -63,7 +63,7 @@ class MotorParameters:
         )
         for name in positive:
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
+            if not _is_numeric_scalar(value):
                 raise TypeError(f"{name} must be numeric")
             if not isfinite(float(value)) or float(value) <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
@@ -77,7 +77,7 @@ class MotorParameters:
                 raise TypeError(f"{name} must be numeric")
             if not isfinite(float(value)) or (name in ("friction_n_m_s", "thermal_conductance_w_k") and value < 0):
                 raise ValueError(f"{name} must be finite and non-negative" if name in ("friction_n_m_s", "thermal_conductance_w_k") else f"{name} must be finite")
-        if isinstance(self.pole_pairs, bool) or not isinstance(self.pole_pairs, int) or self.pole_pairs < 1:
+        if isinstance(self.pole_pairs, (bool, np.bool_)) or not isinstance(self.pole_pairs, (int, np.integer)) or self.pole_pairs < 1:
             raise ValueError("pole_pairs must be a positive integer")
         determinant = (
             (self.stator_leakage_inductance_h + self.magnetizing_inductance_h)
@@ -137,8 +137,7 @@ class MotorSimulationResult:
         if not callable(publish):
             raise TypeError("read_model_store must expose publish(...)")
         if (
-            isinstance(electrical_frequency_hz, bool)
-            or not isinstance(electrical_frequency_hz, (int, float))
+            not _is_numeric_scalar(electrical_frequency_hz)
             or not isfinite(float(electrical_frequency_hz))
             or electrical_frequency_hz < 0
         ):
@@ -188,6 +187,13 @@ class MotorSimulationResult:
         for value in values.values():
             value.setflags(write=False)
         return values
+
+
+def _is_numeric_scalar(value: Any) -> bool:
+    """Accept Python/NumPy real scalars while rejecting booleans and arrays."""
+    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(
+        value, (bool, np.bool_)
+    )
 
 
 def _validate_time(duration_s: float, step_s: float) -> tuple[int, np.ndarray]:
@@ -268,7 +274,7 @@ def solve_transient_cpu(
     if not isinstance(parameters, MotorParameters):
         raise TypeError("parameters must be MotorParameters")
     for name, value in (("electrical_frequency_hz", electrical_frequency_hz), ("load_torque_nm", load_torque_nm)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(float(value)):
+        if not _is_numeric_scalar(value) or not isfinite(float(value)):
             raise ValueError(f"{name} must be finite and numeric")
     if electrical_frequency_hz < 0:
         raise ValueError("electrical_frequency_hz must be non-negative")
@@ -360,8 +366,7 @@ def solve_transient_batch(
         raise ValueError("electrical_frequency_hz must be finite, numeric and non-negative")
     for index, torque in enumerate(load_torque_nm):
         if (
-            isinstance(torque, bool)
-            or not isinstance(torque, (int, float))
+            not _is_numeric_scalar(torque)
             or not isfinite(float(torque))
         ):
             raise ValueError(f"load_torque_nm[{index}] must be finite and numeric")
@@ -426,7 +431,7 @@ def _solve_batch_cuda(
     from numba import cuda
 
     count, times = _validate_time(duration_s, step_s)
-    if isinstance(electrical_frequency_hz, bool) or not isinstance(electrical_frequency_hz, (int, float)) or not isfinite(float(electrical_frequency_hz)) or electrical_frequency_hz < 0:
+    if not _is_numeric_scalar(electrical_frequency_hz) or not isfinite(float(electrical_frequency_hz)) or electrical_frequency_hz < 0:
         raise ValueError("electrical_frequency_hz must be finite, numeric and non-negative")
     omega_e = 2.0 * np.pi * float(electrical_frequency_hz)
     n = len(motor_ids)
