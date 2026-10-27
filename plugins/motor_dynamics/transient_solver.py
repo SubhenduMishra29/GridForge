@@ -374,14 +374,15 @@ def solve_transient_batch(
                 motor_ids, parameter_sets, duration_s, step_s, float(vd), float(vq),
                 electrical_frequency_hz, load_torque_nm,
             )
-        except Exception:
-            # Optional acceleration must never prevent a valid CPU computation.
+        except Exception as exc:
+            # Preserve the accelerator failure reason while keeping CPU fallback.
+            failure = {"type": type(exc).__name__, "message": str(exc)}
             return tuple(
                 _with_backend_note(solve_transient_cpu(
                     mid, p, duration_s, step_s, stator_voltage_d_v=float(vd),
                     stator_voltage_q_v=float(vq), electrical_frequency_hz=electrical_frequency_hz,
                     load_torque_nm=float(torque),
-                ), "cuda_failed_cpu_fallback")
+                ), "cuda_failed_cpu_fallback", failure=failure)
                 for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
             )
     fallback = backend == "cuda"
@@ -397,9 +398,19 @@ def solve_transient_batch(
     return results
 
 
-def _with_backend_note(result: MotorSimulationResult, note: str) -> MotorSimulationResult:
+def _with_backend_note(
+    result: MotorSimulationResult,
+    note: str,
+    *,
+    failure: Mapping[str, str] | None = None,
+) -> MotorSimulationResult:
+    """Return a result with explicit dispatch/fallback diagnostics."""
     diagnostics = dict(result.diagnostics)
     diagnostics["requested_backend_note"] = note
+    diagnostics["requested_backend"] = "cuda"
+    diagnostics["executed_backend"] = result.backend
+    if failure is not None:
+        diagnostics["accelerator_failure"] = dict(failure)
     return MotorSimulationResult(
         result.motor_id, result.time_s, result.state_data, result.sample_period_s,
         result.backend, diagnostics,
