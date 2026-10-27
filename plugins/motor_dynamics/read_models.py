@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
+
+_MAX_STUDY_HISTORY = 4096
 import numpy as np
 
 def _freeze_diagnostic(value: Any) -> Any:
@@ -104,7 +106,21 @@ class MotorSimulationReadModelStore:
                 self._study_orders_by_motor[motor_id] = study_order
             if study_id is not None:
                 self._study_motor_ids[study_id] = motor_id
+                # Keep study-to-motor lookup useful without unbounded growth
+                # during long-running sessions.
+                while len(self._study_motor_ids) > _MAX_STUDY_HISTORY:
+                    oldest_study_id = next(iter(self._study_motor_ids))
+                    del self._study_motor_ids[oldest_study_id]
         return True
+
+    def clear(self) -> None:
+        """Discard cached projections and study metadata during plugin shutdown."""
+        with self._lock:
+            self._channels.clear()
+            self._summaries.clear()
+            self._study_motor_ids.clear()
+            self._study_orders_by_motor.clear()
+
     def get_motor_id_for_study(self, study_id: str) -> str | None:
         """Resolve a successful StudyCompleted event's ID to its motor result."""
         if not isinstance(study_id, str) or not study_id.strip():
