@@ -8938,3 +8938,28 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical contract lookup through the ToolBase dependency contract
+
+Finding:
+    ModelPlacementTool attempted to read a private `_application` attribute,
+    while ToolBase deliberately exposes the injected Application as
+    `application`.
+
+Correction:
+    Use the documented ToolBase Application dependency for creation contract
+    registry lookup.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
