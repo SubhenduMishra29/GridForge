@@ -7,10 +7,11 @@ after StudyService has stored a successful StudyResult.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import RLock
 from collections.abc import Mapping
 from typing import Any
 
-from core.application.events import StudyCompleted
+from core.application.events import StudyCompleted, StudyStarted
 from core.application.study import StudyRequest, StudyExecutionContext, StudyCancellationToken, StudyResult
 from .transient_solver import MotorParameters, MotorSimulationResult, solve_transient_batch, solve_transient_cpu
 
@@ -102,6 +103,21 @@ class MotorTransientResultPublisher:
         self._application = application
         self._read_models = read_models
         self.last_error: str | None = None
+        self._order_lock = RLock()
+        self._next_study_order = 0
+        self._study_orders: dict[str, int] = {}
+
+    def on_started(self, event: StudyStarted) -> None:
+        """Record submission order so late completion cannot replace newer output."""
+        payload = event.payload
+        if payload.get("study_type") != "motor_transient":
+            return
+        study_id = payload.get("study_id")
+        if not isinstance(study_id, str) or not study_id.strip():
+            return
+        with self._order_lock:
+            self._next_study_order += 1
+            self._study_orders[study_id] = self._next_study_order
 
     def __call__(self, event: StudyCompleted) -> None:
         payload = event.payload
@@ -126,11 +142,19 @@ class MotorTransientResultPublisher:
         envelope = result.value
         if not isinstance(envelope, MotorTransientEnvelope):
             return
+        with self._order_lock:
+            study_order = self._study_orders.pop(study_id, None)
+        if study_order is None:
+            self.last_error = "missing_study_start_order"
+            return
         try:
-            envelope.result.publish_to(
+            accepted = envelope.result.publish_to(
                 self._read_models, envelope.parameters, envelope.electrical_frequency_hz,
-                envelope.load_torque_nm, study_id=study_id,
+                envelope.load_torque_nm, study_id=study_id, study_order=study_order,
             )
+            if not accepted:
+                self.last_error = "stale_study_result_ignored"
+                return
         except Exception as exc:
             # A projection/read-model failure must not make StudyService turn
             # an already stored successful engineering result into "failed".
