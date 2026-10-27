@@ -8830,3 +8830,30 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Topology rebuild terminal-to-electrical-boundary adapter
+
+Finding:
+    Topology rebuild iterated terminal TopologyEndpointReference vertices but
+    passed the wrapper itself to ElectricalBoundaryResolver.resolve(), whose
+    contract correctly accepts only EndpointReference. Persistence validation
+    exposed this missed wrapper-unwrapping path.
+
+Correction:
+    Pass each terminal vertex's nested terminal_reference to the electrical
+    boundary resolver while retaining topology wrapper identities for graph
+    traversal and component grouping.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
