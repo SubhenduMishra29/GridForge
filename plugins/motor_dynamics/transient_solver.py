@@ -562,6 +562,11 @@ def _solve_batch_cuda(
             deriv(tmp, p, vd0, vq0, we, d)
             for j in range(_STATE_COUNT):
                 y[j] = y[j] + (h / 6.0) * (a[j] + 2.0*b[j] + 2.0*c[j] + d[j])
+                # Match the reference solver's fail-fast contract at each
+                # accepted step; the host detects this sentinel and falls back.
+                if not (y[j] == y[j] and abs(y[j]) < 1.7976931348623157e308):
+                    result[base] = float('nan')
+                    return
                 result[base + (step + 1) * _STATE_COUNT + j] = y[j]
 
     d_params = cuda.to_device(packed)
