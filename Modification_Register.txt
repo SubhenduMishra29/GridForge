@@ -8909,3 +8909,32 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Application-owned creation schema authority in ModelPlacementTool
+
+Finding:
+    Even after adding missing fields, a placement-created Bus still failed
+    canonical contract comparison. This confirms the UI definition is not a
+    reliable source for authoritative schema metadata and should not rebuild
+    a trusted contract record independently.
+
+Correction:
+    Resolve the Application's canonical creation contract at placement time
+    and source terminal inventory, command identity, parameter/endpoint maps,
+    required terminal names, parameter contract, and conditional requirements
+    from that trusted registry. Draft values, endpoints, and presentation
+    remain user-authored state; schema metadata is not UI-authored.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
