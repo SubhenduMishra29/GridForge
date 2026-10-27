@@ -8882,3 +8882,30 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-006
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Network validation of Bus attachment slots versus equipment terminals
+
+Finding:
+    Network.validate treated Bus's synthetic attachment slots as equipment
+    terminals and attempted to construct EndpointReference.terminal with
+    EquipmentType('bus'), which is intentionally not an equipment-terminal
+    type. Bus attachment identities are now explicit BUS topology vertices.
+
+Correction:
+    Skip Bus objects in the equipment-terminal connectivity validation pass;
+    Bus attachments continue to be validated through canonical BUS endpoint
+    membership, attachment-slot cardinality, and connectivity graph checks.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
