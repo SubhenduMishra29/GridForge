@@ -9,7 +9,7 @@ contract is currently defined for this numerical workload.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import ceil, isfinite
+from math import isfinite
 from typing import Any, Mapping, Sequence
 
 import numpy as np
