@@ -7039,13 +7039,14 @@ Finding:
 
 Correction:
     - Route factory invocation through an Application-owned guard that
-      snapshots registered command names before invocation.
-    - Detect registrations added as factory side effects and best-effort
-      remove them before rejecting the factory contract violation.
+      snapshots the complete CommandManager handler registry.
+    - Detect additions, removals, and handler replacements, then restore the
+      prior registry, including handler object identities and registration order.
     - Preserve and re-raise the original factory exception when the factory
-      both mutates the registry and raises.
-    - Apply the guard both during extension registration and candidate
-      runtime reconstruction.
+      mutates the registry and raises.
+    - Apply the guard during extension registration and runtime reconstruction.
+    - Add CommandManager snapshot/restore APIs for controlled composition
+      rollback without introducing Core or UI dependencies.
 
 Validation:
     Targeted source re-fetch only. No tests, CI, syntax compilation, import
