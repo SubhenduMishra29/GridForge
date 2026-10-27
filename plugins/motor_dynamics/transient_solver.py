@@ -198,7 +198,7 @@ def _is_numeric_scalar(value: Any) -> bool:
 
 def _validate_time(duration_s: float, step_s: float) -> tuple[int, np.ndarray]:
     for name, value in (("duration_s", duration_s), ("step_s", step_s)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if not _is_numeric_scalar(value):
             raise TypeError(f"{name} must be numeric")
         if not isfinite(float(value)) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
