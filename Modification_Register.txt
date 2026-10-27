@@ -8084,3 +8084,9 @@ Validation:
     hardware execution, numerical equivalence checks, or CI were run.
 
 ======================================================================
+
+
+GF-MOTOR-087 — Reusable numerical-plugin problem contract
+Files: core/numerics/ode.py; core/numerics/__init__.py
+Status: Implemented; validation pending.
+Added frozen NumericalProblem with problem identity, workload key, plugin derivative, initial state, duration, maximum step, optional interval input sampler, and float64 precision declaration. Added solve_numerical_problem() to route plugin-defined ODEs through shared CPU RK4. Physics equations remain plugin-owned; accelerator adapters remain separate and must prove workload/precision compatibility. This does not yet migrate the motor solver to the new contract or provide generic GPU/NPU execution. No tests, syntax checks, imports, hardware execution, or CI were run.
