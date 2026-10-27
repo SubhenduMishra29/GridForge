@@ -369,7 +369,13 @@ def _route() -> dict:
 def _commit_with_sld(draft: DraftNetwork):
     app = create_application(Network())
     document = SLDDocument("route:sld", project_id=draft.project_id)
-    app.attach_sld_service(SLDService(document))
+    app.attach_sld_service(SLDService(
+        document,
+        symbol_presentation_factory=lambda element_type: {
+            "symbol_id": f"test-symbol-{element_type}",
+            "definition_id": f"test-definition-{element_type}",
+        },
+    ))
     app.set_draft_network(draft)
     result = app.execute(CommitNetworkCommand(
         project_id=draft.project_id,
