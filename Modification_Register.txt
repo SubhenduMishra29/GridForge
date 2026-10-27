@@ -6803,3 +6803,33 @@ Validation:
 Disposition:
     Draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-061
+======================================================================
+
+Files:
+    plugins/motor_dynamics/npu_inference.py
+    Modification_Register.txt
+
+Finding:
+    provider_fallback_used was set from whether any earlier candidate failed
+    initialization. That incorrectly reported a fallback even when a later
+    accelerator provider initialized successfully, so the diagnostic did not
+    distinguish candidate discovery failures from actual CPU fallback.
+
+Correction:
+    Set provider_fallback_used at initialization only when CPU is the selected
+    provider and at least one earlier candidate failed. Successful accelerator
+    selection remains false even if a higher-priority candidate was unavailable
+    or failed initialization. The existing runtime CPU retry still sets the
+    flag true after it succeeds.
+
+Validation:
+    Source-contract correction and targeted re-fetch only. No tests, CI, syntax
+    compilation, import checks, inference runs, or hardware checks were done.
+
+Disposition:
+    Draft PR #674; unmerged.
+======================================================================
