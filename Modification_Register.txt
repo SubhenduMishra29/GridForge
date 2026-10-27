@@ -7965,3 +7965,42 @@ Validation:
     hardware execution, or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-084
+======================================================================
+
+Scope:
+    Shared ODE time-grid contract across motor CPU and CUDA paths
+
+Files:
+    core/numerics/ode.py
+    plugins/motor_dynamics/transient_solver.py
+
+Status:
+    🟡 IMPLEMENTED — RUNTIME VALIDATION PENDING
+
+Finding:
+    The motor plugin maintained a duplicate time-grid implementation alongside
+    core.numerics.ode.uniform_time_grid. Duplicate implementations can drift
+    in validation, sample counts, endpoint handling, and effective step size.
+    The shared time-grid validator also rejected NumPy numeric scalar inputs.
+
+Correction:
+    The shared ODE time-grid validator now accepts Python and NumPy integer
+    and floating-point scalars while rejecting booleans and non-scalar inputs.
+    Motor CPU and CUDA paths now obtain their sample count and timestamps from
+    core.numerics.ode.uniform_time_grid via the plugin's _validate_time adapter.
+    Removed the now-unused duplicate ceil dependency from the motor plugin.
+
+Boundary:
+    This centralizes the CPU/CUDA time-grid contract and input type handling.
+    It does not make the CUDA kernel use the shared CPU RK4 implementation;
+    the CUDA kernel retains device-compilable RK4 mechanics. Numerical parity
+    and convergence remain unverified.
+
+Validation:
+    Source-level edits only. No tests, syntax checks, imports, accelerator
+    hardware execution, or CI were run.
+
+======================================================================
