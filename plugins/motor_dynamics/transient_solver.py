@@ -349,6 +349,22 @@ def solve_transient_batch(
     vd, vq = np.asarray(stator_voltage_d_v, dtype=np.float64), np.asarray(stator_voltage_q_v, dtype=np.float64)
     if vd.ndim != 0 or vq.ndim != 0:
         raise ValueError("batched accelerator API currently requires constant dq voltage inputs")
+    if not np.isfinite(vd).all() or not np.isfinite(vq).all():
+        raise ValueError("batched dq voltage inputs must be finite")
+    if (
+        isinstance(electrical_frequency_hz, bool)
+        or not isinstance(electrical_frequency_hz, (int, float))
+        or not isfinite(float(electrical_frequency_hz))
+        or electrical_frequency_hz < 0
+    ):
+        raise ValueError("electrical_frequency_hz must be finite, numeric and non-negative")
+    for index, torque in enumerate(load_torque_nm):
+        if (
+            isinstance(torque, bool)
+            or not isinstance(torque, (int, float))
+            or not isfinite(float(torque))
+        ):
+            raise ValueError(f"load_torque_nm[{index}] must be finite and numeric")
     selected = backend
     if selected == "auto":
         selected = "cuda" if n >= 8 and cuda_available() else "cpu"
