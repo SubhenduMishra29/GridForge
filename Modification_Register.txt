@@ -7330,3 +7330,39 @@ Validation:
 Disposition:
     Documentation added to draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-080
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension teardown tracked command names but not the exact handler objects
+    installed by each extension. If a handler was removed and another handler
+    later occupied the same command key, extension teardown could unregister
+    the replacement. Missing handlers and inconsistent ownership metadata were
+    also silently treated as normal teardown.
+
+Correction:
+    - Record the exact handler object for each extension-owned command when
+      registration succeeds.
+    - Before teardown, compare the active registry against those identities
+      and verify the command-name and handler-identity records agree.
+    - Refuse teardown before mutation when ownership drift is detected, leaving
+      replacement or missing handlers untouched and retaining metadata for
+      explicit reconciliation.
+    - Rebuild identity records for candidate runtime handlers and publish them
+      only after the complete candidate runtime composition succeeds.
+    - Clear identity metadata only after successful teardown.
+
+Validation:
+    Targeted source and register re-fetch only. No tests, CI, syntax compilation,
+    import checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
