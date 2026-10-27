@@ -8302,3 +8302,41 @@ Disposition:
     the existing frozen Core/Application/UI architecture remains authoritative
     until the amendment is merged.
 ======================================================================
+
+
+======================================================================
+GF-APP-CREATION-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical equipment creation contract construction and regression alignment
+
+Findings:
+    creation_definition_for() built the complete equipment-definition catalogue
+    while passing the requested equipment's terminal inventory into every
+    definition. This made the current-transformer definition inherit an empty
+    Bus inventory when the catalogue was built from the Bus entry, causing
+    startup to fail with missing S1/S2 measurement terminals. The direct
+    CreationCommandPreparer regression also used an obsolete call shape that
+    omitted the now-required trusted canonical_contract and equipment_type.
+
+Corrections:
+    - Use each equipment type's own _BUILTIN_TERMINAL_NAMES entry when building
+      that definition's terminal requirements.
+    - Preserve the input terminal_names argument as a validation of the one
+      requested equipment type, not as a shared inventory for the whole catalog.
+    - Update the preparer regression to identify equipment_type and pass the
+      trusted contract from creation_contracts_from_definitions().
+
+Scope boundary:
+    This is a focused Core/Application creation-contract correction. It does
+    not weaken canonical contract enforcement or alter unrelated UI/plugin
+    behavior.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
