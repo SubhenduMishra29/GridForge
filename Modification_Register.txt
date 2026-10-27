@@ -6927,3 +6927,37 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+
+======================================================================
+GF-MOTOR-065
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    MotorDynamicsPlugin.initialize() registered command handlers before
+    constructing the optional telemetry dashboard. If dashboard construction
+    failed, initialization exited with _initialized still false while the
+    command registration remained active. A retry could then collide with
+    the existing extension registration. The previous implementation also
+    accepted a non-callable registration token without guaranteeing teardown.
+
+Correction:
+    - Stage the teardown token and dashboard in local variables before
+      publishing initialized state on the plugin instance.
+    - Require register_motor_extension() to return a callable teardown.
+    - On initialization failure, attempt to close a constructed dashboard and
+      invoke the registration teardown before re-raising the original error.
+    - Publish context, application, persistence, dashboard and initialized
+      state only after registration and dashboard setup succeed.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
