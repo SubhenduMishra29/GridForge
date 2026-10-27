@@ -1233,7 +1233,7 @@ class Application:
         command_manager: CommandManager,
     ) -> Mapping[str, Any]:
         """Invoke a pure handler factory and reject command-registry side effects."""
-        before = set(command_manager.registered_commands)
+        before = command_manager.handler_registry_snapshot()
         factory_error: BaseException | None = None
         handlers: Mapping[str, Any] | None = None
         try:
@@ -1241,22 +1241,22 @@ class Application:
         except BaseException as exc:
             factory_error = exc
 
-        after = set(command_manager.registered_commands)
-        added = after - before
-        if added:
-            for command_type in sorted(added, reverse=True):
-                try:
-                    command_manager.unregister_handler(command_type)
-                except Exception:
-                    pass
+        after = command_manager.handler_registry_snapshot()
+        registry_changed = (
+            before.keys() != after.keys()
+            or any(before[key] is not after[key] for key in before.keys() & after.keys())
+        )
+        if registry_changed:
+            # Restore additions, removals, replacements, and the original order
+            # before surfacing the factory contract violation.
+            command_manager.restore_handler_registry(before)
 
         if factory_error is not None:
             raise factory_error
-        if added:
+        if registry_changed:
             raise RuntimeError(
                 f"Extension handler factory {extension_id!r} mutated the "
-                f"CommandManager registry; unexpected registrations were "
-                f"removed: {', '.join(sorted(added))}."
+                "CommandManager registry; the original registry was restored."
             )
         # Let the standard handler validator provide the specific type error
         # if a factory returns None or another non-mapping value.
