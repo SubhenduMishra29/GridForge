@@ -1695,13 +1695,15 @@ class Application:
                         raise ValueError(
                             f"SLD connection identity collision for committed connection {connection_id!r}."
                         )
+                    source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
+                    target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
-                            source_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_a"]),
-                            target_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_b"]),
-                            source_endpoint=item["endpoint_a"],
-                            target_endpoint=item["endpoint_b"],
+                            source_node_id=source_endpoint["node_id"],
+                            target_node_id=target_endpoint["node_id"],
+                            source_endpoint=source_endpoint,
+                            target_endpoint=target_endpoint,
                             connection_kind="SIMPLE_WIRE",
                             route=item.get("route"),
                             presentation_owner="projection",
@@ -1846,6 +1848,37 @@ class Application:
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
+
+    def _sld_endpoint_for_committed_mapping(self, mapping: Any) -> dict[str, str]:
+        """Translate DraftNetwork endpoint identity into the canonical SLD projection schema."""
+        if not isinstance(mapping, Mapping):
+            raise TypeError("Committed draft endpoint mapping must be a mapping.")
+        kind = str(mapping.get("kind") or "")
+        object_id = str(mapping.get("object_id") or "")
+        if not object_id:
+            raise ValueError("Committed endpoint mapping requires a non-empty object_id.")
+        node_id = self._sld_node_id_for_endpoint_mapping(mapping)
+        if kind == "bus":
+            attachment_id = mapping.get("attachment_id")
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Committed Bus endpoint requires attachment_id.")
+            return {
+                "kind": "bus",
+                "node_id": node_id,
+                "bus_id": object_id,
+                "attachment_id": attachment_id,
+            }
+        if kind == "terminal":
+            terminal_role = mapping.get("terminal_role")
+            if not isinstance(terminal_role, str) or not terminal_role:
+                raise ValueError("Committed terminal endpoint requires terminal_role.")
+            return {
+                "kind": "equipment",
+                "node_id": node_id,
+                "equipment_id": object_id,
+                "terminal_role": terminal_role,
+            }
+        raise ValueError(f"Unsupported committed draft endpoint kind: {kind!r}.")
 
     def _sld_node_id_for_endpoint_mapping(self, mapping: Any) -> str:
         if self._sld_service is None:
