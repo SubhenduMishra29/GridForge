@@ -8728,3 +8728,29 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SLD-ROUTE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Empty draft route normalization
+
+Finding:
+    DraftConnection serialization represents an absent route as an empty
+    immutable mapping. Application passed that mapping to SLDRoute.from_dict,
+    which correctly rejects a mapping missing routing_mode/ownership/points.
+
+Correction:
+    Normalize an absent or empty committed draft route to None at the
+    Application-to-SLD boundary, allowing SLDService to create the canonical
+    automatic route. Non-empty engineer-authored routes remain unchanged.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
