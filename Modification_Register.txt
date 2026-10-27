@@ -8754,3 +8754,29 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    ConnectivityResolver traversal after Bus endpoints became topology vertices
+
+Finding:
+    ConnectivityResolver.bus_ids_for_terminal traversed the new
+    TopologyEndpointReference graph but still read object_id/terminal_role
+    directly from the topology wrapper instead of its nested terminal
+    EndpointReference. Save/reload validation exposed this stale assumption.
+
+Correction:
+    Resolve the nested terminal_reference first, then use its equipment
+    identity and terminal role when checking physical Bus attachment fallback.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
