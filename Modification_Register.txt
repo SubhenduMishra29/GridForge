@@ -7022,3 +7022,35 @@ Validation:
 Disposition:
     Corrected in draft PR #674; unmerged.
 ======================================================================
+
+======================================================================
+GF-MOTOR-068
+======================================================================
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Extension handler factories receive a CommandManager and were trusted
+    not to mutate its registry. A factory that registered handlers before
+    returning or raising could leave registrations outside Application's
+    ownership tracking and runtime-composition rollback list.
+
+Correction:
+    - Route factory invocation through an Application-owned guard that
+      snapshots registered command names before invocation.
+    - Detect registrations added as factory side effects and best-effort
+      remove them before rejecting the factory contract violation.
+    - Preserve and re-raise the original factory exception when the factory
+      both mutates the registry and raises.
+    - Apply the guard both during extension registration and candidate
+      runtime reconstruction.
+
+Validation:
+    Targeted source re-fetch only. No tests, CI, syntax compilation, import
+    checks, or runtime activation were performed.
+
+Disposition:
+    Corrected in draft PR #674; unmerged.
+======================================================================
