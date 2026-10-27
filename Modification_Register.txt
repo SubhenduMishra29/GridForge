@@ -4594,3 +4594,49 @@ Verification boundary:
 Disposition:
     Merged in PR #671.
 ======================================================================
+
+
+======================================================================
+2026-10-27 — SHARED PLUGIN SDK ARCHITECTURE AMENDMENT (PROPOSAL)
+======================================================================
+
+File:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+
+Finding:
+    Future plugin growth would duplicate lifecycle, study orchestration,
+    event handling, result publication, configuration, compute dispatch,
+    diagnostics, and UI projection infrastructure, increasing maintenance
+    cost and creating inconsistent plugin behavior.
+
+Architecture decision proposed:
+    - Reuse one authoritative owner for each shared responsibility; adapt
+      existing Application and plugin-platform services rather than create
+      a competing framework.
+    - Define small typed SDK contracts for plugin identity/capabilities,
+      lifecycle/registration, study integration, event cleanup, result
+      publication, configuration, compute capabilities, diagnostics, and
+      optional read-only UI projections.
+    - Keep Core headless and authoritative; Application owns study execution,
+      controlled mutation, canonical events, and result/read-model contracts.
+    - Keep plugins focused on domain algorithms, inputs, typed results, and
+      genuinely plugin-specific integration/presentation.
+    - Require CPU as the portable baseline where supported; treat GPU/NPU as
+      optional, capability-gated backends. Never imply NPU physics support
+      from inference-provider availability.
+    - Prefer composition and explicit plugin kinds over a universal base
+      class. Do not create duplicate managers, registries, schedulers,
+      event buses, or result stores.
+    - Audit current implementations, refactor Motor Dynamics as the first
+      study-plugin reference, then validate the abstraction against a second
+      distinct plugin before freezing the SDK.
+
+Verification boundary:
+    Architecture source review and repository-path inspection only. No tests,
+    CI, syntax checks, imports, runtime, numerical, or hardware validation run.
+
+Disposition:
+    Proposed in branch architecture/shared-plugin-sdk-v2. This is not yet
+    frozen or merged; it supplements, and does not supersede, the existing
+    frozen GridForge V2 architecture until reviewed and accepted.
+======================================================================
