@@ -154,7 +154,7 @@ On publication, it:
 
 An `RLock` protects store access. Channel getters return read-only views; the store does not expose ownership of a solver's mutable arrays.
 
-The read model is infrastructure for results, not a source of electrical network truth. `MotorSimulationResult.channels(...)` derives telemetry arrays from solver state; study orchestration must publish these channels only after a successful solve and emit the canonical `StudyCompleted` event after publication.
+The read model is infrastructure for results, not a source of electrical network truth. `MotorSimulationResult.channels(...)` derives telemetry arrays from solver state. The study handler returns a detached result envelope; the canonical `StudyService` stores the successful `StudyResult` and emits `StudyCompleted`, after which the result publisher verifies the stored result and publishes the derived channels to the read model. A failed or cancelled study must not publish a successful snapshot.
 
 ### 7. Telemetry dashboard
 
@@ -287,10 +287,10 @@ This README documents the current source design. It is not a claim that these ho
 ## Current limitations
 
 - The extension remains experimental and opt-in.
-- A complete induction-motor transient solver is not included.
-- Coupled electrical, mechanical, and thermal state equations and validated numerical integration are not implemented here as a complete simulation workflow.
-- Flattened 3D Numba/CUDA kernels are not included.
-- GPU/NPU provider discovery applies to optional ONNX inference, not motor physics.
+- A preliminary induction-motor transient solver is present, but it is not a validated high-fidelity or certified study engine.
+- The current solver integrates coupled electrical, mechanical, and lumped-thermal states with fixed-step RK4; equation correctness, numerical stability, and reference-case accuracy still require independent engineering validation.
+- The optional Numba/CUDA implementation accelerates only the supported independent-motor constant-input batch path; it is not a general flattened 3D solver.
+- NPU provider discovery applies to optional ONNX inference, not motor physics.
 - Diagnostic labels and confidence are heuristic and not validated for protection or maintenance decisions.
 - ONNX model compatibility and actual accelerator execution are not established by provider discovery alone.
 - GUI thread behavior, Qt Charts availability, plugin activation, end-to-end draft commit, persistence import, and hardware execution require runtime verification.
