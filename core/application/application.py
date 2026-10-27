@@ -1320,6 +1320,11 @@ class Application:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
+        if command_manager is self._command_manager:
+            raise ValueError(
+                "Runtime replacement requires a distinct candidate CommandManager; "
+                "the active manager cannot be mutated as a candidate."
+            )
 
         # Track every handler installed on the candidate manager across the whole
         # composition, not just within one extension. A later factory, collision,
