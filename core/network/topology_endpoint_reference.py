@@ -18,6 +18,7 @@ from core.model.endpoint_reference import EndpointReference, EndpointReferenceKi
 class TopologyEndpointReferenceKind(str, Enum):
     """Semantic kind of a topology endpoint."""
 
+    BUS = "bus"
     TERMINAL = "terminal"
     JUNCTION = "junction"
 
@@ -38,6 +39,7 @@ class TopologyEndpointReference:
     kind: TopologyEndpointReferenceKind
     terminal_reference: EndpointReference | None = None
     junction_id: str | None = None
+    bus_reference: EndpointReference | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, TopologyEndpointReferenceKind):
@@ -53,10 +55,20 @@ class TopologyEndpointReference:
                 raise ValueError(
                     "Terminal topology endpoints require a terminal EndpointReference."
                 )
-            if self.junction_id is not None:
+            if self.junction_id is not None or self.bus_reference is not None:
                 raise ValueError(
-                    "junction_id must be None for a terminal topology endpoint."
+                    "junction_id and bus_reference must be None for a terminal topology endpoint."
                 )
+            return
+
+        if self.kind is TopologyEndpointReferenceKind.BUS:
+            if not isinstance(self.bus_reference, EndpointReference) or not self.bus_reference.is_bus:
+                raise TypeError("bus_reference must be an EndpointReference identifying a Bus attachment.")
+            if self.terminal_reference is not None or self.junction_id is not None:
+                raise ValueError("terminal_reference and junction_id must be None for a Bus topology endpoint.")
+            attachment_id = self.bus_reference.attachment_id or ""
+            if not _is_canonical_attachment_id(attachment_id):
+                raise ValueError("Bus topology endpoint requires a canonical attachment-N ID (N in 0..8).")
             return
 
         if self.kind is TopologyEndpointReferenceKind.JUNCTION:
@@ -69,10 +81,9 @@ class TopologyEndpointReference:
                     "topology endpoint."
                 )
             object.__setattr__(self, "junction_id", self.junction_id.strip())
-            if self.terminal_reference is not None:
+            if self.terminal_reference is not None or self.bus_reference is not None:
                 raise ValueError(
-                    "terminal_reference must be None for a junction "
-                    "topology endpoint."
+                    "terminal_reference and bus_reference must be None for a junction topology endpoint."
                 )
             return
 
@@ -98,6 +109,16 @@ class TopologyEndpointReference:
         )
 
     @classmethod
+    def from_bus(cls, endpoint_reference: EndpointReference) -> "TopologyEndpointReference":
+        """Wrap one canonical Bus attachment identity for topology connectivity."""
+        if not isinstance(endpoint_reference, EndpointReference) or not endpoint_reference.is_bus:
+            raise TypeError("from_bus requires a Bus EndpointReference.")
+        return cls(
+            kind=TopologyEndpointReferenceKind.BUS,
+            bus_reference=endpoint_reference,
+        )
+
+    @classmethod
     def from_junction(cls, junction_id: str) -> "TopologyEndpointReference":
         """Create an immutable Junction topology identity from canonical ID."""
         return cls(
@@ -115,6 +136,8 @@ class TopologyEndpointReference:
         """Return the immutable identity payload for this topology endpoint."""
         if self.is_terminal:
             return self.terminal_reference
+        if self.is_bus:
+            return self.bus_reference
         return self.junction_id
 
     @property
@@ -131,6 +154,10 @@ class TopologyEndpointReference:
         return self.kind is TopologyEndpointReferenceKind.TERMINAL
 
     @property
+    def is_bus(self) -> bool:
+        return self.kind is TopologyEndpointReferenceKind.BUS
+
+    @property
     def is_junction(self) -> bool:
         return self.kind is TopologyEndpointReferenceKind.JUNCTION
 
@@ -140,6 +167,11 @@ class TopologyEndpointReference:
             return {
                 "kind": self.kind.value,
                 "endpoint": dict(self.terminal_reference.to_mapping()),
+            }
+        if self.is_bus:
+            return {
+                "kind": self.kind.value,
+                "endpoint": dict(self.bus_reference.to_mapping()),
             }
         return {
             "kind": self.kind.value,
@@ -158,6 +190,21 @@ class TopologyEndpointReference:
             )
 
         kind = data.get("kind")
+        if kind == TopologyEndpointReferenceKind.BUS.value:
+            endpoint_data = data.get("endpoint")
+            if endpoint_data is None:
+                endpoint_data = data
+            if not isinstance(endpoint_data, Mapping) or endpoint_data.get("kind") != "bus":
+                raise ValueError("Bus topology endpoint mapping must contain a Bus EndpointReference.")
+            try:
+                bus_reference = EndpointReference.bus(
+                    bus_id=endpoint_data["object_id"],
+                    attachment_id=endpoint_data["attachment_id"],
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("Bus topology endpoint mapping is invalid.") from exc
+            return cls.from_bus(bus_reference)
+
         if kind == TopologyEndpointReferenceKind.TERMINAL.value:
             endpoint_data = data.get("endpoint")
 
@@ -208,6 +255,15 @@ class TopologyEndpointReference:
             "TopologyEndpointReference("
             f"junction:{self.junction_id})"
         )
+
+
+def _is_canonical_attachment_id(value: str) -> bool:
+    """Accept only the stable attachment slots exposed by the Bus endpoint contract."""
+    return (
+        isinstance(value, str)
+        and value.startswith("attachment-")
+        and value.removeprefix("attachment-") in {str(index) for index in range(9)}
+    )
 
 
 __all__ = [
