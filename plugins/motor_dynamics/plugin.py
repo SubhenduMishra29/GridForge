@@ -17,6 +17,8 @@ from .commands import (
 from .dashboard import MotorTelemetryDashboardWidget
 from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
+from .study_handler import MotorTransientResultPublisher, MotorTransientStudyHandler
+from core.application.events import StudyCompleted
 
 
 def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> BaseException:
@@ -85,6 +87,9 @@ class MotorDynamicsPlugin:
         token = None
         dashboard = None
         persistence = None
+        study_unhook = None
+        publisher = None
+        event_bus = None
         try:
             # Do not publish partially initialized state on the plugin instance.
             # If any subsequent setup fails, undo the registration.
@@ -103,6 +108,45 @@ class MotorDynamicsPlugin:
 
             persistence = MotorPluginPersistenceHandler(application)
             event_bus = getattr(context, "event_bus", None) or getattr(application, "event_bus", None)
+            study_service = getattr(application, "study_service", None)
+            study_register = getattr(study_service, "register", None)
+            study_unregister = getattr(study_service, "unregister", None)
+            subscribe = getattr(event_bus, "subscribe", None) if event_bus is not None else None
+            unsubscribe = getattr(event_bus, "unsubscribe", None) if event_bus is not None else None
+            if not callable(study_register) or not callable(study_unregister):
+                raise RuntimeError("Application.study_service must support lifecycle-owned register/unregister")
+            if not callable(subscribe) or not callable(unsubscribe):
+                raise RuntimeError("Motor transient studies require the canonical Application event bus")
+            study_handler = MotorTransientStudyHandler()
+            study_register("motor_transient", study_handler)
+
+            def release_study_handler() -> None:
+                # Identity-safe unregister cannot remove a replacement handler.
+                study_unregister("motor_transient", study_handler)
+
+            study_unhook = release_study_handler
+            publisher = MotorTransientResultPublisher(application, self.read_models)
+            subscribe(StudyCompleted, publisher)
+
+            def release_publisher() -> None:
+                unsubscribe(StudyCompleted, publisher)
+
+            # Register the publisher before the dashboard subscriber so the
+            # read-model snapshot exists when the dashboard handles completion.
+            study_unhook_original = study_unhook
+            def release_study_integration() -> None:
+                errors: list[BaseException] = []
+                try:
+                    release_publisher()
+                except BaseException as exc:
+                    errors.append(exc)
+                try:
+                    study_unhook_original()
+                except BaseException as exc:
+                    errors.append(exc)
+                if errors:
+                    raise _aggregate_base_exceptions("Motor study integration teardown failed", errors) from None
+            study_unhook = release_study_integration
             parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
             if parent is not None and event_bus is not None:
                 dashboard = MotorTelemetryDashboardWidget(
@@ -121,6 +165,13 @@ class MotorDynamicsPlugin:
                 except BaseException as exc:
                     cleanup_errors.append(exc)
                     dashboard_retained = True
+
+            if callable(study_unhook):
+                try:
+                    study_unhook()
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+                    self._unhooks.append(study_unhook)
 
             if callable(token):
                 try:
@@ -150,6 +201,8 @@ class MotorDynamicsPlugin:
         self.context = context
         self.application = application
         self.persistence = persistence
+        if callable(study_unhook):
+            self._unhooks.append(study_unhook)
         self._unhooks.append(token)
         self.dashboard = dashboard
         self._initialized = True
