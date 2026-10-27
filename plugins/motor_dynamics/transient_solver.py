@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from core.numerics.backend import BackendCapability, select_backend
-from core.numerics.ode import solve_rk4, uniform_time_grid
+from core.numerics.ode import NumericalProblem, solve_numerical_problem, uniform_time_grid
 
 _STATE_COUNT = 6
 _PSI_DS, _PSI_QS, _PSI_DR, _PSI_QR, _OMEGA_M, _TEMP_C = range(_STATE_COUNT)
@@ -275,15 +275,19 @@ def solve_transient_cpu(
     initial[_OMEGA_M] = parameters.initial_speed_rad_s
     initial[_TEMP_C] = parameters.initial_temperature_c
 
-    solution = solve_rk4(
-        lambda state, voltage: _derivative(
+    problem = NumericalProblem(
+        problem_id=motor_id.strip(),
+        workload="motor_transient_single",
+        derivative=lambda state, voltage: _derivative(
             state, parameters, voltage[0], voltage[1], omega_e, float(load_torque_nm)
         ),
-        initial,
-        duration_s,
-        step_s,
+        initial_state=initial,
+        duration_s=duration_s,
+        maximum_step_s=step_s,
         input_at=lambda index, _time: (float(vd[index]), float(vq[index])),
+        precision="float64",
     )
+    solution = solve_numerical_problem(problem)
     flat = solution.state_data
     if solution.sample_count != count:
         raise RuntimeError("shared ODE engine returned an unexpected sample count")
