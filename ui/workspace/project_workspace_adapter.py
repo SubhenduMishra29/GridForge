@@ -359,16 +359,23 @@ class ProjectWorkspaceApplicationAdapter:
             return current
 
         configuration = self._application.project_lifecycle.capture_presentation_configuration()
+        previous_context = self._application.project_lifecycle.context
+        previous_project_id = getattr(previous_context, "project_id", None)
         try:
             configure()
             context = transition()
-            # Application owns the authoritative transition result. The adapter
-            # publishes only after Application success, so SAVE/DISCARD produce
-            # one presentation transition and failures publish nothing.
+            # Application owns the authoritative transition result. Publish only
+            # after success, including a successful close whose new context is
+            # None, so UI context and presentation are cleared transactionally.
             if self._is_cancel(decision):
                 return context
             if context is not None:
-                self._publish(operation, self._lifecycle.state, context.project_id)
+                event_project_id = context.project_id
+            elif self._lifecycle.project is not None:
+                event_project_id = self._lifecycle.project.project_id
+            else:
+                event_project_id = previous_project_id or ""
+            self._publish(operation, self._lifecycle.state, event_project_id)
             return context
         except BaseException:
             # A failed Application/UI activation must restore the exact prior
