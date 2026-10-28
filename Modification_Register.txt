@@ -9714,13 +9714,16 @@ Corrections:
       dashboard attachment was not included.
 
 Boundaries:
-    Dashboard event ordering, visible rendering, application startup/shutdown,
-    syntax/import integrity, and Qt lifecycle are not runtime-verified.
-    The public SDK API remains provisional pending a second genuine lifecycle
-    plugin or an approved alternative conformance criterion.
+    The automatic workflow now verifies source integrity/syntax, application
+    startup, runtime engineering smoke, targeted startup regressions, and
+    DraftNetwork commit-boundary behavior. Dashboard event ordering and
+    detailed visible rendering, numerical reference comparison, CUDA hardware
+    execution, and NPU workload validation remain unverified. The public SDK
+    API remains provisional pending a second genuine lifecycle plugin or an
+    approved alternative conformance criterion.
 
 Status:
-    🟡 SOURCE CORRECTION APPLIED — RUNTIME VERIFICATION NOT RUN
+    🟡 STARTUP / SMOKE VERIFIED — SDK API PROVISIONAL
 
 ======================================================================
 
@@ -9751,18 +9754,24 @@ Corrections:
     - Keep _shutdown_components host/dashboard parameters optional for legacy
       callers.
 
-Separate workflow finding:
-    The DraftNetwork regression job failed due to missing canonical_contract
-    argument and invalid current-transformer measurement-terminal definitions.
-    SHA comparison confirms the implicated creation_schema.py, bootstrap.py,
-    and regression test file are identical on main and this branch. This is a
-    pre-existing main-branch failure and remains a separate correction.
+Current workflow outcome:
+    Source integrity/syntax verification, actual application startup, runtime
+    engineering smoke, targeted startup regressions, and the DraftNetwork
+    commit-boundary job passed on the reconciled head. The broader regression
+    selector still reports six unrelated baseline failures:
+      - two project lifecycle cases reject the legacy SLD "modified" field;
+      - two SLDState dirty-state expectations disagree with current local-view
+        state behavior;
+      - two dynamic-study cases omit required PowerFlowResult bus identities.
+    These failures are outside this SDK change and remain separate corrections.
 
 Status:
-    🟡 PACKAGE / VERIFIER SOURCE CORRECTION APPLIED — NEXT WORKFLOW RUN REQUIRED
+    🟡 PACKAGE / VERIFIER CORRECTION VERIFIED — SDK API REMAINS PROVISIONAL
 
 Verification:
-    Existing workflow logs inspected. No manual tests/CI were run. The next
-    automatic workflow run must confirm whether the import failure is resolved.
+    Automatic workflow results inspected. No manual tests or hardware
+    validation were run. A second genuine non-UI lifecycle plugin is still
+    required before freezing the public SDK API; no NPU kernel support is
+    claimed for the current motor transient integration workload.
 
 ======================================================================
