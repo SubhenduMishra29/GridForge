@@ -398,13 +398,11 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
-            if previous_item is not None:
-                self._remove_realized(node.node_id)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
-            self._scene.addItem(item)
-            if self._snap_system is not None and callable(getattr(item, "snap_points", None)):
-                self._snap_system.register_item(item)
+            self._attach_realized_item(item, register_snap=True)
+            if previous_item is not None:
+                self._remove_realized(node.node_id)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
             self._degraded_diagnostics.pop(node.node_id, None)
@@ -436,11 +434,9 @@ class SLDCanvasRenderSystem:
             try:
                 item = self._draft_presentation_factory.create_node(node)
                 item.setZValue(1.0)
+                self._attach_realized_item(item, register_snap=True)
                 if previous_degraded is not None:
                     self._remove_realized(render_id)
-                self._scene.addItem(item)
-                if self._snap_system is not None:
-                    self._snap_system.register_item(item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
                 self._clear_reported_diagnostic(render_id)
@@ -816,14 +812,38 @@ class SLDCanvasRenderSystem:
                      connection.connection_kind, connection.presentation_owner,
                      connection.projection_source, route, properties))
 
+    def _attach_realized_item(self, item: Any, *, register_snap: bool = False) -> None:
+        """Attach a transient item atomically with its optional snap registration.
+
+        If registration fails after scene insertion, roll back both presentation
+        resources before propagating the failure to the caller.
+        """
+        self._scene.addItem(item)
+        try:
+            if (
+                register_snap
+                and self._snap_system is not None
+                and callable(getattr(item, "snap_points", None))
+            ):
+                self._snap_system.register_item(item)
+        except Exception:
+            try:
+                self._snap_system.unregister_item(item)
+            finally:
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+            raise
+
     def _remove_realized(self, item_id: str) -> None:
         items = self._items.pop(item_id, ())
         for item in items:
             self._unbind_route_edit_item(item)
-            if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
-                self._snap_system.unregister_item(item)
-            if item is not None and item.scene() is self._scene:
-                self._scene.removeItem(item)
+            try:
+                if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+                    self._snap_system.unregister_item(item)
+            finally:
+                if item is not None and item.scene() is self._scene:
+                    self._scene.removeItem(item)
         self._render_signatures.pop(item_id, None)
         self._annotation_base_visibility.pop(item_id, None)
         self._degraded_diagnostics.pop(item_id, None)
