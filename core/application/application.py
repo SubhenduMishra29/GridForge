@@ -1666,6 +1666,19 @@ class Application:
                             transaction,
                         )
                     x, y = item.get("x"), item.get("y")
+                    draft_presentation = item.get("presentation")
+                    symbol_presentation = (
+                        dict(draft_presentation)
+                        if isinstance(draft_presentation, Mapping)
+                        and isinstance(draft_presentation.get("symbol_id"), str)
+                        and draft_presentation["symbol_id"].strip()
+                        else None
+                    )
+                    draft_rotation = (
+                        draft_presentation.get("orientation")
+                        if symbol_presentation is None and isinstance(draft_presentation, Mapping)
+                        else None
+                    )
                     if x is not None and y is not None:
                         self._sld_service.execute(
                             AddSLDNodeCommand(
@@ -1676,7 +1689,8 @@ class Application:
                                 presentation_owner="projection",
                                 projection_source="network.commit_draft",
                                 element_type=str(item["element_type"]),
-                                presentation=item.get("presentation") or None,
+                                presentation=symbol_presentation,
+                                presentation_rotation=draft_rotation,
                                 presentation_properties={"position_owner": "engineer"},
                                 correlation_id=command.correlation_id,
                                 causation_id=command.command_id,
