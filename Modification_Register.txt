@@ -10382,3 +10382,41 @@ Verification:
 
 Status:
     MERGED — PR #716; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-090 — Reconcile discipline context after project transitions
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Project lifecycle and engineering action availability
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    New/open project transitions activate the default workspace through
+    ProjectWorkspaceApplicationAdapter, but the ProjectWorkspaceChanged
+    handler updated project/document IDs without updating EngineeringContext
+    discipline. Opening or creating a project while a non-SLD workspace was
+    active could therefore leave the visible SLD workspace paired with a
+    stale non-SLD discipline, incorrectly disabling SLD actions or routing
+    action availability against the wrong editor.
+
+Correction:
+    - Set discipline to "sld" after successful new/open project transitions.
+    - Preserve the current discipline on close and document-only transitions.
+    - Keep the lifecycle adapter as transition owner; context updates occur
+      only in its post-success notification.
+
+Verification:
+    - Static source review and focused diff inspection only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+    - Pending PR review.
+
+Status:
+    PENDING — PR not yet opened.
