@@ -10198,4 +10198,4 @@ Verification:
     - No tests, CI, or runtime GUI were run.
 
 Status:
-    Corrected on a focused branch; merge pending.
+    MERGED — PR #706; static checks only, runtime verification not run.
