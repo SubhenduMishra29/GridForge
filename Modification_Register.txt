@@ -9214,7 +9214,9 @@ Correction:
 
 Verification:
     Source inspection only. No tests, syntax/import checks, numerical parity,
-    runtime, accelerator hardware, or CI were run.
+    runtime, accelerator hardware, or CI were run manually. The branch has
+    been reconciled onto current main after the duplicate-ID and explicit-CUDA
+    contract fixes; automatic verification of this head is pending.
 
 Disposition:
     Submitted in a focused PR; review and runtime validation pending.
