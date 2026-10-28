@@ -4595,29 +4595,33 @@ Disposition:
     Merged in PR #671.
 ======================================================================
 
-======================================================================
-2026-10-26 — SLD ROUTE EDIT CORE IDENTITY CORRECTION
+==========================================================================
+2026-10-26 — SLD ROUTE EDIT IDENTITY BOUNDARY CORRECTION
 ======================================================================
 
-File:
+Files:
     ui/sld/sld_route_edit_controller.py
+    ui/sld/sld_controller.py
 
 Finding:
-    SLDConnectionItem emits both the SLD presentation connection_id and the
-    explicit core_connection_id, but SLDRouteEditController passed the
-    presentation ID to SLDController.set_connection_route(). This crossed the
-    presentation/domain identity boundary and could target a non-Core ID.
+    Route edits mutate persisted SLD route geometry, which is keyed by the
+    presentation connection ID. The route-edit request also carries a Core
+    connection ID, which must be used to verify the binding, not substituted
+    as the presentation mutation key. Passing only the Core ID to the SLD
+    route command fails because the SLD model resolves connections by its own
+    presentation identity.
 
 Correction:
-    - Require the explicit core_connection_id from the route-edit request.
-    - Pass only that Core identity through the existing controller/Application
-      mutation path; do not infer or synthesize a Core ID from presentation ID.
-    - Preserve the existing route payload and command boundary.
+    - Require both explicit presentation and Core connection identities.
+    - Keep the presentation ID as the route mutation key.
+    - Verify the live SLD connection's core_connection_id matches the request
+      before issuing the existing Application command.
+    - Do not infer either identity from the other.
 
 Verification boundary:
-    Focused source review only. No tests or CI run; syntax, imports, startup,
+    Source inspection only. No tests or CI run; syntax, imports, startup,
     and GUI runtime remain unverified.
 
 Disposition:
-    Open for review in PR.
+    Corrected in PR branch; automatic verification pending.
 ======================================================================
