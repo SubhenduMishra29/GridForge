@@ -10272,6 +10272,6 @@ Verification:
     - No tests, CI, syntax/import checks, or GUI runtime were run.
 
 Status:
-    CORRECTION IMPLEMENTED — STATIC CHECKS ONLY; PR REVIEW/MERGE PENDING
+    MERGED — PR #710; static checks only, runtime verification not run.
 
 ======================================================================
