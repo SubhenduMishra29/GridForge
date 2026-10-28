@@ -766,10 +766,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         controller.set_tool("select", cancel_active_creation=True)
 
     def _activate_workspace(workspace_id: str, surface_id: str) -> None:
+        # Publish context only after the canonical workspace transition succeeds.
+        # The visible editor and action router must share one active discipline.
         workspace_controller.activate(workspace_id)
-        engineering_context.update(
-            discipline=surface_id if surface_id in {"sld", "control", "protection", "study"} else engineering_context.current.discipline,
-        )
+        engineering_context.update(discipline=surface_id)
+
+    def _activate_surface(surface_id: str) -> None:
+        # Topology and Map are compatibility surfaces outside WorkspaceController.
+        # Keep their context transition explicit so SLD-only actions are disabled.
+        workspace_surface_host.activate(surface_id)
+        engineering_context.update(discipline=surface_id, active_tool=None)
 
     def _toggle_sld_maximize() -> None:
         workspace_controller.activate(SLD_WORKSPACE_ID)
@@ -800,8 +806,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.control_workspace": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "view.protection_workspace": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
         "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
-        "view.topology": lambda: workspace_surface_host.activate("topology"),
-        "view.map": lambda: workspace_surface_host.activate("map"),
+        "view.topology": lambda: _activate_surface("topology"),
+        "view.map": lambda: _activate_surface("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.maximize_editor": _toggle_sld_maximize,
         "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
@@ -983,7 +989,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if action_id in sld_only_actions and discipline != "sld":
             return False
 
-        if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
+        if action_id in {"project.save", "project.save_as", "project.close",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
                          "view.protection_workspace", "view.topology", "view.map", "view.reports",
                          "view.maximize_editor", "view.toggle_explorer", "view.toggle_inspector",
@@ -1008,9 +1014,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             return project_active and bool(getattr(controller, "can_undo", lambda: False)())
         if action_id in {"redo", "edit.redo"}:
             return project_active and bool(getattr(controller, "can_redo", lambda: False)())
+        if action_id == "network.commit_draft":
+            return project_active and discipline == "sld"
         if action_id in {"delete", "edit.delete_selection", "copy", "edit.copy", "edit.cut", "edit.rotate",
                          "edit.mirror_horizontal", "edit.mirror_vertical"}:
-            return project_active and selected
+            return project_active and discipline == "sld" and selected
         if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
         if action_id in {"edit.box_select", "edit.move", "edit.drag_move"}:
