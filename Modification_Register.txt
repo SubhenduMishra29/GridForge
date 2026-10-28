@@ -9775,3 +9775,39 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+======================================================================
+GF-AUD-077 — Refresh Controller state after command failures
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    UI Controller command/history presentation synchronization
+
+Files:
+    ui/core/controller.py
+    Modification_Register.txt
+
+Finding:
+    Controller.execute_command(), undo(), and redo() emitted state_changed
+    only after successful Application calls. CommandManager can change its
+    integrity state while reporting a failure, particularly when rollback,
+    inverse execution, or history restoration fails. Without a signal, menus
+    and toolbars can retain stale Undo/Redo availability.
+
+Correction:
+    - Emit state_changed in finally for execute_command(), undo(), and redo().
+    - Preserve Application return values and propagate original exceptions.
+    - Do not add a second history state source or alter transaction semantics.
+
+Verification:
+    Static source re-fetch and exact method-body checks only. No tests, CI,
+    imports, syntax checks, or runtime/GUI verification were run.
+
+Status:
+    CORRECTION PROPOSED IN FOCUSED PR; RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
