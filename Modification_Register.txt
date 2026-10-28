@@ -10237,3 +10237,41 @@ Status:
     MERGED — PR #708; static checks only, GUI runtime verification not run.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-086 — Disable Commit Draft when the draft is empty
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Runtime action availability for network.commit_draft
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The canonical enabled-state provider enabled network.commit_draft whenever
+    a project was active and the SLD discipline was selected. It did not check
+    whether the Application-owned DraftNetwork contained any equipment or
+    connections, so Commit could be advertised for an empty draft.
+
+Correction:
+    - Require an active project and SLD discipline.
+    - Read the authoritative Application draft snapshot.
+    - Fail closed if the snapshot cannot be read or is not a mapping.
+    - Enable Commit only when draft equipment or connections are present.
+    - Do not inspect Qt graphics items or create a second draft-state owner.
+
+Verification:
+    - Static source inspection confirms the action availability branch checks
+      the Application snapshot's equipment and connections.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    CORRECTION IMPLEMENTED — STATIC CHECKS ONLY; PR REVIEW/MERGE PENDING
+
+======================================================================
