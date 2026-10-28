@@ -10308,7 +10308,7 @@ Correction:
 Verification:
     - Static source inspection only; no tests, CI, syntax/import checks, or
       GUI runtime were run.
-    - Pending branch diff review before merge.
+    - PR #712 opened after static diff review; no runtime checks were run.
 
 Status:
-    PENDING — PR not yet opened.
+    PENDING — PR #712.
