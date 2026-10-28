@@ -2246,7 +2246,10 @@ class Application:
     def redo_count(self) -> int: return self._command_manager.redo_count()
     def undo_commands(self) -> tuple: return self._command_manager.undo_commands()
     def redo_commands(self) -> tuple: return self._command_manager.redo_commands()
-    def clear_history(self) -> None: self._command_manager.clear_history()
+    def clear_history(self) -> None:
+        """Clear command and revision journals while preserving project revisions."""
+        self._command_manager.clear_history()
+        self._revision_service.clear_transitions()
 
     def read_control(self):
         service = getattr(self, "control_service", None)
