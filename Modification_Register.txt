@@ -9775,3 +9775,18 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-075 — COMMAND-HISTORY ACTION PRESENTATION REFRESH
+======================================================================
+Status: Corrected in branch `fix/refresh-history-action-state`; static source re-audit pending.
+Scope: `main.py`.
+
+Confirmed source issue:
+- Undo/redo enabled state is computed from Controller.can_undo()/can_redo(), but menu and toolbar presentation refresh was subscribed to EngineeringContextStore updates only. Controller emits state_changed for command/state transitions that do not necessarily change engineering context, so QAction enabled state could remain stale until another context update or action dispatch.
+
+Correction:
+- Subscribe the shared action-presentation refresh to Controller.state_changed in addition to engineering-context changes. This keeps menu and toolbar enabled states aligned with the canonical undo/redo capability provider.
+
+Verification: Static source inspection and branch re-fetch only; no tests, CI, or GUI runtime performed.
