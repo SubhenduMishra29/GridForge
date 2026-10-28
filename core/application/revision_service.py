@@ -295,6 +295,16 @@ class RevisionService:
         self._persisted_generation = 0
         return self._current
 
+    def clear_transitions(self) -> None:
+        """Clear undo/redo revision journals without changing dirty-state truth.
+
+        This must accompany an explicit Application command-history clear.
+        Revision counters and the persisted baseline describe project state,
+        not whether the user can still undo to an earlier state.
+        """
+        self._undo.clear()
+        self._redo.clear()
+
     def reset_for_project(self) -> ProjectRevision:
         """Reset revision/history state only after successful project activation."""
         self._current = ProjectRevision()
