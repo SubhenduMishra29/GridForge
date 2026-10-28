@@ -10787,3 +10787,39 @@ Verification:
 
 Status:
     MERGED — PR #740; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-101 — Bound committed connection realization failure paths
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Committed SLD connection reconciliation
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    Automatic route calculation occurred outside the connection realization
+    error boundary, so router failures could abort snapshot reconciliation
+    without a connection diagnostic. After preserving last-good items, invalid
+    or unresolved current endpoint identities could also leave a stale wire
+    visible even though it no longer represented the requested connection.
+
+Correction:
+    - Include automatic route calculation in the guarded realization path.
+    - Remove a previous connection when its current source/target node or
+      endpoint identity is missing or cannot be resolved.
+    - Preserve last-good connections for transient construction/route/attach
+      failures when current endpoints remain resolvable.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
