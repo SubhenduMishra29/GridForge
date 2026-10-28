@@ -534,18 +534,18 @@ class ProjectLifecycleService:
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
             return context if context is not None else previous_context
-        except Exception as activation_error:
+        except BaseException as activation_error:
             # Restore the previous Application presentation authority before
             # compensation callbacks run. This is required because SLDService
             # rollback itself is guarded by the same authoritative identity
             # invariant as forward binding.
             self._presentation = old_presentation
 
-            rollback_errors: list[Exception] = []
+            rollback_errors: list[BaseException] = []
             for rollback in reversed(rollback_stack):
                 try:
                     rollback()
-                except Exception as rollback_error:
+                except BaseException as rollback_error:
                     rollback_errors.append(rollback_error)
 
             self._network = old_network
