@@ -1032,29 +1032,39 @@ class Application:
             self._revision_service.restore_state(revision_state)
             raise
 
-        # The lifecycle activation has committed successfully. History belongs
-        # to the outgoing runtime/project and must not be replayed against the
-        # newly authoritative network (including after close or discard).
-        # Keep history intact when activation itself fails; clear it only after
-        # the transition returns successfully. CommandManager fails closed if
-        # history clearing is interrupted.
-        self._command_manager.clear_history()
+        # Lifecycle activation has committed. The outgoing project's history
+        # must never be replayed against the newly authoritative network.
+        # A history-clear failure must not skip revision/validation cleanup:
+        # the lifecycle transition has already committed and cannot be rolled
+        # back by this coordinator.
+        transition_error: Exception | None = None
+        try:
+            self._command_manager.clear_history()
+        except Exception as exc:
+            transition_error = exc
 
-        # Only after successful activation and history isolation establish the
-        # clean baseline for the newly authoritative project state.
         self._revision_service.reset_for_project()
         if self._validation_service is not None:
             self._validation_service.invalidate()
-            self._event_bus.publish(
-                ValidationChanged(
-                    metadata={
-                        "valid": False,
-                        "invalidated": True,
-                        "reason": "project_transition",
-                        **self._project_scope_metadata(),
-                    }
+            try:
+                self._event_bus.publish(
+                    ValidationChanged(
+                        metadata={
+                            "valid": False,
+                            "invalidated": True,
+                            "reason": "project_transition",
+                            **self._project_scope_metadata(),
+                        }
+                    )
                 )
-            )
+            except Exception as exc:
+                # Preserve the first failure while still completing all
+                # mandatory post-activation state reconciliation.
+                if transition_error is None:
+                    transition_error = exc
+
+        if transition_error is not None:
+            raise transition_error
         return result
 
     def discard_project_changes(self) -> ProjectContext:
