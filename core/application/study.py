@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
-from threading import RLock
+from threading import Lock, RLock
 from uuid import UUID, uuid4
 
 from .event_bus import ApplicationEventBus
@@ -182,21 +182,26 @@ class StudyCancellationToken:
     def __init__(self) -> None:
         self._cancelled = False
         self._finished = False
+        self._lock = Lock()
 
     @property
     def cancelled(self) -> bool:
-        return self._cancelled
+        with self._lock:
+            return self._cancelled
 
     def cancel(self) -> bool:
-        if self._finished:
-            return False
-        self._cancelled = True
-        return True
+        """Request cancellation; return False once a terminal outcome is fixed."""
+        with self._lock:
+            if self._finished:
+                return False
+            self._cancelled = True
+            return True
 
     def finish(self) -> bool:
         """Atomically mark terminal state and return whether cancellation won."""
-        self._finished = True
-        return self._cancelled
+        with self._lock:
+            self._finished = True
+            return self._cancelled
 
 
 StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationToken], Any]
