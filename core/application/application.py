@@ -1032,8 +1032,16 @@ class Application:
             self._revision_service.restore_state(revision_state)
             raise
 
-        # Lifecycle activation has committed successfully; only now establish
-        # the clean baseline for the newly authoritative project state.
+        # The lifecycle activation has committed successfully. History belongs
+        # to the outgoing runtime/project and must not be replayed against the
+        # newly authoritative network (including after close or discard).
+        # Keep history intact when activation itself fails; clear it only after
+        # the transition returns successfully. CommandManager fails closed if
+        # history clearing is interrupted.
+        self._command_manager.clear_history()
+
+        # Only after successful activation and history isolation establish the
+        # clean baseline for the newly authoritative project state.
         self._revision_service.reset_for_project()
         if self._validation_service is not None:
             self._validation_service.invalidate()
