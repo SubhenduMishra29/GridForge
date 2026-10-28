@@ -32,7 +32,6 @@ _COMMON: tuple[ActionDefinition, ...] = (
 )
 
 
-
 _SURFACE_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("project.new", "New Project", "Create a new project.", shortcut="Ctrl+N", category="file"),
     ActionDefinition("project.open", "Open Project…", "Open an existing project.", shortcut="Ctrl+O", category="file"),
@@ -72,6 +71,7 @@ _SURFACE_ACTIONS: tuple[ActionDefinition, ...] = (
 def surface_action_definitions() -> tuple[ActionDefinition, ...]:
     """Return canonical metadata for non-tool application surface actions."""
     return _SURFACE_ACTIONS
+
 
 def build_action_definitions(tool_definitions: Iterable[ToolDefinition] = ()) -> tuple[ActionDefinition, ...]:
     """Build immutable action metadata, scoped to each declared editor.
