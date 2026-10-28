@@ -10503,4 +10503,4 @@ Verification:
     - No tests, CI, syntax/import checks, or GUI runtime were run.
 
 Status:
-    MERGED — PR #722; static checks only, runtime verification not run.
+    MERGED — PR #722 and PR #724; static checks only, runtime verification not run.
