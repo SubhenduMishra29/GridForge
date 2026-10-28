@@ -172,17 +172,31 @@ class StudyResult:
 
 
 class StudyCancellationToken:
-    """Cooperative cancellation state supplied to long-running study handlers."""
+    """Cooperative cancellation state supplied to long-running study handlers.
+
+    Cancellation and completion are coordinated by StudyService under its
+    lock. Once finish() has linearized the terminal outcome, cancel() refuses
+    late requests instead of reporting cancellation that cannot affect result.
+    """
 
     def __init__(self) -> None:
         self._cancelled = False
+        self._finished = False
 
     @property
     def cancelled(self) -> bool:
         return self._cancelled
 
-    def cancel(self) -> None:
+    def cancel(self) -> bool:
+        if self._finished:
+            return False
         self._cancelled = True
+        return True
+
+    def finish(self) -> bool:
+        """Atomically mark terminal state and return whether cancellation won."""
+        self._finished = True
+        return self._cancelled
 
 
 StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationToken], Any]
@@ -280,35 +294,40 @@ class StudyService:
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = handler(request, execution_context, token)
-            if token.cancelled:
-                result = StudyResult(
-                    study_id=request.study_id,
-                    project_id=request.project_id,
-                    activation_generation=request.activation_generation,
-                    source_revision=request.source_revision,
-                    study_type=request.study_type,
-                    status="cancelled",
-                    message="Study cancelled.",
-                )
-                with self._lock:
-                    self._results[key] = result
-                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
-                return result
-
-            result = StudyResult(
-                study_id=request.study_id,
-                project_id=request.project_id,
-                activation_generation=request.activation_generation,
-                source_revision=request.source_revision,
-                study_type=request.study_type,
-                status="completed",
-                value=value,
-            )
+            # Completion and cancellation compete under the same lock used by
+            # cancel(). Whichever obtains the lock first determines the
+            # terminal result; a late cancellation is rejected.
             with self._lock:
+                cancelled = token.finish()
+                if cancelled:
+                    result = StudyResult(
+                        study_id=request.study_id,
+                        project_id=request.project_id,
+                        activation_generation=request.activation_generation,
+                        source_revision=request.source_revision,
+                        study_type=request.study_type,
+                        status="cancelled",
+                        message="Study cancelled.",
+                    )
+                else:
+                    result = StudyResult(
+                        study_id=request.study_id,
+                        project_id=request.project_id,
+                        activation_generation=request.activation_generation,
+                        source_revision=request.source_revision,
+                        study_type=request.study_type,
+                        status="completed",
+                        value=value,
+                    )
                 self._results[key] = result
-            self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
+            if cancelled:
+                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+            else:
+                self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
         except Exception as exc:
+            with self._lock:
+                token.finish()
             result = StudyResult(
                 study_id=request.study_id,
                 project_id=request.project_id,
@@ -350,8 +369,7 @@ class StudyService:
             token = self._tokens.get((project_id, activation_generation, study_id))
             if token is None:
                 return False
-            token.cancel()
-            return True
+            return token.cancel()
 
     def get_result(self, study_id: UUID, *, project_id: str, activation_generation: int) -> StudyResult | None:
         with self._lock:
