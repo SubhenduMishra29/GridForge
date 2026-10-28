@@ -10169,3 +10169,33 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — STATIC CHECKS ONLY
 
 ======================================================================
+
+======================================================================
+GF-AUD-084 — RESTORE REVISION TRANSITION CLEARING IMPLEMENTATION
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    RevisionService/Application explicit command-history clearing contract
+
+Finding:
+    Post-merge source inspection found Application.clear_history() invoking
+    RevisionService.clear_transitions(), while the method implementation was
+    absent from current main. The GF-AUD-081 change therefore left an invalid
+    cross-service call despite its register entry being present.
+
+Correction:
+    - Restore RevisionService.clear_transitions() to clear only undo/redo
+      transition journals while preserving current and persisted revisions.
+    - Preserve GF-AUD-080's validate-before-pop undo/redo implementation.
+
+Verification:
+    - Re-fetched current main and correction branch source.
+    - Static inspection confirms the method exists and the GF-AUD-080
+      transition-peek guards remain present.
+    - No tests, CI, or runtime GUI were run.
+
+Status:
+    Corrected on a focused branch; merge pending.
