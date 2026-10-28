@@ -10275,3 +10275,40 @@ Status:
     MERGED — PR #710; static checks only, runtime verification not run.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-087 — Centralize canonical surface action metadata
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Canonical action metadata and application composition
+
+Files:
+    ui/core/action_catalog.py
+    main.py
+    Modification_Register.txt
+
+Finding:
+    main.py maintained a separate _legacy_action_metadata mapping and
+    overwrote router definitions from that table. This duplicated presentation
+    metadata outside the action catalog, despite the catalog being designated
+    the canonical metadata owner.
+
+Correction:
+    - Move non-tool surface action definitions into action_catalog.py.
+    - Expose them through surface_action_definitions().
+    - Have main.py attach catalog definitions to existing routed actions.
+    - Keep runtime handler ownership, action IDs, compatibility aliases, and
+      enabled-state policy unchanged; do not introduce another registry.
+
+Verification:
+    - Static source inspection only; no tests, CI, syntax/import checks, or
+      GUI runtime were run.
+    - Pending branch diff review before merge.
+
+Status:
+    PENDING — PR not yet opened.
