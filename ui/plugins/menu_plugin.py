@@ -93,8 +93,12 @@ class MenuPlugin(QObject):
                     action.setToolTip(definition.description)
                     action.setStatusTip(definition.description)
                     action.setEnabled(router.is_enabled(action_spec.action_id))
-                    if definition.shortcut:
-                        action.setShortcut(definition.shortcut)
+                    # MenuActionSpec declares the shortcut for this concrete menu
+                    # entry. Fall back to canonical action metadata only when the
+                    # menu intentionally leaves the shortcut unspecified.
+                    shortcut = action_spec.shortcut or definition.shortcut
+                    if shortcut:
+                        action.setShortcut(shortcut)
                     action.triggered.connect(
                         lambda _checked=False, action_id=action_spec.action_id:
                             self._dispatch_action(action_id)

@@ -10199,3 +10199,41 @@ Verification:
 
 Status:
     MERGED — PR #706; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-085 — Honor menu-declared keyboard shortcuts
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    UI menu action composition and shortcut realization
+
+Files:
+    ui/plugins/menu_plugin.py
+    Modification_Register.txt
+
+Finding:
+    MenuActionSpec declares menu-specific shortcuts, but MenuPlugin.initialize()
+    configured QAction shortcuts exclusively from ActionDefinition.shortcut.
+    Shortcuts explicitly declared by default_menus() could therefore be
+    silently ignored whenever canonical action metadata did not repeat them.
+
+Correction:
+    - Prefer the concrete MenuActionSpec shortcut for the menu entry.
+    - Fall back to ActionDefinition.shortcut when the menu entry leaves its
+      shortcut unspecified.
+    - Preserve canonical action IDs, router dispatch, enabled-state policy,
+      and handler ownership; do not add a second action or shortcut registry.
+
+Verification:
+    - Static source inspection confirms the declared menu shortcut is now
+      applied to QAction, with canonical metadata as fallback.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    CORRECTION IMPLEMENTED — STATIC CHECKS ONLY; PR REVIEW/MERGE PENDING
+
+======================================================================
