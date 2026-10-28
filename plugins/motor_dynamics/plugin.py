@@ -7,18 +7,44 @@ motor_dynamics_composition service supplied through PluginContext.
 """
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from .commands import (
     ADD_DRAFT_MOTOR_PLACEMENT,
     CONNECT_MOTOR_TO_BUS,
     MotorPlacementCommandHandler,
 )
-from .dashboard import MotorTelemetryDashboardWidget
+if TYPE_CHECKING:
+    from .dashboard import MotorTelemetryDashboardWidget
 from .persistence import MotorPluginPersistenceHandler
 from .read_models import MotorSimulationReadModelStore
 from .study_handler import MotorTransientResultPublisher, MotorTransientStudyHandler
 from core.application.events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
+from core.plugin_sdk import (
+    SUPPORTED_PLUGIN_API_VERSION,
+    GridForgePlugin,
+    HostPluginContext,
+    PluginDescriptor,
+    validate_plugin_descriptor,
+)
+
+
+PLUGIN_DESCRIPTOR = PluginDescriptor(
+    plugin_id="gridforge.plugin.motor_dynamics",
+    version="2.0.0",
+    api_version=SUPPORTED_PLUGIN_API_VERSION,
+    display_name="Multi-Physics Dynamic Motor Extension",
+    capabilities=frozenset({
+        "commands",
+        "sld_graphics",
+        "study_dashboard",
+        "persistence",
+        "transient_solver",
+        "cpu_transient_simulation",
+        "optional_cuda_batch_simulation",
+    }),
+)
 
 
 def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> BaseException:
@@ -34,7 +60,10 @@ def _aggregate_base_exceptions(message: str, errors: list[BaseException]) -> Bas
     return group_type(message, errors)
 
 
-class MotorDynamicsPlugin:
+class MotorDynamicsPlugin(GridForgePlugin):
+    # Discoverable before instance activation by an explicit host adapter.
+    descriptor: ClassVar[PluginDescriptor] = PLUGIN_DESCRIPTOR
+
     @property
     def plugin_id(self) -> str:
         return "gridforge.plugin.motor_dynamics"
@@ -49,7 +78,7 @@ class MotorDynamicsPlugin:
         self._initialized = False
         self._ready = False
 
-    def initialize(self, context: Any) -> None:
+    def initialize(self, context: HostPluginContext) -> None:
         """Initialize from GridForge's canonical PluginContext."""
         if self._initialized:
             if self._ready:
@@ -61,11 +90,38 @@ class MotorDynamicsPlugin:
         if context is None or not hasattr(context, "application"):
             raise TypeError("MotorDynamicsPlugin.initialize requires a GridForge PluginContext")
 
+        # Compatibility is checked before the plugin registers commands,
+        # studies, or event callbacks. The host may explicitly advertise its
+        # supported API versions in PluginContext.metadata. Older hosts that
+        # do not publish this metadata use the SDK's declared compatibility
+        # set, rather than bypassing descriptor identity/version validation.
+        context_metadata = getattr(context, "metadata", {})
+        if not isinstance(context_metadata, Mapping):
+            raise TypeError("PluginContext.metadata must be a mapping")
+        supported_versions = context_metadata.get(
+            "host_supported_plugin_api_versions",
+            frozenset({SUPPORTED_PLUGIN_API_VERSION}),
+        )
+        if isinstance(supported_versions, str):
+            raise TypeError("host_supported_plugin_api_versions must be a collection of version strings")
+        if not isinstance(supported_versions, (tuple, list, set, frozenset)):
+            raise TypeError("host_supported_plugin_api_versions must be a collection of version strings")
+        if any(not isinstance(version, str) or not version.strip() for version in supported_versions):
+            raise TypeError("host_supported_plugin_api_versions must contain only non-empty strings")
+        supported_versions = frozenset(supported_versions)
+        validate_plugin_descriptor(
+            self.descriptor,
+            supported_api_versions=supported_versions,
+            expected_plugin_id=self.plugin_id,
+        )
+
         application = context.application
         if application is None:
             raise RuntimeError("PluginContext.application is required")
 
-        services = getattr(context, "services", {})
+        services = getattr(context, "services", None)
+        if not isinstance(services, Mapping):
+            raise TypeError("PluginContext.services must be a mapping")
         composition = services.get("motor_dynamics_composition")
         if composition is None:
             raise RuntimeError(
@@ -179,6 +235,10 @@ class MotorDynamicsPlugin:
             subscribe(StudyCancelled, publisher.on_terminal)
             parent = getattr(context, "parent", None) or getattr(context, "root_widget", None)
             if parent is not None and event_bus is not None:
+                # Import Qt presentation only when the host explicitly supplies
+                # a UI parent; engineering activation remains UI-independent.
+                from .dashboard import MotorTelemetryDashboardWidget
+
                 dashboard = MotorTelemetryDashboardWidget(
                     self.read_models,
                     event_bus=event_bus,
@@ -285,4 +345,4 @@ class MotorDynamicsPlugin:
         self.context = None
 
 
-__all__ = ["MotorDynamicsPlugin"]
+__all__ = ["MotorDynamicsPlugin", "PLUGIN_DESCRIPTOR"]

@@ -30,18 +30,24 @@ class BackendCapability:
     precision_modes: frozenset[str] = frozenset({"float64"})
 
     def __post_init__(self) -> None:
-        if not self.name or not self.name.strip():
-            raise ValueError("backend name must be non-empty")
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("backend name must be a non-empty string")
         if self.kind not in ("cpu", "gpu", "npu"):
             raise ValueError("backend kind must be cpu, gpu, or npu")
+        if not isinstance(self.available, bool):
+            raise TypeError("available must be a bool")
         if isinstance(self.minimum_workload_size, bool) or not isinstance(
             self.minimum_workload_size, int
         ) or self.minimum_workload_size < 1:
             raise ValueError("minimum_workload_size must be a positive integer")
-        if not self.supported_workloads:
-            raise ValueError("supported_workloads must not be empty")
-        if not self.precision_modes:
-            raise ValueError("precision_modes must not be empty")
+        if not isinstance(self.supported_workloads, frozenset) or not self.supported_workloads:
+            raise TypeError("supported_workloads must be a non-empty frozenset of strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.supported_workloads):
+            raise ValueError("supported_workloads must contain non-empty strings")
+        if not isinstance(self.precision_modes, frozenset) or not self.precision_modes:
+            raise TypeError("precision_modes must be a non-empty frozenset of strings")
+        if any(not isinstance(item, str) or not item.strip() for item in self.precision_modes):
+            raise ValueError("precision_modes must contain non-empty strings")
 
 
 @dataclass(frozen=True)
@@ -80,8 +86,16 @@ def select_backend(
         raise ValueError("precision must be a non-empty string")
     if requested != "auto" and requested not in ("cpu", "gpu", "npu"):
         raise ValueError("requested must be auto, cpu, gpu, or npu")
+    if not isinstance(preference, tuple) or any(
+        kind not in ("cpu", "gpu", "npu") for kind in preference
+    ):
+        raise ValueError("preference must be a tuple containing only cpu, gpu, and npu")
+    if len(preference) != len(set(preference)):
+        raise ValueError("preference cannot contain duplicate backend kinds")
 
     items = tuple(capabilities)
+    if any(not isinstance(item, BackendCapability) for item in items):
+        raise TypeError("capabilities must contain only BackendCapability values")
     names = [item.name for item in items]
     if len(names) != len(set(names)):
         raise ValueError("backend capability names must be unique")

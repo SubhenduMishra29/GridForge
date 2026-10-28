@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -99,6 +100,13 @@ class MotorSimulationResult:
     sample_period_s: float
     backend: str
     diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.diagnostics, Mapping):
+            raise TypeError("diagnostics must be a mapping")
+        # Frozen dataclasses do not freeze nested mappings; copy and expose a
+        # read-only outer mapping so consumers cannot rewrite result metadata.
+        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
 
     @property
     def sample_count(self) -> int:
