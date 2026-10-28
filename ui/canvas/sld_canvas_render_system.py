@@ -829,6 +829,9 @@ class SLDCanvasRenderSystem:
         except Exception:
             try:
                 self._snap_system.unregister_item(item)
+            except Exception:
+                # Preserve the attachment failure; scene rollback still matters.
+                pass
             finally:
                 if item.scene() is self._scene:
                     self._scene.removeItem(item)
@@ -836,19 +839,21 @@ class SLDCanvasRenderSystem:
 
     def _remove_realized(self, item_id: str) -> None:
         items = self._items.pop(item_id, ())
-        for item in items:
-            self._unbind_route_edit_item(item)
-            try:
-                if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
-                    self._snap_system.unregister_item(item)
-            finally:
-                if item is not None and item.scene() is self._scene:
-                    self._scene.removeItem(item)
-        self._render_signatures.pop(item_id, None)
-        self._annotation_base_visibility.pop(item_id, None)
-        self._degraded_diagnostics.pop(item_id, None)
-        self._clear_reported_diagnostic(item_id)
-        self._degraded_node_ids.discard(item_id)
+        try:
+            for item in items:
+                self._unbind_route_edit_item(item)
+                try:
+                    if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+                        self._snap_system.unregister_item(item)
+                finally:
+                    if item is not None and item.scene() is self._scene:
+                        self._scene.removeItem(item)
+        finally:
+            self._render_signatures.pop(item_id, None)
+            self._annotation_base_visibility.pop(item_id, None)
+            self._degraded_diagnostics.pop(item_id, None)
+            self._clear_reported_diagnostic(item_id)
+            self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
         for items in tuple(self._items.values()):
