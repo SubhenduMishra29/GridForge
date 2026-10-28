@@ -388,25 +388,27 @@ class ProjectWorkspaceApplicationAdapter:
         try:
             configure()
             context = transition()
-            # Application owns the authoritative transition result. Publish only
-            # after success, including a successful close whose new context is
-            # None, so UI context and presentation are cleared transactionally.
-            if self._is_cancel(decision):
-                return context
-            if context is not None:
-                event_project_id = context.project_id
-            elif self._lifecycle.project is not None:
-                event_project_id = self._lifecycle.project.project_id
-            else:
-                event_project_id = previous_project_id or ""
-            self._publish(operation, self._lifecycle.state, event_project_id)
-            return context
         except BaseException:
-            # A failed Application/UI activation must restore the exact prior
-            # presentation contract as well as the workspace rollback performed
-            # by the lifecycle activator.
+            # Only failures before the Application transition commits may restore
+            # its prior presentation contract. Publication is post-commit and
+            # must never roll the Application back independently of its lifecycle.
             self._application.project_lifecycle.restore_presentation_configuration(configuration)
             raise
+
+        # Application owns the authoritative transition result. Publish only
+        # after success, including a successful close whose new context is None.
+        # Keep publication outside the rollback boundary: handlers synchronize
+        # projections after commit and cannot safely undo the committed project.
+        if self._is_cancel(decision):
+            return context
+        if context is not None:
+            event_project_id = context.project_id
+        elif self._lifecycle.project is not None:
+            event_project_id = self._lifecycle.project.project_id
+        else:
+            event_project_id = previous_project_id or ""
+        self._publish(operation, self._lifecycle.state, event_project_id)
+        return context
 
     def new_project(
         self,
