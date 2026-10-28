@@ -9775,3 +9775,39 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-083
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Case registration at the Application study-execution boundary
+
+Finding:
+    Application.execute_study() registered a structured Study Case before
+    checking active project identity, activation generation, validation,
+    source revision, and topology provenance. A rejected stale or foreign
+    StudyRequest could therefore mutate the Application-owned Study Case
+    registry even though execution was refused.
+
+Correction:
+    - Move Study Case registration until after the request has passed the
+      project-scope, revision, validation, topology, and snapshot checks.
+    - Keep registration immediately before StudyService execution so a valid
+      request remains available as a Study Case even if the solver later fails.
+    - Preserve existing behavior for requests that do not satisfy the
+      structured Study Case contract; they continue through StudyService's
+      established request validation path.
+
+Verification:
+    Static source re-fetch and targeted ordering checks only. No tests, CI,
+    syntax/import checks, or runtime study execution were run.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — STATIC CHECKS ONLY
+
+======================================================================
