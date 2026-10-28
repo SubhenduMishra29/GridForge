@@ -10753,3 +10753,37 @@ Verification:
 
 Status:
     MERGED — PR #738; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-100 — Best-effort cleanup of SLD renderer items
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Renderer reconciliation, item removal, and full scene cleanup
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    A snap unregistration, route callback unbinding, or scene removal exception
+    could abort cleanup of the remaining tracked items. Full clear could then
+    leave later graphics items in the scene and renderer registries populated.
+
+Correction:
+    - Attempt callback unbinding, snap unregistration, and scene removal
+      independently for each tracked item.
+    - Log cleanup failures and continue processing the remaining items.
+    - Make clear() iterate tracked IDs through the shared best-effort cleanup
+      path, then attempt to clear snap candidates and reset renderer metadata.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.

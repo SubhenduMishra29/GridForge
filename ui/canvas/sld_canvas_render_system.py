@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import math
 from typing import Any, Callable
 
@@ -23,6 +24,9 @@ from .sld_graphics_item_factory import SLDGraphicsItemFactory
 from .draft_sld_projection import DraftSLDCanvasSnapshot, DraftSLDCanvasNode, DraftSLDCanvasConnection
 from .draft_presentation_factory import DraftPresentationFactory
 from ui.styling.presentation_style import VisualState
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -845,16 +849,24 @@ class SLDCanvasRenderSystem:
             raise
 
     def _remove_realized(self, item_id: str) -> None:
+        """Best-effort cleanup that cannot strand later items after one failure."""
         items = self._items.pop(item_id, ())
         try:
             for item in items:
-                self._unbind_route_edit_item(item)
+                try:
+                    self._unbind_route_edit_item(item)
+                except Exception:
+                    _LOGGER.exception("Failed to unbind route-edit callback for SLD item %s", item_id)
                 try:
                     if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
                         self._snap_system.unregister_item(item)
-                finally:
+                except Exception:
+                    _LOGGER.exception("Failed to unregister snap candidate for SLD item %s", item_id)
+                try:
                     if item is not None and item.scene() is self._scene:
                         self._scene.removeItem(item)
+                except Exception:
+                    _LOGGER.exception("Failed to remove SLD graphics item %s from scene", item_id)
         finally:
             self._render_signatures.pop(item_id, None)
             self._annotation_base_visibility.pop(item_id, None)
@@ -863,16 +875,14 @@ class SLDCanvasRenderSystem:
             self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
-        for items in tuple(self._items.values()):
-            for item in items:
-                self._unbind_route_edit_item(item)
-                if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
-                    self._snap_system.unregister_item(item)
-                if item is not None and item.scene() is self._scene:
-                    self._scene.removeItem(item)
+        """Clear every tracked realization even if individual cleanup steps fail."""
+        for item_id in tuple(self._items):
+            self._remove_realized(item_id)
         if self._snap_system is not None and callable(getattr(self._snap_system, "clear_candidates", None)):
-            self._snap_system.clear_candidates()
-        self._items.clear()
+            try:
+                self._snap_system.clear_candidates()
+            except Exception:
+                _LOGGER.exception("Failed to clear SLD snap candidates")
         self._render_signatures.clear()
         self._annotation_base_visibility.clear()
         self._degraded_node_ids.clear()
