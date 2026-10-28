@@ -10420,3 +10420,43 @@ Verification:
 
 Status:
     MERGED — PR #718; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-091 — Keep SLD document transition synchronization single-owner
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    SLD document activation/creation/closure UI synchronization
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The ProjectWorkspaceChanged subscriber already updates engineering
+    context, invalidates selection when document/project identity changes,
+    reconciles the SLD presentation, refreshes document tabs, synchronizes
+    the canvas, and refreshes or clears SLD-specific Properties controls.
+    The new/close document callbacks repeated parts of this work after the
+    adapter had published the successful transition, creating redundant
+    synchronization paths and making document state ownership harder to audit.
+
+Correction:
+    - Keep the subscribed ProjectWorkspaceChanged handler as the sole
+      post-transition UI synchronization path.
+    - Remove duplicate context, tab, and canvas updates from the new/close
+      document callbacks.
+    - Preserve save/discard/cancel prompts and adapter error handling.
+    - Leave lifecycle activation, rollback, selection invalidation, and
+      presentation bridging owned by their existing components.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    CORRECTION PROPOSED — PR pending.

@@ -1081,10 +1081,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
 
     def _new_sld_document() -> None:
-        document = project_workspace_adapter.new_sld_document()
-        engineering_context.update(document_id=document.document_id)
-        workspace_surface_host.refresh_sld_document_tabs()
-        synchronize_canvas()
+        # The adapter publishes ProjectWorkspaceChanged after activation;
+        # handle_project_workspace_changed is the sole UI synchronization path.
+        project_workspace_adapter.new_sld_document()
 
     def _close_sld_document(document_id: str) -> None:
         document = project_workspace_adapter.documents.require(document_id)
@@ -1103,15 +1102,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         else:
             decision = "discard"
         try:
+            # Successful transitions publish once through the adapter. The
+            # subscribed handler refreshes tabs, context, canvas and inspector.
             project_workspace_adapter.close_document(document_id, decision=decision)
         except BaseException as exc:
             QMessageBox.critical(window, "Close SLD Document", str(exc))
-            return
-        workspace_surface_host.refresh_sld_document_tabs()
-        active = project_workspace_adapter.lifecycle.document
-        if isinstance(active, SLDDocument):
-            engineering_context.update(document_id=active.document_id)
-        synchronize_canvas()
 
     workspace_surface_host.configure_sld_document_lifecycle(
         project_workspace_lifecycle.documents,
