@@ -258,7 +258,14 @@ class RevisionService:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
         before = transition.before
         if topology_revision is not None:
-            before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
+                raise ValueError("topology_revision must be a non-negative integer.")
+            before = ProjectRevision(
+                model_revision=before.model_revision,
+                topology_revision=topology_revision,
+                presentation_revision=before.presentation_revision,
+                persisted_revision=before.persisted_revision,
+            )
         # Validate and construct the complete target state before mutating either
         # revision stack. A bad topology revision must not consume the transition.
         self._undo.pop()
