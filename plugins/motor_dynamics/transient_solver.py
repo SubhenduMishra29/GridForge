@@ -385,6 +385,9 @@ def solve_transient_batch(
     _validate_time(duration_s, step_s)
     if any(not isinstance(mid, str) or not mid.strip() for mid in motor_ids):
         raise ValueError("every motor_id must be a non-empty string")
+    canonical_ids = tuple(mid.strip() for mid in motor_ids)
+    if len(set(canonical_ids)) != len(canonical_ids):
+        raise ValueError("motor_ids must be unique within a transient batch")
     if any(not isinstance(p, MotorParameters) for p in parameter_sets):
         raise TypeError("every parameter_sets entry must be MotorParameters")
     if backend not in ("auto", "cpu", "cuda"):
