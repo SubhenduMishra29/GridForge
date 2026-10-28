@@ -10062,3 +10062,35 @@ Status:
     🟡 CORRECTION APPLIED — STATIC CHECKS ONLY
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-081
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application explicit command-history clearing and revision journal alignment
+
+Finding:
+    Application.clear_history() cleared CommandManager undo/redo records but
+    retained RevisionService undo/redo transitions. Those independent journals
+    could diverge: revision transitions for commands no longer present in the
+    command history remained available to later revision bookkeeping.
+
+Correction:
+    - Add RevisionService.clear_transitions() to clear only its undo/redo
+      transition journals while preserving current and persisted revisions.
+    - Call it after CommandManager.clear_history() succeeds.
+    - Do not reset project revisions or mark the project clean.
+
+Verification:
+    Static source re-fetch and call-order checks only. No tests, CI,
+    syntax/import checks, or runtime verification were run.
+
+Status:
+    🟡 CORRECTION APPLIED — STATIC CHECKS ONLY
+
+======================================================================
