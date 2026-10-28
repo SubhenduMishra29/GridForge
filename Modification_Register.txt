@@ -10312,3 +10312,38 @@ Verification:
 
 Status:
     MERGED — PR #712; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-088 — Gate SLD-only actions on an active project
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Menu/toolbar action enabled-state policy
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The shared enabled-state provider rejected SLD-only actions outside the
+    SLD discipline but did not require an active project. Actions such as
+    edit.select_all could therefore be advertised as enabled when no project
+    was active if the retained discipline context was still SLD.
+
+Correction:
+    - Require both an active project and SLD discipline for the existing
+      sld_only_actions set.
+    - Preserve the existing selection-specific and draft-specific gates.
+    - Keep menu/toolbar dispatch routed through UIActionRouter.
+
+Verification:
+    - Static source review only; no tests, CI, syntax/import checks, or GUI
+      runtime were run.
+    - Pending focused diff review.
+
+Status:
+    PENDING — PR not yet opened.
