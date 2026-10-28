@@ -9803,6 +9803,48 @@ Correction:
       transition returns successfully.
     - Preserve history when the lifecycle transition itself fails and its
       rollback path restores the previous project.
+    - Always attempt revision reset and validation invalidation after a
+      committed transition, even if clearing command history fails.
+    - Preserve and re-raise the first post-commit error after mandatory state
+      reconciliation; a validation-event publication error does not mask an
+      earlier history-clear error.
+    - Reuse the canonical Application/CommandManager history boundary; no
+      duplicate history manager or UI-side history state was introduced.
+
+Verification:
+    Static source inspection and direct GitHub re-fetch only. Confirmed the
+    clear occurs after successful transition return, and mandatory revision/
+    validation reconciliation follows it even if history clearing fails.
+    No tests, CI, imports, syntax checks, or runtime/GUI verification were run.
+
+Status:
+    🟡 CORRECTION PROPOSED IN FOCUSED PR; RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application undo/redo lifecycle across project activation transitions
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._run_project_transition() reset revision state after a
+    successful project lifecycle transition but retained the shared
+    CommandManager undo/redo stacks. Commands and inverse journals recorded
+    against an outgoing project could therefore remain available after open,
+    new-project, close, or discard transitions and be replayed against a
+    different active network.
+
+Correction:
+    - Clear the existing CommandManager history only after the lifecycle
+      transition returns successfully.
+    - Preserve history when the lifecycle transition itself fails and its
+      rollback path restores the previous project.
     - Reuse the canonical Application/CommandManager history boundary; no
       duplicate history manager or UI-side history state was introduced.
     - Leave CommandManager's existing fail-closed behavior in force if
