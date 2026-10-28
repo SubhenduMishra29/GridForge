@@ -10494,6 +10494,9 @@ Correction:
     - Keep the existing document-transition guard semantics unchanged.
     - Keep Application lifecycle and transactional presentation activation as
       the owners of project state and rollback.
+    - If new/open/close fails after interaction reset, invoke a recovery callback
+      and leave the still-active project in canonical Select mode.
+    - Do not recreate a cancelled creation draft or restore a stale preview.
 
 Verification:
     - Static source inspection and focused diff review only.
