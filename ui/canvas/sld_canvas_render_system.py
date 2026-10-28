@@ -511,8 +511,8 @@ class SLDCanvasRenderSystem:
             if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
                 self._restore_connection_selection(connection, self._items[connection.connection_id][0])
                 continue
-            if connection.connection_id in self._items:
-                self._remove_realized(connection.connection_id)
+            previous_items = self._items.get(connection.connection_id, ())
+            previous_item = previous_items[0] if previous_items else None
             if connection.source_node_id not in realized:
                 self._record_connection_failure(connection, "SOURCE_NODE_NOT_FOUND", f"No realized SLD node for source {connection.source_node_id!r}.")
                 continue
@@ -545,11 +545,14 @@ class SLDCanvasRenderSystem:
                 if callable(getattr(item, "set_visual_state", None)):
                     item.set_visual_state(VisualState.NORMAL)
                 self._restore_connection_selection(connection, item)
-                self._scene.addItem(item)
+                self._attach_realized_item(item)
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
                 self._clear_reported_diagnostic(connection.connection_id)
             except Exception as exc:
+                self._unbind_route_edit_item(locals().get("item"))
                 self._record_connection_failure(
                     connection, "CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}"
@@ -607,17 +610,19 @@ class SLDCanvasRenderSystem:
             signature = self._annotation_signature(annotation)
             if self._render_signatures.get(render_id) == signature and render_id in self._items:
                 continue
-            if render_id in self._items:
-                self._remove_realized(render_id)
+            previous_items = self._items.get(render_id, ())
+            previous_item = previous_items[0] if previous_items else None
             item = QGraphicsTextItem(annotation.text)
             # Data labels are display-only; they must not intercept selection,
             # connection, or placement gestures intended for underlying SLD items.
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
-            self._annotation_base_visibility[render_id] = bool(annotation.visible)
             item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
             item.setZValue(5.0)
-            self._scene.addItem(item)
+            self._attach_realized_item(item)
+            if previous_item is not None:
+                self._remove_realized(render_id)
+            self._annotation_base_visibility[render_id] = bool(annotation.visible)
             self._items[render_id] = (item,)
             self._render_signatures[render_id] = signature
 
