@@ -946,7 +946,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             "edit.drag_move", "edit.rotate", "edit.mirror_horizontal",
             "edit.mirror_vertical",
         }
-        if action_id in sld_only_actions and discipline != "sld":
+        if action_id in sld_only_actions and (not project_active or discipline != "sld"):
             return False
 
         if action_id in {"project.save", "project.save_as", "project.close",
