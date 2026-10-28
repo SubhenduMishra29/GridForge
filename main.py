@@ -30,7 +30,7 @@ from ui.controllers.study_case_controller import StudyCaseController
 from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.action_definition import ActionDefinition
-from ui.core.action_catalog import build_action_definitions
+from ui.core.action_catalog import build_action_definitions, surface_action_definitions
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
 from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout
@@ -923,52 +923,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if not action_router.has(alias):
             action_router.register_alias(alias, canonical)
 
-    # Legacy surface actions that are not aliases retain presentation metadata.
-    _legacy_action_metadata = {
-        "project.new": ("New Project", "Create a new project.", "Ctrl+N", "file"),
-        "project.open": ("Open Project…", "Open an existing project.", "Ctrl+O", "file"),
-        "project.save": ("Save Project", "Save the active project.", "Ctrl+S", "file"),
-        "project.save_as": ("Save Project As…", "Save the active project to a new path.", "Ctrl+Shift+S", "file"),
-        "project.close": ("Close Project", "Close the active project.", "Ctrl+W", "file"),
-        "application.exit": ("Exit", "Exit GridForge.", "Alt+F4", "file"),
-        "edit.select_all": ("Select All", "Select all visible objects.", "Ctrl+A", "edit"),
-        "edit.cut": ("Cut", "Copy and remove the selection.", "Ctrl+X", "edit"),
-        "edit.box_select": ("Box Select", "Select objects inside a rectangle.", None, "edit"),
-        "edit.move": ("Move", "Move selected objects.", None, "edit"),
-        "edit.drag_move": ("Drag Move", "Drag selected objects through the Select tool.", None, "edit"),
-        "edit.rotate": ("Rotate", "Rotate selected symbols.", None, "edit"),
-        "edit.mirror_horizontal": ("Mirror H", "Mirror selected symbols horizontally.", None, "edit"),
-        "edit.mirror_vertical": ("Mirror V", "Mirror selected symbols vertically.", None, "edit"),
-        "network.commit_draft": ("Commit Network", "Commit the active DraftNetwork.", "Ctrl+Shift+Enter", "project"),
-        "view.sld_workspace": ("SLD", "Activate the SLD workspace.", None, "workspace"),
-        "view.control_workspace": ("Control", "Activate the Control workspace.", None, "workspace"),
-        "view.protection_workspace": ("Protection", "Activate the Protection workspace.", None, "workspace"),
-        "view.study_workspace": ("Study", "Activate the Study workspace.", None, "workspace"),
-        "view.topology": ("Topology", "Show the topology projection.", None, "workspace"),
-        "view.map": ("Map", "Show persisted SLD geometry.", None, "workspace"),
-        "view.reports": ("Reports", "Show published study results.", None, "workspace"),
-        "view.maximize_editor": ("Maximize Editor", "Maximize or restore the active SLD editor.", "Ctrl+Space", "view"),
-        "view.toggle_explorer": ("Explorer", "Show or hide the SLD project explorer.", None, "view"),
-        "view.toggle_inspector": ("Inspector", "Show or hide the SLD inspector.", None, "view"),
-        "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
-        "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
-        "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
-        "control.panel": ("Control Workspace", "Activate the Control workspace.", None, "workspace"),
-        "protection.panel": ("Protection Workspace", "Activate the Protection workspace.", None, "workspace"),
-        "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
-        "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
-    }
-    for _action_id, (_title, _description, _shortcut, _category) in _legacy_action_metadata.items():
-        if action_router.has(_action_id):
-            action_router.set_definition(
-                ActionDefinition(
-                    action_id=_action_id,
-                    title=_title,
-                    description=_description,
-                    shortcut=_shortcut,
-                    category=_category,
-                )
-            )
+    # Canonical non-tool surface metadata is owned by the action catalog.
+    # The composition root binds those definitions to already-registered routes;
+    # it does not maintain a second metadata table.
+    for definition in surface_action_definitions():
+        if action_router.has(definition.action_id):
+            action_router.set_definition(definition)
 
     def _action_enabled(action_id: str) -> bool:
         context = engineering_context.current
