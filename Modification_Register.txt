@@ -9948,3 +9948,41 @@ Status:
     CORRECTION PROPOSED IN FOCUSED PR; RUNTIME VERIFICATION NOT RUN
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-078 — Isolate Application event subscriber failures
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    ApplicationEventBus synchronous dispatch semantics
+
+Files:
+    core/application/event_bus.py
+    Modification_Register.txt
+
+Finding:
+    ApplicationEventBus.publish() called each subscriber directly and let
+    subscriber exceptions escape. Application.execute(), undo(), and redo()
+    publish semantic events after authoritative command/history operations.
+    A failing observer could therefore make a committed operation appear to
+    have failed and prevent remaining subscribers from receiving the event.
+
+Correction:
+    - Catch ordinary Exception per subscriber and continue dispatching to
+      remaining subscribers.
+    - Log event type and handler context with traceback for diagnostics.
+    - Do not catch BaseException, alter event ordering, or change command
+      transaction/history semantics.
+
+Verification:
+    Static re-fetch and source-pattern checks only. No tests, CI, imports,
+    syntax checks, or runtime/GUI verification were run.
+
+Status:
+    CORRECTION PROPOSED IN FOCUSED PR; RUNTIME VERIFICATION NOT RUN
+
+======================================================================
