@@ -8996,3 +8996,35 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-005
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Runtime engineering smoke aligned with canonical Workspace activation
+
+Finding:
+    The runtime smoke expected a QTabWidget named EngineeringWorkspaceTabs and
+    attempted to activate SLD, topology, map, reports, control and protection
+    as if they were peer tabs. The frozen workspace architecture instead owns
+    four logical workspaces (sld, control, protection, study), each realized
+    through WorkspaceController as Area → Editor → Region. The smoke therefore
+    failed after successful startup and DraftNetwork commit because it asserted
+    a removed legacy tab host.
+
+Correction:
+    - Remove the legacy QTabWidget lookup.
+    - Activate each registered canonical workspace through WorkspaceController.
+    - Verify both logical activation and realized workspace identity.
+    - Do not fabricate topology/map/report workspace IDs; those are not the
+      canonical workspace identifiers in the current definitions.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
