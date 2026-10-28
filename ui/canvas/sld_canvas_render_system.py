@@ -535,6 +535,7 @@ class SLDCanvasRenderSystem:
             if connection.route.ownership == "auto":
                 route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
                 route_points = tuple(route.points[1:-1])
+            item = None
             try:
                 item = self._item_factory.create_connection(connection, source, target)
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
@@ -552,7 +553,8 @@ class SLDCanvasRenderSystem:
                 self._render_signatures[connection.connection_id] = signature
                 self._clear_reported_diagnostic(connection.connection_id)
             except Exception as exc:
-                self._unbind_route_edit_item(locals().get("item"))
+                if item is not None:
+                    self._unbind_route_edit_item(item)
                 self._record_connection_failure(
                     connection, "CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}"
