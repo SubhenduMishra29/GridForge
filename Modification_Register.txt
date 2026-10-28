@@ -8963,3 +8963,36 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SLD-DRAFT-PRESENTATION-001
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    DraftNetwork-to-SLD symbol presentation normalization
+
+Finding:
+    Draft placement stores preview state as authoring metadata (equipment type,
+    parameters, acquired terminals, placement and orientation). The Application
+    commit projection passed that metadata directly to SLDService as if it were
+    a canonical SymbolBase mapping. The resulting mapping had no symbol_id and
+    failed strict SLD node creation during the runtime engineering smoke.
+
+Correction:
+    - Preserve a supplied presentation mapping only when it carries a valid
+      non-empty canonical symbol_id.
+    - Otherwise let SLDService resolve the canonical symbol from its configured
+      symbol presentation factory.
+    - Carry the draft orientation through an explicit presentation_rotation
+      command field and validate it before applying it to the resolved symbol.
+    - Keep preview metadata separate from persistent renderer-neutral symbol
+      identity; do not invent a symbol when the canonical factory is absent.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
