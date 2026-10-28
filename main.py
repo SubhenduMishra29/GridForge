@@ -1157,6 +1157,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 refresh()
 
     engineering_context.subscribe(_refresh_action_presentations)
+    # Command-history availability can change without an engineering-context
+    # update (for example, a canvas command). Refresh menu/toolbar QAction state
+    # whenever the canonical Controller reports a state transition.
+    controller.state_changed.connect(
+        lambda: _refresh_action_presentations(engineering_context.current)
+    )
     _refresh_action_presentations(engineering_context.current)
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
