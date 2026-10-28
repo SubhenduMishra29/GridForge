@@ -10717,3 +10717,39 @@ Verification:
 
 Status:
     MERGED — PR #736; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-099 — Preserve last-good committed connection and annotation items
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Incremental SLD connection and annotation replacement
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    Committed connections and annotations were removed from the scene before
+    replacement realization had succeeded. Transient factory, geometry, or
+    scene attachment errors could therefore create visible gaps despite a
+    previously successful item being available.
+
+Correction:
+    - Keep the previous committed connection until the replacement has been
+      created and attached successfully.
+    - Keep the previous annotation until the replacement text item is attached.
+    - Update renderer registries and annotation visibility metadata only after
+      replacement attachment succeeds.
+    - Unbind route-edit signals from a failed newly created connection item.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
