@@ -338,8 +338,9 @@ class SLDCanvasRenderSystem:
                 self._items.get(node.node_id, (None,))[0]
                 if node.node_id in self._degraded_node_ids else None
             )
-            if node.node_id in self._items and previous_degraded is None:
-                self._remove_realized(node.node_id)
+            # Preserve the current item until the replacement is realized.
+            previous_items = self._items.get(node.node_id, ())
+            previous_item = previous_items[0] if previous_items else None
             try:
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
@@ -372,6 +373,17 @@ class SLDCanvasRenderSystem:
                 self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
                 degraded = previous_degraded
+                if degraded is None and previous_item is not None:
+                    # Retain the last-good visible item, but leave its prior
+                    # signature untouched so the next synchronization retries.
+                    previous_item.setToolTip(
+                        f"SLD refresh failed [{code}]\n"
+                        f"node={node.node_id} equipment={getattr(previous_item, 'object_id', node.node_id)}\n{message}"
+                    )
+                    self._degraded_node_ids.add(node.node_id)
+                    realized[node.node_id] = previous_item
+                    self._restore_node_selection(node, previous_item)
+                    continue
                 if degraded is None:
                     degraded = self._create_degraded_realization(node, message, code)
                     self._scene.addItem(degraded)
@@ -386,7 +398,7 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
-            if previous_degraded is not None:
+            if previous_item is not None:
                 self._remove_realized(node.node_id)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
