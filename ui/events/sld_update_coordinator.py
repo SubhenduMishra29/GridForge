@@ -109,6 +109,14 @@ class SLDUpdateCoordinator:
         """Return the most recent reconciliation failure, if any."""
         return self._last_reconciliation_error
 
+    def _refresh_canvas(self) -> None:
+        """Refresh the canvas while keeping failures visible to reconciliation diagnostics."""
+        try:
+            self._canvas_refresh()
+        except Exception as exc:
+            self._last_reconciliation_error = exc
+            raise
+
     def reconcile_current_state(self) -> None:
         """Reconcile projections from current Application state without replaying events.
 
@@ -125,7 +133,7 @@ class SLDUpdateCoordinator:
         self._synchronizer.synchronize_network(presentation, self._application.read_network())
         self._synchronizer.synchronize_protection(presentation, self._application.read_protection())
         self._last_reconciliation_error = None
-        self._canvas_refresh()
+        self._refresh_canvas()
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh read-only projections after an authoritative Application fact."""
@@ -138,7 +146,7 @@ class SLDUpdateCoordinator:
             try:
                 if self._draft_projection is not None:
                     self._draft_projection.refresh(event)
-                self._canvas_refresh()
+                self._refresh_canvas()
             except Exception as exc:
                 # Keep draft-triggered rendering failures observable through
                 # the same reconciliation status exposed for committed SLD
@@ -154,7 +162,7 @@ class SLDUpdateCoordinator:
             # inherit registry entries from the closed project.
             self._projection_manager.clear()
             self.detach_document()
-            self._canvas_refresh()
+            self._refresh_canvas()
             return
 
         if isinstance(event, ProjectLoaded):
@@ -188,7 +196,7 @@ class SLDUpdateCoordinator:
                     and event.payload.get("presentation_operation") == "network_commit_draft"
                 ):
                     self._draft_projection.project()
-                self._canvas_refresh()
+                self._refresh_canvas()
                 return
             elif isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
                 element_type = str(event.payload.get("element_type", "")).strip().upper()
@@ -230,7 +238,7 @@ class SLDUpdateCoordinator:
             self._last_reconciliation_error = exc
             raise
         self._last_reconciliation_error = None
-        self._canvas_refresh()
+        self._refresh_canvas()
 
     def dispose(self) -> None:
         if self._disposed:
