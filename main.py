@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Callable
 from uuid import uuid4
@@ -1055,46 +1056,71 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     if not callable(synchronize_canvas):
         raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
 
+    def _attempt_workspace_sync_step(step: str, operation: Callable[[], None], change: ProjectWorkspaceChanged) -> None:
+        try:
+            operation()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Project workspace projection step failed: operation=%s project_id=%s step=%s",
+                change.operation,
+                change.project_id,
+                step,
+            )
+
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
         project = change.state.project
-        properties_panel = panels_plugin.get_panel("properties")
-
-        # Project/document transitions must invalidate SLD selection from the
-        # previous document and publish one coherent context for action routing.
         next_document_id = document.document_id if isinstance(document, SLDDocument) else None
-        current_context = engineering_context.current
-        if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
-            canvas_composition.selection_manager.clear()
-        engineering_context.update(
-            project_id=getattr(project, "project_id", None),
-            project_name=getattr(project, "name", None),
-            document_id=next_document_id,
-            discipline=(
-                "sld"
-                if change.operation in {"new", "open"}
-                else current_context.discipline
-            ),
-            selected_ids=tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids()),
-        )
 
+        def update_context() -> None:
+            current_context = engineering_context.current
+            if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
+                canvas_composition.selection_manager.clear()
+            engineering_context.update(
+                project_id=getattr(project, "project_id", None),
+                project_name=getattr(project, "name", None),
+                document_id=next_document_id,
+                discipline=(
+                    "sld"
+                    if change.operation in {"new", "open"}
+                    else current_context.discipline
+                ),
+                selected_ids=tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids()),
+            )
+
+        # These are independent projection steps after the Application transition
+        # commits. A failure in one step must not prevent the remaining surfaces
+        # from attempting to synchronize to the authoritative workspace state.
+        _attempt_workspace_sync_step("engineering context", update_context, change)
         if isinstance(document, SLDDocument):
-            sld_controller.reconcile_presentation()
-            workspace_surface_host.set_sld_document(document)
-            workspace_surface_host.refresh_sld_document_tabs()
-            synchronize_canvas()
-            document_changed = getattr(properties_panel, "handle_sld_document_changed", None)
-            if callable(document_changed):
-                document_changed()
+            _attempt_workspace_sync_step("SLD presentation reconciliation", sld_controller.reconcile_presentation, change)
+            _attempt_workspace_sync_step(
+                "active SLD surface",
+                lambda: workspace_surface_host.set_sld_document(document),
+                change,
+            )
         else:
-            # A non-SLD/empty workspace transition must clear stale SLD
-            # presentation, selection context, and document-specific controls.
-            workspace_surface_host.set_sld_document(None)
-            workspace_surface_host.refresh_sld_document_tabs()
-            synchronize_canvas()
-            clear_annotations = getattr(properties_panel, "clear_sld_annotation_controls", None)
-            if callable(clear_annotations):
-                clear_annotations()
+            _attempt_workspace_sync_step(
+                "clear active SLD surface",
+                lambda: workspace_surface_host.set_sld_document(None),
+                change,
+            )
+
+        _attempt_workspace_sync_step("SLD document tabs", workspace_surface_host.refresh_sld_document_tabs, change)
+        _attempt_workspace_sync_step("canvas synchronization", synchronize_canvas, change)
+
+        def update_properties_panel() -> None:
+            properties_panel = panels_plugin.get_panel("properties")
+            if isinstance(document, SLDDocument):
+                document_changed = getattr(properties_panel, "handle_sld_document_changed", None)
+                if callable(document_changed):
+                    document_changed()
+            else:
+                clear_annotations = getattr(properties_panel, "clear_sld_annotation_controls", None)
+                if callable(clear_annotations):
+                    clear_annotations()
+
+        _attempt_workspace_sync_step("properties panel", update_properties_panel, change)
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
 
