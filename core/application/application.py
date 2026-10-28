@@ -1160,7 +1160,6 @@ class Application:
     def execute_study(self, request: StudyRequest) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
-        self._remember_study_case(request)
         lifecycle = self.project_lifecycle
         context = lifecycle.context
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
@@ -1197,6 +1196,9 @@ class Application:
             topology_snapshot=snapshot,
             project_snapshot=project_snapshot,
         )
+        # Only register a runnable Study Case after the request has passed
+        # project-generation, revision, validation, and topology provenance gates.
+        self._remember_study_case(request)
         return self._study_service.execute(request, execution_context)
 
     def read_study_result(self, study_id) -> Any:
