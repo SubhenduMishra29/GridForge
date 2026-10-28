@@ -9775,3 +9775,46 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+======================================================================
+GF-AUD-076 — Project-transition command-history isolation
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application undo/redo lifecycle across project activation transitions
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    Application._run_project_transition() reset revision state after a
+    successful project lifecycle transition but retained the shared
+    CommandManager undo/redo stacks. Commands and inverse journals recorded
+    against an outgoing project could therefore remain available after open,
+    new-project, close, or discard transitions and be replayed against a
+    different active network.
+
+Correction:
+    - Clear the existing CommandManager history only after the lifecycle
+      transition returns successfully.
+    - Preserve history when the lifecycle transition itself fails and its
+      rollback path restores the previous project.
+    - Reuse the canonical Application/CommandManager history boundary; no
+      duplicate history manager or UI-side history state was introduced.
+    - Leave CommandManager's existing fail-closed behavior in force if
+      clearing history is interrupted.
+
+Verification:
+    Static source inspection and direct GitHub re-fetch only. Confirmed the
+    clear occurs after successful transition return and before revision reset.
+    No tests, CI, imports, syntax checks, or runtime/GUI verification were run.
+
+Status:
+    🟡 CORRECTION PROPOSED IN FOCUSED PR; RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
