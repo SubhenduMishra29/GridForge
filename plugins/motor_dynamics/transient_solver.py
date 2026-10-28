@@ -392,6 +392,11 @@ def solve_transient_batch(
         raise TypeError("every parameter_sets entry must be MotorParameters")
     if backend not in ("auto", "cpu", "cuda"):
         raise ValueError("backend must be 'auto', 'cpu', or 'cuda'")
+    if backend == "cuda" and n < 8:
+        raise ValueError(
+            "backend='cuda' requires at least 8 independent motors; "
+            "use backend='auto' or 'cpu' for smaller batches."
+        )
     vd, vq = np.asarray(stator_voltage_d_v, dtype=np.float64), np.asarray(stator_voltage_q_v, dtype=np.float64)
     if vd.ndim != 0 or vq.ndim != 0:
         raise ValueError("batched accelerator API currently requires constant dq voltage inputs")

@@ -63,6 +63,19 @@ class MotorTransientStudyHandler:
         if cancellation.cancelled:
             return None
 
+        # An explicit CUDA request must not silently degrade to CPU merely
+        # because this StudyService request represents one motor. The CUDA
+        # adapter is intentionally batch-oriented and requires at least eight
+        # independent trajectories; callers needing CUDA must use the batch
+        # API with a qualifying workload or choose backend='auto'/'cpu'.
+        if backend == "cuda":
+            raise ValueError(
+                "backend='cuda' is unsupported for a single-motor StudyService "
+                "request; CUDA requires at least 8 independent motors in "
+                "solve_transient_batch(). Use backend='auto' or 'cpu', or "
+                "submit a qualifying batch through the batch API."
+            )
+
         # GPU API currently supports constant dq voltage inputs. Profiles use
         # the CPU reference integrator; no inference provider is treated as a
         # physics accelerator. NPU physics dispatch is intentionally not claimed.

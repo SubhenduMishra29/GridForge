@@ -9158,3 +9158,34 @@ Verification:
 Disposition:
     Submitted in a focused PR; review and runtime validation pending.
 ======================================================================
+
+======================================================================
+GF-MD-POST-001
+======================================================================
+
+Scope:
+    plugins/motor_dynamics/study_handler.py
+
+Status:
+    🟡 CORRECTION SUBMITTED — REVIEW / VERIFICATION PENDING
+
+Finding:
+    Explicit backend="cuda" requests could silently execute on CPU when
+    issued through a single-motor motor_transient StudyService request or
+    through a batch containing fewer than eight independent motor
+    trajectories.
+
+Correction:
+    The single-motor study handler rejects explicit CUDA requests, and the
+    batch solver rejects explicit CUDA requests below its eight-motor
+    minimum. CPU and automatic selection remain available for smaller
+    workloads. CUDA remains available through qualifying batches.
+
+PR:
+    #677 — Fix explicit CUDA contract for single-motor studies
+
+Verification:
+    Static source review only. Tests, numerical parity checks, and hardware
+    execution were not run.
+
+======================================================================
