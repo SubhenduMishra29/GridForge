@@ -397,11 +397,24 @@ def solve_transient_batch(
             "backend='cuda' requires at least 8 independent motors; "
             "use backend='auto' or 'cpu' for smaller batches."
         )
-    vd, vq = np.asarray(stator_voltage_d_v, dtype=np.float64), np.asarray(stator_voltage_q_v, dtype=np.float64)
-    if vd.ndim != 0 or vq.ndim != 0:
-        raise ValueError("batched accelerator API currently requires constant dq voltage inputs")
-    if not np.isfinite(vd).all() or not np.isfinite(vq).all():
-        raise ValueError("batched dq voltage inputs must be finite")
+    vd = np.asarray(stator_voltage_d_v, dtype=np.float64)
+    vq = np.asarray(stator_voltage_q_v, dtype=np.float64)
+    count, _times = _validate_time(duration_s, step_s)
+    for name, profile in (("stator_voltage_d_v", vd), ("stator_voltage_q_v", vq)):
+        if profile.ndim not in (0, 1):
+            raise ValueError(f"{name} must be a scalar or one-dimensional time profile")
+        if profile.ndim == 1 and profile.size != count:
+            raise ValueError(f"{name} profile must contain exactly {count} samples")
+        if not np.isfinite(profile).all():
+            raise ValueError(f"{name} must contain only finite values")
+    constant_dq_voltage = vd.ndim == 0 and vq.ndim == 0
+    if backend == "cuda" and not constant_dq_voltage:
+        raise ValueError(
+            "backend='cuda' requires constant scalar dq voltages; "
+            "use backend='auto' or 'cpu' for time-varying voltage profiles"
+        )
+    voltage_d = float(vd) if vd.ndim == 0 else vd
+    voltage_q = float(vq) if vq.ndim == 0 else vq
     if (
         not _is_numeric_scalar(electrical_frequency_hz)
         or not isfinite(float(electrical_frequency_hz))
@@ -415,16 +428,21 @@ def solve_transient_batch(
     # Capability facts come from the runtime adapters; the policy itself never
     # imports/probes accelerator libraries.
     cuda_adapter = _MotorCudaBatchAdapter()
+    cpu_capability = BackendCapability(
+        name="cpu-reference",
+        kind="cpu",
+        available=True,
+        supported_workloads=frozenset({"motor_transient_batch"}),
+        minimum_workload_size=1,
+        precision_modes=frozenset({"float64"}),
+    )
+    # The CUDA kernel accepts constant dq inputs only. A varying voltage
+    # profile is still a valid CPU batch workload; auto must select CPU rather
+    # than rejecting the request or attempting an incompatible accelerator.
     capabilities = (
-        BackendCapability(
-            name="cpu-reference",
-            kind="cpu",
-            available=True,
-            supported_workloads=frozenset({"motor_transient_batch"}),
-            minimum_workload_size=1,
-            precision_modes=frozenset({"float64"}),
-        ),
-        cuda_adapter.capability,
+        (cpu_capability, cuda_adapter.capability)
+        if constant_dq_voltage
+        else (cpu_capability,)
     )
     requested = "gpu" if backend == "cuda" else backend
     selection = select_backend(
@@ -458,8 +476,8 @@ def solve_transient_batch(
             failure = {"type": type(exc).__name__, "message": str(exc)[:512]}
             results = tuple(
                 solve_transient_cpu(
-                    mid, p, duration_s, step_s, stator_voltage_d_v=float(vd),
-                    stator_voltage_q_v=float(vq), electrical_frequency_hz=electrical_frequency_hz,
+                    mid, p, duration_s, step_s, stator_voltage_d_v=voltage_d,
+                    stator_voltage_q_v=voltage_q, electrical_frequency_hz=electrical_frequency_hz,
                     load_torque_nm=float(torque),
                 ) for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
             )
@@ -478,8 +496,8 @@ def solve_transient_batch(
 
     results = tuple(
         solve_transient_cpu(
-            mid, p, duration_s, step_s, stator_voltage_d_v=float(vd),
-            stator_voltage_q_v=float(vq), electrical_frequency_hz=electrical_frequency_hz,
+            mid, p, duration_s, step_s, stator_voltage_d_v=voltage_d,
+            stator_voltage_q_v=voltage_q, electrical_frequency_hz=electrical_frequency_hz,
             load_torque_nm=float(torque),
         ) for mid, p, torque in zip(motor_ids, parameter_sets, load_torque_nm)
     )

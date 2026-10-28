@@ -9191,3 +9191,33 @@ Verification:
     pending.
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-107 — Preserve time-varying voltage profiles in CPU batch studies
+======================================================================
+
+Finding:
+    solve_transient_batch() rejected every non-scalar dq voltage input before
+    backend selection, even though solve_transient_cpu() supports validated
+    time-varying voltage profiles. This unnecessarily restricted CPU batch
+    studies and made backend='auto' reject a workload that the CPU reference
+    solver can execute.
+
+Correction:
+    - Accept scalar or one-dimensional finite voltage profiles matching the
+      validated integration grid.
+    - Keep CUDA restricted to constant scalar dq voltages and reject an
+      explicit CUDA request for profiles with a clear caller-facing error.
+    - For backend='auto', expose only the CPU capability when profiles vary,
+      so automatic dispatch selects the reference implementation.
+    - Pass validated profiles through to each CPU motor trajectory unchanged.
+
+Verification:
+    Source inspection only. No tests, syntax/import checks, numerical parity,
+    runtime, accelerator hardware, or CI were run manually. The branch has
+    been reconciled onto current main after the duplicate-ID and explicit-CUDA
+    contract fixes; automatic verification of this head is pending.
+
+Disposition:
+    Submitted in a focused PR; review and runtime validation pending.
+======================================================================
