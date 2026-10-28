@@ -10610,3 +10610,38 @@ Verification:
 
 Status:
     MERGED — PR #730; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-096 — Track canvas refresh failures in SLD reconciliation status
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    SLDUpdateCoordinator canvas refresh and reconciliation diagnostics
+
+Files:
+    ui/events/sld_update_coordinator.py
+    Modification_Register.txt
+
+Finding:
+    SLDUpdateCoordinator recorded synchronization and draft projection errors,
+    but called the canvas refresh callback outside the relevant error boundary.
+    A render/refresh failure could therefore propagate to the event router while
+    last_reconciliation_error remained None or reported stale status.
+
+Correction:
+    - Route canvas refreshes through one coordinator-owned helper.
+    - Record the thrown exception in last_reconciliation_error and re-raise it
+      so the existing event router can log/isolate the failure.
+    - Cover bootstrap reconciliation, draft refresh, project close, committed
+      presentation refresh, and ordinary committed projection refresh paths.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
