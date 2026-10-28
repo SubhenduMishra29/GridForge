@@ -10574,3 +10574,39 @@ Verification:
 
 Status:
     MERGED — PR #728; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-095 — Isolate workspace projection synchronization steps
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    ProjectWorkspaceChanged UI projection handler
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The composition-root workspace handler performed context, SLD surface,
+    tab, canvas, and Properties-panel updates in one sequential function.
+    An exception in an early projection step prevented later independent
+    surfaces from attempting to synchronize after the Application transition
+    had already committed.
+
+Correction:
+    - Execute each synchronization step through a small local failure boundary.
+    - Log the failed step with operation and project ID.
+    - Continue attempting independent surface updates after a step fails.
+    - Keep the Application and lifecycle as authoritative; this does not claim
+      that a failed individual projection has been repaired automatically.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
