@@ -338,8 +338,9 @@ class SLDCanvasRenderSystem:
                 self._items.get(node.node_id, (None,))[0]
                 if node.node_id in self._degraded_node_ids else None
             )
-            if node.node_id in self._items and previous_degraded is None:
-                self._remove_realized(node.node_id)
+            # Preserve the current item until the replacement is realized.
+            previous_items = self._items.get(node.node_id, ())
+            previous_item = previous_items[0] if previous_items else None
             try:
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
