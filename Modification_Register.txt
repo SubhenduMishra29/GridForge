@@ -9775,3 +9775,22 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-074 — PROJECT/DOCUMENT TRANSITION CONTEXT INVALIDATION
+======================================================================
+Status: Corrected in branch `fix/project-document-context-sync`; static source re-audit pending.
+Scope: `main.py`, `ui/workspace/project_workspace_adapter.py`.
+
+Confirmed source defects addressed:
+- Successful project close returns no ProjectContext, and the adapter previously emitted no ProjectWorkspaceChanged event for that successful transition. UI observers could therefore retain stale project/document context after close.
+- The project-workspace handler previously updated only document_id for an SLD document, leaving project_id and project_name unsynchronized after project replacement/open.
+- Switching project/document did not explicitly invalidate the prior SLD selection; selected object IDs could persist across document boundaries.
+
+Correction:
+- Publish the successful close transition using the previous project ID as event provenance when the resulting project is empty; keep cancellation and failed transitions unpublished.
+- Synchronize project_id, project_name, document_id, and selected_ids from the committed workspace state.
+- Clear selection when project/document identity changes; clear stale SLD presentation and annotation controls for an empty/non-SLD state.
+
+Verification: Static source inspection only; no tests, CI, or GUI runtime performed. Re-audit callback ordering, presentation bridge behavior, and action state before freezing this entry.
