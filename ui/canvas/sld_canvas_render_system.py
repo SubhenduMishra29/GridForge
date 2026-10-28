@@ -518,29 +518,39 @@ class SLDCanvasRenderSystem:
             previous_items = self._items.get(connection.connection_id, ())
             previous_item = previous_items[0] if previous_items else None
             if connection.source_node_id not in realized:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "SOURCE_NODE_NOT_FOUND", f"No realized SLD node for source {connection.source_node_id!r}.")
                 continue
             if connection.target_node_id not in realized:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TARGET_NODE_NOT_FOUND", f"No realized SLD node for target {connection.target_node_id!r}.")
                 continue
             if connection.source_endpoint is None:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "SOURCE_ENDPOINT_NOT_FOUND", "Persisted SLD connection has no source endpoint identity.")
                 continue
             if connection.target_endpoint is None:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TARGET_ENDPOINT_NOT_FOUND", "Persisted SLD connection has no target endpoint identity.")
                 continue
             try:
                 source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
                 target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
             except (KeyError, TypeError, ValueError) as exc:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TERMINAL_ANCHOR_NOT_FOUND", f"{type(exc).__name__}: {exc}")
                 continue
-            route_points = connection.route.points
-            if connection.route.ownership == "auto":
-                route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
-                route_points = tuple(route.points[1:-1])
             item = None
             try:
+                route_points = connection.route.points
+                if connection.route.ownership == "auto":
+                    route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
+                    route_points = tuple(route.points[1:-1])
                 item = self._item_factory.create_connection(connection, source, target)
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
                 if self._route_edit_controller is not None:
