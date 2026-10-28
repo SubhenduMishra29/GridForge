@@ -9775,3 +9775,37 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+======================================================================
+GF-AUD-080
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    RevisionService undo/redo transition exception safety
+
+Finding:
+    record_undo() and record_redo() removed the top revision transition before
+    checking that its expected revision matched the current revision. A state
+    mismatch therefore raised after destructively consuming the transition;
+    record_undo() also removed its transition before validating/converting the
+    optional Core topology revision. Application command history could remain
+    intact while revision history was silently shortened.
+
+Correction:
+    - Peek at the transition and validate the expected current state first.
+    - Construct and validate the complete target ProjectRevision before changing
+      either revision stack.
+    - Pop the source transition only after validation succeeds.
+    - Preserve the existing revision values and undo/redo semantics.
+
+Verification:
+    Static source re-fetch and ordering checks only. No tests, CI, syntax/import
+    checks, or runtime verification were run.
+
+Status:
+    🟡 CORRECTION APPLIED — STATIC CHECKS ONLY
+
+======================================================================
