@@ -10680,3 +10680,40 @@ Verification:
 
 Status:
     MERGED — PR #734; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-098 — Atomic SLD scene/snap item lifecycle
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    SLD renderer graphics-item attachment and cleanup
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    Renderer paths inserted a new graphics item into the scene before
+    registering it with SnapSystem. A registration exception could leave
+    an untracked scene item. Node replacement also removed the prior item
+    before the new item had completed scene/snap attachment.
+
+Correction:
+    - Centralize scene attachment and optional snap registration in one
+      rollback-aware helper.
+    - If snap registration fails, remove the newly attached scene item and
+      attempt to unregister any partially registered candidate before
+      propagating the error.
+    - Attach a replacement node before removing its prior realized item.
+    - Ensure scene removal is attempted even if snap unregistration raises.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
