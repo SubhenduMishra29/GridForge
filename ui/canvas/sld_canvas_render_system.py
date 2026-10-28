@@ -377,8 +377,8 @@ class SLDCanvasRenderSystem:
                     # Retain the last-good visible item, but leave its prior
                     # signature untouched so the next synchronization retries.
                     previous_item.setToolTip(
-                        f"SLD refresh failed [{code}]\\n"
-                        f"node={node.node_id} equipment={getattr(previous_item, 'object_id', node.node_id)}\\n{message}"
+                        f"SLD refresh failed [{code}]\n"
+                        f"node={node.node_id} equipment={getattr(previous_item, 'object_id', node.node_id)}\n{message}"
                     )
                     self._degraded_node_ids.add(node.node_id)
                     realized[node.node_id] = previous_item
@@ -398,7 +398,7 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
-            if previous_degraded is not None:
+            if previous_item is not None:
                 self._remove_realized(node.node_id)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
