@@ -10541,3 +10541,36 @@ Verification:
 
 Status:
     MERGED — PR #726; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-094 — Isolate post-commit workspace event subscribers
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Project workspace change publication
+
+Files:
+    ui/workspace/project_workspace_adapter.py
+    Modification_Register.txt
+
+Finding:
+    ProjectWorkspaceChanged subscribers were invoked sequentially without
+    isolation. An exception from one UI projection handler prevented later
+    subscribers from receiving the already-committed transition event.
+
+Correction:
+    - Invoke each subscriber independently after the transition commits.
+    - Log subscriber exceptions with operation, project ID, and handler context.
+    - Continue dispatch so one failing projection cannot starve other subscribers
+      or make a committed project transition appear to have failed.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.

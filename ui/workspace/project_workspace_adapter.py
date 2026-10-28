@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 
 from core.application import Application
 from core.application.project import ProjectContext
@@ -30,6 +31,7 @@ class ProjectWorkspaceChanged:
 
 
 WorkspaceUpdateHandler = Callable[[ProjectWorkspaceChanged], None]
+_logger = logging.getLogger(__name__)
 PresentationActivationBridge = Callable[[Document | None], None]
 
 
@@ -700,9 +702,23 @@ class ProjectWorkspaceApplicationAdapter:
             raise
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
+        """Notify every subscriber without letting one projection failure starve others."""
         event = ProjectWorkspaceChanged(operation=operation, state=state, project_id=project_id)
         for handler in tuple(self._handlers):
-            handler(event)
+            try:
+                handler(event)
+            except Exception:
+                # The Application transition is already committed. A subscriber
+                # failure must be visible for diagnosis, but must not prevent
+                # remaining subscribers from synchronizing their projections or
+                # escape as if the project transaction itself had failed.
+                _logger.exception(
+                    "Project workspace change handler failed after commit: "
+                    "operation=%s project_id=%s handler=%r",
+                    operation,
+                    project_id,
+                    handler,
+                )
 
     @staticmethod
     def _to_ui_project(context: ProjectContext) -> Project:
