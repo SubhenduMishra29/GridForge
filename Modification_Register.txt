@@ -10347,3 +10347,38 @@ Verification:
 
 Status:
     MERGED — PR #714; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-089 — Synchronize context for SLD workspace utility actions
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Workspace lifecycle and action-enabled context synchronization
+
+Files:
+    main.py
+    Modification_Register.txt
+
+Finding:
+    Equipment Browser, SLD editor maximize, and SLD region-toggle handlers
+    activated SLD directly through WorkspaceController without publishing
+    the matching EngineeringContext discipline. When invoked from another
+    workspace, the visible workspace could be SLD while action gating still
+    believed the active discipline was Control, Protection, or Study.
+
+Correction:
+    - Route all three utility actions through _activate_workspace(..., "sld").
+    - Preserve WorkspaceController as the workspace transition owner.
+    - Publish EngineeringContext only after successful workspace activation.
+
+Verification:
+    - Static source review and focused diff inspection only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+    - Pending PR review.
+
+Status:
+    PENDING — PR not yet opened.
