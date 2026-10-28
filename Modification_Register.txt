@@ -10460,3 +10460,44 @@ Verification:
 
 Status:
     MERGED — PR #720; static checks only, runtime verification not run.
+
+
+======================================================================
+GF-AUD-092 — Clear transient interaction state on project transitions
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Project new/open/close lifecycle and SLD tool state
+
+Files:
+    ui/workspace/project_workspace_adapter.py
+    main.py
+    Modification_Register.txt
+
+Finding:
+    Project new/open/close transitions resolved save/discard/cancel consent
+    but did not clear the active ToolManager tool or transient CreationContext.
+    The document-transition guard used a tool switch that may persist the
+    current transient equipment draft, which is not appropriate when replacing
+    the project and risks carrying stale interaction state across project
+    boundaries.
+
+Correction:
+    - Add a dedicated project-transition guard to the workspace adapter.
+    - Invoke it only after transition consent is resolved and cancellation has
+      been ruled out, before starting new/open/close project transactions.
+    - Deactivate the current interaction tool to cancel transient creation
+      state without persisting it, then restore the canonical select tool.
+    - Keep the existing document-transition guard semantics unchanged.
+    - Keep Application lifecycle and transactional presentation activation as
+      the owners of project state and rollback.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    CORRECTION PROPOSED — PR pending.

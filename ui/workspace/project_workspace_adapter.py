@@ -44,6 +44,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._handlers: list[WorkspaceUpdateHandler] = []
         self._presentation_activation_bridge: PresentationActivationBridge | None = None
         self._document_transition_guard: Callable[[], None] | None = None
+        self._project_transition_guard: Callable[[], None] | None = None
         self._save_as_path_provider: Callable[[object], str | None] | None = None
         self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
@@ -81,6 +82,17 @@ class ProjectWorkspaceApplicationAdapter:
         if not callable(guard):
             raise TypeError("guard must be callable.")
         self._document_transition_guard = guard
+
+    def configure_project_transition_guard(self, guard: Callable[[], None]) -> None:
+        """Bind interaction cleanup performed only after project transition consent."""
+        if not callable(guard):
+            raise TypeError("guard must be callable.")
+        self._project_transition_guard = guard
+
+    def _guard_project_transition(self) -> None:
+        guard = self._project_transition_guard
+        if guard is not None:
+            guard()
 
     def configure_save_as_path_provider(self, provider: Callable[[object], str | None]) -> None:
         """Bind the existing UI Save As path-selection workflow for unsaved projects."""
@@ -399,6 +411,7 @@ class ProjectWorkspaceApplicationAdapter:
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
+        self._guard_project_transition()
         context = self._run_transition(
             operation="new",
             configure=lambda: self._configure_presentation_transaction(
@@ -426,6 +439,7 @@ class ProjectWorkspaceApplicationAdapter:
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
+        self._guard_project_transition()
         context = self._run_transition(
             operation="open",
             configure=lambda: self._configure_presentation_transaction(
@@ -648,6 +662,7 @@ class ProjectWorkspaceApplicationAdapter:
         decision = self._prepare_workspace_transition(decision)
         if self._is_cancel(decision):
             return self._application.project_lifecycle.context
+        self._guard_project_transition()
         return self._run_transition(
             operation="close",
             configure=lambda: self._configure_presentation_transaction(

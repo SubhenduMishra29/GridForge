@@ -375,6 +375,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
     project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
 
+    def _reset_interaction_for_project_transition() -> None:
+        # Project replacement discards transient placement state; unlike a
+        # document switch, it must not persist that state into the old project.
+        controller.clear_tool()
+        controller.set_tool("select")
+
+    project_workspace_adapter.configure_project_transition_guard(
+        _reset_interaction_for_project_transition
+    )
+
     status_plugin = None
 
     def _refresh_status() -> None:
