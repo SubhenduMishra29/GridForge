@@ -9221,3 +9221,548 @@ Verification:
 Disposition:
     Submitted in a focused PR; review and runtime validation pending.
 ======================================================================
+
+======================================================================
+GF-PLUGIN-SDK-001 — Shared Plugin SDK contract and activation validation
+======================================================================
+
+Files:
+    core/plugin_sdk/contracts.py
+    core/plugin_sdk/__init__.py
+    core/plugin_sdk/README.md
+    plugins/motor_dynamics/plugin.py
+
+Finding:
+    The first SDK contract draft defined plugin identity/version metadata and
+    lifecycle protocols but did not validate API compatibility, and its
+    compatibility helper was not adopted at a plugin activation boundary.
+    The canonical UI plugin manager handles UI composition plugins and is not
+    the engineering-plugin loader; routing motor dynamics through it would
+    conflate separate plugin kinds and their identity namespaces.
+
+Corrections:
+    - Added SUPPORTED_PLUGIN_API_VERSION and the pure
+      validate_plugin_descriptor() helper.
+    - Hardened descriptor validation for plugin ID namespace/suffix,
+      display-name type, capability metadata, expected identity, and
+      supported API-version sets.
+    - Added the immutable Motor Dynamics PLUGIN_DESCRIPTOR matching the
+      existing manifest identity, version, API version, display name, and
+      declared capabilities.
+    - MotorDynamicsPlugin.initialize() validates its descriptor before any
+      command, study, or event registration. The host may provide its explicit
+      supported API-version set through
+      PluginContext.metadata["host_supported_plugin_api_versions"].
+    - Preserved the existing initialize(context)/shutdown() lifecycle and
+      canonical host-created PluginContext. No competing plugin manager,
+      context, event bus, study framework, or result store was added.
+    - Updated SDK documentation to describe the activation boundary and
+      compatibility fallback accurately.
+
+Boundary:
+    If the host does not advertise supported API versions in context metadata,
+    Motor Dynamics uses the SDK's declared V2.0 compatibility set for backward
+    compatibility. Hosts that enforce a distinct compatibility policy must
+    provide their supported-version set. This does not constitute a generic
+    engineering-plugin loader or discovery subsystem.
+
+Verification:
+    Repository source inspection and manifest/descriptor reconciliation only.
+    No tests, CI, syntax checks, imports, numerical comparisons, or hardware
+    validation were run. These remain outstanding and must not be inferred from
+    successful GitHub writes or PR mergeability.
+
+Status:
+    🟡 SOURCE CORRECTIONS APPLIED — RUNTIME / AUTOMATED VALIDATION NOT RUN
+
+======================================================================
+
+======================================================================
+GF-PLUGIN-SDK-002 — Architecture documentation reconciliation
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Finding:
+    The architecture amendment still described the concrete SDK implementation
+    as entirely pending and stated that StudyService.unregister() was absent
+    from main. Direct inspection of current main contradicted the latter
+    statement: identity-aware register/unregister methods are present.
+
+Correction:
+    - Reconciled the StudyService finding with current main.
+    - Clarified that PR #678 is a provisional SDK implementation trial, not a
+      frozen public API or a generic engineering-plugin loader.
+    - Recorded that the UI composition manager and engineering-plugin namespace
+      remain separate.
+    - Kept broader host-wide API enforcement, a second-plugin reuse check, and
+      runtime verification open before freezing the SDK API.
+
+Verification:
+    Static source inspection only. No tests, CI, syntax checks, imports, or
+    runtime verification were run.
+
+Status:
+    🟢 DOCUMENTATION RECONCILED; SDK API REMAINS PROVISIONAL
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-003 — Activation-owner and reference-plugin audit
+======================================================================
+
+Files:
+    core/plugin_sdk/contracts.py
+    core/plugin_sdk/README.md
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Finding:
+    The SDK context protocol did not declare metadata even though the Motor
+    Dynamics activation adapter reads PluginContext.metadata. Documentation
+    also implied an existing generic loader/manager lifecycle owner without
+    evidence that one exists for the engineering-plugin namespace.
+
+Corrections:
+    - Added metadata: Mapping[str, Any] to HostPluginContext so the protocol
+      matches the fields consumed by the activation adapter.
+    - Clarified that the existing loader/manager/registry own UI composition
+      lifecycle only and are not the engineering-plugin activation owner.
+    - Inspected plugins/motor/induction_motor.py and plugins/dynamics/base.py
+      as potential second references. They define domain/model contracts, not
+      plugin installation/activation lifecycle, so neither can honestly count
+      as second-plugin adoption for GridForgePlugin.
+    - Recorded that Application bootstrap's MotorDynamicsComposition service
+      is command composition, not a generic discovery/activation subsystem.
+    - Kept the SDK API provisional; no speculative loader or second manager
+      was introduced.
+
+Verification:
+    Static source inspection and documentation reconciliation only. No tests,
+    CI, syntax checks, imports, runtime lifecycle checks, numerical comparisons,
+    or hardware validation were run.
+
+Status:
+    🟡 CONTRACT/DOCUMENTATION CORRECTED; HOST-WIDE ACTIVATION AND SECOND
+    LIFECYCLE-PLUGIN RECONCILIATION REMAIN OPEN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-004 — Shared-responsibility reuse matrix
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Finding:
+    The shared SDK proposal needed a concise, source-backed map of existing
+    responsibility owners and explicit acceptance conditions to prevent future
+    plugins from duplicating services or treating domain-model contracts as
+    plugin installation lifecycles.
+
+Correction:
+    - Added a reuse matrix covering domain models, command composition,
+      StudyService, ApplicationEventBus, UI composition lifecycle, descriptor
+      validation, engineering-plugin activation, accelerator dispatch, and API
+      freeze criteria.
+    - Identified the absence of a source-backed generic engineering-plugin
+      activation owner as an unresolved architecture decision.
+    - Defined the minimum decision criteria for any future activation owner:
+      pre-side-effect descriptor validation, canonical host context, duplicate
+      identity/API rejection, and rollback/unload semantics.
+    - Explicitly prohibited adding a new manager/registry until that decision
+      is approved; kept the SDK API provisional.
+
+Verification:
+    Static repository source inspection and documentation update only. No
+    tests, CI, syntax checks, imports, runtime lifecycle checks, numerical
+    comparisons, or hardware validation were run.
+
+Status:
+    🟡 REUSE MATRIX DOCUMENTED; ACTIVATION-OWNER DECISION REMAINS OPEN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-005 — Motor activation context input validation
+======================================================================
+
+Files:
+    plugins/motor_dynamics/plugin.py
+    Modification_Register.txt
+
+Finding:
+    The Motor Dynamics activation guard validated metadata shape but allowed
+    malformed supported-version entries to reach frozenset conversion, and
+    accessed context.services as if it were always a mapping. A malformed host
+    context could therefore fail with an incidental TypeError/AttributeError
+    rather than a deterministic contract error.
+
+Correction:
+    - Validate each advertised API version is a non-empty string before
+      constructing the immutable version set.
+    - Require PluginContext.services to be a Mapping before resolving the
+      motor_dynamics_composition service.
+    - Keep all checks before the first command/study/event registration, so
+      invalid host context is rejected before activation side effects.
+
+Verification:
+    Source-level change and textual re-fetch only. No tests, CI, syntax/import
+    checks, runtime activation/rollback checks, or hardware checks were run.
+
+Status:
+    🟡 INPUT CONTRACT HARDENED; ENGINEERING ACTIVATION OWNER STILL UNRESOLVED
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-006 — Source-backed activation-path reconciliation
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Finding:
+    The concrete PluginContext and lifecycle manager belong to UI composition.
+    Application bootstrap owns MotorDynamicsComposition only as a command
+    registration adapter. No inspected canonical composition path constructs
+    the engineering plugin context, supplies motor_dynamics_composition through
+    it, and activates MotorDynamicsPlugin. ApplicationContext explicitly does
+    not manage plugins.
+
+Correction:
+    Documented the confirmed ownership of UI PluginManager, Application
+    MotorDynamicsComposition, and ApplicationContext. Defined the minimum
+    engineering-plugin activation contract and freeze gate. No duplicate
+    manager or event/study service was introduced, and no engineering plugin
+    was routed through the UI lifecycle by assumption.
+
+Verification:
+    Read-only source audit and documentation re-fetch only. No tests, CI,
+    syntax/import checks, runtime activation, or hardware checks were run.
+
+Status:
+    🟡 ACTIVATION OWNERSHIP GAP CONFIRMED; ARCHITECTURE DECISION REQUIRED
+
+======================================================================
+
+
+======================================================================
+
+GF-PLUGIN-SDK-007 — Approved engineering-plugin host and lifecycle boundary
+======================================================================
+
+Files:
+    core/plugin_sdk/host.py
+    core/plugin_sdk/__init__.py
+    plugins/motor_dynamics/plugin.py
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Decision:
+    The architecture owner approved a separate, narrowly scoped engineering-
+    plugin host for PR #678. It is distinct from the UI PluginManager and does
+    not provide automatic discovery or create duplicate Application services.
+
+Corrections:
+    - Added EngineeringPluginHost with explicit activation, descriptor/API
+      preflight, duplicate active-ID rejection, immutable context creation,
+      rollback attempt on initialization failure, reverse-order shutdown, and
+      retained ownership when deactivation fails.
+    - Added EngineeringPluginContext with immutable services/metadata mappings
+      and the canonical Application reference.
+    - Exported the host and context from core.plugin_sdk.
+    - Deferred Motor Dynamics dashboard import until a UI parent is explicitly
+      supplied so headless activation does not construct or import the widget.
+    - Updated the architecture decision, ownership boundaries, and remaining
+      integration gates.
+    - Reuse the existing Application motor_dynamics_composition,
+      StudyService, and ApplicationEventBus. No second event bus, study
+      service, result store, or UI lifecycle manager was added.
+
+Boundaries still open:
+    - The host is not yet wired into a production composition root; this
+      change does not claim Motor Dynamics automatically activates at startup.
+    - The plugin remains the first lifecycle implementation; a second genuine
+      non-UI lifecycle plugin must reconcile the shared contract.
+    - Motor Dynamics numerical backend/hardware claims are not validated here.
+
+Verification:
+    GitHub source edits and textual re-fetch only. No tests, CI, syntax/import
+    checks, runtime activation/rollback checks, or CPU/GPU/NPU validation ran.
+
+Status:
+    🟡 HOST IMPLEMENTED; COMPOSITION-ROOT INTEGRATION AND SECOND-PLUGIN
+    RECONCILIATION REMAIN OPEN
+
+======================================================================
+
+
+======================================================================
+
+GF-PLUGIN-SDK-008 — Retain ownership after failed activation rollback
+======================================================================
+
+Files:
+    core/plugin_sdk/host.py
+    core/plugin_sdk/README.md
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    Modification_Register.txt
+
+Finding:
+    EngineeringPluginHost attempted shutdown() when initialize() failed.
+    If that rollback shutdown also failed, the host raised an error but did
+    not retain the plugin instance. The host therefore lost its retry handle
+    for resources or registrations that might still be owned by the plugin.
+
+Correction:
+    - Track rollback-failed plugin instances in a pending-cleanup registry,
+      separate from successfully active plugins.
+    - Expose pending_cleanup_plugin_ids without treating those plugins as
+      successfully activated.
+    - Reject reactivation of an ID while active or awaiting cleanup.
+    - Allow deactivate(plugin_id) to retry pending cleanup.
+    - Make shutdown_all() retry active plugins and pending rollback cleanup.
+    - Remove retained ownership only after shutdown() succeeds.
+    - Update SDK and architecture documentation to describe the contract.
+
+Architecture:
+    The engineering host remains separate from the UI PluginManager and
+    reuses the existing Application services. No discovery framework,
+    duplicate event bus, study service, result store, or scheduler was added.
+    Production composition-root integration remains a separate open gate.
+
+Verification:
+    Focused source review and GitHub textual re-fetch only. No tests, CI,
+    syntax/import checks, or runtime lifecycle checks were run.
+
+Status:
+    🟡 CORRECTED IN PR #678; RUNTIME LIFECYCLE VERIFICATION OUTSTANDING
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-008
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Engineering Plugin SDK composition-root lifecycle integration
+
+Files:
+    main.py
+    docs/architecture/GRIDFORGE_V2_SHARED_PLUGIN_SDK_ARCHITECTURE.md
+    core/plugin_sdk/README.md
+
+Decision / implementation:
+    Wire EngineeringPluginHost into the canonical application composition
+    root. Explicitly activate MotorDynamicsPlugin with the existing
+    application.motor_dynamics_composition service. Retain host ownership
+    through startup-failure cleanup and normal shutdown, after UI teardown.
+
+Ownership constraints:
+    - UI PluginManager remains UI-composition-only.
+    - Application retains command composition, StudyService, ApplicationEventBus,
+      transactions, and authoritative results.
+    - No duplicate manager, event bus, scheduler, study service, or result store.
+    - EngineeringPluginContext remains UI-independent; dashboard attachment is
+      not claimed by this integration.
+
+Status:
+    🟡 COMPOSITION ROOT WIRED — PUBLIC SDK API NOT FROZEN
+
+Outstanding acceptance gate:
+    No second genuine non-UI plugin with the same installation lifecycle was
+    identified in the inspected plugins/ tree. Do not force-fit domain model
+    classes into the host lifecycle. Reconcile a real second plugin before
+    freezing public SDK contracts.
+
+Verification:
+    GitHub source edits and direct source/tree inspection only. No tests, CI,
+    syntax/import checks, or runtime lifecycle verification were run.
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-009
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    EngineeringPluginHost activation rollback ownership
+
+Finding:
+    A failed initialize() followed by failed shutdown() was surfaced to the
+    caller, but the partially initialized plugin was not retained for a later
+    cleanup retry.
+
+Correction:
+    Track incomplete activation rollback separately from successful active
+    plugins. Reject duplicate activation while cleanup is pending and include
+    pending cleanup in reverse-order shutdown_all() attempts. active_plugin_ids
+    reports successful activations only.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-010
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    EngineeringPluginHost reverse lifecycle ordering
+
+Finding:
+    Active plugins and failed-activation cleanup were traversed in separate
+    groups. With interleaved activations, pending cleanup could run out of
+    reverse lifecycle order.
+
+Correction:
+    Maintain one ownership-order ledger for both successfully active and
+    cleanup-pending plugin instances. shutdown_all() traverses this ledger in
+    reverse order and retains any entry whose shutdown fails. active_plugin_ids
+    filters the same ledger to successful activations.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-011
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Shared numerical backend capability validation and motor result metadata
+
+Findings:
+    BackendCapability accepted malformed runtime field types and invalid
+    workload/precision set contents. select_backend also lacked strict
+    validation for capability item types and backend preference shape.
+    MotorSimulationResult was a frozen dataclass but exposed a mutable
+    diagnostics mapping.
+
+Corrections:
+    - Validate backend name, availability bool, backend kind, positive
+      workload-size threshold, non-empty frozensets, and non-empty string
+      workload/precision entries.
+    - Validate select_backend receives only BackendCapability values and a
+      tuple of unique supported backend kinds as preference.
+    - Copy MotorSimulationResult diagnostics into a read-only outer mapping.
+
+Boundary:
+    Nested diagnostics values are not claimed to be deeply immutable.
+    These checks are static contract hardening, not numerical or hardware
+    validation.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — VERIFICATION NOT RUN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-012
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Motor Dynamics dashboard composition and build_application compatibility
+
+Findings:
+    The dashboard existed but was not attached to a visible workspace region.
+    Adding EngineeringPluginHost had also changed build_application() from
+    its established six-element return tuple to seven elements, risking
+    breakage for external callers.
+
+Corrections:
+    - The UI composition root creates MotorTelemetryDashboardWidget using
+      the plugin-owned read model and canonical Application event bus.
+    - Attach the dashboard to the Study editor sidebar region.
+    - Close the dashboard on startup failure and normal shutdown before
+      shutting down the engineering result publisher.
+    - Restore build_application()'s six-element return contract and retain
+      the engineering host/dashboard on MainWindow for root-owned teardown.
+    - Reconcile architecture and SDK README statements that previously said
+      dashboard attachment was not included.
+
+Boundaries:
+    Dashboard event ordering, visible rendering, application startup/shutdown,
+    syntax/import integrity, and Qt lifecycle are not runtime-verified.
+    The public SDK API remains provisional pending a second genuine lifecycle
+    plugin or an approved alternative conformance criterion.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — RUNTIME VERIFICATION NOT RUN
+
+======================================================================
+
+
+======================================================================
+GF-PLUGIN-SDK-013
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Engineering-plugin package discovery and startup verifier compatibility
+
+Finding:
+    The automatic startup-verification workflow could not import
+    plugins.motor_dynamics.plugin from the installed editable package because
+    setuptools discovery included only core* and ui*. The root plugins
+    namespace was not declared as a package. The verifier also did not include
+    plugins/ in its syntax inventory and did not pass the new lifecycle handles
+    to shutdown cleanup.
+
+Corrections:
+    - Add plugins/__init__.py.
+    - Include plugins* in setuptools package discovery.
+    - Include plugins/ in startup verifier source and compile inventories.
+    - Pass the host/dashboard handles from MainWindow into lifecycle cleanup.
+    - Keep _shutdown_components host/dashboard parameters optional for legacy
+      callers.
+
+Separate workflow finding:
+    The DraftNetwork regression job failed due to missing canonical_contract
+    argument and invalid current-transformer measurement-terminal definitions.
+    SHA comparison confirms the implicated creation_schema.py, bootstrap.py,
+    and regression test file are identical on main and this branch. This is a
+    pre-existing main-branch failure and remains a separate correction.
+
+Status:
+    🟡 PACKAGE / VERIFIER SOURCE CORRECTION APPLIED — NEXT WORKFLOW RUN REQUIRED
+
+Verification:
+    Existing workflow logs inspected. No manual tests/CI were run. The next
+    automatic workflow run must confirm whether the import failure is resolved.
+
+======================================================================

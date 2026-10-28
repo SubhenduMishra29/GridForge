@@ -14,6 +14,9 @@ from core.application.bootstrap import create_application
 from core.application.errors import ExecutionError
 from core.application.events import ProjectLoaded
 from core.application.services.sld_service import SLDService
+from core.plugin_sdk import EngineeringPluginHost
+from plugins.motor_dynamics.plugin import MotorDynamicsPlugin
+from plugins.motor_dynamics.dashboard import MotorTelemetryDashboardWidget
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
@@ -99,14 +102,26 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
         if isinstance(workspace_controller, WorkspaceController): _invoke_cleanup(workspace_controller.close, errors)
     ui_update_boundary = resources.get("ui_update_boundary")
     if isinstance(ui_update_boundary, UIUpdateBoundary): _invoke_cleanup(ui_update_boundary.dispose, errors)
+    motor_dynamics_dashboard = resources.get("motor_dynamics_dashboard")
+    if isinstance(motor_dynamics_dashboard, MotorTelemetryDashboardWidget):
+        _invoke_cleanup(motor_dynamics_dashboard.close, errors)
     plugin_manager = resources.get("plugin_manager")
     if isinstance(plugin_manager, PluginManager): _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    engineering_plugin_host = resources.get("engineering_plugin_host")
+    if isinstance(engineering_plugin_host, EngineeringPluginHost):
+        _invoke_cleanup(engineering_plugin_host.shutdown_all, errors)
 
 
-def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager) -> None:
+def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager, engineering_plugin_host: EngineeringPluginHost | None = None, motor_dynamics_dashboard: MotorTelemetryDashboardWidget | None = None) -> None:
     errors: list[BaseException] = []; _invoke_cleanup(ui_lifecycle.close, errors)
     if not ui_lifecycle.closed: _invoke_cleanup(workspace_controller.close, errors)
-    _invoke_cleanup(ui_update_boundary.dispose, errors); _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    _invoke_cleanup(ui_update_boundary.dispose, errors)
+    # The UI subscriber is closed before its headless engineering publisher.
+    if motor_dynamics_dashboard is not None:
+        _invoke_cleanup(motor_dynamics_dashboard.close, errors)
+    _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    if engineering_plugin_host is not None:
+        _invoke_cleanup(engineering_plugin_host.shutdown_all, errors)
     if errors: raise errors[0]
 
 
@@ -131,6 +146,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     style_manager.apply(app)
     startup_splash.status("Initializing engineering application…")
     network = Network(); gridforge_application = create_application(network)
+    # Engineering plugins have a lifecycle owner separate from UI composition.
+    # This composition root explicitly opts Motor Dynamics in and passes only
+    # its existing Application-owned registration adapter; no services are cloned.
+    engineering_plugin_host = EngineeringPluginHost(gridforge_application)
+    resources["engineering_plugin_host"] = engineering_plugin_host
+    motor_dynamics_plugin = MotorDynamicsPlugin()
+    engineering_plugin_host.activate(
+        motor_dynamics_plugin,
+        services={
+            "motor_dynamics_composition": gridforge_application.motor_dynamics_composition,
+        },
+    )
     startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
 
@@ -267,6 +294,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     root_widget = QWidget()
     root_widget.setObjectName("GridForgeShellRoot")
     window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
+    # The engineering plugin stays headless; the composition root explicitly
+    # attaches its optional telemetry projection to the Study workspace.
+    motor_dynamics_dashboard = MotorTelemetryDashboardWidget(
+        motor_dynamics_plugin.read_models,
+        event_bus=gridforge_application.event_bus,
+    )
+    resources["motor_dynamics_dashboard"] = motor_dynamics_dashboard
     icon = branding.icon()
     if icon is not None:
         window.setWindowIcon(icon)
@@ -1153,6 +1187,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_surface_host.set_region_widgets(
         "study",
         explorer=detached.get("study_cases"),
+        inspector=motor_dynamics_dashboard,
     )
 
     def _on_render_diagnostic(diagnostic: object) -> None:
@@ -1260,6 +1295,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     app.processEvents()
     startup_splash.finish(window)
     resources.pop("startup_splash", None)
+    # Keep the established six-item build_application() return contract.
+    # The engineering host is a composition-root lifecycle resource, attached
+    # to the returned window for main() to shut down without changing callers.
+    setattr(window, "_engineering_plugin_host", engineering_plugin_host)
+    setattr(window, "_motor_dynamics_dashboard", motor_dynamics_dashboard)
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
 
 
@@ -1270,9 +1310,15 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
 
 
 def main() -> int:
-    app, _window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = build_application()
+    app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = build_application()
+    engineering_plugin_host = getattr(window, "_engineering_plugin_host", None)
+    if not isinstance(engineering_plugin_host, EngineeringPluginHost):
+        raise RuntimeError("EngineeringPluginHost was not retained by the composition root.")
+    motor_dynamics_dashboard = getattr(window, "_motor_dynamics_dashboard", None)
+    if not isinstance(motor_dynamics_dashboard, MotorTelemetryDashboardWidget):
+        raise RuntimeError("Motor Dynamics dashboard was not retained by the composition root.")
     try: return int(app.exec())
-    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager)
+    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager, engineering_plugin_host=engineering_plugin_host, motor_dynamics_dashboard=motor_dynamics_dashboard)
 
 
 if __name__ == "__main__": raise SystemExit(main())

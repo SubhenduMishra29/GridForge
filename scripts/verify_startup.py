@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ui.lifecycle import UILifecyclePhase
 
-SOURCE_ROOTS = (Path("core"), Path("ui"))
+SOURCE_ROOTS = (Path("core"), Path("ui"), Path("plugins"))
 
 
 def iter_python_files() -> list[Path]:
@@ -47,6 +47,8 @@ def verify_syntax() -> None:
         raise SystemExit("Python bytecode compilation failed for core/")
     if not compileall.compile_dir("ui", quiet=1, force=True):
         raise SystemExit("Python bytecode compilation failed for ui/")
+    if not compileall.compile_dir("plugins", quiet=1, force=True):
+        raise SystemExit("Python bytecode compilation failed for plugins/")
     if not compileall.compile_file("main.py", quiet=1, force=True):
         raise SystemExit("Python bytecode compilation failed for main.py")
 
@@ -114,6 +116,8 @@ def verify_application_lifecycle() -> None:
             workspace_controller=workspace_controller,
             ui_update_boundary=ui_update_boundary,
             plugin_manager=plugin_manager,
+            engineering_plugin_host=getattr(window, "_engineering_plugin_host", None),
+            motor_dynamics_dashboard=getattr(window, "_motor_dynamics_dashboard", None),
         )
 
 
