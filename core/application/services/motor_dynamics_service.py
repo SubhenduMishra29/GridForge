@@ -134,6 +134,19 @@ class MotorDraftService:
                 bus_id=bus_id, attachment_id=attachment_id, scope="draft"
             )
         else:
+            # Resolve committed Core objects only through the immutable
+            # Application read boundary. Never accept a guessed Core-scoped ID
+            # and defer its existence failure until draft commit.
+            try:
+                core_bus = self._application.read_element("bus", bus_id)
+            except KeyError as exc:
+                raise ValueError(
+                    f"Committed Core Bus {bus_id!r} does not exist in the active project."
+                ) from exc
+            if str(getattr(core_bus, "element_type", "") or "").strip().lower() != "bus":
+                raise ValueError(
+                    f"Committed Core endpoint {bus_id!r} is not a Bus."
+                )
             bus_endpoint = DraftEndpointReference.bus(
                 bus_id=bus_id, attachment_id=attachment_id, scope="core"
             )

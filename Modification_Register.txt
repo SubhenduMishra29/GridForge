@@ -9028,3 +9028,38 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+======================================================================
+GF-MOTOR-105 — Fail-closed committed Bus resolution for draft connections
+======================================================================
+
+Scope:
+    MotorDraftService.connect_motor_to_bus
+
+Finding:
+    A Bus ID absent from DraftNetwork was treated as a Core-scoped endpoint
+    without first resolving it against the active project's authoritative
+    Application read model. A typo or stale ID could therefore survive
+    connection preflight and fail only later during commit.
+
+Correction:
+    Before constructing a Core-scoped DraftEndpointReference, the service
+    now resolves the requested ID through Application.read_element("bus", id).
+    A missing Bus is rejected at the Application command boundary. The
+    returned read model must also identify itself as a Bus; the type check
+    normalizes missing/None values before comparison so malformed read models
+    fail closed with the intended validation error. Draft Bus handling remains
+    unchanged, and no Core objects are passed into DraftNetwork.
+
+Boundary:
+    This checks existence and type through the canonical read boundary; it
+    does not replace full topology, terminal, duplicate-connection, or commit
+    validation.
+
+Verification:
+    Source inspection only. No tests, syntax checks, imports, application
+    startup, runtime, or CI were run.
+
+Disposition:
+    Submitted in PR for review; merge and runtime validation pending.
+======================================================================
