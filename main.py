@@ -1052,6 +1052,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             project_id=getattr(project, "project_id", None),
             project_name=getattr(project, "name", None),
             document_id=next_document_id,
+            discipline=(
+                "sld"
+                if change.operation in {"new", "open"}
+                else current_context.discipline
+            ),
             selected_ids=tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids()),
         )
 
