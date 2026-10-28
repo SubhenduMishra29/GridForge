@@ -9063,3 +9063,36 @@ Verification:
 Disposition:
     Submitted in PR for review; merge and runtime validation pending.
 ======================================================================
+
+======================================================================
+GF-SLD-ROUTE-EDIT-001
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Preserve distinct SLD presentation and Core identities during route edits
+
+Finding:
+    Route geometry is persisted on the SLD connection and therefore must be
+    addressed by presentation connection_id. The same interaction request also
+    carries core_connection_id, which must verify the domain binding rather
+    than replace the SLD mutation key.
+
+Correction:
+    - Require both explicit presentation and Core identities in route-edit
+      requests.
+    - Keep presentation connection_id as the route mutation key.
+    - Verify the live SLD connection's stored Core binding before submitting
+      the existing Application route command.
+    - Do not infer or synthesize one identity from the other.
+
+Verification:
+    Source review only. No tests or CI were manually run; automatic workflow
+    verification remains pending.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
