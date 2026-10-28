@@ -10500,4 +10500,4 @@ Verification:
     - No tests, CI, syntax/import checks, or GUI runtime were run.
 
 Status:
-    CORRECTION PROPOSED — PR pending.
+    MERGED — PR #722; static checks only, runtime verification not run.
