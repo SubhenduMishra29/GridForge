@@ -9778,6 +9778,24 @@ Verification:
 
 
 ======================================================================
+GF-AUD-073 — WORKSPACE NAVIGATION CONTEXT AND SLD ACTION GUARDS
+======================================================================
+Status: Corrected in branch `fix/ui-navigation-context-guards`; static source re-audit pending.
+Scope: `main.py` workspace navigation and action-enabled policy.
+
+Confirmed source defects addressed:
+- Topology and Map actions activated compatibility surfaces directly without updating the shared engineering-context discipline. Route both through a dedicated activation helper that publishes context only after surface activation succeeds.
+- The Commit Draft action was grouped with generic project-active actions and lacked an explicit SLD-discipline guard. Require both an active project and SLD discipline.
+- Selection-dependent SLD editing actions checked project/selection state but did not consistently require SLD discipline. Add that discipline guard to prevent operations against the hidden SLD while another editor is active.
+
+Correction boundaries:
+- WorkspaceController remains the owner of canonical workspace realization; no duplicate workspace manager or event bus is introduced.
+- The shared engineering context remains the source for action enablement.
+- No tests or CI were run; verification is static source inspection only.
+- Do not mark this entry frozen until the PR diff and affected action definitions/handlers are re-audited.
+
+
+======================================================================
 GF-AUD-074 — PROJECT/DOCUMENT TRANSITION CONTEXT INVALIDATION
 ======================================================================
 Status: Corrected in branch `fix/project-document-context-sync`; static source re-audit pending.
