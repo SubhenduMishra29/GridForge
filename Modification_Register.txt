@@ -9151,7 +9151,9 @@ Boundary:
 
 Verification:
     Source inspection only. No tests, syntax checks, imports, runtime,
-    accelerator hardware, or CI were run.
+    accelerator hardware, or CI were run. The branch has been reconciled onto
+    current main after the canonical startup/DraftNetwork correction in PR
+    #683; automatic verification of this rebased head is pending.
 
 Disposition:
     Submitted in a focused PR; review and runtime validation pending.
