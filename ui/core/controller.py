@@ -179,21 +179,27 @@ class Controller(QObject):
         application = self._require_application()
         if command is None:
             raise ValueError("command must not be None.")
-        result = application.execute(command)
-        self.state_changed.emit()
-        return result
+        try:
+            return application.execute(command)
+        finally:
+            # Failure can still change the command manager's integrity state
+            # (for example, rollback/history restoration may fail). Refresh
+            # presentation state without masking the original exception.
+            self.state_changed.emit()
 
     def undo(self) -> Any:
         """Delegate undo to Application."""
-        result = self._require_application().undo()
-        self.state_changed.emit()
-        return result
+        try:
+            return self._require_application().undo()
+        finally:
+            self.state_changed.emit()
 
     def redo(self) -> Any:
         """Delegate redo to Application."""
-        result = self._require_application().redo()
-        self.state_changed.emit()
-        return result
+        try:
+            return self._require_application().redo()
+        finally:
+            self.state_changed.emit()
 
     def can_undo(self) -> bool:
         return self._require_application().can_undo()
