@@ -9096,3 +9096,37 @@ Status:
     🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
 
 ======================================================================
+
+======================================================================
+2026-10-27 — PLUGIN REUSE MATRIX RECONCILED AGAINST CURRENT MAIN
+======================================================================
+
+Files:
+    docs/architecture/GRIDFORGE_V2_PLUGIN_REUSE_MATRIX.md
+    Modification_Register.txt
+
+Finding:
+    PR #676 originally proposed StudyService.unregister() because the branch's
+    original main baseline lacked the method. Current main now contains the
+    canonical identity-aware unregister API and active-study protection. The
+    original PR therefore duplicates an already integrated service change.
+
+Correction:
+    - Preserve the reuse matrix as a standalone audit artifact based on current
+      ownership contracts and known Motor Dynamics integration dependencies.
+    - Explicitly state that StudyService.unregister() already exists on main;
+      do not duplicate or reimplement it in this documentation-only change.
+    - Keep the Core/Application/UI ownership boundaries and prohibit parallel
+      plugin managers, study schedulers, event buses, or result stores.
+    - Keep Motor Dynamics host-composition and runtime acceptance gates open;
+      source inspection alone does not establish end-to-end operation.
+
+Verification boundary:
+    Compared the current main StudyService implementation and reconciled the
+    matrix wording. No tests, CI, syntax/import checks, or runtime validation
+    were run.
+
+Disposition:
+    Documentation-only replacement for the still-open, now-redundant PR #676.
+    This branch does not alter core/application/study.py.
+======================================================================
