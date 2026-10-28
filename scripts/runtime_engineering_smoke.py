@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import main
 from core.application.commands.draft_commands import CommitNetworkCommand
-from ui.core.qt import QListWidget, QPointF, QTabWidget, QWidget
+from ui.core.qt import QListWidget, QPointF, QWidget
 
 
 TARGET_TOOL_IDS = (
@@ -105,16 +105,20 @@ def main_smoke() -> None:
         if not tool_manager.preview_layer.scene.items():
             raise SystemExit("Runtime smoke: committed Bus did not produce a permanent SLD graphics item.")
 
-        tabs = window.findChild(QTabWidget, "EngineeringWorkspaceTabs")
-        if tabs is None:
-            raise SystemExit("Runtime smoke: engineering workspace tabs are missing.")
-        engineering_tabs = tabs.parentWidget()
-        for surface_id in ("sld", "topology", "map", "reports", "control", "protection"):
-            activate = getattr(engineering_tabs, "activate", None)
-            if not callable(activate):
-                raise SystemExit("Runtime smoke: canonical engineering tab host is not activatable.")
-            activate(surface_id)
+        # WorkspaceController is the canonical Area → Editor → Region
+        # activation boundary. Do not require a legacy QTabWidget or invent
+        # workspace IDs for editors that are regions within another workspace.
+        for workspace_id in ("sld", "control", "protection", "study"):
+            workspace_controller.activate(workspace_id)
             app.processEvents()
+            if workspace_controller.active_workspace_id != workspace_id:
+                raise SystemExit(
+                    f"Runtime smoke: workspace {workspace_id!r} did not become active."
+                )
+            if workspace_controller.realized_workspace_id != workspace_id:
+                raise SystemExit(
+                    f"Runtime smoke: workspace {workspace_id!r} was not realized."
+                )
 
         selected_ids = tuple(tool_manager.selection_manager.get_selected_ids())
         committed_bus_id = str(getattr(buses[-1], "object_id", ""))
