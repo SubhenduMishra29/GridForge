@@ -348,8 +348,8 @@ class SLDRoute:
         missing = sorted(allowed - set(data))
         if missing:
             raise ValueError("Missing canonical SLD route fields: " + ", ".join(missing))
-        if not isinstance(data["points"], list):
-            raise TypeError("SLD route points must be an array.")
+        if not isinstance(data["points"], (list, tuple)):
+            raise TypeError("SLD route points must be an array or immutable sequence.")
         return cls(
             routing_mode=data["routing_mode"],
             ownership=data["ownership"],

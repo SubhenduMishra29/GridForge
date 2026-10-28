@@ -8302,3 +8302,729 @@ Disposition:
     the existing frozen Core/Application/UI architecture remains authoritative
     until the amendment is merged.
 ======================================================================
+
+
+======================================================================
+GF-APP-CREATION-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical equipment creation contract construction and regression alignment
+
+Findings:
+    creation_definition_for() built the complete equipment-definition catalogue
+    while passing the requested equipment's terminal inventory into every
+    definition. This made the current-transformer definition inherit an empty
+    Bus inventory when the catalogue was built from the Bus entry, causing
+    startup to fail with missing S1/S2 measurement terminals. The direct
+    CreationCommandPreparer regression also used an obsolete call shape that
+    omitted the now-required trusted canonical_contract and equipment_type.
+
+Corrections:
+    - Use each equipment type's own _BUILTIN_TERMINAL_NAMES entry when building
+      that definition's terminal requirements.
+    - Preserve the input terminal_names argument as a validation of the one
+      requested equipment type, not as a shared inventory for the whole catalog.
+    - Update the preparer regression to identify equipment_type and pass the
+      trusted contract from creation_contracts_from_definitions().
+
+Scope boundary:
+    This is a focused Core/Application creation-contract correction. It does
+    not weaken canonical contract enforcement or alter unrelated UI/plugin
+    behavior.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-UI-TERM-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical Bus terminal inventory across Core, creation and SLD presentation
+
+Finding:
+    Core Bus owns one authoritative Terminal(role="bus") and the built-in
+    symbol exposes a "bus" anchor, but the UI EquipmentRegistry declared no
+    Bus terminals and the Application creation schema described an empty
+    terminal inventory. PresentationBootstrap therefore rejected startup with
+    a Core/presentation/creation/symbol terminal contract mismatch.
+
+Correction:
+    - Declare the canonical Bus terminal inventory as ("bus",) in the
+      Application creation schema and UI equipment catalogue.
+    - Keep DraftEndpointReference.bus() as the explicit bus-attachment form;
+      it is not replaced by a terminal-to-terminal connection.
+    - Update regression fixtures to carry canonical terminal, parameter,
+      conditional and required-connection metadata from the trusted schema.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-APP-CREATION-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Creation contract snapshot parity, position-field isolation, and strict draft fixtures
+
+Findings:
+    - PresentationBootstrap produced a reduced parameter contract missing
+      editable/derived fields, then attempted to reconfigure the already
+      initialized Application registry with a structurally different snapshot.
+    - CreationCommandPreparer treated generic command fields x/y as possible
+      presentation coordinates, colliding with the transformer's legitimate
+      engineering reactance field x.
+    - Draft commit regression fixtures expected commit success with required
+      branch terminals disconnected, contrary to strict commit-time validation.
+
+Corrections:
+    - Include editable and derived metadata in the UI-side snapshot so it is
+      structurally identical to the canonical Application creation contract.
+    - Map authored presentation position only to presentation_x/presentation_y;
+      never overwrite engineering fields named x/y.
+    - Make draft commit fixtures supply canonical metadata and connect every
+      required transformer/breaker terminal before expecting a successful commit.
+
+Status:
+    🟡 SOURCE CORRECTIONS APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-APP-CREATION-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Full canonical terminal metadata parity and draft attachment fixture correctness
+
+Findings:
+    - The UI-built creation snapshot omitted terminal_requirements metadata,
+      so reconfiguration differed from the already configured Application
+      registry even after parameter metadata was aligned.
+    - Draft commit fixtures used non-canonical Bus attachment identifiers and
+      explicitly passed route=None, which violated the DraftConnection payload
+      contract.
+
+Corrections:
+    - Include full terminal requirement records in the UI snapshot: role,
+      required flag, cardinality, allowed connection types, acquisition state,
+      and initial endpoint requirement.
+    - Use supported attachment-N identifiers and omit the route argument when
+      no authored route exists.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-NET-CONNECTIVITY-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Draft Bus attachment to Core Simple Wire topology translation
+
+Finding:
+    DraftConnectivityResolver emitted EndpointReference.bus() for a Bus
+    attachment, but SimpleWireConnectionService only normalized terminal
+    EndpointReference values and registered junction topology endpoints.
+    Valid DraftNetwork Bus-to-terminal connections therefore failed before
+    the authoritative Core connectivity graph could represent the Bus
+    attachment identity.
+
+Correction:
+    - Add BUS as a first-class TopologyEndpointReference kind carrying the
+      canonical Bus EndpointReference and attachment-N identity.
+    - Validate attachment slots in the supported 0..8 range.
+    - Normalize Bus references in Application command/service boundaries.
+    - Validate Bus membership, index Bus attachments, enforce one connection
+      per attachment slot, and resolve connected Bus IDs from terminal graphs.
+    - Preserve terminal-only compatibility views and explicit Junction nodes.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-STARTUP-VERIFY-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Startup verifier alignment with frozen Workspace ownership
+
+Finding:
+    scripts/verify_startup.py required six QDockWidget wrappers even though
+    the active composition detaches panel widgets into Workspace regions and
+    the Workspace realization is the canonical arrangement authority.
+
+Correction:
+    The verifier now validates the realized Workspace layout instead of
+    requiring legacy dock wrappers to remain attached to MainWindow.
+
+Status:
+    🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-STARTUP-VERIFY-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Verify the Area-based WorkspaceLayout contract
+
+Finding:
+    After removal of the legacy dock requirement, the verifier still treated
+    WorkspaceLayout as a collection of panel placements. The frozen model
+    stores canonical AreaDefinition records instead.
+
+Correction:
+    Validate that the realized WorkspaceLayout contains exactly one visible
+    main Area with a visible canvas Region. Do not inspect non-existent panel
+    placements or derive workspace policy from dock wrappers.
+
+Status:
+    🟡 VERIFIER CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Runtime smoke equipment palette lookup after Workspace composition
+
+Finding:
+    scripts/runtime_engineering_smoke.py required PanelsPlugin.get_dock("equipment")
+    to return a dock wrapper and queried the palette through that wrapper. The
+    canonical Workspace owns Area/Region placement and may reparent the panel
+    widget independently of legacy dock-wrapper availability.
+
+Correction:
+    Locate the canonical equipment panel widget by its stable object name in
+    MainWindow, with the PanelsPlugin-owned widget registry as a fallback, and
+    find EquipmentPalette from the panel widget itself.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Safe snapshots and rollback of transient equipment creation state
+
+Finding:
+    CreationContext used deepcopy(CreationDraft), recursively copying immutable
+    creation definitions, mapping proxies, and endpoint adapters. Runtime
+    smoke observed a failure while cancelling a live preview because a Qt-
+    backed adapter could not be deep-copied.
+
+Correction:
+    Clone only mutable authoring state (values, validation and preview maps).
+    Retain immutable creation definition/parameter schema/requirements and
+    endpoint identity objects by reference; keep endpoint mapping independent.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-SLD-TEST-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Headless SLD route persistence regression fixture
+
+Finding:
+    Route persistence tests attached SLDService without a symbol presentation
+    factory. Draft commit correctly refused to create an equipment SLD node
+    without either an explicit renderer-neutral presentation or a configured
+    factory.
+
+Correction:
+    Configure a deterministic test-only renderer-neutral symbol presentation
+    factory for the route persistence fixture. This preserves the production
+    invariant that equipment nodes must not silently invent missing symbols.
+
+Status:
+    🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SLD-TEST-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical persistent SLD route payload shape in commit regression tests
+
+Finding:
+    The route fixtures used point mappings ({x, y}), while SLDRoute's
+    persisted schema is a list of two-coordinate arrays. This produced
+    KeyError during the SLD transaction's rollback-signature construction.
+
+Correction:
+    Align route fixtures with the canonical SLDRoute representation while
+    retaining the authored route ownership and exact coordinate assertions.
+
+Status:
+    🟡 TEST FIXTURE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SLD-ROUTE-001
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Immutable route payload compatibility at SLD persistence boundary
+
+Finding:
+    DraftConnection freezes route payloads using mapping proxies and tuple
+    point sequences. SLDRoute.from_dict accepted only list-valued points, so
+    a valid immutable internal route payload was rejected during DraftNetwork
+    commit despite having the canonical two-coordinate point shape.
+
+Correction:
+    Accept list or tuple as the point sequence container at the SLD boundary;
+    SLDRoute still normalizes and validates coordinates and serializes back to
+    the canonical JSON array representation.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SLD-ENDPOINT-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Draft endpoint identity translation into persistent SLD presentation
+
+Finding:
+    DraftNetwork committed endpoint mappings use Core/Application identity
+    fields (kind, object_id, terminal_role, attachment_id). The SLD presentation
+    schema instead requires node_id plus equipment_id/terminal_role or
+    bus_id/attachment_id. Passing draft mappings directly into SLDService
+    caused canonical endpoint parsing to reject object_id.
+
+Correction:
+    Add an explicit Application-side projection adapter that resolves the
+    committed object to its unique SLD node and emits the strict SLDEndpoint
+    mapping. Core endpoint identity remains authoritative; SLD stays projection.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-STARTUP-SMOKE-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Runtime smoke assertion for committed Bus visibility
+
+Finding:
+    Runtime smoke inspected a non-canonical read-model `elements` collection
+    and inferred Bus type from a display attribute. The authoritative Network
+    exposes its registered Bus collection directly.
+
+Correction:
+    Assert committed Bus presence against the canonical Network `buses`
+    registry and use its stable identity for the selection assertion.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Exercise the documented placement → DraftNetwork → commit workflow
+
+Finding:
+    Runtime smoke treated successful placement-tool mouse release as an
+    immediate Core commit. The frozen workflow keeps placement in DraftNetwork
+    and requires an explicit Application CommitNetworkCommand to mutate Core.
+
+Correction:
+    Assert that placement created a draft Bus, execute the canonical draft
+    commit command, then assert the Bus appears in the Application read model.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SLD-ROUTE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Empty draft route normalization
+
+Finding:
+    DraftConnection serialization represents an absent route as an empty
+    immutable mapping. Application passed that mapping to SLDRoute.from_dict,
+    which correctly rejects a mapping missing routing_mode/ownership/points.
+
+Correction:
+    Normalize an absent or empty committed draft route to None at the
+    Application-to-SLD boundary, allowing SLDService to create the canonical
+    automatic route. Non-empty engineer-authored routes remain unchanged.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    ConnectivityResolver traversal after Bus endpoints became topology vertices
+
+Finding:
+    ConnectivityResolver.bus_ids_for_terminal traversed the new
+    TopologyEndpointReference graph but still read object_id/terminal_role
+    directly from the topology wrapper instead of its nested terminal
+    EndpointReference. Save/reload validation exposed this stale assumption.
+
+Correction:
+    Resolve the nested terminal_reference first, then use its equipment
+    identity and terminal role when checking physical Bus attachment fallback.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-002
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    UI placement draft metadata parity with canonical Application contracts
+
+Finding:
+    ModelPlacementTool constructed parameter_contract records without the
+    editable/derived fields that the trusted Application creation registry
+    requires. The runtime workflow could place a Bus but commit rejected the
+    draft metadata as non-canonical.
+
+Correction:
+    Include editable and derived metadata in the placement-produced draft
+    contract, matching the canonical schema and PresentationBootstrap snapshot.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+======================================================================
+GF-NET-RESOLUTION-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Connected-component API on resolved topology snapshots
+
+Finding:
+    Network topology rebuild called `ResolvedConnectivity.components()`, but
+    the method existed only on ConnectivityResolver. Save/reload validation
+    failed when topology rebuild consumed the immutable resolved snapshot.
+
+Correction:
+    Add deterministic component traversal to ResolvedConnectivity and make
+    ConnectivityResolver.components() delegate to the resolved snapshot API.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Topology rebuild terminal-to-electrical-boundary adapter
+
+Finding:
+    Topology rebuild iterated terminal TopologyEndpointReference vertices but
+    passed the wrapper itself to ElectricalBoundaryResolver.resolve(), whose
+    contract correctly accepts only EndpointReference. Persistence validation
+    exposed this missed wrapper-unwrapping path.
+
+Correction:
+    Pass each terminal vertex's nested terminal_reference to the electrical
+    boundary resolver while retaining topology wrapper identities for graph
+    traversal and component grouping.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-005
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Switching-boundary traversal over topology endpoint graph
+
+Finding:
+    A second topology rebuild path (switching-boundary analysis) passed the
+    terminal TopologyEndpointReference wrapper directly to the electrical
+    boundary resolver after the component traversal path had been corrected.
+
+Correction:
+    Unwrap source.terminal_reference before resolving switching-boundary
+    attachment and opposite-terminal state.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-NET-RESOLUTION-006
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Network validation of Bus attachment slots versus equipment terminals
+
+Finding:
+    Network.validate treated Bus's synthetic attachment slots as equipment
+    terminals and attempted to construct EndpointReference.terminal with
+    EquipmentType('bus'), which is intentionally not an equipment-terminal
+    type. Bus attachment identities are now explicit BUS topology vertices.
+
+Correction:
+    Skip Bus objects in the equipment-terminal connectivity validation pass;
+    Bus attachments continue to be validated through canonical BUS endpoint
+    membership, attachment-slot cardinality, and connectivity graph checks.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-003
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Application-owned creation schema authority in ModelPlacementTool
+
+Finding:
+    Even after adding missing fields, a placement-created Bus still failed
+    canonical contract comparison. This confirms the UI definition is not a
+    reliable source for authoritative schema metadata and should not rebuild
+    a trusted contract record independently.
+
+Correction:
+    Resolve the Application's canonical creation contract at placement time
+    and source terminal inventory, command identity, parameter/endpoint maps,
+    required terminal names, parameter contract, and conditional requirements
+    from that trusted registry. Draft values, endpoints, and presentation
+    remain user-authored state; schema metadata is not UI-authored.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-CREATION-STATE-004
+======================================================================
+
+Date:
+    2026-10-27
+
+Scope:
+    Canonical contract lookup through the ToolBase dependency contract
+
+Finding:
+    ModelPlacementTool attempted to read a private `_application` attribute,
+    while ToolBase deliberately exposes the injected Application as
+    `application`.
+
+Correction:
+    Use the documented ToolBase Application dependency for creation contract
+    registry lookup.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SLD-DRAFT-PRESENTATION-001
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    DraftNetwork-to-SLD symbol presentation normalization
+
+Finding:
+    Draft placement stores preview state as authoring metadata (equipment type,
+    parameters, acquired terminals, placement and orientation). The Application
+    commit projection passed that metadata directly to SLDService as if it were
+    a canonical SymbolBase mapping. The resulting mapping had no symbol_id and
+    failed strict SLD node creation during the runtime engineering smoke.
+
+Correction:
+    - Preserve a supplied presentation mapping only when it carries a valid
+      non-empty canonical symbol_id.
+    - Otherwise let SLDService resolve the canonical symbol from its configured
+      symbol presentation factory.
+    - Carry the draft orientation through an explicit presentation_rotation
+      command field and validate it before applying it to the resolved symbol.
+    - Keep preview metadata separate from persistent renderer-neutral symbol
+      identity; do not invent a symbol when the canonical factory is absent.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-STARTUP-SMOKE-005
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Runtime engineering smoke aligned with canonical Workspace activation
+
+Finding:
+    The runtime smoke expected a QTabWidget named EngineeringWorkspaceTabs and
+    attempted to activate SLD, topology, map, reports, control and protection
+    as if they were peer tabs. The frozen workspace architecture instead owns
+    four logical workspaces (sld, control, protection, study), each realized
+    through WorkspaceController as Area → Editor → Region. The smoke therefore
+    failed after successful startup and DraftNetwork commit because it asserted
+    a removed legacy tab host.
+
+Correction:
+    - Remove the legacy QTabWidget lookup.
+    - Activate each registered canonical workspace through WorkspaceController.
+    - Verify both logical activation and realized workspace identity.
+    - Do not fabricate topology/map/report workspace IDs; those are not the
+      canonical workspace identifiers in the current definitions.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — AUTOMATIC WORKFLOW VERIFICATION PENDING
+
+======================================================================

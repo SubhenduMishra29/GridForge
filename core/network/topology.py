@@ -47,7 +47,7 @@ class TopologyManager:
             buses=tuple(sorted({
                 str(resolved.attached_bus_id)
                 for reference in terminals
-                for resolved in (boundary.resolve(reference),)
+                for resolved in (boundary.resolve(reference.terminal_reference),)
                 if resolved.attached_bus_id is not None
                 and str(resolved.attached_bus_id) in active_bus_ids
             }))
@@ -60,7 +60,7 @@ class TopologyManager:
         for source,targets in resolved_connectivity.topology_adjacency:
             if not source.is_terminal:
                 continue
-            b=boundary.resolve(source)
+            b=boundary.resolve(source.terminal_reference)
             if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
                 source_bus=b.attached_bus_id
                 opposite=boundary.resolve(b.opposite_terminal)

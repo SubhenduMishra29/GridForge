@@ -145,6 +145,18 @@ class ModelPlacementTool(ToolBase):
         draft = self._require_creation_context().require_draft()
         equipment_type = draft.equipment_type
         equipment_id = self._active_draft_id or f"{draft.definition.tool_id}-draft-{uuid4().hex}"
+        # Application owns the trusted creation contract. The UI's creation
+        # definition supplies current values and presentation intent only; it
+        # must not author schema metadata that the commit boundary later trusts.
+        registry = getattr(self.application, "creation_contract_registry", None)
+        if registry is None:
+            self._report_feedback("CREATION_INTENT_FAILED: Application creation contract registry is unavailable.")
+            return False
+        try:
+            canonical_contract = registry.resolve(equipment_type)
+        except (KeyError, TypeError, ValueError) as exc:
+            self._report_feedback(f"CREATION_INTENT_FAILED: no trusted contract for {equipment_type!r}: {exc}")
+            return False
         # Position-first placement: incomplete engineering configuration is
         # valid DraftNetwork authoring state and must not block visual placement.
         # Engineering validation remains authoritative for later commit readiness.
@@ -158,7 +170,7 @@ class ModelPlacementTool(ToolBase):
                 "draft_id": equipment_id,
                 "equipment_type": equipment_type,
                 "display_name": draft.definition.equipment_type,
-                "terminal_contract": tuple(item.terminal_name for item in draft.definition.terminal_requirements),
+                "terminal_contract": tuple(canonical_contract["terminal_contract"]),
                 "engineering_data": dict(draft.snapshot_values()),
                 # Preserve every explicitly acquired creation endpoint using
                 # the canonical persisted DraftEndpointReference. The UI
@@ -175,32 +187,15 @@ class ModelPlacementTool(ToolBase):
                 "placement": draft.placement_position,
                 "presentation": dict(draft.preview_state),
                 "validation_state": dict(draft.validation_state),
-                "command_type": draft.definition.command_type,
-                "id_field": draft.definition.id_field,
-                "parameter_mapping": dict(draft.definition.parameter_mapping),
-                "endpoint_mapping": dict(draft.definition.endpoint_mapping),
-                "required_connection_terminals": tuple(
-                    requirement.name
-                    for requirement in draft.definition.topology_requirements
-                    if requirement.required
+                "command_type": canonical_contract["command_type"],
+                "id_field": canonical_contract["id_field"],
+                "parameter_mapping": dict(canonical_contract["parameter_mapping"]),
+                "endpoint_mapping": dict(canonical_contract["endpoint_mapping"]),
+                "required_connection_terminals": tuple(canonical_contract["required_connection_terminals"]),
+                "parameter_contract": tuple(dict(item) for item in canonical_contract["parameter_contract"]),
+                "conditional_requirements": tuple(
+                    dict(item) for item in canonical_contract["conditional_requirements"]
                 ),
-                "parameter_contract": tuple({
-                    "parameter_id": item.parameter_id,
-                    "display_name": item.display_name,
-                    "datatype": item.datatype,
-                    "unit": item.unit,
-                    "required_before_create": item.required_before_create,
-                    "default_value": item.default_value,
-                    "choices": tuple(item.choices),
-                    "minimum": item.minimum,
-                    "maximum": item.maximum,
-                    "validation": dict(item.validation),
-                } for item in draft.definition.parameter_definitions),
-                "conditional_requirements": tuple({
-                    "label": item.label,
-                    "require_any": tuple(item.require_any),
-                    "require_all": tuple(item.require_all),
-                } for item in draft.definition.conditional_requirements),
             }
             command = AddDraftEquipmentCommand(equipment=equipment)
             result = self.execute_command(command)

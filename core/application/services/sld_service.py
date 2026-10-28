@@ -641,6 +641,12 @@ class SLDService:
         properties.update(dict(presentation_properties))
 
         presentation = p.get("presentation")
+        presentation_rotation = p.get("presentation_rotation")
+        if presentation_rotation is not None:
+            if isinstance(presentation_rotation, bool) or not isinstance(presentation_rotation, (int, float)):
+                raise TypeError("presentation_rotation must be numeric when provided.")
+            if not math.isfinite(float(presentation_rotation)):
+                raise ValueError("presentation_rotation must be finite.")
         if presentation is None and equipment_id is not None:
             if self._symbol_presentation_factory is None:
                 raise ValueError(
@@ -662,6 +668,13 @@ class SLDService:
             # Copy the complete renderer-neutral representation without
             # rewriting symbol identity, rotation, geometry, or properties.
             presentation = dict(presentation)
+        if presentation_rotation is not None:
+            if presentation is None:
+                raise ValueError("presentation_rotation requires a canonical symbol presentation.")
+            # Draft orientation is a separate authoring field, not a
+            # SymbolBase mapping. Apply it only after the canonical symbol
+            # identity has been resolved by the configured factory.
+            presentation["rotation"] = float(presentation_rotation)
 
         node_id = p["node_id"]
         # Reject identity collisions before registering compensation. In

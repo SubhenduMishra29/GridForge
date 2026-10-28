@@ -1666,6 +1666,19 @@ class Application:
                             transaction,
                         )
                     x, y = item.get("x"), item.get("y")
+                    draft_presentation = item.get("presentation")
+                    symbol_presentation = (
+                        dict(draft_presentation)
+                        if isinstance(draft_presentation, Mapping)
+                        and isinstance(draft_presentation.get("symbol_id"), str)
+                        and draft_presentation["symbol_id"].strip()
+                        else None
+                    )
+                    draft_rotation = (
+                        draft_presentation.get("orientation")
+                        if symbol_presentation is None and isinstance(draft_presentation, Mapping)
+                        else None
+                    )
                     if x is not None and y is not None:
                         self._sld_service.execute(
                             AddSLDNodeCommand(
@@ -1676,7 +1689,8 @@ class Application:
                                 presentation_owner="projection",
                                 projection_source="network.commit_draft",
                                 element_type=str(item["element_type"]),
-                                presentation=item.get("presentation") or None,
+                                presentation=symbol_presentation,
+                                presentation_rotation=draft_rotation,
                                 presentation_properties={"position_owner": "engineer"},
                                 correlation_id=command.correlation_id,
                                 causation_id=command.command_id,
@@ -1695,15 +1709,17 @@ class Application:
                         raise ValueError(
                             f"SLD connection identity collision for committed connection {connection_id!r}."
                         )
+                    source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
+                    target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
-                            source_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_a"]),
-                            target_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_b"]),
-                            source_endpoint=item["endpoint_a"],
-                            target_endpoint=item["endpoint_b"],
+                            source_node_id=source_endpoint["node_id"],
+                            target_node_id=target_endpoint["node_id"],
+                            source_endpoint=source_endpoint,
+                            target_endpoint=target_endpoint,
                             connection_kind="SIMPLE_WIRE",
-                            route=item.get("route"),
+                            route=item.get("route") or None,
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
                             core_connection_id=str(item["connection_id"]),
@@ -1847,6 +1863,41 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
+    def _sld_endpoint_for_committed_mapping(self, mapping: Any) -> dict[str, Any]:
+        """Translate DraftNetwork endpoint identity into the canonical SLD projection schema."""
+        if not isinstance(mapping, Mapping):
+            raise TypeError("Committed draft endpoint mapping must be a mapping.")
+        kind = str(mapping.get("kind") or "")
+        object_id = str(mapping.get("object_id") or "")
+        if not object_id:
+            raise ValueError("Committed endpoint mapping requires a non-empty object_id.")
+        node_id = self._sld_node_id_for_endpoint_mapping(mapping)
+        if kind == "bus":
+            attachment_id = mapping.get("attachment_id")
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Committed Bus endpoint requires attachment_id.")
+            return {
+                "kind": "bus",
+                "node_id": node_id,
+                "equipment_id": None,
+                "terminal_role": None,
+                "bus_id": object_id,
+                "attachment_id": attachment_id,
+            }
+        if kind == "terminal":
+            terminal_role = mapping.get("terminal_role")
+            if not isinstance(terminal_role, str) or not terminal_role:
+                raise ValueError("Committed terminal endpoint requires terminal_role.")
+            return {
+                "kind": "equipment",
+                "node_id": node_id,
+                "equipment_id": object_id,
+                "terminal_role": terminal_role,
+                "bus_id": None,
+                "attachment_id": None,
+            }
+        raise ValueError(f"Unsupported committed draft endpoint kind: {kind!r}.")
+
     def _sld_node_id_for_endpoint_mapping(self, mapping: Any) -> str:
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint projection.")
@@ -1930,7 +1981,7 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
-    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, str]:
+    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, Any]:
         """Resolve an immutable Core endpoint reference to semantic SLD identity only."""
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint presentation coordination.")
@@ -1957,6 +2008,8 @@ class Application:
             return {
                 "kind": "bus",
                 "node_id": str(node.node_id),
+                "equipment_id": None,
+                "terminal_role": None,
                 "bus_id": str(reference.object_id),
                 "attachment_id": attachment_id,
             }
@@ -1966,6 +2019,8 @@ class Application:
             "node_id": str(node.node_id),
             "equipment_id": str(reference.object_id),
             "terminal_role": str(reference.terminal_role),
+            "bus_id": None,
+            "attachment_id": None,
         }
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()

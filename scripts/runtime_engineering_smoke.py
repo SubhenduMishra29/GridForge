@@ -8,7 +8,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import main
-from ui.core.qt import QListWidget, QPointF, QTabWidget
+from core.application.commands.draft_commands import CommitNetworkCommand
+from ui.core.qt import QListWidget, QPointF, QWidget
 
 
 TARGET_TOOL_IDS = (
@@ -39,10 +40,14 @@ def main_smoke() -> None:
         panels = plugin_manager.get("panels")
         if panels is None:
             raise SystemExit("Runtime smoke: Panels plugin missing.")
-        equipment_dock = panels.get_dock("equipment")
-        if equipment_dock is None:
-            raise SystemExit("Runtime smoke: equipment dock missing.")
-        palette = equipment_dock.widget().findChild(QListWidget, "EquipmentPalette")
+        # Workspace owns panel placement; legacy dock wrappers are not the
+        # authoritative widget lookup once the panel is embedded in an Area.
+        equipment_panel = window.findChild(QWidget, "GridForgePanel_equipment")
+        if equipment_panel is None:
+            equipment_panel = getattr(panels, "_panels", {}).get("equipment")
+        if equipment_panel is None:
+            raise SystemExit("Runtime smoke: equipment panel widget missing.")
+        palette = equipment_panel.findChild(QListWidget, "EquipmentPalette")
         if palette is None:
             raise SystemExit("Runtime smoke: equipment palette widget missing.")
 
@@ -70,7 +75,26 @@ def main_smoke() -> None:
             raise SystemExit("Runtime smoke: Bus placement did not commit.")
         app.processEvents()
 
-        network = controller.application.read_network()
+        application = controller.application
+        draft = application.draft_network
+        draft_buses = tuple(
+            item for item in draft.equipment
+            if str(getattr(item, "equipment_type", "")).lower() == "bus"
+        )
+        if not draft_buses:
+            raise SystemExit("Runtime smoke: placed Bus is absent from DraftNetwork.")
+
+        commit_result = application.execute(
+            CommitNetworkCommand(
+                project_id=draft.project_id,
+                activation_generation=draft.activation_generation,
+                draft_network=draft.to_dict(),
+            )
+        )
+        if not commit_result.success:
+            raise SystemExit(f"Runtime smoke: DraftNetwork commit failed: {commit_result.message}")
+
+        network = application.read_network()
         buses = tuple(
             element for element in network.elements
             if str(getattr(element, "element_type", "")).lower() in {"bus", "buses"}
@@ -81,19 +105,24 @@ def main_smoke() -> None:
         if not tool_manager.preview_layer.scene.items():
             raise SystemExit("Runtime smoke: committed Bus did not produce a permanent SLD graphics item.")
 
-        tabs = window.findChild(QTabWidget, "EngineeringWorkspaceTabs")
-        if tabs is None:
-            raise SystemExit("Runtime smoke: engineering workspace tabs are missing.")
-        engineering_tabs = tabs.parentWidget()
-        for surface_id in ("sld", "topology", "map", "reports", "control", "protection"):
-            activate = getattr(engineering_tabs, "activate", None)
-            if not callable(activate):
-                raise SystemExit("Runtime smoke: canonical engineering tab host is not activatable.")
-            activate(surface_id)
+        # WorkspaceController is the canonical Area → Editor → Region
+        # activation boundary. Do not require a legacy QTabWidget or invent
+        # workspace IDs for editors that are regions within another workspace.
+        for workspace_id in ("sld", "control", "protection", "study"):
+            workspace_controller.activate(workspace_id)
             app.processEvents()
+            if workspace_controller.active_workspace_id != workspace_id:
+                raise SystemExit(
+                    f"Runtime smoke: workspace {workspace_id!r} did not become active."
+                )
+            if workspace_controller.realized_workspace_id != workspace_id:
+                raise SystemExit(
+                    f"Runtime smoke: workspace {workspace_id!r} was not realized."
+                )
 
         selected_ids = tuple(tool_manager.selection_manager.get_selected_ids())
-        if str(buses[-1].object_id) not in selected_ids:
+        committed_bus_id = str(getattr(buses[-1], "object_id", ""))
+        if not committed_bus_id or committed_bus_id not in selected_ids:
             raise SystemExit("Runtime smoke: committed Bus was not selected through SelectionManager.")
 
         print("RUNTIME VERIFIED: palette icons, tool activation, live previews, Bus placement, read-model visibility, and selection.")
