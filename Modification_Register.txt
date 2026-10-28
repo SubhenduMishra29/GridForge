@@ -9130,3 +9130,31 @@ Disposition:
     Documentation-only replacement for the still-open, now-redundant PR #676.
     This branch does not alter core/application/study.py.
 ======================================================================
+
+======================================================================
+GF-MOTOR-106 — Reject duplicate motor identities in one transient batch
+======================================================================
+
+Finding:
+    The batch solver accepted duplicate motor IDs. Results are keyed by motor
+    identity in the read model, so two trajectories with the same identity
+    could overwrite one another and make batch output ambiguous.
+
+Correction:
+    The public batch API now rejects repeated canonical motor IDs before
+    backend discovery or execution. IDs are compared after trimming, matching
+    the identity normalization used by result creation.
+
+Boundary:
+    This prevents ambiguous identity collisions; it does not validate
+    cross-study concurrency or physical model equivalence.
+
+Verification:
+    Source inspection only. No tests, syntax checks, imports, runtime,
+    accelerator hardware, or CI were run. The branch has been reconciled onto
+    current main after the canonical startup/DraftNetwork correction in PR
+    #683; automatic verification of this rebased head is pending.
+
+Disposition:
+    Submitted in a focused PR; review and runtime validation pending.
+======================================================================
