@@ -9775,3 +9775,42 @@ Verification:
     claimed for the current motor transient integration workload.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-082
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Project lifecycle activation rollback under process-level interruption
+
+Finding:
+    ProjectLifecycleService._activate_candidate() performed a multi-component
+    activation transaction but caught Exception rather than BaseException.
+    KeyboardInterrupt or SystemExit raised after one or more activators had
+    changed state could bypass the rollback stack, leaving the active
+    presentation/network components partially switched while lifecycle
+    authority still described the previous project. The presentation activator
+    already handles BaseException, demonstrating that interruption cleanup is
+    part of the intended transaction contract.
+
+Correction:
+    - Catch BaseException at the activation transaction boundary so rollback
+      callbacks are attempted for interruption as well as ordinary failures.
+    - Continue attempting remaining rollback callbacks if a callback itself
+      raises BaseException.
+    - Preserve the original activation failure as the raised cause when
+      rollback is incomplete and keep the lifecycle in ROLLBACK_FAILED state.
+
+Verification:
+    Static source re-fetch and targeted pattern checks only. No tests, CI,
+    syntax/import checks, interruption injection, or runtime/GUI verification
+    were run.
+
+Status:
+    🟡 SOURCE CORRECTION APPLIED — STATIC CHECKS ONLY
+
+======================================================================
