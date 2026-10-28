@@ -1058,10 +1058,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
+        project = change.state.project
         properties_panel = panels_plugin.get_panel("properties")
+
+        # Project/document transitions must invalidate SLD selection from the
+        # previous document and publish one coherent context for action routing.
+        next_document_id = document.document_id if isinstance(document, SLDDocument) else None
+        current_context = engineering_context.current
+        if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
+            canvas_composition.selection_manager.clear()
+        engineering_context.update(
+            project_id=getattr(project, "project_id", None),
+            project_name=getattr(project, "name", None),
+            document_id=next_document_id,
+            selected_ids=tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids()),
+        )
+
         if isinstance(document, SLDDocument):
             sld_controller.reconcile_presentation()
-            engineering_context.update(document_id=document.document_id)
             workspace_surface_host.set_sld_document(document)
             workspace_surface_host.refresh_sld_document_tabs()
             synchronize_canvas()
@@ -1069,8 +1083,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             if callable(document_changed):
                 document_changed()
         else:
-            # A non-SLD/empty workspace transition must not leave controls for
-            # the previously active SLD document visible in the Properties panel.
+            # A non-SLD/empty workspace transition must clear stale SLD
+            # presentation, selection context, and document-specific controls.
+            workspace_surface_host.set_sld_document(None)
+            workspace_surface_host.refresh_sld_document_tabs()
+            synchronize_canvas()
             clear_annotations = getattr(properties_panel, "clear_sld_annotation_controls", None)
             if callable(clear_annotations):
                 clear_annotations()
