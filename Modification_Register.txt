@@ -10343,7 +10343,7 @@ Correction:
 Verification:
     - Static source review only; no tests, CI, syntax/import checks, or GUI
       runtime were run.
-    - Pending focused diff review.
+    - PR #714 merged after static diff review; no runtime checks were run.
 
 Status:
-    PENDING — PR not yet opened.
+    MERGED — PR #714; static checks only, runtime verification not run.
