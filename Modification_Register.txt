@@ -10573,4 +10573,4 @@ Verification:
     - No tests, CI, syntax/import checks, or GUI runtime were run.
 
 Status:
-    OPEN — correction prepared in PR; runtime behavior remains unverified.
+    MERGED — PR #728; static checks only, runtime behavior remains unverified.
