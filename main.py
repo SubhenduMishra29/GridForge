@@ -433,7 +433,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         # The explorer Region is intentionally hidden in the default SLD layout.
         # Open it through the workspace host instead of trying to focus a hidden
         # Region (WorkspaceRealizer correctly rejects invisible Regions).
-        workspace_controller.activate(SLD_WORKSPACE_ID)
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
         workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
@@ -778,12 +778,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         engineering_context.update(discipline=surface_id, active_tool=None)
 
     def _toggle_sld_maximize() -> None:
-        workspace_controller.activate(SLD_WORKSPACE_ID)
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
         maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
         workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
 
     def _toggle_sld_region(region_id: str) -> None:
-        workspace_controller.activate(SLD_WORKSPACE_ID)
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
         workspace_surface_host.toggle_region("sld", region_id)
 
     action_router.register_many({
