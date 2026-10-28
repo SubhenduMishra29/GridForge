@@ -10645,3 +10645,38 @@ Verification:
 
 Status:
     MERGED — PR #732; static checks only, runtime behavior remains unverified.
+
+
+======================================================================
+GF-AUD-097 — Retain last-good SLD node on realization failure
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Incremental SLD canvas node reconciliation
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    The renderer removed a valid existing node before attempting to realize
+    its replacement. If semantic realization or graphics-item creation failed,
+    the previous visible node was lost and replaced by a degraded placeholder,
+    even though a last-good item had been available.
+
+Correction:
+    - Retain the previous realized node while constructing its replacement.
+    - If realization fails, keep the previous item visible, attach failure
+      context, mark the node for retry, and do not stamp the failed snapshot
+      signature onto the retained item.
+    - Remove the old item only after replacement realization succeeds.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    OPEN — correction prepared in PR; runtime behavior remains unverified.
