@@ -54,7 +54,7 @@ class AddSLDNodeCommand(Command):
                 "element_type": element_type,
                 "presentation": None if presentation is None else dict(presentation),
                 "presentation_properties": {} if presentation_properties is None else dict(presentation_properties),
-                "presentation_rotation": None if presentation_rotation is None else float(presentation_rotation),
+                "presentation_rotation": presentation_rotation,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
