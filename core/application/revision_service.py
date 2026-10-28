@@ -253,12 +253,15 @@ class RevisionService:
         """Restore model/presentation revision while adopting the actual Core topology revision."""
         if not self._undo:
             raise RuntimeError("No revision transition is available to undo.")
-        transition = self._undo.pop()
+        transition = self._undo[-1]
         if transition.after != self._current:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
         before = transition.before
         if topology_revision is not None:
             before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
+        # Validate and construct the complete target state before mutating either
+        # revision stack. A bad topology revision must not consume the transition.
+        self._undo.pop()
         self._current = before
         self._redo.append(_RevisionTransition(before, transition.after, transition.command_id))
         return self._current
@@ -267,7 +270,7 @@ class RevisionService:
         """Restore the exact revision state represented by the latest redo transition."""
         if not self._redo:
             raise RuntimeError("No revision transition is available to redo.")
-        transition = self._redo.pop()
+        transition = self._redo[-1]
         if transition.before != self._current:
             raise RuntimeError("Revision redo state is inconsistent with current revision.")
         after = transition.after
@@ -280,6 +283,9 @@ class RevisionService:
                 presentation_revision=after.presentation_revision,
                 persisted_revision=after.persisted_revision,
             )
+        # Do not consume redo history until all consistency checks and target
+        # revision construction have succeeded.
+        self._redo.pop()
         self._current = after
         self._undo.append(_RevisionTransition(transition.before, after, transition.command_id))
         return self._current
