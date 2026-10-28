@@ -1015,7 +1015,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if action_id in {"redo", "edit.redo"}:
             return project_active and bool(getattr(controller, "can_redo", lambda: False)())
         if action_id == "network.commit_draft":
-            return project_active and discipline == "sld"
+            if not project_active or discipline != "sld":
+                return False
+            # Do not advertise Commit when the authoritative draft is empty.
+            # Read the Application snapshot rather than inferring draft state
+            # from canvas items, selection, or Qt presentation objects.
+            try:
+                draft_snapshot = gridforge_application.read_draft_network()
+            except (RuntimeError, ValueError, TypeError):
+                return False
+            if not isinstance(draft_snapshot, dict):
+                return False
+            draft_equipment = draft_snapshot.get("equipment", ())
+            draft_connections = draft_snapshot.get("connections", ())
+            return bool(draft_equipment or draft_connections)
         if action_id in {"delete", "edit.delete_selection", "copy", "edit.copy", "edit.cut", "edit.rotate",
                          "edit.mirror_horizontal", "edit.mirror_vertical"}:
             return project_active and discipline == "sld" and selected
