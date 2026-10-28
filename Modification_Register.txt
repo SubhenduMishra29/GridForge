@@ -9186,6 +9186,8 @@ PR:
 
 Verification:
     Static source review only. Tests, numerical parity checks, and hardware
-    execution were not run.
+    execution were not run manually. The branch is rebased onto current main
+    after the duplicate-ID batch fix; automatic verification of this head is
+    pending.
 
 ======================================================================
