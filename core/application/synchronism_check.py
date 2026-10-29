@@ -132,7 +132,15 @@ class SynchronismCheckGuard:
                         angle=abs((left.phase_angle_deg-right.phase_angle_deg+180.0)%360.0-180.0)
                         if angle>config.max_phase_angle_difference_deg: reasons.append("ANSI25_PHASE_ANGLE_DIFFERENCE_EXCEEDED")
                         if abs(left.frequency_hz-right.frequency_hz)>config.max_frequency_difference_hz: reasons.append("ANSI25_FREQUENCY_DIFFERENCE_EXCEEDED")
-        if reasons and config is not None and config.bypass_allowed and self._bypass_provider is not None:
+        bypassable_reasons = {
+            "ANSI25_VOLTAGE_DIFFERENCE_EXCEEDED",
+            "ANSI25_PHASE_ANGLE_DIFFERENCE_EXCEEDED",
+            "ANSI25_FREQUENCY_DIFFERENCE_EXCEEDED",
+        }
+        # Bypass may override only measured synchronism-limit exceedances.
+        # It can never override absent configuration, bad/stale samples, or
+        # an explicitly disallowed live/dead operating mode.
+        if reasons and set(reasons).issubset(bypassable_reasons) and config is not None and config.bypass_allowed and self._bypass_provider is not None:
             try:
                 auth=self._bypass_provider(breaker)
             except Exception:
