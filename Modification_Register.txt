@@ -14882,3 +14882,12 @@ Verification:
     were run.
 
 ======================================================================
+
+
+Additional validation added in the same increment:
+    - Project-candidate validation now verifies that each of the six configured
+      ANSI 25 channel IDs exists in persisted measurement definitions and that each
+      definition declares the expected signal type and canonical unit.
+    - A project with missing or mismatched channel references is rejected before
+      project activation. Runtime sample freshness and quality are still checked
+      at decision time by the channel adapter/guard.
