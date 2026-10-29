@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 import math
 import time
 from typing import Callable, Mapping
@@ -32,7 +33,7 @@ class SynchronismCheckConfiguration:
             raise ValueError("Invalid ANSI 25 freshness or phase-angle limit")
         if not isinstance(self.allowed_modes,Mapping) or any(mode not in self.allowed_modes or not isinstance(self.allowed_modes[mode],bool) for mode in BusMode):
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
-        object.__setattr__(self,"allowed_modes",{mode:self.allowed_modes[mode] for mode in BusMode})
+        object.__setattr__(self,"allowed_modes",MappingProxyType({mode:self.allowed_modes[mode] for mode in BusMode}))
         if not isinstance(self.bypass_allowed,bool): raise TypeError("bypass_allowed must be bool")
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +57,15 @@ class BypassAuthorization:
     reason: str
     expires_at: float
     authorization_id: str
+    def __post_init__(self):
+        for name in ("authorized_by", "reason", "authorization_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if isinstance(self.expires_at, bool) or not isinstance(self.expires_at, (int, float)) or not math.isfinite(self.expires_at):
+            raise ValueError("expires_at must be a finite timestamp")
     def valid(self, now: float) -> bool:
-        return bool(self.authorized_by.strip() and self.reason.strip() and self.authorization_id.strip() and math.isfinite(self.expires_at) and now < self.expires_at)
+        return now < self.expires_at
 
 @dataclass(frozen=True, slots=True)
 class SynchronismDecision:
@@ -80,12 +88,20 @@ class SynchronismCheckGuard:
     def authorize_close(self, breaker: Breaker) -> SynchronismDecision:
         if not isinstance(breaker,Breaker): raise TypeError("ANSI 25 guard requires a Breaker")
         now=self._clock(); reasons=[]; mode=None
-        config=self._configuration_provider(breaker)
+        try:
+            config=self._configuration_provider(breaker)
+        except Exception:
+            config=None
+            reasons.append("ANSI25_CONFIGURATION_PROVIDER_FAILED")
         left=right=None
         if not isinstance(config,SynchronismCheckConfiguration):
-            reasons.append("ANSI25_CONFIGURATION_MISSING")
+            if not reasons: reasons.append("ANSI25_CONFIGURATION_MISSING")
         else:
-            measurements=self._measurement_provider(breaker)
+            try:
+                measurements=self._measurement_provider(breaker)
+            except Exception:
+                measurements=None
+                reasons.append("ANSI25_MEASUREMENT_PROVIDER_FAILED")
             if not isinstance(measurements,tuple) or len(measurements)!=2 or not all(isinstance(m,PhasorMeasurement) for m in measurements):
                 reasons.append("ANSI25_MEASUREMENT_MISSING")
             else:
