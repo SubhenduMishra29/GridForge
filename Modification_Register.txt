@@ -14670,3 +14670,53 @@ Verification boundary:
     injection was performed.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-I — New authoring, playback, merge, and plugin capabilities
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #826, #827, #830, #833, #834, #835, #836.
+
+Findings and dispositions:
+    - #826: Tool/CreationContext state is transient; DraftNetwork authoring state is
+      Application-owned. A dedicated draft undo journal is not established by the
+      committed command history. Define gesture cancellation, draft undo/redo, and
+      commit semantics before changing Escape behavior.
+    - #827: Inline insertion already has an explicit SelectTool/ElectricalInsertionTool
+      path. Proximity assist may select a candidate, but cannot infer electrical
+      insertion intent from distance alone. Keep PT/CVT out of series insertion
+      without their own electrical contracts.
+    - #830: Obstacle-aware orthogonal routing is on main through PR #837 and overlaps
+      #817. This issue's distinct increment is live trajectory preview; reuse the
+      canonical router rather than create a second A* implementation.
+    - #833: Time-indexed dynamic-study playback is a new presentation capability.
+      Define StudyResult time-series schema, deterministic cursor, pause/seek,
+      scheduling/backpressure, and read-only projection semantics.
+    - #834: The 2D canvas needs a profiled spatial-index/culling design, not a 3D
+      octree by default. Destructive scene unloading can invalidate selection,
+      snap registration, and object lifecycle; preserve canonical document state.
+    - #835: Visual three-way project merge needs stable identities, schema migration,
+      field-level conflict classification, and typed Application patch commands.
+      Generic “blend” behavior is unsafe for electrical parameters without
+      property-specific semantics.
+    - #836: Process-isolated plugin execution is the appropriate direction for
+      untrusted third-party code, but requires versioned IPC, explicit capabilities,
+      resource/time limits, cancellation/termination, and an SDK migration path.
+      Current in-process Python plugins are not a sandbox.
+
+Disposition:
+    Keep all scoped issues open as capability/contract work. No feature was marked
+    implemented merely because the architecture direction was described. Do not
+    pass Qt objects, Application instances, live Core objects, or arbitrary Python
+    callables across a future plugin process boundary.
+
+Verification boundary:
+    Source and issue inspection only. No tests/CI, syntax/import checks, profiling,
+    multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
+
+======================================================================
