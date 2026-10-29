@@ -25,7 +25,7 @@ class SynchronismCheckConfiguration:
     dead_bus_voltage_max_kv: float
     allowed_modes: Mapping[BusMode, bool]
     measurement_channel_ids: Mapping[str, str]
-    bypass_allowed: bool = False
+    bypass_allowed: bool
     def __post_init__(self):
         for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","dead_bus_voltage_max_kv"):
             value=getattr(self,name)
@@ -152,6 +152,8 @@ class SynchronismDecision:
 def phasor_measurements_from_channels(
     configuration: SynchronismCheckConfiguration,
     channels: Mapping[str, MeasurementChannel],
+    *,
+    now: float,
 ) -> tuple[PhasorMeasurement, PhasorMeasurement]:
     """Build ANSI 25 side measurements from six explicitly bound logical channels.
 
@@ -163,6 +165,8 @@ def phasor_measurements_from_channels(
         raise TypeError("ANSI 25 configuration is required.")
     if not isinstance(channels, Mapping):
         raise TypeError("Measurement channel registry must be a mapping.")
+    if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now):
+        raise ValueError("ANSI 25 evaluation time must be a finite timestamp.")
 
     specifications = {
         "left_voltage": (MeasurementSignalType.VOLTAGE, {"kv"}, "voltage_magnitude_kv"),
@@ -186,6 +190,9 @@ def phasor_measurements_from_channels(
             raise ValueError(f"ANSI 25 channel {channel_id!r} is unavailable or quality is not GOOD.")
         if channel.timestamp is None or isinstance(channel.timestamp, bool) or not isinstance(channel.timestamp, (int, float)) or not math.isfinite(channel.timestamp):
             raise ValueError(f"ANSI 25 channel {channel_id!r} has no valid sample timestamp.")
+        age = now - channel.timestamp
+        if age < 0 or age > configuration.max_measurement_age_seconds:
+            raise ValueError(f"ANSI 25 channel {channel_id!r} is future-dated or stale.")
         value = channel.engineering_value
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError(f"ANSI 25 channel {channel_id!r} has a non-finite or non-scalar engineering value.")
