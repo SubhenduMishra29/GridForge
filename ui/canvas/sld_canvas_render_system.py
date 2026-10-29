@@ -51,6 +51,11 @@ class SLDCanvasRenderSystem:
 
     DEFAULT_ANNOTATION_MIN_ZOOM = 0.65
 
+    # Explicit, deterministic scene layers: wires behind equipment, labels above.
+    CONNECTION_Z_VALUE = 10.0
+    EQUIPMENT_Z_VALUE = 20.0
+    ANNOTATION_Z_VALUE = 30.0
+
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
                  selection_manager: Any = None,
@@ -413,6 +418,7 @@ class SLDCanvasRenderSystem:
                     continue
                 if degraded is None:
                     degraded = self._create_degraded_realization(node, message, code)
+                    degraded.setZValue(self.EQUIPMENT_Z_VALUE)
                     self._scene.addItem(degraded)
                     self._items[node.node_id] = (degraded,)
                 else:
@@ -425,6 +431,7 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
+            item.setZValue(self.EQUIPMENT_Z_VALUE)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._attach_realized_item(item, register_snap=True)
@@ -460,7 +467,7 @@ class SLDCanvasRenderSystem:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
-                item.setZValue(1.0)
+                item.setZValue(self.EQUIPMENT_Z_VALUE)
                 self._attach_realized_item(item, register_snap=True)
                 if previous_degraded is not None:
                     self._remove_realized(render_id)
@@ -513,7 +520,7 @@ class SLDCanvasRenderSystem:
                     fallback.draft_id = node.draft_id
                     fallback.is_draft_presentation = True
                     fallback.setPos(float(node.x), float(node.y))
-                    fallback.setZValue(1.0)
+                    fallback.setZValue(self.EQUIPMENT_Z_VALUE)
                     label = QGraphicsTextItem(
                         f"Symbol unavailable\n{node.display_name}", fallback
                     )
@@ -575,6 +582,7 @@ class SLDCanvasRenderSystem:
                     route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
                     route_points = tuple(route.points[1:-1])
                 item = self._item_factory.create_connection(connection, source, target)
+                item.setZValue(self.CONNECTION_Z_VALUE)
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
                 self._bind_route_edit_item(item)
                 if callable(getattr(item, "set_visual_state", None)):
@@ -622,6 +630,7 @@ class SLDCanvasRenderSystem:
                     source_object_id=source_id,
                     target_object_id=target_id,
                 )
+                item.setZValue(self.CONNECTION_Z_VALUE)
                 if callable(getattr(item, "set_visual_state", None)):
                     item.set_visual_state(VisualState.NORMAL)
                 self._scene.addItem(item)
@@ -654,7 +663,7 @@ class SLDCanvasRenderSystem:
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
             item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
-            item.setZValue(5.0)
+            item.setZValue(self.ANNOTATION_Z_VALUE)
             self._attach_realized_item(item)
             if previous_item is not None:
                 self._remove_realized(render_id)
