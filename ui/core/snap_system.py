@@ -1357,6 +1357,21 @@ class SnapSystem:
         if self._disposed:
             return
 
+        # Disconnect per-item movement callbacks before releasing the
+        # registry. Clearing only the dictionaries leaves signal connections
+        # alive on long-lived graphics items and can retain this service or
+        # invoke refresh_item() after disposal.
+        for item_key, callback_entry in tuple(self._movement_callbacks.items()):
+            signal, callback = callback_entry
+            disconnect = getattr(signal, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect(callback)
+                except (TypeError, RuntimeError):
+                    # A deleted Qt sender or an already-disconnected signal
+                    # needs no further cleanup.
+                    pass
+            self._movement_callbacks.pop(item_key, None)
         self._registered_items.clear()
         self._last_result = None
         self.grid_system = None
