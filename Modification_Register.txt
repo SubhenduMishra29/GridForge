@@ -14749,7 +14749,8 @@ Approved policy:
       disallowed live/dead mode denies closing.
     - An optional bypass requires project configuration to enable it and
       a non-empty, unexpired authorization identity, reason, and ID.
-    - Each decision is sent to the configured audit sink when provided.
+    - An audit sink is mandatory when constructing the guard; every evaluated
+      decision is sent to it, and audit-sink failure aborts before mutation.
     - ANSI 25 authorization is checked before breaker state mutation in
       close_breaker, update_breaker(closed=True), and closed breaker
       creation. Missing guard denies these paths.
