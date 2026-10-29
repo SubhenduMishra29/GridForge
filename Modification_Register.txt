@@ -14891,3 +14891,15 @@ Additional validation added in the same increment:
     - A project with missing or mismatched channel references is rejected before
       project activation. Runtime sample freshness and quality are still checked
       at decision time by the channel adapter/guard.
+
+
+Per-breaker scoping correction:
+    - Added SynchronismCheckProjectConfiguration as a strict project registry keyed
+      by canonical breaker ID. Each breaker has its own complete synchronism limits,
+      four explicit live/dead permissions, bypass policy and six distinct channel IDs.
+    - Candidate-project validation rejects policy entries whose equipment ID does
+      not resolve to a Breaker, whose channel IDs are missing, or whose channel
+      definitions have the wrong signal type or engineering unit.
+    - This prevents one global set of bus measurements from being reused
+      unintentionally for every breaker. The active guard still needs to select
+      the matching policy by breaker ID and consume the adapter at runtime.
