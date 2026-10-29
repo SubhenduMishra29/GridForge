@@ -84,14 +84,19 @@ def _blocked(a: Point, b: Point, r: Bounds) -> bool:
 
 
 def _crosses(a: Point, b: Point, c: Point, d: Point) -> bool:
-    if a[1] == b[1] and c[1] == d[1]:
+    a_horizontal = a[1] == b[1]
+    c_horizontal = c[1] == d[1]
+    if a_horizontal and c_horizontal:
         return a[1] == c[1] and max(min(a[0], b[0]), min(c[0], d[0])) < min(max(a[0], b[0]), max(c[0], d[0]))
-    if a[0] == b[0] and c[0] == d[0]:
+    if not a_horizontal and not c_horizontal:
         return a[0] == c[0] and max(min(a[1], b[1]), min(c[1], d[1])) < min(max(a[1], b[1]), max(c[1], d[1]))
-    h1, v1 = (a, b) if a[1] == b[1] else (b, a)
-    h2, v2 = (c, d) if c[1] == d[1] else (d, c)
-    x, y = v1[0], h1[1]
-    return min(h2[0], v2[0]) <= x <= max(h2[0], v2[0]) and min(v2[1], h2[1]) <= y <= max(v2[1], h2[1])
+    horizontal_start, horizontal_end = (a, b) if a_horizontal else (c, d)
+    vertical_start, vertical_end = (c, d) if a_horizontal else (a, b)
+    x, y = vertical_start[0], horizontal_start[1]
+    return (
+        min(horizontal_start[0], horizontal_end[0]) <= x <= max(horizontal_start[0], horizontal_end[0])
+        and min(vertical_start[1], vertical_end[1]) <= y <= max(vertical_start[1], vertical_end[1])
+    )
 
 
 def _simplify(points: list[Point]) -> tuple[Point, ...]:
