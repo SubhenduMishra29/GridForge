@@ -284,7 +284,7 @@ class SynchronismCheckGuard:
             if not reasons: reasons.append("ANSI25_CONFIGURATION_MISSING")
         else:
             try:
-                measurements=self._measurement_provider(breaker)
+                measurements=self._measurement_provider(breaker, config)
             except Exception:
                 measurements=None
                 reasons.append("ANSI25_MEASUREMENT_PROVIDER_FAILED")
@@ -361,10 +361,7 @@ def create_project_synchronism_guard(
         registry = raw if isinstance(raw, SynchronismCheckProjectConfiguration) else SynchronismCheckProjectConfiguration.from_dict(raw)
         return registry.for_breaker(breaker.id)
 
-    def resolve_measurements(breaker: Breaker) -> tuple[PhasorMeasurement, PhasorMeasurement]:
-        configuration = resolve_policy(breaker)
-        if configuration is None:
-            raise ValueError(f"ANSI 25 policy missing for breaker {breaker.id!r}.")
+    def resolve_measurements(breaker: Breaker, configuration: SynchronismCheckConfiguration) -> tuple[PhasorMeasurement, PhasorMeasurement]:
         channels = getattr(measurement_channel_service, "channels", None)
         if callable(channels):
             channels = channels()
@@ -380,4 +377,4 @@ def create_project_synchronism_guard(
         clock=clock,
     )
 
-__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels"]
+__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard"]
