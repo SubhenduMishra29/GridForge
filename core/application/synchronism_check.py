@@ -46,6 +46,45 @@ class SynchronismCheckConfiguration:
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
         object.__setattr__(self, "allowed_modes", MappingProxyType({mode: supplied[mode] for mode in BusMode}))
         if not isinstance(self.bypass_allowed,bool): raise TypeError("bypass_allowed must be bool")
+    def to_dict(self) -> dict:
+        """Return a JSON-compatible, explicit project-persistence representation."""
+        return {
+            "max_voltage_difference_kv": self.max_voltage_difference_kv,
+            "max_phase_angle_difference_deg": self.max_phase_angle_difference_deg,
+            "max_frequency_difference_hz": self.max_frequency_difference_hz,
+            "max_measurement_age_seconds": self.max_measurement_age_seconds,
+            "dead_bus_voltage_max_kv": self.dead_bus_voltage_max_kv,
+            "allowed_modes": {mode.value: self.allowed_modes[mode] for mode in BusMode},
+            "bypass_allowed": self.bypass_allowed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping) -> "SynchronismCheckConfiguration":
+        """Reconstruct configuration without silently filling missing settings."""
+        if not isinstance(data, Mapping):
+            raise TypeError("ANSI 25 configuration must be a mapping")
+        required = {
+            "max_voltage_difference_kv", "max_phase_angle_difference_deg",
+            "max_frequency_difference_hz", "max_measurement_age_seconds",
+            "dead_bus_voltage_max_kv", "allowed_modes", "bypass_allowed",
+        }
+        missing = required.difference(data)
+        extra = set(data).difference(required)
+        if missing or extra:
+            raise ValueError(
+                f"ANSI 25 configuration keys invalid; missing={sorted(missing)}, "
+                f"unexpected={sorted(extra)}"
+            )
+        return cls(
+            max_voltage_difference_kv=data["max_voltage_difference_kv"],
+            max_phase_angle_difference_deg=data["max_phase_angle_difference_deg"],
+            max_frequency_difference_hz=data["max_frequency_difference_hz"],
+            max_measurement_age_seconds=data["max_measurement_age_seconds"],
+            dead_bus_voltage_max_kv=data["dead_bus_voltage_max_kv"],
+            allowed_modes=data["allowed_modes"],
+            bypass_allowed=data["bypass_allowed"],
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PhasorMeasurement:
