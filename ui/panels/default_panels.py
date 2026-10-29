@@ -16,7 +16,7 @@ from ui.projection.projection_state import EngineeringParameterState, Projection
 from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
 )
 from ui.plugins.panels_plugin import PanelSpec
@@ -308,6 +308,8 @@ class EquipmentPanelWidget(QWidget):
 class PropertiesPanelWidget(QWidget):
     """Qt realization of the canonical PropertiesPanel projection."""
 
+    _commit_future_completed = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GridForgePanel_properties")
@@ -326,6 +328,7 @@ class PropertiesPanelWidget(QWidget):
         self._apply_changes_connected = True
         self._place_draft_connected = False
         self._commit_network_button: QPushButton | None = None
+        self._commit_future_completed.connect(self._on_commit_future_completed)
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -663,17 +666,33 @@ class PropertiesPanelWidget(QWidget):
 
     def _commit_network(self) -> None:
         controller = self._creation_controller
-        commit = getattr(controller, "commit_network", None) if controller is not None else None
+        commit = getattr(controller, "commit_network_async", None) if controller is not None else None
         if not callable(commit):
             if self._validation_label is not None:
-                self._validation_label.setText("Commit Network action is not bound.")
+                self._validation_label.setText("Non-blocking Commit Network action is not bound.")
+                self._validation_label.setProperty("role", "validationError")
             return
         try:
-            result = commit()
+            future = commit()
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(str(exc))
+                self._validation_label.setProperty("role", "validationError")
+            return
+        if self._commit_network_button is not None:
+            self._commit_network_button.setEnabled(False)
+            self._commit_network_button.setText("Committing Network…")
+        if self._validation_label is not None:
+            self._validation_label.setText("Validating and committing network in the background…")
+            self._validation_label.setProperty("role", "validationInfo")
+        future.add_done_callback(self._commit_future_completed.emit)
+
+    def _on_commit_future_completed(self, future: Any) -> None:
+        """Present worker completion on the Qt object's owning thread."""
+        try:
+            result = future.result()
         except ExecutionError as exc:
-            # CommandManager retains the handler failure in ``cause`` and
-            # Python's ``__cause__``. Translate only the known empty-draft
-            # rejection; unrelated execution failures must remain visible.
+            self._abort_async_commit()
             cause = exc.cause or exc.__cause__
             reason = str(cause).strip() if cause is not None else ""
             normalized_reason = reason.lower()
@@ -684,29 +703,57 @@ class PropertiesPanelWidget(QWidget):
                 and ("draft" in normalized_reason or "network" in normalized_reason)
             )
             if not is_empty_draft_rejection:
-                logging.getLogger(__name__).exception(
+                logging.getLogger(__name__).error(
                     "Unexpected DraftNetwork commit execution failure",
                     exc_info=(type(exc), exc, exc.__traceback__),
                 )
-                raise
+                message = str(exc)
+            else:
+                message = reason or "Draft network is empty. Add equipment or connections before committing."
             if self._validation_label is not None:
-                self._validation_label.setText(
-                    reason or "Draft network is empty. Add equipment or connections before committing."
-                )
+                self._validation_label.setText(message)
                 self._validation_label.setProperty("role", "validationError")
-            return
         except (RuntimeError, TypeError, ValueError) as exc:
-            # Keep direct pre-command boundary failures actionable.
+            self._abort_async_commit()
             if self._validation_label is not None:
                 self._validation_label.setText(str(exc))
                 self._validation_label.setProperty("role", "validationError")
-            return
-        if self._validation_label is not None:
-            self._validation_label.setText(
-                getattr(result, "message", "Commit Network submitted.")
-            )
-            self._validation_label.setProperty("role", "validationSuccess")
-        self._refresh_commit_network_action()
+        except BaseException as exc:
+            self._abort_async_commit()
+            logging.getLogger(__name__).exception("DraftNetwork background commit failed")
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Network commit failed: {exc}")
+                self._validation_label.setProperty("role", "validationError")
+        else:
+            controller = self._creation_controller
+            complete = getattr(controller, "complete_network_commit", None) if controller is not None else None
+            if callable(complete):
+                try:
+                    complete(result)
+                except BaseException as exc:
+                    self._abort_async_commit()
+                    if self._validation_label is not None:
+                        self._validation_label.setText(f"Network committed, but UI refresh failed: {exc}")
+                        self._validation_label.setProperty("role", "validationError")
+                    return
+            if self._validation_label is not None:
+                self._validation_label.setText(
+                    getattr(result, "message", "Network commit completed.")
+                )
+                self._validation_label.setProperty("role", "validationSuccess")
+        finally:
+            if self._commit_network_button is not None:
+                self._commit_network_button.setText("Commit Network")
+            self._refresh_commit_network_action()
+
+    def _abort_async_commit(self) -> None:
+        controller = self._creation_controller
+        abort = getattr(controller, "abort_network_commit", None) if controller is not None else None
+        if callable(abort):
+            try:
+                abort()
+            except Exception:
+                logging.getLogger(__name__).exception("Failed to release asynchronous commit state")
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
         self._clear_parameter_controls()

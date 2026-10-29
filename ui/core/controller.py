@@ -139,6 +139,20 @@ class Controller(QObject):
         self.state_changed.emit()
         return result
 
+    def complete_network_commit(self, result: Any) -> Any:
+        """Finalize an asynchronous commit on the UI thread and refresh projections."""
+        self._ensure_active()
+        completed = self._require_application().complete_async_commit(result)
+        self.state_changed.emit()
+        return completed
+
+    def abort_network_commit(self) -> None:
+        """Release Application commit state after a failed background operation."""
+        application = self._require_application()
+        abort = getattr(application, "abort_async_commit", None)
+        if callable(abort):
+            abort()
+
     def place_creation_draft(self) -> bool:
         """Persist the active placement into the Application DraftNetwork."""
         self._ensure_active()

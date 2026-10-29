@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
@@ -130,6 +132,11 @@ class Application:
         self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
+        self._execution_lock = RLock()
+        self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
+        self._commit_state_lock = RLock()
+        self._commit_in_flight = False
+        self._pending_async_commit_command: CommitNetworkCommand | None = None
         # Recovery artifacts live outside the project file and preserve the
         # Application-owned draft separately from authoritative Core state.
         self._command_manager.configure_recovery(
@@ -2350,6 +2357,92 @@ class Application:
         )
         return self.execute(command)
 
+    def commit_draft_network_async(self) -> Future[ApplicationResult]:
+        """Execute the canonical DraftNetwork command off-thread and finalize events on the caller thread."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        draft = self._draft_network
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot commit DraftNetwork without an active project.")
+        if draft is None:
+            raise RuntimeError("Application DraftNetwork is not configured.")
+        if draft.project_id != context.project_id:
+            raise ValueError("DraftNetwork project_id does not match the active project.")
+        if draft.activation_generation != lifecycle.activation_generation:
+            raise ValueError("DraftNetwork activation_generation does not match the active project.")
+
+        project_id = context.project_id
+        activation_generation = lifecycle.activation_generation
+        draft_payload = draft.to_dict()
+        source_revision = self.revision
+        command = CommitNetworkCommand(project_id=project_id, activation_generation=activation_generation, draft_network=draft_payload)
+        with self._commit_state_lock:
+            if self._commit_in_flight:
+                raise RuntimeError("A DraftNetwork commit is already in progress.")
+            self._commit_in_flight = True
+            self._pending_async_commit_command = command
+
+        def execute_captured_commit() -> ApplicationResult:
+            try:
+                with self._execution_lock:
+                    current_lifecycle = self.project_lifecycle
+                    current_context = current_lifecycle.context
+                    current_draft = self._draft_network
+                    if (
+                        current_lifecycle.state != "ACTIVE"
+                        or not current_lifecycle.has_project
+                        or current_context is None
+                        or current_context.project_id != project_id
+                        or current_lifecycle.activation_generation != activation_generation
+                        or self.revision != source_revision
+                        or current_draft is not draft
+                        or current_draft is None
+                        or current_draft.to_dict() != draft_payload
+                    ):
+                        raise RuntimeError("DraftNetwork commit became stale before execution; the project, revision, or draft changed.")
+                    # Core mutation/history runs on the worker; synchronous Application
+                    # events are deliberately published by complete_async_commit().
+                    return self._command_manager.execute(command)
+            except BaseException:
+                self.abort_async_commit()
+                raise
+
+        try:
+            return self._commit_executor.submit(execute_captured_commit)
+        except BaseException:
+            self.abort_async_commit()
+            raise
+
+    def complete_async_commit(self, result: ApplicationResult) -> ApplicationResult:
+        """Publish semantic events after worker completion on the caller/UI thread."""
+        with self._commit_state_lock:
+            command = self._pending_async_commit_command
+            if not self._commit_in_flight or command is None:
+                raise RuntimeError("No asynchronous DraftNetwork commit awaits completion.")
+        try:
+            # The worker has completed before this UI-thread callback; the lock
+            # preserves the normal Application command/event serialization order.
+            with self._execution_lock:
+                if result.success:
+                    if self._validation_service is not None:
+                        self._validation_service.invalidate()
+                        self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                    self._publish_semantic_events(command, result, operation="execute")
+            return result
+        finally:
+            self.abort_async_commit()
+
+    def abort_async_commit(self) -> None:
+        """Release the single-flight guard after failure or completion."""
+        with self._commit_state_lock:
+            self._pending_async_commit_command = None
+            self._commit_in_flight = False
+
+    def _reject_during_async_commit(self) -> None:
+        with self._commit_state_lock:
+            if self._commit_in_flight:
+                raise RuntimeError("Another DraftNetwork commit is in progress; retry after it completes.")
+
     def read_draft_network(self) -> Mapping[str, Any] | None:
         """Return an isolated serialized snapshot for Application read/projection consumers."""
         draft = self._draft_network
@@ -2359,14 +2452,17 @@ class Application:
         return deepcopy(draft.to_dict())
 
     def execute(self, command: Command) -> ApplicationResult:
-        if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
-        result = self._command_manager.execute(command)
-        if result.success:
-            if self._validation_service is not None:
+        if not isinstance(command, Command):
+            raise TypeError("Application.execute requires a Command.")
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            result = self._command_manager.execute(command)
+            if result.success:
+                if self._validation_service is not None:
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_semantic_events(command, result, operation="execute")
-        return result
+                self._publish_semantic_events(command, result, operation="execute")
+            return result
 
     def supports(self, command_type: str) -> bool: return isinstance(command_type, str) and self._command_manager.is_registered(command_type)
 
@@ -2384,38 +2480,44 @@ class Application:
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
     def undo(self) -> ApplicationResult | None:
-        records = self._command_manager.undo_commands()
-        command = records[-1].command if records else None
-        result = self._command_manager.undo()
-        if result is not None and result.success:
-            network = getattr(self._command_manager.context, "network", None)
-            if command is not None and self._revision_service.has_undo_transition_for(command):
-                self._revision_service.record_undo(
-                    topology_revision=int(network.state.topology_revision) if network is not None else None
-                )
-            if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
-                self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_history_events(command, result, operation="undo")
-        return result
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            records = self._command_manager.undo_commands()
+            command = records[-1].command if records else None
+            result = self._command_manager.undo()
+            if result is not None and result.success:
+                network = getattr(self._command_manager.context, "network", None)
+                if command is not None and self._revision_service.has_undo_transition_for(command):
+                    self._revision_service.record_undo(
+                        topology_revision=int(network.state.topology_revision) if network is not None else None
+                    )
+                if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
+                    self._validation_service.invalidate()
+                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                self._publish_history_events(command, result, operation="undo")
+            return result
+
 
     def redo(self) -> ApplicationResult | None:
-        records = self._command_manager.redo_commands()
-        command = records[-1].command if records else None
-        result = self._command_manager.redo()
-        if result is not None and result.success and command is not None:
-            network = getattr(self._command_manager.context, "network", None)
-            if command is not None and self._revision_service.has_redo_transition_for(command):
-                self._revision_service.record_redo(
-                    topology_revision=int(network.state.topology_revision)
-                    if network is not None and self._revision_service.is_topology_command(command)
-                    else None
-                )
-            if self._validation_service is not None and not command.command_type.startswith("sld."):
-                self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_semantic_events(command, result, operation="redo")
-        return result
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            records = self._command_manager.redo_commands()
+            command = records[-1].command if records else None
+            result = self._command_manager.redo()
+            if result is not None and result.success and command is not None:
+                network = getattr(self._command_manager.context, "network", None)
+                if command is not None and self._revision_service.has_redo_transition_for(command):
+                    self._revision_service.record_redo(
+                        topology_revision=int(network.state.topology_revision)
+                        if network is not None and self._revision_service.is_topology_command(command)
+                        else None
+                    )
+                if self._validation_service is not None and not command.command_type.startswith("sld."):
+                    self._validation_service.invalidate()
+                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                self._publish_semantic_events(command, result, operation="redo")
+            return result
+
 
     def can_undo(self) -> bool: return self._command_manager.can_undo()
     def can_redo(self) -> bool: return self._command_manager.can_redo()
