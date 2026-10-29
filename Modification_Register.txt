@@ -13866,12 +13866,13 @@ Changes:
        change electrical connectivity, or mutate Core state.
 
 Integration boundary:
-    Callers must supply scene-space obstacle bounds and existing routes, and
-    must exclude or clip endpoint-owning equipment so terminal anchors are
-    not treated as interior obstacles. This change adds the routing capability
-    but does not claim that all active canvas renderers/tools already call it.
-    Active-tool integration and runtime near-miss verification remain follow-up
-    work before Issue #817 can be closed.
+    SLDCanvasRenderSystem now supplies scene-space bounds for realized
+    non-endpoint nodes when it calculates automatic connection routes. The
+    router excludes no electrical endpoints and does not infer connectivity.
+    Existing-route crossing penalties are available to callers that can provide
+    route geometry; the current renderer integration supplies obstacle bounds
+    only. Runtime near-miss verification and explicit route-edit interaction
+    review remain follow-up work before Issue #817 can be closed.
 
 Verification:
     Repository source change only. No tests or CI were run, per repository
