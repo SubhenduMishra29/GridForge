@@ -2189,9 +2189,18 @@ class Application:
         source = self._sld_endpoint_for_reference(source_ref)
         target = self._sld_endpoint_for_reference(target_ref)
 
+        # Core connection identity and persistent SLD presentation identity
+        # are separate contracts. Draft commit already uses this mapping; direct
+        # Simple Wire commands must use it too so activation audits, deletion,
+        # undo/redo, and draft-commit projection resolve the same companion.
+        sld_connection_id = (
+            self._sld_service.presentation_connection_id(connection_id)
+            if command.command_type == "connectivity.create_simple_wire"
+            else connection_id
+        )
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
-                connection_id=connection_id,
+                connection_id=sld_connection_id,
                 source_node_id=source["node_id"],
                 target_node_id=target["node_id"],
                 source_endpoint=source,
