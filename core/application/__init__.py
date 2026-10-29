@@ -52,7 +52,7 @@ from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
 from .synchronism_check import (
-    BusMode, SynchronismCheckConfiguration, PhasorMeasurement,
+    BusMode, SynchronismCheckConfiguration, SynchronismCheckProjectConfiguration, PhasorMeasurement,
     BypassAuthorization, SynchronismDecision, SynchronismCheckGuard,
     phasor_measurements_from_channels,
 )
@@ -106,6 +106,7 @@ __all__ = [
     "ValidationService",
     "BusMode",
     "SynchronismCheckConfiguration",
+    "SynchronismCheckProjectConfiguration",
     "PhasorMeasurement",
     "BypassAuthorization",
     "SynchronismDecision",
