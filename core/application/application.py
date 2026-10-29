@@ -2198,6 +2198,14 @@ class Application:
             if command.command_type == "connectivity.create_simple_wire"
             else connection_id
         )
+        if command.command_type == "connectivity.create_simple_wire" and self._sld_service.rebind_orphaned_simple_wire(
+            core_connection_id=connection_id,
+            source_endpoint=source,
+            target_endpoint=target,
+            transaction=transaction,
+        ):
+            return
+
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
                 connection_id=sld_connection_id,
