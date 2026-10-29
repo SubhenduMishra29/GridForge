@@ -89,10 +89,10 @@ class SynchronismDecision:
 
 class SynchronismCheckGuard:
     """Project providers supply explicit settings, both bus measurements, and optional bypass authorization."""
-    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable | None = None, clock: Callable[[],float] = time.time):
+    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time):
         if not callable(configuration_provider) or not callable(measurement_provider): raise TypeError("Configuration and measurement providers are required")
         if bypass_provider is not None and not callable(bypass_provider): raise TypeError("bypass_provider must be callable")
-        if audit_sink is not None and not callable(audit_sink): raise TypeError("audit_sink must be callable")
+        if not callable(audit_sink): raise TypeError("audit_sink is required and must be callable")
         if not callable(clock): raise TypeError("clock must be callable")
         self._configuration_provider=configuration_provider; self._measurement_provider=measurement_provider
         self._bypass_provider=bypass_provider; self._audit_sink=audit_sink; self._clock=clock
@@ -147,6 +147,6 @@ class SynchronismCheckGuard:
             raise DomainError(code="ANSI25_CLOSE_REJECTED",message="Breaker close rejected by fail-closed ANSI 25 enforcement.",details={"breaker_id":breaker.id,"reason_codes":decision.reason_codes,"mode":mode.value if mode else None})
         return decision
     def _audit(self, decision):
-        if self._audit_sink is not None: self._audit_sink(decision)
+        self._audit_sink(decision)
 
 __all__=["BusMode","SynchronismCheckConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard"]
