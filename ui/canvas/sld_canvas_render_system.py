@@ -579,7 +579,28 @@ class SLDCanvasRenderSystem:
             try:
                 route_points = connection.route.points
                 if connection.route.ownership == "auto":
-                    route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
+                    # Route around realized non-endpoint SLD objects. These
+                    # bounds are presentation geometry only; endpoint identity
+                    # and Core topology remain owned by the canonical model.
+                    obstacle_bounds = []
+                    for node_id, obstacle_item in realized.items():
+                        if node_id in (connection.source_node_id, connection.target_node_id):
+                            continue
+                        bounds_getter = getattr(obstacle_item, "sceneBoundingRect", None)
+                        if not callable(bounds_getter):
+                            continue
+                        bounds = bounds_getter()
+                        obstacle_bounds.append((
+                            float(bounds.left()),
+                            float(bounds.top()),
+                            float(bounds.right()),
+                            float(bounds.bottom()),
+                        ))
+                    route = self._connection_router.route(
+                        (source.x(), source.y()),
+                        (target.x(), target.y()),
+                        obstacles=obstacle_bounds,
+                    )
                     route_points = tuple(route.points[1:-1])
                 item = self._item_factory.create_connection(connection, source, target)
                 item.setZValue(self.CONNECTION_Z_VALUE)
