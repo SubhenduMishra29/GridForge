@@ -334,19 +334,28 @@ class SynchronismCheckGuard:
 
 def create_project_synchronism_guard(
     *,
+    project_id: str,
+    activation_generation: int,
     project_configuration_provider: Callable[[], Mapping | SynchronismCheckProjectConfiguration | None],
     measurement_channel_service: object,
     audit_sink: Callable[[SynchronismDecision], None],
     clock: Callable[[], float],
     bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> SynchronismCheckGuard:
-    """Compose ANSI 25 against active project policy and live channel registry.
+    """Compose ANSI 25 for one candidate project activation.
+
+    The expected project identity and generation are immutable for this guard.
+    Before policy or measurements are consumed, the live channel service must
+    match both values. A guard captured from an earlier project activation is
+    therefore rejected rather than authorizing against another project's data.
 
     Callers must provide a durable, project-scoped audit sink and a clock in
     the same time domain as channel timestamps. Neither dependency is guessed.
-    Policy and channel values are resolved at each close request to avoid stale
-    state across project activation and live measurement updates.
     """
+    if not isinstance(project_id, str) or not project_id.strip():
+        raise ValueError("A non-empty candidate project_id is required.")
+    if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+        raise ValueError("A positive candidate activation_generation is required.")
     if not callable(project_configuration_provider):
         raise TypeError("project_configuration_provider is required.")
     if not callable(audit_sink):
@@ -354,7 +363,23 @@ def create_project_synchronism_guard(
     if not callable(clock):
         raise TypeError("An explicit clock in the channel timestamp domain is required.")
 
+    def validate_active_provenance() -> None:
+        active_project_id = getattr(measurement_channel_service, "project_id", None)
+        active_generation = getattr(measurement_channel_service, "activation_generation", None)
+        if active_project_id != project_id or active_generation != activation_generation:
+            raise DomainError(
+                code="ANSI25_PROJECT_PROVENANCE_MISMATCH",
+                message="Breaker close denied: ANSI 25 guard project or activation generation does not match the active measurement context.",
+                details={
+                    "expected_project_id": project_id,
+                    "active_project_id": active_project_id,
+                    "expected_activation_generation": activation_generation,
+                    "active_activation_generation": active_generation,
+                },
+            )
+
     def resolve_policy(breaker: Breaker) -> SynchronismCheckConfiguration | None:
+        validate_active_provenance()
         raw = project_configuration_provider()
         if raw is None:
             return None
@@ -362,6 +387,7 @@ def create_project_synchronism_guard(
         return registry.for_breaker(breaker.id)
 
     def resolve_measurements(breaker: Breaker, configuration: SynchronismCheckConfiguration) -> tuple[PhasorMeasurement, PhasorMeasurement]:
+        validate_active_provenance()
         channels = getattr(measurement_channel_service, "channels", None)
         if callable(channels):
             channels = channels()
