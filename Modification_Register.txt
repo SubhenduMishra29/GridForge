@@ -14903,3 +14903,9 @@ Per-breaker scoping correction:
     - This prevents one global set of bus measurements from being reused
       unintentionally for every breaker. The active guard still needs to select
       the matching policy by breaker ID and consume the adapter at runtime.
+
+
+[ANSI 25 runtime composition follow-up]
+- Added create_project_synchronism_guard() to resolve the active per-breaker policy and live MeasurementChannelService registry at close time; measurement resolution now uses the exact configuration snapshot selected by the guard for that breaker, avoiding a second policy lookup and cross-policy mismatch.
+- The composer requires explicit clock and audit-sink dependencies. It does not silently substitute EventBus logging or a wall-clock for simulation timestamps. Production activation remains blocked until the caller supplies a durable project-scoped audit sink, an appropriate timestamp-domain clock, and explicit bypass lifecycle policy.
+- No tests/CI or syntax/import checks were run.
