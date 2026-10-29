@@ -14358,3 +14358,49 @@ Verification:
 Status:
     SOURCE-LEVEL FAILURE-PATH AUDIT RECORDED. Issue #817 remains open pending
     the required end-to-end SLD/network runtime verification.
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-D — Canvas interaction and coordinate issue audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #816, #819, #822, #823, #821, #806, #808, #814, #771.
+
+Findings and disposition:
+    - #806 duplicates closed Issue #766. PRs #794 and #790 already preserve
+      floating-point viewport-to-scene conversion and fractional pan displacement.
+      The duplicate was closed with a note; reopen only if current-main runtime
+      evidence demonstrates residual drift.
+    - #808: Draft placement uses floating-point scene/presentation coordinates.
+      The inspected commit path does not convert placement into electrical units
+      or a Core matrix grid. Repeated-copy drift is not established; clipboard
+      workflow is separately absent under GF-CLIP-001 / Issue #772.
+    - #814: Cross-SLD copy depends on the missing canonical clipboard contract.
+      Viewport zoom is presentation state and must not rewrite persisted scene
+      coordinates. Keep open pending explicit cross-document copy semantics and
+      serialized coordinate evidence.
+    - #771: PR #789 records a source audit; symbol rotation is presentation state.
+      Core terminal-vector inversion and transformed hit-frame failure remain
+      unverified; require runtime anchor/transform/hit-test capture.
+    - #816, #819, #821, #822, #823 are primarily capability/interaction requests:
+      transform hotkeys; marquee/group-pivot behavior; batch property editing;
+      explicit drag/drop insertion intent; and contextual HUD actions. Their
+      implementation contracts must preserve Application-owned mutation/undo,
+      explicit electrical insertion intent, and presentation-only geometry.
+      No additional UI state machine was added from issue text alone.
+
+Correction/closure decisions:
+    - Closed #806 as duplicate of #766 with a source-backed comment.
+    - Kept the other issues open with their missing contract or reproduction
+      requirements recorded in the issue threads.
+    - No Core topology or electrical identity is inferred from graphics transforms.
+
+Verification boundary:
+    Source and issue inspection only. No tests, CI, syntax/import checks, GUI
+    interaction, coordinate stress, or runtime verification were performed.
+
+======================================================================
