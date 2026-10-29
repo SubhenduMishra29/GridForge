@@ -12659,3 +12659,80 @@ Verification:
 Status:
     AUDIT RECORDED — ISSUE #774 REMAINS OPEN pending a separate, electrically
     correct PT/CVT instrumentation connection contract and runtime verification.
+
+
+======================================================================
+GF-SLD-WIRE-001 — Simple Wire route geometry versus electrical topology
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    DraftNetwork, DraftConnection, DraftConnectivityResolver,
+    CommitNetworkHandler, DraftSLDProjection, SLDRouteEditController,
+    SLDConnectionItem, WireTool
+
+Findings:
+    1. DraftConnection stores source and target as canonical
+       DraftEndpointReference values. Its route is presentation metadata.
+       DraftSLDProjection reads route points to construct the canvas snapshot,
+       while CommitNetworkHandler derives Core connections from the explicit
+       DraftConnection source/target endpoints. Route bend vertices are not
+       converted into electrical terminals or topology nodes in this path.
+       Therefore the reported automatic conversion of stale route vertices
+       into solver-visible ghost terminals is not established by inspected
+       source.
+
+    2. SLDRouteEditController treats proposed bends as interaction-local state,
+       persists them through SLDController.set_connection_route(), and clears
+       its temporary point list in a finally block. SLDConnectionItem emits a
+       route-edit request without overwriting its last accepted route points.
+       These are positive lifecycle boundaries, but they do not alone prove
+       that every route replacement normalizes malformed/duplicate points.
+
+    3. WireTool requests SnapIntent.WIRE_START/WIRE_TARGET with grid snapping
+       disabled, requires SnapType.OBJECT, resolves a canonical endpoint
+       identity, and submits CreateDraftConnectionCommand or
+       CreateSimpleWireConnectionCommand. DraftNetwork preflight validates
+       canonical endpoint compatibility and rejects duplicate endpoint pairs.
+       CommitNetworkHandler again validates trusted terminal contracts and
+       translates DraftConnection endpoints to Core references. Thus the
+       described “visual overlap alone creates electrical connectivity” is
+       not supported by the inspected command path.
+
+Correction decision:
+    No speculative topology changes were made. The source establishes a
+    deliberate separation between route geometry and electrical connectivity.
+    Treating intermediate layout vertices as electrical terminals would
+    violate the frozen Core/Application/UI boundary.
+
+Remaining gap:
+    Route-point hygiene is not fully established from the inspected path:
+    DraftConnection currently wraps the route mapping but does not visibly
+    canonicalize each point, reject non-finite coordinates, or remove
+    consecutive duplicate/zero-length bends at construction. The complete
+    SLDController.set_connection_route persistence path and its downstream
+    serializer were not yet traced, so this is an audit finding, not a proven
+    runtime defect.
+
+Required follow-up:
+    - Trace set_connection_route through command, Application handler,
+      persistent SLD document and re-projection before changing route storage.
+    - If confirmed absent, validate finite coordinate pairs and canonicalize
+      consecutive duplicate/zero-length bend points at the presentation-route
+      boundary only.
+    - Preserve endpoint identity as the sole electrical topology authority.
+    - Keep Core ConnectivityResolver and numerical solvers independent of SLD
+      route vertices.
+
+Verification:
+    Source-level inspection of core/application/draft/network.py,
+    core/application/draft/handlers.py, ui/canvas/draft_sld_projection.py,
+    ui/sld/sld_route_edit_controller.py, ui/sld/items/sld_connection_item.py,
+    and ui/tools/wire_tool.py.
+    No tests, CI, syntax/import checks, or runtime interactions were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #773 REMAINS OPEN pending route-persistence trace and
+    confirmation of finite/duplicate bend normalization behavior.
