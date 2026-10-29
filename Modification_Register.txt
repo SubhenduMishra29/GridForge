@@ -14199,3 +14199,46 @@ Correction:
 Verification:
     Source-level correction only; no tests/CI run. Syntax, imports, runtime,
     and full Draft-to-Core undo/redo remain unverified.
+
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-013 — Undo Failure and Pre-Commit Rollback Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/command_manager.py; core/application/transaction.py;
+    fix/issue-817-orthogonal-routing.
+
+Audit:
+    1. CommandManager invokes the Application pre-commit hook while the
+       transaction remains open. Handler, result-validation, and hook failures
+       enter the same rollback boundary.
+    2. Transaction.rollback() attempts all registered inverse operations in
+       reverse order and records ROLLBACK_FAILED if any inverse fails. Rollback
+       finalizers run only if every content inverse succeeds.
+    3. CommandManager._rollback_safely() marks the manager DEGRADED when rollback
+       fails, preventing subsequent commands from proceeding on uncertain state.
+    4. A failed undo marks the manager DEGRADED; if zero inverse operations are
+       reported complete, it attempts to restore the undo history record first.
+       The fail-closed decision remains necessary because an inverse may mutate
+       before raising.
+    5. Post-commit history-recording failures also mark the manager DEGRADED;
+       committed Core state is not incorrectly rolled back.
+
+Correction decision:
+    No additional code change was warranted by this source pass. The inspected
+    transaction and history paths already implement reverse-order rollback,
+    continue attempting remaining inverses after an inverse failure, and fail
+    closed when Core/history integrity is uncertain.
+
+Verification:
+    Source inspection only. No tests/CI, syntax/import checks, failure injection,
+    or runtime transaction/undo verification were performed.
+
+Status:
+    SOURCE-LEVEL FAILURE-PATH AUDIT RECORDED. Issue #817 remains open pending
+    the required end-to-end SLD/network runtime verification.
