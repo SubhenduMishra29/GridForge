@@ -2155,12 +2155,26 @@ class Application:
                 return value
             if isinstance(value, TopologyEndpointReference):
                 if value.is_terminal:
-                    return value.terminal_reference
+                    endpoint = value.terminal_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_terminal:
+                        return endpoint
+                    raise ValueError(
+                        "Terminal topology endpoint does not contain a valid canonical terminal reference."
+                    )
                 if value.is_bus:
-                    return value.bus_reference
+                    endpoint = value.bus_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_bus:
+                        return endpoint
+                    raise ValueError(
+                        "Bus topology endpoint does not contain a valid canonical Bus attachment reference."
+                    )
+                if value.is_junction:
+                    raise ValueError(
+                        "SLD connection projection does not support Junction endpoints; "
+                        "a dedicated Junction presentation contract is required."
+                    )
                 raise ValueError(
-                    "SLD connection projection does not support Junction endpoints; "
-                    "a dedicated Junction presentation contract is required."
+                    f"Unsupported topology endpoint kind for SLD projection: {value.kind!r}."
                 )
             raise ValueError(
                 "Connection commands require canonical EndpointReference or "
