@@ -13844,6 +13844,122 @@ Status:
 
 
 ======================================================================
+GF-RECONCILE-2026-10-29-A — Batch A issue/PR reconciliation
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #745, #747, #751, #753, #754, #755.
+    Authoritative repository: SubhenduMishra29/GridForge, branch main.
+
+Baseline confirmed:
+    - #753: PR #777 is merged. Source preparation rejects stale or mismatched
+      Power Flow operating points using revision, project activation, convergence,
+      bus ordering, and prepared-input snapshot identity.
+    - #754: PRs #778 and #780 are merged. DraftNetwork commit has an Application/
+      Controller asynchronous entrypoint. This does not prove the commit is
+      non-blocking under large-network runtime load or establish UI responsiveness.
+    - #755: PR #779 is merged. Nested settings/metadata in
+      ProtectionFunctionConfiguration are recursively frozen for undo history.
+      This does not certify every mutation/undo closure or multi-object rollback.
+    - #747: PR #784 is an audit-only change. Current inspected canonical power-flow
+      path is NumPy/SparseLinearSolver and does not establish a live CUDA
+      host/device-copy bottleneck. The future accelerator result-ownership and
+      presentation-transfer contract remains undefined; do not add implicit
+      array copies at the read-model boundary.
+    - #745: PRs #781 and #782 are merged. Function-code mismatch is rejected and
+      the breaker-open postcondition is checked. GF-PROT-042 remains OPEN because
+      production trigger wiring, bounded operational timing, and persisted typed
+      protection-function-to-target/action mapping are not proven complete.
+    - #751: Existing EngineeringPluginHost validates plugin descriptors and owns
+      activation/rollback, but passes the canonical Application object to in-process
+      Python plugin code. MappingProxyType and JSON Schema do not sandbox code.
+      No claim of hostile-plugin isolation is made. A safe correction requires an
+      explicit trust model and, for hostile third-party code, a separate process
+      boundary with a narrow validated IPC/capability contract; removing the
+      Application reference without reconciling the current Motor Dynamics plugin
+      contract would break the existing activation API.
+
+Disposition:
+    - Keep #745 OPEN pending a typed persisted mapping and production timing/trigger
+      contract with a source-backed end-to-end consumer trace.
+    - Keep #747 OPEN but narrow its current claim to an unimplemented future
+      accelerator/presentation boundary; require per-result host/device ownership
+      contracts before implementation.
+    - Keep #751 OPEN pending an approved trusted-plugin threat model or process-
+      isolated plugin execution contract. Do not describe in-process Python as a
+      sandbox.
+    - Keep #753, #754, and #755 OPEN pending the remaining issue acceptance evidence;
+      merged PRs address scoped defects but are not sufficient proof of complete
+      end-to-end or runtime closure.
+    - No issues closed by this reconciliation entry.
+
+Verification boundary:
+    GitHub issue/PR metadata and source files were inspected. No tests, CI,
+    syntax/import checks, runtime simulation, plugin isolation exercise, large-
+    network performance run, or GUI runtime verification were performed.
+
+======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-B — Draft, placement, and clipboard issue audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #824, #815, #813, #807, #757, #752, #772.
+
+Source findings:
+    - #824: Escape cancels transient CreationContext/tool interaction. The inspected
+      path does not establish whether the reported lost route is a preview-only
+      interaction or an already-authored SLD route edit. Preserve canonical
+      document/Application state; no global scene-buffer workaround is justified
+      without a route-identity trace.
+    - #815: ToolManager retains the selected creation tool after placement and
+      recreates CreationDraft at the next input boundary. The described missing
+      sticky-tool behavior is not established by source; runtime interaction state
+      is required before adding a second sticky-tool mechanism.
+    - #813: Async DraftNetwork commit captures a serialized snapshot, project
+      activation generation, and source revision, then rejects execution if the
+      active project/revision/draft identity or serialized contents changed. The
+      claimed endpoint-mapping race is not established by this source path.
+    - #807: SnapSystem selects the nearest renderer-owned candidate in the active
+      scene and resolves equal-distance ties by deterministic discovery order.
+      Preview feedback oscillation remains possible but requires runtime candidate
+      and preview geometry tracing.
+    - #752: CommitNetworkHandler derives Core IDs deterministically from canonical
+      equipment type plus DraftEquipment.draft_id, and resolves DraftEndpointReference
+      through the same old-to-new Core ID map. A different temporary-ID generator
+      alone is not identity drift; the reported collision requires reproduction.
+    - #757: Existing GF-UI-TOOL-LIFECYCLE-001 audit remains valid: normal tool
+      switching is guarded, Escape explicitly cancels transient creation, and
+      Application-owned placed draft objects must not be deleted as preview garbage.
+    - #772: Existing GF-CLIP-001 audit remains valid. No canonical clipboard action
+      or clipboard-to-draft path was identified. The missing contract is a
+      serialized Application-owned clipboard payload, new draft IDs, endpoint
+      remapping, and atomic cancellable paste through draft commands.
+
+Disposition:
+    - No source implementation change is justified for #824, #815, #813, #807,
+      or #752 solely from the current issue descriptions; retain open pending the
+      concrete runtime traces recorded in their issue comments.
+    - Keep #772 open as a confirmed missing clipboard-to-draft contract. Implement
+      only after the supported equipment/connection selection semantics and
+      atomic paste/cancel ownership are defined.
+    - No issues closed by this audit.
+
+Verification boundary:
+    Source/issue inspection only. No tests, CI, syntax/import checks, concurrency
+    stress, UI interaction, or runtime verification were performed.
+
+======================================================================
+
+
 GF-ROUTING-ORTHOGONAL-001 — Issue #817 — Obstacle-Aware Orthogonal Routing
 ======================================================================
 
