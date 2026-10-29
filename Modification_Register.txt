@@ -14013,3 +14013,34 @@ Verification:
 Status:
     APPLICATION/SLD ENDPOINT TYPE CONTRACT CORRECTED. ISSUE #817 REMAINS OPEN
     UNTIL THE COMPLETE DRAFT AND COMMITTED CONNECTION PATH IS VERIFIED.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-006 — Existing Route Coordinate Space
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/canvas/sld_canvas_render_system.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    SLDConnectionItem.visual_endpoints() and route_points() expose coordinates
+    from the item's local QGraphics path, while ConnectionRouter receives
+    scene-space source/target coordinates. Passing local existing-route points
+    directly can skew crossing penalties when an item has a non-identity scene
+    transform.
+
+Correction:
+    Existing connection endpoints and bends are now mapped through mapToScene
+    before being supplied to the router. Items without that mapping capability
+    retain their exposed coordinates as a compatibility fallback; unsupported
+    geometry remains non-authoritative presentation data.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Syntax/import and
+    transformed-item runtime behavior remain pending source-level verification.
+
+Status:
+    EXISTING ROUTE COORDINATE SPACE NORMALIZED. ISSUE #817 REMAINS OPEN.
