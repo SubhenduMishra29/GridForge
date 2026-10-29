@@ -14964,3 +14964,11 @@ Verification:
 - Before converting channel values to phasor measurements, the guard requires every configured ANSI 25 measurement channel to expose a matching timestamp_domain. Missing channels or missing/mismatched domain metadata deny close with a typed error; no implicit wall-clock assumption is made.
 - ProjectScopedSynchronismAuditSink requires and exposes its declared clock_domain so composition can reject a mismatched audit domain.
 - Integration limitation: MeasurementChannel currently documents timestamps as simulation/event/sample timestamps but does not itself expose timestamp_domain. Existing channel producers must be reconciled and explicitly declare their domain before ANSI 25 can authorize close. This intentional fail-closed gate does not establish that a supplied clock actually measures the declared domain; that remains a producer/composition responsibility. ANSI 25 remains NOT_IMPLEMENTED.
+
+
+[2026-10-29 — GF-ISSUE-845 — MeasurementChannel timestamp-domain metadata]
+- Branch: fix/ansi25-candidate-runtime-context
+- Added optional, explicitly validated `timestamp_domain` metadata to MeasurementChannel construction and update APIs; included it in diagnostics output. No default clock domain is inferred.
+- This supplies the model-level contract required by the ANSI 25 guard. Existing producers that do not populate the field remain unknown-domain and are rejected by the guard until their source clock semantics are reconciled.
+- Compatibility: the new constructor/update parameter is optional and keyword-based; existing callers continue to construct channels, but cannot satisfy the ANSI 25 domain gate without explicit metadata.
+- Remaining: trace all measurement producers, persistence/load paths, and updates to assign and preserve the correct domain. ANSI 25 remains NOT_IMPLEMENTED; no tests or CI run.
