@@ -139,6 +139,14 @@ class SLDService:
                 continue
 
             core_id = str(core_id)
+            expected_presentation_id = self.presentation_connection_id(core_id)
+            if str(connection.connection_id) != expected_presentation_id:
+                diagnostics.append({
+                    "code": "PRESENTATION_ID_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "expected_connection_id": expected_presentation_id,
+                    "core_connection_id": core_id,
+                })
             if core_id in companions:
                 diagnostics.append({
                     "code": "DUPLICATE_PRESENTATION_COMPANION",
@@ -1622,6 +1630,91 @@ class SLDService:
         self.document.mark_modified()
         return "ORPHANED"
 
+    def rebind_orphaned_simple_wire(
+        self,
+        *,
+        core_connection_id: str,
+        source_endpoint: Mapping[str, Any],
+        target_endpoint: Mapping[str, Any],
+        transaction: Transaction,
+    ) -> bool:
+        """Rebind an authored orphan when a deleted Simple Wire is recreated.
+
+        A delete may retain an authored SLD connection (including its route and
+        presentation overrides) under the canonical presentation ID. Undo/redo
+        recreates the same Core identity; reuse that exact object rather than
+        colliding with it or discarding the engineer-authored presentation.
+        """
+        core_id = str(core_connection_id).strip()
+        if not core_id:
+            raise ValueError("core_connection_id must be a non-empty string.")
+        presentation_id = self.presentation_connection_id(core_id)
+        orphaned = tuple(
+            item
+            for item in self.document.model.connections
+            if str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+            and str(item.properties.get("orphaned_from_core_connection_id", "")) == core_id
+        )
+        if len(orphaned) > 1:
+            raise ValueError(
+                f"Multiple orphaned SLD companions retain Core connection {core_id!r}."
+            )
+        if not orphaned:
+            return False
+
+        connection = orphaned[0]
+        if str(connection.connection_id) != presentation_id:
+            # Do not create a second canonical companion while a noncanonical
+            # authored orphan still owns the prior relationship. Automatic ID
+            # migration would mutate persistent presentation identity and needs
+            # an explicit reconciliation/migration contract.
+            raise ValueError(
+                "Cannot rebind orphaned Simple Wire presentation: retained "
+                f"identity {connection.connection_id!r} is not canonical "
+                f"{presentation_id!r}."
+            )
+        properties = connection.properties
+
+        source_node_id = str(source_endpoint.get("node_id", ""))
+        target_node_id = str(target_endpoint.get("node_id", ""))
+        if (
+            not source_node_id
+            or not target_node_id
+            or str(connection.source_node_id) != source_node_id
+            or str(connection.target_node_id) != target_node_id
+        ):
+            raise ValueError(
+                "Cannot rebind orphaned Simple Wire presentation: endpoint node identity changed."
+            )
+
+        snapshot = connection.to_dict()
+        original = connection
+
+        def restore_orphaned_snapshot() -> None:
+            current = self.document.model.get_connection_optional(presentation_id)
+            if current is not original:
+                raise ValueError(
+                    "Cannot roll back Simple Wire rebind; canonical presentation identity changed."
+                )
+            source = snapshot.get("source_endpoint")
+            target = snapshot.get("target_endpoint")
+            current.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
+            current.target_endpoint = None if target is None else SLDEndpoint.from_dict(target)
+            current.properties.clear()
+            current.properties.update(dict(snapshot.get("properties", {})))
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_orphaned_snapshot)
+        connection.source_endpoint = SLDEndpoint.from_dict(dict(source_endpoint))
+        connection.target_endpoint = SLDEndpoint.from_dict(dict(target_endpoint))
+        properties.pop("orphaned_from_core_connection_id", None)
+        properties["core_connection_id"] = core_id
+        properties["connection_kind"] = "SIMPLE_WIRE"
+        properties["lifecycle_state"] = "BOUND"
+        properties["projection_source"] = "core_transaction"
+        self.document.mark_modified()
+        return True
+
     def reconcile_connection_delete(
         self,
         *,
@@ -1629,27 +1722,29 @@ class SLDService:
         transaction: Transaction,
     ) -> str:
         """Remove or orphan a Core-bound SLD connection by route ownership."""
-        connection = self.document.model.get_connection_optional(connection_id)
-        if connection is None:
-            # Core Simple Wire identity and persistent SLD presentation identity
-            # are distinct. Resolve the active companion through its persisted
-            # Core mapping, or resolve an already-orphaned authored presentation
-            # through its non-authoritative deletion provenance so redo can record
-            # the same SLD inverse without resurrecting a Core binding.
-            candidates = tuple(
-                item
-                for item in self.document.model.connections
-                if item.properties.get("core_connection_id") == connection_id
-                or (
-                    str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
-                    and item.properties.get("orphaned_from_core_connection_id") == connection_id
-                )
+        # Resolve by authoritative Core mapping before trying a same-named
+        # presentation ID. Core IDs and SLD IDs occupy separate identity
+        # domains; a same-named engineer-authored or Line/Cable presentation
+        # must never shadow the Simple Wire companion during deletion/undo.
+        candidates = tuple(
+            item
+            for item in self.document.model.connections
+            if str(item.properties.get("core_connection_id", "")) == str(connection_id)
+            or (
+                str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+                and str(item.properties.get("orphaned_from_core_connection_id", "")) == str(connection_id)
             )
-            if len(candidates) > 1:
-                raise ValueError(
-                    f"Multiple SLD connection companions map to Core connection {connection_id!r}."
-                )
-            connection = candidates[0] if candidates else None
+        )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Multiple SLD connection companions map to Core connection {connection_id!r}."
+            )
+        connection = candidates[0] if candidates else None
+        if connection is None:
+            # Line/Cable SLD companions may retain their Core object ID as
+            # their presentation ID. Use this legacy/shared-ID path only when
+            # no explicit Core-to-presentation mapping exists.
+            connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
             return "REMOVED"
         presentation_id = connection.connection_id
