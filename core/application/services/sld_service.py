@@ -1630,6 +1630,76 @@ class SLDService:
         self.document.mark_modified()
         return "ORPHANED"
 
+    def rebind_orphaned_simple_wire(
+        self,
+        *,
+        core_connection_id: str,
+        source_endpoint: Mapping[str, Any],
+        target_endpoint: Mapping[str, Any],
+        transaction: Transaction,
+    ) -> bool:
+        """Rebind an authored orphan when a deleted Simple Wire is recreated.
+
+        A delete may retain an authored SLD connection (including its route and
+        presentation overrides) under the canonical presentation ID. Undo/redo
+        recreates the same Core identity; reuse that exact object rather than
+        colliding with it or discarding the engineer-authored presentation.
+        """
+        core_id = str(core_connection_id).strip()
+        if not core_id:
+            raise ValueError("core_connection_id must be a non-empty string.")
+        presentation_id = self.presentation_connection_id(core_id)
+        connection = self.document.model.get_connection_optional(presentation_id)
+        if connection is None:
+            return False
+
+        properties = connection.properties
+        if (
+            str(properties.get("lifecycle_state", "")).upper() != "ORPHANED"
+            or str(properties.get("orphaned_from_core_connection_id", "")) != core_id
+        ):
+            return False
+
+        source_node_id = str(source_endpoint.get("node_id", ""))
+        target_node_id = str(target_endpoint.get("node_id", ""))
+        if (
+            not source_node_id
+            or not target_node_id
+            or str(connection.source_node_id) != source_node_id
+            or str(connection.target_node_id) != target_node_id
+        ):
+            raise ValueError(
+                "Cannot rebind orphaned Simple Wire presentation: endpoint node identity changed."
+            )
+
+        snapshot = connection.to_dict()
+        original = connection
+
+        def restore_orphaned_snapshot() -> None:
+            current = self.document.model.get_connection_optional(presentation_id)
+            if current is not original:
+                raise ValueError(
+                    "Cannot roll back Simple Wire rebind; canonical presentation identity changed."
+                )
+            source = snapshot.get("source_endpoint")
+            target = snapshot.get("target_endpoint")
+            current.source_endpoint = None if source is None else SLDEndpoint.from_dict(source)
+            current.target_endpoint = None if target is None else SLDEndpoint.from_dict(target)
+            current.properties.clear()
+            current.properties.update(dict(snapshot.get("properties", {})))
+            self.document.mark_modified()
+
+        transaction.record_undo(restore_orphaned_snapshot)
+        connection.source_endpoint = SLDEndpoint.from_dict(dict(source_endpoint))
+        connection.target_endpoint = SLDEndpoint.from_dict(dict(target_endpoint))
+        properties.pop("orphaned_from_core_connection_id", None)
+        properties["core_connection_id"] = core_id
+        properties["connection_kind"] = "SIMPLE_WIRE"
+        properties["lifecycle_state"] = "BOUND"
+        properties["projection_source"] = "core_transaction"
+        self.document.mark_modified()
+        return True
+
     def reconcile_connection_delete(
         self,
         *,
