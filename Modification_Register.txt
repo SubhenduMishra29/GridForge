@@ -14842,3 +14842,41 @@ Verification:
     syntax compilation, or import checks were run.
 
 ======================================================================
+
+======================================================================
+ACTIVE-DISCIPLINE GUARD FOR SLD SELECTION AND TOOL EVENTS
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    The composition root forwarded every SelectionManager selection event
+    and every Controller tool_changed event directly into the shared
+    EngineeringContextStore. Both sources represent SLD-only state. If
+    a hidden SLD canvas emitted a late selection/tool event while Control,
+    Protection, Study, Topology, or Map was active, it could overwrite the
+    active editor's selected_ids or active_tool context.
+
+Correction:
+    Route these signals through named handlers. Selection changes update
+    EngineeringContext and the workspace selection context only while the
+    active discipline is SLD. Controller tool changes update active_tool
+    only while SLD is active; tool shelves are still refreshed for UI
+    synchronization.
+
+Architecture:
+    Presentation event routing only. No domain truth moved into UI and no
+    Qt/SLD objects cross the Core boundary.
+
+Verification:
+    Source-level audit and GitHub content update only. No tests, CI, GUI
+    runtime, Python syntax compilation, or import checks were run.
+
+======================================================================
