@@ -910,9 +910,11 @@ class Application:
             contracts = {
                 ("breaker", "open"): ("closed", False),
                 ("breaker", "close"): ("closed", True),
-                # Breaker.trip() is a distinct command, but the current Breaker
-                # domain model exposes no trip-latched state beyond open/closed.
-                ("breaker", "trip"): (None, None),
+                # The Core Breaker model represents the physical switching
+                # result of trip() as open (closed=False). This verifies the
+                # commanded state change, but deliberately does not claim a
+                # separate trip-latched/cause state that the model does not store.
+                ("breaker", "trip"): ("closed", False),
                 ("breaker", "put_in_service"): ("in_service", True),
                 ("breaker", "take_out_of_service"): ("in_service", False),
                 ("switch", "open"): ("closed", False),
@@ -937,13 +939,6 @@ class Application:
             if contract is None:
                 return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, None, None, "no action-specific Core postcondition contract is defined")
             field_name, expected_value = contract
-            if field_name is None:
-                return verification(
-                    PostconditionStatus.UNAVAILABLE_UNSUPPORTED,
-                    "trip-specific state",
-                    None,
-                    "Breaker.trip() has no distinct trip-latched state in the current Breaker model; open state alone cannot prove trip-specific semantics",
-                )
             try:
                 equipment = captured_network.get_by_id(core_type, target_id)
             except (KeyError, ValueError):
