@@ -99,6 +99,9 @@ class SLDCanvasRenderSystem:
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
+        # Track only connections established by this renderer. Qt may emit a
+        # RuntimeWarning (rather than raising) when disconnecting an absent slot.
+        self._route_edit_bound_items: dict[int, Any] = {}
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -256,17 +259,36 @@ class SLDCanvasRenderSystem:
         self._bind_route_edit_items()
 
     def _bind_route_edit_items(self) -> None:
-        controller = self._route_edit_controller
-        if controller is None:
+        if self._route_edit_controller is None:
             return
-        callback = controller.handle_route_edit_request
         for items in tuple(self._items.values()):
             for item in items:
-                signal = getattr(item, "route_edit_requested", None)
-                if signal is not None and callable(getattr(signal, "connect", None)):
-                    signal.connect(callback)
+                self._bind_route_edit_item(item)
+
+    def _bind_route_edit_item(self, item: Any) -> None:
+        """Connect one route-edit signal at most once for this renderer."""
+        controller = self._route_edit_controller
+        if controller is None or item is None:
+            return
+        item_key = id(item)
+        if item_key in self._route_edit_bound_items:
+            return
+        signal = getattr(item, "route_edit_requested", None)
+        connect = getattr(signal, "connect", None) if signal is not None else None
+        if not callable(connect):
+            return
+        connect(controller.handle_route_edit_request)
+        # Keep a strong reference until the matching disconnect is attempted.
+        self._route_edit_bound_items[item_key] = item
 
     def _unbind_route_edit_item(self, item: Any) -> None:
+        if item is None:
+            return
+        item_key = id(item)
+        bound_item = self._route_edit_bound_items.pop(item_key, None)
+        if bound_item is not item:
+            # Never ask Qt to disconnect a slot this renderer did not connect.
+            return
         controller = self._route_edit_controller
         if controller is None:
             return
@@ -276,6 +298,7 @@ class SLDCanvasRenderSystem:
             try:
                 disconnect(controller.handle_route_edit_request)
             except (RuntimeError, TypeError):
+                # The QObject/signal may already have been destroyed during teardown.
                 pass
 
     def _unbind_route_edit_controller(self) -> None:
@@ -553,10 +576,7 @@ class SLDCanvasRenderSystem:
                     route_points = tuple(route.points[1:-1])
                 item = self._item_factory.create_connection(connection, source, target)
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
-                if self._route_edit_controller is not None:
-                    item.route_edit_requested.connect(
-                        self._route_edit_controller.handle_route_edit_request
-                    )
+                self._bind_route_edit_item(item)
                 if callable(getattr(item, "set_visual_state", None)):
                     item.set_visual_state(VisualState.NORMAL)
                 self._restore_connection_selection(connection, item)
