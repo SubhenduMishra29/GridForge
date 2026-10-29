@@ -14931,6 +14931,10 @@ Changes:
     - Initial runtime composition explicitly uses the initial project context
       and generation 1; later activations receive the candidate identity and
       next generation rather than implicitly capturing the previous project.
+    - create_project_synchronism_guard now requires the expected candidate
+      project ID and activation generation and validates both against the active
+      MeasurementChannelService before resolving policy or measurements. Mismatch
+      raises ANSI25_PROJECT_PROVENANCE_MISMATCH and denies breaker close.
 
 Boundary:
     - This closes the candidate identity/generation handoff gap only. It does
