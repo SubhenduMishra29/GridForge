@@ -845,6 +845,18 @@ class Application:
                     mapping = active_configuration.get(str(decision.element_id))
                 except KeyError:
                     return None
+                # The mapping is keyed by element identity, but function identity
+                # is also part of the persisted protection-action contract. Fail
+                # closed if configuration drift or malformed persisted data causes
+                # a different function to inherit this target/action.
+                decision_function_code = str(decision.function_code).strip().upper()
+                configured_function_code = str(mapping.function_code).strip().upper()
+                if not decision_function_code or configured_function_code != decision_function_code:
+                    raise ValueError(
+                        f"Protection action mapping function mismatch for element "
+                        f"{decision.element_id!r}: decision={decision_function_code!r}, "
+                        f"configured={configured_function_code!r}."
+                    )
                 if (
                     mapping.action_target_type is None
                     or mapping.action_target_id is None
