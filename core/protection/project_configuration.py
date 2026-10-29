@@ -8,6 +8,24 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 
+def _freeze_value(value: Any) -> Any:
+    """Recursively detach and freeze JSON-like configuration containers."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in value)
+    return value
+
+
+def _thaw_value(value: Any) -> Any:
+    """Return detached plain containers suitable for persistence/serialization."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_value(item) for item in value]
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionFunctionConfiguration:
     """Immutable project association for one configured protection function."""
@@ -91,22 +109,22 @@ class ProtectionFunctionConfiguration:
         for metadata_key in self.metadata:
             if not isinstance(metadata_key, str) or not metadata_key.strip():
                 raise ValueError("metadata keys must be non-empty strings.")
-        object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
+        object.__setattr__(self, "settings", _freeze_value(self.settings))
         object.__setattr__(self, "input_channel_ids", MappingProxyType(dict(self.input_channel_ids)))
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_value(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "element_id": self.element_id,
             "relay_id": self.relay_id,
             "function_code": self.function_code,
-            "settings": dict(self.settings),
+            "settings": _thaw_value(self.settings),
             "input_channel_ids": dict(self.input_channel_ids),
             "enabled": self.enabled,
             "blocked": self.blocked,
             "priority": self.priority,
             "name": self.name,
-            "metadata": dict(self.metadata),
+            "metadata": _thaw_value(self.metadata),
             "action_target_type": self.action_target_type,
             "action_target_id": self.action_target_id,
             "action_type": self.action_type,

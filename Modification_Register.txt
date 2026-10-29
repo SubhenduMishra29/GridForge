@@ -10823,3 +10823,38 @@ Verification:
 
 Status:
     MERGED — PR #742; static checks only, runtime behavior remains unverified.
+
+======================================================================
+GF-UNDO-001 — Deep immutability for protection configuration history
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ProtectionFunctionConfiguration snapshots retained by transactional undo
+
+Files:
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Finding:
+    ProtectionFunctionConfiguration was frozen only at the dataclass and
+    outer-mapping levels. Nested dictionaries and lists in settings remained
+    mutable through caller-held references, so a configuration retained by an
+    undo closure could change after the transaction recorded it. Metadata had
+    the same shallow-container exposure.
+
+Correction:
+    - Recursively detach and freeze nested mapping/list/tuple values for
+      settings and metadata when a configuration is constructed.
+    - Recursively thaw those containers in to_dict() to preserve a plain,
+      detached persistence representation.
+    - Preserve existing input_channel_ids representation and validation.
+
+Verification:
+    - Static source review only; no tests/CI run per repository rules.
+    - Runtime serialization/import behavior remains unverified.
+
+Status:
+    PR proposed; not merged.
