@@ -161,6 +161,20 @@ class ConnectionRouter:
         for l, t, r, b in rects:
             xs.update((l, r))
             ys.update((t, b))
+        # Include a guaranteed exterior corridor. Without coordinates beyond
+        # the obstacle envelope, overlapping clearance regions can eliminate
+        # every visibility-grid node even when a route exists around the group.
+        if rects:
+            span = max(
+                1.0,
+                max(r for _, _, r, _ in rects) - min(l for l, _, _, _ in rects),
+                max(b for _, _, _, b in rects) - min(t for _, t, _, _ in rects),
+            )
+            margin = span + max(1.0, float(clearance))
+            xs.update((min(l for l, _, _, _ in rects) - margin,
+                       max(r for _, _, r, _ in rects) + margin))
+            ys.update((min(t for _, t, _, _ in rects) - margin,
+                       max(b for _, _, _, b in rects) + margin))
         nodes = [(x, y) for y in sorted(ys) for x in sorted(xs) if not any(_inside((x, y), r) for r in rects)]
         index = {p: i for i, p in enumerate(nodes)}
         if source not in index or target not in index:
