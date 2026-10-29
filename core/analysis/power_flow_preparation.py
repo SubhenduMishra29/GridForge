@@ -119,6 +119,7 @@ class PreparedPowerFlow:
     project_id: str | None = None
     activation_generation: int | None = None
     topology_revision: int | None = None
+    source_revision: tuple[int, int, int, int] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.input, PowerFlowInput):
@@ -155,6 +156,19 @@ class PreparedPowerFlow:
                 raise TypeError("Prepared Power Flow topology_revision must be an integer when supplied.")
             if self.topology_revision < 0:
                 raise ValueError("Prepared Power Flow topology_revision must be non-negative.")
+        if self.source_revision is not None:
+            if (
+                not isinstance(self.source_revision, tuple)
+                or len(self.source_revision) != 4
+                or any(
+                    isinstance(value, bool) or not isinstance(value, int) or value < 0
+                    for value in self.source_revision
+                )
+            ):
+                raise ValueError(
+                    "Prepared Power Flow source_revision must contain four non-negative revision integers."
+                )
+            object.__setattr__(self, "source_revision", tuple(self.source_revision))
         ybus_revision = self.ybus.topology_revision
         if (
             self.topology_revision is not None

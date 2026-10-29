@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
@@ -40,10 +42,20 @@ class StudyPreparationService:
     def prepare_power_flow(self, configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         if not isinstance(configuration, PowerFlowStudyConfiguration):
             raise TypeError("configuration must be PowerFlowStudyConfiguration.")
-        return PowerFlowPreparation.prepare(
+        prepared = PowerFlowPreparation.prepare(
             self._execution_context.project_snapshot.network,
             configuration,
             topology_snapshot=self.topology,
+        )
+        revision = self._execution_context.source_revision
+        return replace(
+            prepared,
+            source_revision=(
+                revision.model_revision,
+                revision.topology_revision,
+                revision.presentation_revision,
+                revision.persisted_revision,
+            ),
         )
 
     def prepare_short_circuit(self, configuration: ShortCircuitStudyConfiguration) -> ShortCircuitInput:
@@ -77,6 +89,31 @@ class StudyPreparationService:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+
+        revision = self._execution_context.source_revision
+        expected_revision = (
+            revision.model_revision,
+            revision.topology_revision,
+            revision.presentation_revision,
+            revision.persisted_revision,
+        )
+        if prepared_power_flow.source_revision is None:
+            raise ValueError(
+                "Transient stability requires a Power Flow snapshot prepared by the active "
+                "Application study context; unversioned operating points are not accepted."
+            )
+        # Presentation and persistence revisions do not change electrical inputs.
+        if prepared_power_flow.source_revision[:2] != expected_revision[:2]:
+            raise ValueError(
+                "Power Flow operating point model/topology revision does not match the active "
+                "StudyExecutionContext; rerun Power Flow before transient stability."
+            )
+        if prepared_power_flow.project_id != self._execution_context.project_id:
+            raise ValueError("Power Flow operating point belongs to a different project.")
+        if prepared_power_flow.activation_generation != self._execution_context.activation_generation:
+            raise ValueError("Power Flow operating point belongs to a different project activation.")
+        if prepared_power_flow.topology_revision != self.topology.topology_revision:
+            raise ValueError("Power Flow operating point topology revision is stale.")
 
         # A transient operating point is valid only when the successful
         # numerical result belongs to this exact detached Power Flow input.
