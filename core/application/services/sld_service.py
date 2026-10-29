@@ -1649,16 +1649,31 @@ class SLDService:
         if not core_id:
             raise ValueError("core_connection_id must be a non-empty string.")
         presentation_id = self.presentation_connection_id(core_id)
-        connection = self.document.model.get_connection_optional(presentation_id)
-        if connection is None:
+        orphaned = tuple(
+            item
+            for item in self.document.model.connections
+            if str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+            and str(item.properties.get("orphaned_from_core_connection_id", "")) == core_id
+        )
+        if len(orphaned) > 1:
+            raise ValueError(
+                f"Multiple orphaned SLD companions retain Core connection {core_id!r}."
+            )
+        if not orphaned:
             return False
 
+        connection = orphaned[0]
+        if str(connection.connection_id) != presentation_id:
+            # Do not create a second canonical companion while a noncanonical
+            # authored orphan still owns the prior relationship. Automatic ID
+            # migration would mutate persistent presentation identity and needs
+            # an explicit reconciliation/migration contract.
+            raise ValueError(
+                "Cannot rebind orphaned Simple Wire presentation: retained "
+                f"identity {connection.connection_id!r} is not canonical "
+                f"{presentation_id!r}."
+            )
         properties = connection.properties
-        if (
-            str(properties.get("lifecycle_state", "")).upper() != "ORPHANED"
-            or str(properties.get("orphaned_from_core_connection_id", "")) != core_id
-        ):
-            return False
 
         source_node_id = str(source_endpoint.get("node_id", ""))
         target_node_id = str(target_endpoint.get("node_id", ""))
