@@ -54,6 +54,7 @@ from .services.validation_service import ValidationService
 from .synchronism_check import (
     BusMode, SynchronismCheckConfiguration, PhasorMeasurement,
     BypassAuthorization, SynchronismDecision, SynchronismCheckGuard,
+    phasor_measurements_from_channels,
 )
 
 __all__ = [
@@ -109,4 +110,5 @@ __all__ = [
     "BypassAuthorization",
     "SynchronismDecision",
     "SynchronismCheckGuard",
+    "phasor_measurements_from_channels",
 ]
