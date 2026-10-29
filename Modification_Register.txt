@@ -12846,3 +12846,87 @@ Status:
     implementation after the command/selection lifecycle is fully specified.
 
 
+
+
+
+======================================================================
+GF-SLD-ROT-001 — Issue #771: Rotation and Topological Alignment
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #771; ui/equipment/symbol/symbol_base.py;
+    ui/items/equipment_item.py; ui/canvas/sld_graphics_item_factory.py;
+    ui/sld/sld_model.py; core/model/terminal.py;
+    core/model/transformer.py; core/model/breaker.py.
+
+Findings:
+    1. SymbolBase stores rotation as finite degrees in renderer-neutral
+       presentation state. SLDGraphicsItemFactory passes the symbol instance
+       to EquipmentItem, which applies mirror transform, scale and rotation
+       to the graphics item. This is presentation transformation, not a Core
+       electrical mutation.
+
+    2. EquipmentItem.snap_points() resolves each symbol terminal anchor from
+       SymbolDefinition and maps the anchor to scene coordinates through the
+       same graphics-item transform. This means snapping geometry follows the
+       displayed symbol transform in the inspected path; the claim that
+       terminal anchors necessarily remain unrotated is not supported by
+       this implementation.
+
+    3. EquipmentItem.boundingRect() describes the local logical symbol box
+       plus a margin for stroke extents. The item is transformed by Qt's
+       graphics-item transform. A local bounding rectangle does not need to
+       be rewritten merely because the item rotates: Qt applies the item
+       transform for scene geometry and hit testing. The reported selection
+       mismatch may still be a runtime defect in custom hit testing or item
+       shape handling, but it is not established by boundingRect() alone.
+
+    4. Core Terminal is the authoritative owner of electrical endpoint and
+       semantic role. The inspected Terminal contract does not contain a
+       presentation rotation, polar vector, or graphics orientation property.
+       The inspected Breaker and Transformer models likewise separate their
+       electrical properties/topology from SLD symbol rotation. This is
+       consistent with the frozen architecture: visual rotation must not
+       alter electrical connectivity or phase/terminal identity.
+
+    5. SLD canvas projections consume SLD node presentation state and
+       renderer-neutral snapshots; graphics items do not own authoritative
+       network topology. Therefore the issue's proposed solver interpretation
+       of rotated visual wire paths would violate the architectural boundary.
+       Connectivity must remain sourced from canonical endpoint references,
+       never from transformed scene coordinates or drawn wire intersections.
+
+Correction decision:
+    No Core terminal-orientation field or topology mutation was added.
+    Such a change would introduce electrical meaning without a defined
+    engineering contract. The inspected source already transforms symbol
+    anchors and relies on Qt item transforms for geometry.
+
+Required follow-up:
+    - Reproduce the reported selection failure with rotated equipment,
+      including 0°, 45°, 90°, and mirrored/scaled cases, before changing
+      hit-test behavior.
+    - Trace the complete connection-route recomputation path when a symbol
+      is rotated and verify that endpoint anchors are refreshed while
+      connection endpoint identities remain unchanged.
+    - If route endpoints are stale, correct the presentation projection or
+      route recomputation boundary; do not mutate Core Terminal identity or
+      infer connectivity from route geometry.
+    - Keep selection geometry in the Qt presentation layer and ensure any
+      custom shape/hit-test override is consistent with the symbol's local
+      geometry and graphics transform.
+
+Verification:
+    Source-level inspection only of the files listed above. No tests, CI,
+    syntax/import checks, or runtime interaction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #771 REMAINS OPEN pending runtime reproduction of
+    the reported selection and route-refresh symptoms. The claimed Core
+    terminal-angle inversion is not supported by the inspected architecture
+    or source path.
+
+
