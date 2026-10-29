@@ -14909,3 +14909,38 @@ Per-breaker scoping correction:
 - Added create_project_synchronism_guard() to resolve the active per-breaker policy and live MeasurementChannelService registry at close time; measurement resolution now uses the exact configuration snapshot selected by the guard for that breaker, avoiding a second policy lookup and cross-policy mismatch.
 - The composer requires explicit clock and audit-sink dependencies. It does not silently substitute EventBus logging or a wall-clock for simulation timestamps. Production activation remains blocked until the caller supplies a durable project-scoped audit sink, an appropriate timestamp-domain clock, and explicit bypass lifecycle policy.
 - No tests/CI or syntax/import checks were run.
+
+
+======================================================================
+GF-ISSUE-845 — candidate-scoped ANSI 25 runtime composition contract
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/ansi25-candidate-runtime-context
+
+Changes:
+    - ProjectLifecycleService now supplies candidate ProjectContext and next
+      activation generation to its network activation callback before the
+      candidate Application runtime is composed.
+    - create_application's synchronism_guard_factory contract now receives
+      candidate context, candidate Network, candidate generation, and the
+      project-scoped configuration/measurement services.
+    - Initial runtime composition explicitly uses the initial project context
+      and generation 1; later activations receive the candidate identity and
+      next generation rather than implicitly capturing the previous project.
+
+Boundary:
+    - This closes the candidate identity/generation handoff gap only. It does
+      not provide a durable audit store, clock-domain adapter, bypass lifecycle,
+      or user-facing policy editing path. ANSI 25 remains NOT_IMPLEMENTED and
+      breaker close must remain fail-closed unless all required dependencies
+      are supplied and source-level integration is verified.
+    - The NetworkActivator callback signature changed and every in-repository
+      construction/call site must be reconciled before merging this branch.
+
+Verification:
+    Source edits only. No tests or CI were run, per repository audit rules.
+======================================================================
