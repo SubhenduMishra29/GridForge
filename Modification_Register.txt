@@ -14504,3 +14504,56 @@ Verification boundary:
     trace, topology hash comparison, or migration fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-C — Routing and electrical connectivity
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #817, #773, #804, #811, #767, #803, #774.
+
+Findings and disposition:
+    - #817: PR #837 merged as 8602deca37124ddd4090894751f78bfe9660a6a3.
+      Obstacle-aware orthogonal routing and related SLD identity/lifecycle changes
+      are on main. Keep the issue open pending GUI/network runtime verification.
+      PR #825 is superseded and closed unmerged; do not reopen it.
+    - #773: Source inspection found DraftConnection route metadata was copied
+      without finite-coordinate checks or removal of consecutive duplicate points.
+      Correction submitted in the current PR canonicalizes consecutive duplicate
+      route points and rejects malformed/non-finite coordinates at DraftConnection
+      construction. Electrical endpoints remain separate DraftEndpointReference
+      objects; this does not claim route geometry creates Core nodes. Runtime
+      projection/commit behavior remains unverified.
+    - #804: Closed issue. PR #787's duplicate-bend correction and current draft
+      route normalization overlap the reported vertex-inflation symptom. Reopen
+      only if a reproducible residual zero-length Core topology defect remains.
+    - #811: ElectricalInsertionService uses canonical endpoint identities and
+      replaces one Simple Wire with two connections in the Application transaction.
+      SLD route splitting is presentation geometry; keep open pending a trace of
+      target Core connection, presentation ID, segment index, endpoint mapping,
+      and resulting route points.
+    - #767 and #803: Ghost terminal graphics and deleted-QGraphicsItem ownership
+      remain unproven by source alone. Keep open pending scene/renderer registry
+      and Core endpoint identity traces; do not add global scene sweeps or suppress
+      wrapped-object errors.
+    - #774: Current insertion contracts support Breaker, Disconnector, Transformer,
+      and CT series-primary insertion only. No CVT insertion contract exists.
+      PT/CVT are voltage-measurement devices and must not be forced into a series
+      CT contract. Keep open pending separate PT/CVT primary-side attachment,
+      secondary measurement-channel, isolation, and rollback contracts.
+
+Architecture invariants:
+    - Core/Application endpoint references remain the only electrical connectivity
+      authority. Route coordinates and scene geometry are presentation metadata.
+    - No PT/CVT series insertion behavior was invented.
+    - No issue was closed by this register entry.
+
+Verification boundary:
+    Source and issue/PR inspection only. No tests/CI, syntax/import checks, or
+    interactive GUI/network runtime verification were performed.
+
+======================================================================

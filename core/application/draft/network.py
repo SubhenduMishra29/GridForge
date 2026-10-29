@@ -200,7 +200,38 @@ class DraftConnection:
         if self.source == self.target: raise ValueError("Draft connection endpoints must be distinct.")
         object.__setattr__(self, "connection_id", self.connection_id.strip())
         object.__setattr__(self, "connection_kind", str(self.connection_kind).strip().lower())
-        object.__setattr__(self, "route", MappingProxyType(dict(self.route)))
+
+        # Route coordinates are presentation metadata, never electrical
+        # endpoints. Canonicalize consecutive duplicate bends at the draft
+        # boundary and reject malformed/non-finite coordinates before they
+        # reach projection or commit. Keep non-consecutive revisits intact:
+        # they may represent an intentional authored route.
+        route = dict(self.route)
+        if "points" in route:
+            raw_points = route["points"]
+            if not isinstance(raw_points, (tuple, list)):
+                raise ValueError("Draft connection route points must be a sequence.")
+            normalized_points = []
+            for index, raw_point in enumerate(raw_points):
+                if not isinstance(raw_point, (tuple, list)) or len(raw_point) != 2:
+                    raise ValueError(
+                        f"Draft connection route point {index} must contain exactly two coordinates."
+                    )
+                point = []
+                for coordinate in raw_point:
+                    if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                        raise ValueError("Draft connection route coordinates must be numeric and finite.")
+                    value = float(coordinate)
+                    if not isfinite(value):
+                        raise ValueError("Draft connection route coordinates must be numeric and finite.")
+                    point.append(value)
+                normalized = (point[0], point[1])
+                if not normalized_points or normalized != normalized_points[-1]:
+                    normalized_points.append(normalized)
+            if raw_points and len(normalized_points) < 2:
+                raise ValueError("Draft connection route must contain at least two distinct consecutive points.")
+            route["points"] = tuple(normalized_points)
+        object.__setattr__(self, "route", MappingProxyType(route))
         object.__setattr__(self, "validation_state", MappingProxyType(dict(self.validation_state)))
 
     @property
