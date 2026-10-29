@@ -20,6 +20,7 @@ from core.control.context import ControlExecutionContext
 from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
+from core.network import TopologyEndpointReference
 
 from .command import Command
 from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
@@ -2144,8 +2145,30 @@ class Application:
         # terminal/connection operation.
         if command.command_type in {"model.create_line", "model.create_cable"} and (source_ref is None or target_ref is None):
             return
-        if not isinstance(source_ref, EndpointReference) or not isinstance(target_ref, EndpointReference):
-            raise ValueError("Connection commands require canonical EndpointReference endpoints.")
+
+        # Simple Wire commands normalize their endpoints to topology-level
+        # references before reaching Application. Unwrap only the explicitly
+        # declared terminal/Bus payload; never infer an endpoint from graphics
+        # coordinates or silently map a Junction to a terminal.
+        def sld_endpoint_reference(value: Any) -> EndpointReference:
+            if isinstance(value, EndpointReference):
+                return value
+            if isinstance(value, TopologyEndpointReference):
+                if value.is_terminal:
+                    return value.terminal_reference
+                if value.is_bus:
+                    return value.bus_reference
+                raise ValueError(
+                    "SLD connection projection does not support Junction endpoints; "
+                    "a dedicated Junction presentation contract is required."
+                )
+            raise ValueError(
+                "Connection commands require canonical EndpointReference or "
+                "TopologyEndpointReference endpoints."
+            )
+
+        source_ref = sld_endpoint_reference(source_ref)
+        target_ref = sld_endpoint_reference(target_ref)
         if source_ref == target_ref:
             raise ValueError("Connection endpoints must be distinct.")
 
