@@ -73,7 +73,7 @@ from .services.motor_dynamics_service import MotorDynamicsComposition
 def create_application(
     network: Any,
     *,
-    synchronism_guard_factory: Callable[[Any, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+    synchronism_guard_factory: Callable[[ProjectContext | None, Any, int, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
 ) -> Application:
     """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
 
@@ -117,12 +117,14 @@ def create_application(
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     application: Application | None = None
 
-    def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
+    def build_runtime(active_network: Any, candidate_context: ProjectContext | None, candidate_generation: int) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         synchronism_guard = None
         if synchronism_guard_factory is not None:
             synchronism_guard = synchronism_guard_factory(
+                candidate_context,
                 active_network,
+                candidate_generation,
                 protection_configuration_service,
                 measurement_channel_service,
             )
@@ -186,7 +188,7 @@ def create_application(
         )
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
-    command_manager, read_service, validation_service = build_runtime(network)
+    command_manager, read_service, validation_service = build_runtime(network, initial_context, 1)
     application = Application(
         command_manager=command_manager,
         read_service=read_service,
@@ -215,7 +217,7 @@ def create_application(
     # Explicit project policy mapping; absent means ANSI 25 remains unconfigured.
     application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
-    def activate_network(active_network: Any):
+    def activate_network(candidate_context: ProjectContext | None, active_network: Any, candidate_generation: int):
         """Replace project-bound Application runtime and return its rollback."""
         previous_command_manager = application._command_manager
         previous_read_service = application._read_service
@@ -230,7 +232,7 @@ def create_application(
         }
 
         try:
-            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
+            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network, candidate_context, candidate_generation)
             application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
             application._protection_read_service = ProtectionReadService(active_network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
         except Exception:
