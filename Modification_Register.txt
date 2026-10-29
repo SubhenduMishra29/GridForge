@@ -12368,3 +12368,38 @@ Status:
     event execution ordering and numerical runtime remain runtime-unverified.
 
 ======================================================================
+
+======================================================================
+GF-REC-001
+======================================================================
+
+Scope:
+    Application transaction failure recovery and volatile DraftNetwork state.
+
+Files:
+    core/application/command_manager.py
+    core/application/application.py
+
+Correction:
+    CommandManager captures a structured recovery record on first transition
+    to DEGRADED, preserves the failure type/message, and best-effort writes an
+    atomic JSON recovery artifact to the configured recovery directory.
+    Application configures the writer under ~/.gridforge/recovery and supplies
+    the current Application-owned DraftNetwork as JSON-serializable recovery
+    data. Application exposes integrity_state, is_read_only_degraded, and
+    recovery_record so the host can present the degraded read-only state.
+    Capture/write failures are recorded and do not mask the original
+    transaction/history failure. No automatic integrity reset or unsafe
+    mutation bypass is introduced.
+
+Authority boundary:
+    Recovery data is diagnostic/authoring recovery data only. It does not
+    replace authoritative Core state or treat SLD route geometry as topology.
+
+Status:
+    IMPLEMENTED ON fix/transaction-recovery-snapshot — STATIC REVIEW PENDING.
+
+Verification:
+    No tests or CI run, per repository audit rules.
+
+======================================================================
