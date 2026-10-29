@@ -72,6 +72,12 @@ Redo:
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import tempfile
 from typing import Any
 
 from .command import Command
@@ -97,6 +103,7 @@ PreCommitHook = Callable[
     [Command, ApplicationResult[Any], Transaction],
     None,
 ]
+RecoverySnapshotProvider = Callable[[], Mapping[str, Any]]
 
 
 # ============================================================
@@ -136,6 +143,9 @@ class CommandManager:
         self._integrity_state = "CLEAN"
         self._integrity_error: BaseException | None = None
         self._pre_commit_hook: PreCommitHook | None = None
+        self._recovery_snapshot_provider: RecoverySnapshotProvider | None = None
+        self._recovery_directory: Path | None = None
+        self._recovery_record: Mapping[str, Any] | None = None
 
     # ========================================================
     # PROPERTIES
@@ -171,6 +181,27 @@ class CommandManager:
         """Return the failure that caused a degraded command boundary, if any."""
         return self._integrity_error
 
+    @property
+    def recovery_record(self) -> Mapping[str, Any] | None:
+        """Return a detached copy of the last recovery diagnostic record."""
+        return None if self._recovery_record is None else deepcopy(self._recovery_record)
+
+    def configure_recovery(
+        self,
+        *,
+        snapshot_provider: RecoverySnapshotProvider | None,
+        recovery_directory: str | Path | None,
+    ) -> None:
+        """Configure best-effort draft snapshot capture for degraded transactions."""
+        if snapshot_provider is not None and not callable(snapshot_provider):
+            raise TypeError("snapshot_provider must be callable or None.")
+        if recovery_directory is not None and not isinstance(recovery_directory, (str, Path)):
+            raise TypeError("recovery_directory must be a path or None.")
+        self._recovery_snapshot_provider = snapshot_provider
+        self._recovery_directory = (
+            None if recovery_directory is None else Path(recovery_directory).expanduser()
+        )
+
     def set_pre_commit_hook(self, hook: PreCommitHook | None) -> None:
         """Install the Application-owned coordinated mutation hook."""
         if hook is not None and not callable(hook):
@@ -190,8 +221,67 @@ class CommandManager:
             )
 
     def _mark_degraded(self, error: BaseException) -> None:
+        first_degradation = self._integrity_state != "DEGRADED"
         self._integrity_state = "DEGRADED"
         self._integrity_error = error
+        if first_degradation:
+            self._capture_recovery_record(error)
+
+    def _capture_recovery_record(self, error: BaseException) -> None:
+        """Capture draft state and atomically persist a recovery artifact if configured."""
+        record: dict[str, Any] = {
+            "schema": "gridforge.recovery-snapshot.v1",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "integrity_state": "DEGRADED",
+            "failure_type": type(error).__name__,
+            "failure_message": str(error),
+            "snapshot": None,
+            "artifact_path": None,
+            "capture_error": None,
+        }
+        try:
+            if self._recovery_snapshot_provider is not None:
+                snapshot = self._recovery_snapshot_provider()
+                if not isinstance(snapshot, Mapping):
+                    raise TypeError("Recovery snapshot provider must return a mapping.")
+                record["snapshot"] = dict(snapshot)
+                json.dumps(record["snapshot"], ensure_ascii=False, allow_nan=False)
+            else:
+                record["capture_error"] = "No recovery snapshot provider is configured."
+        except BaseException as capture_exc:
+            record["snapshot"] = None
+            record["capture_error"] = f"Snapshot capture failed: {type(capture_exc).__name__}: {capture_exc}"
+
+        if self._recovery_directory is not None:
+            temporary_path: str | None = None
+            try:
+                self._recovery_directory.mkdir(parents=True, exist_ok=True)
+                artifact = self._recovery_directory / (
+                    "recovery-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".json"
+                )
+                record["artifact_path"] = str(artifact)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="\n", dir=self._recovery_directory,
+                    prefix=".gridforge-recovery-", suffix=".tmp", delete=False,
+                ) as stream:
+                    temporary_path = stream.name
+                    json.dump(record, stream, ensure_ascii=False, indent=2, allow_nan=False)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary_path, artifact)
+                temporary_path = None
+            except BaseException as write_exc:
+                record["capture_error"] = (
+                    (str(record["capture_error"]) + "; ") if record["capture_error"] else ""
+                ) + f"Recovery artifact write failed: {type(write_exc).__name__}: {write_exc}"
+            finally:
+                if temporary_path is not None:
+                    try:
+                        os.unlink(temporary_path)
+                    except OSError:
+                        pass
+        self._recovery_record = record
 
     # ========================================================
     # HANDLER REGISTRATION

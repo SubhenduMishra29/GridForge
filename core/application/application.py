@@ -76,6 +76,7 @@ from core.protection.directional.directional_relay import _create_authoritative_
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
+from pathlib import Path
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
@@ -129,6 +130,12 @@ class Application:
         self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
+        # Recovery artifacts live outside the project file and preserve the
+        # Application-owned draft separately from authoritative Core state.
+        self._command_manager.configure_recovery(
+            snapshot_provider=self._recovery_snapshot,
+            recovery_directory=Path.home() / ".gridforge" / "recovery",
+        )
         self._creation_contract_registry = CreationContractRegistry()
         # Extension factories are durable across project-runtime replacement.
         # Each factory must bind handlers to the candidate CommandManager rather
@@ -161,6 +168,40 @@ class Application:
     def terminal_roles_by_type(self) -> Mapping[str, tuple[str, ...]]:
         """Return the immutable Core-derived terminal-role contract."""
         return self.TERMINAL_ROLES_BY_TYPE
+
+    @property
+    def integrity_state(self) -> str:
+        """Expose the command/Core consistency state for a read-only degraded workspace."""
+        return self._command_manager.integrity_state
+
+    @property
+    def is_read_only_degraded(self) -> bool:
+        """Return whether mutations are blocked pending explicit project recovery."""
+        return self._command_manager.integrity_state != "CLEAN"
+
+    @property
+    def recovery_record(self) -> Mapping[str, Any] | None:
+        """Return recovery diagnostics without exposing mutable internal state."""
+        return self._command_manager.recovery_record
+
+    @property
+    def draft_network(self) -> Any | None:
+        return self._draft_network
+
+    def set_draft_network(self, draft_network: Any | None) -> None:
+        self._draft_network = draft_network
+
+    def _recovery_snapshot(self) -> Mapping[str, Any]:
+        """Return a JSON-serializable snapshot of volatile authoring state.
+
+        This is diagnostic recovery data only: it never changes or replaces
+        authoritative Core project/network state.
+        """
+        draft_network = self._draft_network
+        return {
+            "kind": "application-draft-network",
+            "draft_network": None if draft_network is None else draft_network.to_dict(),
+        }
 
     @property
     def draft_network(self) -> Any | None:
