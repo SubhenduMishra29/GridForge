@@ -13146,3 +13146,89 @@ Status:
     change can be justified.
 
 
+
+
+
+======================================================================
+GF-GHOST-WIRE-001 — Issue #767: Ghost Wire / Terminal Identity Split
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #767; core/application/services/simple_wire_service.py;
+    core/application/services/electrical_connection_service.py;
+    core/application/commands/simple_wire_commands.py;
+    ui/canvas/sld_canvas_render_system.py; ui/sld/sld_model.py.
+
+Findings:
+    1. The inspected Core SimpleWireConnectionService validates terminal
+       references against the current Network before creating a relationship.
+       Its removal path resolves the registered connection by connection ID,
+       checks any supplied endpoint snapshots against the registered
+       relationship, then removes the authoritative relationship transactionally.
+       It does not retain or create graphics terminal anchors.
+
+    2. ElectricalConnectionService resolves a terminal reference against the
+       Application context before changing terminal.endpoint. It invalidates
+       Network topology after connect/disconnect and records an undo operation
+       restoring the prior endpoint. A stale or missing terminal reference
+       should fail through the resolver's validation/resource path; this
+       source alone does not establish a thread lock or continuous error loop.
+
+    3. SLDDocument.remove_node() removes document connections that reference
+       the removed node, so the canonical SLD document does not intentionally
+       preserve those connection records after node removal.
+
+    4. SLDCanvasRenderSystem.synchronize() reconciles the realized scene
+       against the complete committed/draft snapshot. It removes tracked item
+       IDs absent from the new snapshot. _remove_realized() also clears
+       renderer tracking/signature/diagnostic state and attempts to unregister
+       snap candidates and route-edit callbacks before removing each item from
+       the scene. This is the appropriate cleanup boundary for transient
+       graphics and snap anchors.
+
+    5. No SimpleWireGroup implementation or distinct internal visual-terminal
+       anchor cache matching the issue's description was found in the
+       inspected active paths. The claimed pan-time race and surviving pixel
+       therefore remain unconfirmed. The issue's narrative combines Core
+       terminal identity, Simple Wire relationships, SLD document records,
+       snap candidates and Qt graphics; these must be observed separately to
+       locate the actual stale owner.
+
+Correction decision:
+    No speculative Core topology rewrite or graphics deletion patch was made.
+    The inspected renderer already has snapshot reconciliation and explicit
+    cleanup for realized items and snap candidates. Changing canonical
+    connectivity without a reproduced failing reference could corrupt valid
+    relationships or hide the actual stale registry.
+
+Required follow-up:
+    - Reproduce removal of equipment inserted between two connected wire
+      segments while panning, and capture the removed node ID, affected SLD
+      connection IDs, Core terminal references, registered SimpleWire
+      connections, scene item IDs, and snap-candidate IDs before and after.
+    - If a scene item survives but is absent from the new complete snapshot,
+      trace why synchronize() did not remove its tracked render ID or whether
+      an untracked item was inserted outside the render system.
+    - If a snap candidate survives after graphics removal, fix its owner
+      registration/unregistration lifecycle; never repair this by changing
+      Core terminal IDs.
+    - If a connection references a missing Core terminal, reject it at the
+      canonical Application resolver boundary and report a structured
+      diagnostic without repeated background retries.
+    - Keep Simple Wire topology based on canonical endpoint references, never
+      on scene coordinates, pan transforms, or visible wire pixels.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime pan/delete reproduction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #767 REMAINS OPEN. No matching SimpleWireGroup or
+    stale visual-anchor cache was found in inspected source; runtime evidence
+    is required to identify whether the stale owner is the scene, snap system,
+    SLD document, or Core topology registry.
+
+
