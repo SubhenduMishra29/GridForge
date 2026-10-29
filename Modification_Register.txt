@@ -13079,3 +13079,70 @@ Status:
     verification before claiming resolution.
 
 
+
+
+
+======================================================================
+GF-CANVAS-CULL-001 — Issue #768: Viewport Transform Scale Clipping
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #768; ui/canvas/sld_canvas_projection.py;
+    ui/canvas/sld_canvas_render_system.py; ui/canvas/grid_scene.py;
+    ui/canvas/graphics_view.py; ui/items/equipment_item.py.
+
+Findings:
+    1. Source inspection of SLDCanvasProjection did not find the issue's
+       described optimized viewport-culling algorithm. The inspected
+       projection produces renderer-neutral canvas snapshots; it does not
+       decide equipment visibility based on an unscaled viewport rectangle.
+
+    2. SLDCanvasRenderSystem's explicit zoom-dependent visibility behavior
+       found in the inspected implementation applies to annotation density.
+       The ordinary item realization/synchronization path does not show a
+       custom equipment culling pass using an unscaled geometry rectangle.
+
+    3. GridScene adapts grid tier density using the painter world transform,
+       and uses scene item bounds for content fitting. This is not evidence
+       of the specific SLD equipment culling defect alleged in the issue.
+
+    4. EquipmentItem has local symbol geometry and is presented as a Qt
+       graphics item with its transform. Qt scene/view mapping and item
+       bounds participate in transformed scene rendering. The issue's
+       specific claim cannot be confirmed from the inspected source paths.
+
+Correction decision:
+    No speculative culling algorithm was added or rewritten because the
+    alleged algorithm was not found. A blanket change to item bounds or
+    visibility would risk degrading Qt scene indexing, hit testing, and
+    symbol realization without establishing the defect's source.
+
+Required follow-up:
+    - Reproduce the reported flicker using large transformers, thin
+      polylines and multi-segment bus bars at high/low zoom and viewport
+      edges.
+    - Capture the affected item's sceneBoundingRect(), boundingRect(),
+      transform, effective visibility, scene rect and viewport transform
+      while the flicker occurs.
+    - Trace any active plugin-specific rendering path or external culling
+      helper invoked in the reproduction. If culling exists in a different
+      path, use the inverse viewport transform to map the viewport rectangle
+      into scene coordinates and expand for stroke/selection extents before
+      visibility decisions.
+    - Keep viewport culling and graphics geometry in UI presentation; do not
+      alter Core electrical topology or derive visibility from network state.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime zoom/pan reproduction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #768 REMAINS OPEN. The issue's claimed culling
+    algorithm was not found in the inspected source. Runtime reproduction
+    and active rendering-path tracing are required before a corrective code
+    change can be justified.
+
+
