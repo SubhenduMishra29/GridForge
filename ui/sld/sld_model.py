@@ -329,7 +329,12 @@ class SLDRoute:
                 raise ValueError("route coordinates must be numeric")
             if not math.isfinite(float(x)) or not math.isfinite(float(y)):
                 raise ValueError("route coordinates must be finite")
-            normalized.append((float(x), float(y)))
+            point_value = (float(x), float(y))
+            # Consecutive duplicate bends create zero-length path segments.
+            # Canonicalize only the presentation route; route points never
+            # define electrical endpoints or Core connectivity.
+            if not normalized or point_value != normalized[-1]:
+                normalized.append(point_value)
         object.__setattr__(self, "points", tuple(normalized))
 
     def to_dict(self) -> Dict[str, Any]:

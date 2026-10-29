@@ -12735,4 +12735,19 @@ Verification:
 
 Status:
     AUDIT RECORDED — ISSUE #773 REMAINS OPEN pending route-persistence trace and
-    confirmation of finite/duplicate bend normalization behavior.
+    confirmation of complete route editing behavior and runtime interaction.
+
+
+Correction follow-up (2026-10-29):
+    Implemented in PR #787: SLDRoute now removes consecutive duplicate
+    intermediate bend coordinates after validating each point as a finite
+    numeric pair. This removes zero-length presentation segments without
+    rewriting non-consecutive points or changing endpoint/topology semantics.
+    Stale non-consecutive bends are not automatically discarded because the
+    route model cannot infer whether they are intentional loops; a route edit
+    replaces the complete accepted point list. Core connectivity remains
+    sourced exclusively from canonical connection endpoints.
+
+    Verification: source-level change review only. No tests, CI, syntax/import
+    checks, or runtime interaction were performed. Issue #773 remains open
+    until full interaction behavior is verified.
