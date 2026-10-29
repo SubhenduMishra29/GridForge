@@ -14044,3 +14044,35 @@ Verification:
 
 Status:
     EXISTING ROUTE COORDINATE SPACE NORMALIZED. ISSUE #817 REMAINS OPEN.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-007 — Validate Unwrapped Endpoint Contracts
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    TopologyEndpointReference annotates its contained terminal/Bus references
+    as optional fields. Although construction validates each kind, the SLD
+    projection adapter should still verify the contained canonical reference
+    and its kind before passing it to endpoint resolution. This keeps the
+    Application boundary explicit if malformed objects or future construction
+    paths reach the coordinator.
+
+Correction:
+    The coordinator now verifies terminal references are EndpointReference
+    values of terminal kind and Bus references are EndpointReference values of
+    Bus kind. Junction and unsupported topology kinds fail with specific errors;
+    no type assertion or geometry-based inference is used.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Syntax/import
+    integrity and full transaction behavior remain pending.
+
+Status:
+    ENDPOINT PAYLOAD CONTRACT GUARD ADDED. ISSUE #817 REMAINS OPEN.
