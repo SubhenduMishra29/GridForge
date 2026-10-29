@@ -14557,3 +14557,48 @@ Verification boundary:
     interactive GUI/network runtime verification were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-G — Protection/control concurrency contracts
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #839, #840, #845, #859.
+
+Source findings:
+    - #839: MeasurementChannel accepts finite scalar and complex values and carries
+      phase, signal type, scale/polarity, quality, and sample metadata. TopologyManager
+      excludes measurement-secondary terminals from conductive Bus topology. These
+      boundaries exist, but a complete primary-to-instrument-transformer-to-channel-
+      to-protection phase-isolation/vector contract is not established by this audit.
+    - #840: ControlInterlock and ControlEngine provide logic-level interlock gates.
+      Application.execute serializes each command through an RLock, but this does
+      not itself establish a multi-command physical interlocking contract across
+      multiple targets. No parallel Pre-Execution Lock Registry should be added
+      without a demonstrated race and approved command precondition semantics.
+    - #845: CloseBreakerCommand exists; no synchronism-check evaluator or explicit
+      ANSI 25 voltage/frequency/phase tolerance contract was found in reviewed
+      Application entrypoints. A safe correction requires a defined measurement
+      contract and fail-closed rules; do not infer synchronism from topology alone.
+    - #859: TopologyManager builds island/topology snapshots and tracks topology
+      revision; it does not own global frequency state or a CUDA frequency buffer.
+      The alleged race owner/backend is not established by current source evidence.
+
+Disposition:
+    - Keep all four issues open pending the specific source/runtime evidence and
+      contracts recorded in their issue comments.
+    - Any ANSI 25 implementation must execute at the Application/Core breaker-close
+      mutation boundary and record its decision; it must not be a UI-only warning.
+    - Measurement secondary references remain outside conductive power topology.
+    - Frequency is study/runtime state, not TopologyManager-owned topology state.
+    - No implementation or issue closure is claimed by this audit.
+
+Verification boundary:
+    Source inspection only. No tests/CI, syntax/import checks, concurrent runtime
+    trace, solver/device profiling, or protection study was run.
+
+======================================================================
