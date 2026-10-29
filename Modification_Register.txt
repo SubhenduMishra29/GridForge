@@ -14806,3 +14806,39 @@ Verification:
     behavior during the remaining integration review.
 
 ======================================================================
+
+======================================================================
+COMPATIBILITY SURFACE SELECTION ISOLATION
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    Topology and Map activation uses the compatibility-surface path
+    outside WorkspaceController. That path changed discipline and cleared
+    active_tool, but retained shared SLD selection and EngineeringContext
+    selected_ids. This allowed SLD selection state to remain visible in
+    context while a non-SLD surface was active.
+
+Correction:
+    After successful compatibility-surface activation, clear the shared
+    UI selection and publish the surface discipline, active_tool=None,
+    and selected_ids=(). Failed activation does not mutate selection or
+    publish the new engineering context.
+
+Architecture:
+    UI-only transient interaction/presentation state. Core remains the
+    authority for electrical/domain truth; no Qt/SLD objects cross into Core.
+
+Verification:
+    Source-level call-path audit only. No tests, CI, GUI runtime, Python
+    syntax compilation, or import checks were run.
+
+======================================================================
