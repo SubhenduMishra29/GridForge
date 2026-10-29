@@ -14602,3 +14602,71 @@ Verification boundary:
     trace, solver/device profiling, or protection study was run.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-H — Measurement, transient, and protection model gaps
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #841, #842, #843, #846, #847, #848, #849, #851, #852, #853,
+    #854, #855, #856, #857.
+
+Findings and dispositions:
+    - #841: Dynamics package exposes event, DAE, and transient-stability solvers.
+      The post-protection-trip topology-change reinitialization contract remains
+      unproven. Require a trip-to-solver event trace and explicit post-event
+      initialization/failure semantics.
+    - #842: MeasurementChannel documentation assigns saturation, filtering, and
+      instrument error to the physical measurement source/model. CT/PT saturation
+      must be implemented as a physical instrument model with validated excitation,
+      remanent-flux, burden, and secondary waveform contracts—not generic clipping.
+    - #843: Anti-aliasing belongs to the acquisition/measurement-generation boundary
+      with explicit sample rate and filter response; do not silently filter the
+      generic logical MeasurementChannel.
+    - #846: The claimed SER single-array bottleneck is unproven. Require the actual
+      recorder, append path, buffer policy, timestamp owner, and profile.
+    - #847: Multi-relay bus-zone trip requires an explicit atomic multi-target
+      Application command if partial clearing is reproducible. Individual command
+      serialization is not a multi-command atomicity guarantee.
+    - #848: Frequency/ROCOF estimator and derivative spikes are not established by
+      the issue narrative alone. Require the active estimator, sample interval,
+      waveform, and response-time/error budget.
+    - #849: Identify the exact interlock override owner and project.json path before
+      changing persistence. Overrides must be explicit and auditable project state,
+      not hidden untyped runtime booleans.
+    - #851: Require the canonical ANSI 21 zone implementation, settings, input
+      snapshot provenance, and out-of-zone fault reproduction before changing
+      protection-zone coordination.
+    - #852: Point-on-wave switching requires a defined sampled-waveform source,
+      zero-crossing interpolation, noise/DC-offset model, and breaker delay contract.
+    - #853: Application serializes individual commands; an atomic UFLS/UVLS batch
+      contract and actual concurrent dispatch path have not been established.
+      Any batch must be Application-owned and rollback-capable.
+    - #854: A canonical persisted relay setting-group model and dynamic switch path
+      were not established. Future changes must publish immutable setting snapshots
+      at an evaluation boundary.
+    - #855: Require a traced ANSI 50BF timer event → typed target mapping →
+      Application command path; protection worker threads must not mutate Core
+      directly.
+    - #856: Cold-load pickup desensitization is a scoped load/reconnection transient
+      model and coordination contract, not a global threshold increase.
+    - #857: DC-offset and fundamental phasor treatment must follow the specific
+      protection element's measurement quantity and an identified acquisition
+      contract; do not generically replace peak/instantaneous values with filtered
+      values.
+
+Disposition:
+    Keep all scoped issues open pending the source/runtime evidence and domain
+    contracts recorded in the issue threads. No new protection thresholds, solver
+    workarounds, filtering behavior, or unverified physics were introduced.
+
+Verification boundary:
+    Source and issue inspection only. No tests/CI, syntax/import checks, transient
+    simulation, relay coordination study, event-buffer profiling, or runtime fault
+    injection was performed.
+
+======================================================================
