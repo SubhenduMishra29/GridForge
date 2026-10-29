@@ -23,6 +23,7 @@ class SynchronismCheckConfiguration:
     max_measurement_age_seconds: float
     dead_bus_voltage_max_kv: float
     allowed_modes: Mapping[BusMode, bool]
+    measurement_channel_ids: Mapping[str, str]
     bypass_allowed: bool = False
     def __post_init__(self):
         for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","dead_bus_voltage_max_kv"):
@@ -45,6 +46,25 @@ class SynchronismCheckConfiguration:
         if any(mode not in supplied for mode in BusMode):
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
         object.__setattr__(self, "allowed_modes", MappingProxyType({mode: supplied[mode] for mode in BusMode}))
+        channel_keys = {
+            "left_voltage", "left_phase_angle", "left_frequency",
+            "right_voltage", "right_phase_angle", "right_frequency",
+        }
+        if not isinstance(self.measurement_channel_ids, Mapping):
+            raise ValueError("Explicit measurement-channel IDs are required for both bus sides.")
+        if set(self.measurement_channel_ids) != channel_keys:
+            raise ValueError(
+                "ANSI 25 requires exactly six measurement-channel IDs: "
+                + ", ".join(sorted(channel_keys))
+            )
+        normalized_channels = {}
+        for key, channel_id in self.measurement_channel_ids.items():
+            if not isinstance(channel_id, str) or not channel_id.strip() or channel_id != channel_id.strip():
+                raise ValueError(f"Measurement channel ID for {key} must be a canonical non-empty string.")
+            normalized_channels[key] = channel_id
+        if len(set(normalized_channels.values())) != 6:
+            raise ValueError("ANSI 25 voltage, phase-angle and frequency channels must be six distinct IDs.")
+        object.__setattr__(self, "measurement_channel_ids", MappingProxyType(normalized_channels))
         if not isinstance(self.bypass_allowed,bool): raise TypeError("bypass_allowed must be bool")
     def to_dict(self) -> dict:
         """Return a JSON-compatible, explicit project-persistence representation."""
@@ -55,6 +75,7 @@ class SynchronismCheckConfiguration:
             "max_measurement_age_seconds": self.max_measurement_age_seconds,
             "dead_bus_voltage_max_kv": self.dead_bus_voltage_max_kv,
             "allowed_modes": {mode.value: self.allowed_modes[mode] for mode in BusMode},
+            "measurement_channel_ids": dict(self.measurement_channel_ids),
             "bypass_allowed": self.bypass_allowed,
         }
 
@@ -66,7 +87,7 @@ class SynchronismCheckConfiguration:
         required = {
             "max_voltage_difference_kv", "max_phase_angle_difference_deg",
             "max_frequency_difference_hz", "max_measurement_age_seconds",
-            "dead_bus_voltage_max_kv", "allowed_modes", "bypass_allowed",
+            "dead_bus_voltage_max_kv", "allowed_modes", "measurement_channel_ids", "bypass_allowed",
         }
         missing = required.difference(data)
         extra = set(data).difference(required)
@@ -82,6 +103,7 @@ class SynchronismCheckConfiguration:
             max_measurement_age_seconds=data["max_measurement_age_seconds"],
             dead_bus_voltage_max_kv=data["dead_bus_voltage_max_kv"],
             allowed_modes=data["allowed_modes"],
+            measurement_channel_ids=data["measurement_channel_ids"],
             bypass_allowed=data["bypass_allowed"],
         )
 
