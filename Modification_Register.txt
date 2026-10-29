@@ -13417,3 +13417,88 @@ Status:
     runtime verification of overlapping scene stacking and interaction.
 
 
+
+
+
+======================================================================
+GF-UI-REFRESH-001 — Issue #763 — Study and Canvas Refresh Synchronization Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #763; core/application/events.py; core/application/study.py;
+    ui/events/update_boundary.py; ui/projection/ui_projection_coordinator.py;
+    ui/events/sld_update_coordinator.py; ui/projection/study_projection.py;
+    ui/canvas/canvas_composition.py; ui/canvas/sld_canvas_render_system.py.
+
+Findings:
+    1. UIUpdateBoundary subscribes to ApplicationEvent and synchronously
+       delegates each event to UIProjectionCoordinator. The coordinator routes
+       each event to interested projections once and catches/logs projection
+       failures. It has no event coalescing, frame scheduler, or refresh-rate
+       limit; therefore a burst of relevant Application events can cause
+       repeated synchronous projection work on the publisher's call path.
+
+    2. SLDUpdateCoordinator handles committed network/presentation events by
+       synchronizing the SLD read projection and calling the canvas refresh
+       callback. DraftChanged also projects draft state and refreshes the
+       canvas. SLDCanvasSurface then builds a complete committed or composite
+       snapshot and calls SLDCanvasRenderSystem.synchronize(); renderer
+       reconciliation tracks IDs/signatures and is not itself evidence of a
+       unconditional scene-wide repaint on every numerical solver iteration.
+
+    3. StudyStarted, StudyCompleted, StudyFailed and StudyCancelled are
+       lifecycle events. StudyProjection subscribes to relevant study and
+       model events to refresh study-case/result presentation. StudyCompleted
+       is not included in SLDUpdateCoordinator.event_types, so the inspected
+       route does not establish that each completed study triggers an SLD
+       canvas refresh. The inspected Study event contract also does not by
+       itself establish per-iteration solver result publication.
+
+    4. The issue's specific assertion that solver iteration loops continuously
+       publish results through UIUpdateBoundary and thereby force global SLD
+       repaint is not proven by the inspected active event path. A genuine
+       risk remains: multiple committed/draft events arriving in a burst can
+       synchronously cause repeated projection and canvas snapshot
+       reconciliation without coalescing.
+
+Correction decision:
+    No speculative scheduler, timer, worker-thread dispatch, or dropped-event
+    behavior was introduced. The coordinator is framework-neutral and does not
+    own Qt event-loop scheduling. Adding asynchronous/coalesced refresh without
+    a defined invalidation contract could lose ordering-sensitive project,
+    draft, close, or commit transitions and could display stale electrical
+    results. A safe performance correction needs a concrete trace showing the
+    emitting solver/event source, event frequency, thread affinity, and which
+    projection is refreshed for each event. If coalescing is implemented,
+    preserve lifecycle boundaries and always project the latest authoritative
+    Application snapshot on the UI thread; never publish partial solver
+    iterations as committed Core truth.
+
+Required follow-up:
+    - Capture event type, publisher thread, emission cadence and projection
+      refresh duration during a reproducible heavy study.
+    - Confirm whether numerical iterations emit ApplicationEvents or whether
+      the observed traffic originates from model edits, draft updates, or
+      result-display callbacks.
+    - Profile SLD canvas snapshot creation and renderer reconciliation
+      separately from Qt paint scheduling and study-result panel updates.
+    - If a high-frequency event source is confirmed, define safe coalescing
+      rules by event family; never coalesce away ProjectClosed, project
+      activation boundaries, failed/accepted command outcomes, or required
+      final StudyCompleted/StudyFailed status.
+    - Keep all Qt scheduling in UI adapters via ui/core/qt.py; keep solver
+      computation and authoritative study results independent of UI graphics.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime heavy-study profiling were performed, in accordance with the
+    repository audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #763 REMAINS OPEN. Synchronous refresh work on
+    relevant event bursts is confirmed, but the claimed solver-iteration
+    repaint loop is not established by the inspected source. Runtime event
+    tracing and profiling are required before a safe performance correction.
