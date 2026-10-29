@@ -14404,3 +14404,59 @@ Verification boundary:
     interaction, coordinate stress, or runtime verification were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-E — Rendering, lifecycle, and performance audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #818, #820, #812, #805, #768, #765, #758, #763, #761, #760, #769.
+
+Findings:
+    - #818: Multi-viewport is a workspace capability request. Synchronous
+      Application-event-to-projection refresh work is present, but solver-iteration
+      repaint saturation and frame impact are not proven without profiling.
+    - #820: Label scaling/decluttering and non-destructive presentation layers need
+      explicit presentation contracts; no canonical multi-layer visibility model
+      was established by this audit.
+    - #812: A per-iteration solver-to-UI thermal-gradient repaint loop was not
+      established. Require a runtime callback/profile trace before changing
+      numerical/UI boundaries.
+    - #805: Duplicate of closed #764. Current renderer applies centralized
+      connection/equipment/annotation z-values; no background-thread QGraphicsItem
+      creation path was established. Closed with a source-backed duplicate note.
+    - #768: The described optimized viewport-culling algorithm was not found in
+      the inspected active path; the flicker owner requires runtime bounds/transform
+      evidence.
+    - #765: PR #795 found active route shape/bounds derived from the current path;
+      a stale independent bounding-box cache was not established.
+    - #758: PR #801 found QPointF and scene-space terminal anchors; no explicit
+      float32 narrowing site was found in the inspected rendering/snap path.
+    - #763: PR #797 confirmed synchronous projection refresh work on Application
+      events; a solver-iteration-driven global repaint loop remains unproven.
+    - #761: PR #799 found renderer-owned removal clears snap registrations and
+      tracked state; a separate orphan terminal graphic was not established.
+    - #760: PR #800 found incremental realization reuses unchanged items; an
+      unconditional full-scene teardown/rebuild was not established. Profiling is
+      still needed for synchronous projection/activation costs.
+    - #769: PR #791 did not establish that the optional document-transition guard
+      is wired into the active workspace path. Hidden-document mutation requires
+      a runtime tab-switch trace.
+
+Disposition:
+    - Keep #818, #820, #812, #768, #765, #758, #763, #761, #760, and #769 open
+      with the concrete profiling/reproduction evidence recorded in their issue
+      threads.
+    - Close #805 as a duplicate of #764.
+    - No rendering workaround, global scene sweep, or Core precision change was
+      added without evidence identifying the responsible owner.
+
+Verification boundary:
+    Source/issue inspection only. No tests, CI, syntax/import checks, GUI profiling,
+    high-zoom runtime capture, or multi-SLD activation runtime trace was performed.
+
+======================================================================
