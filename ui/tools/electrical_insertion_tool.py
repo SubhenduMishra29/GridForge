@@ -184,6 +184,9 @@ class ElectricalInsertionTool(ToolBase):
                 for candidate in nearest
             }
             if len(nearest_connection_ids) > 1:
+                # Do not let mouse-release fallback reuse a previously hovered
+                # connection when the current pointer is ambiguous.
+                self._clear_target()
                 return None
             _, item, target = candidates[0]
             self._target_item = item
