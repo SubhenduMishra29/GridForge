@@ -13866,13 +13866,14 @@ Changes:
        change electrical connectivity, or mutate Core state.
 
 Integration boundary:
-    SLDCanvasRenderSystem now supplies scene-space bounds for realized
-    non-endpoint nodes when it calculates automatic connection routes. The
-    router excludes no electrical endpoints and does not infer connectivity.
-    Existing-route crossing penalties are available to callers that can provide
-    route geometry; the current renderer integration supplies obstacle bounds
-    only. Runtime near-miss verification and explicit route-edit interaction
-    review remain follow-up work before Issue #817 can be closed.
+    SLDCanvasRenderSystem supplies scene-space bounds for realized
+    non-endpoint nodes and realized connection polylines when it calculates
+    automatic routes. The router excludes source/target node bounds from its
+    obstacle set and uses existing routes as soft crossing/overlap penalties.
+    These are presentation inputs only; the router does not infer or mutate
+    electrical connectivity. Runtime near-miss verification and explicit
+    route-edit interaction review remain follow-up work before Issue #817 can
+    be closed.
 
 Verification:
     Repository source change only. No tests or CI were run, per repository
