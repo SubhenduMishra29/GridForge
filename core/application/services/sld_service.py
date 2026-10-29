@@ -1629,27 +1629,29 @@ class SLDService:
         transaction: Transaction,
     ) -> str:
         """Remove or orphan a Core-bound SLD connection by route ownership."""
-        connection = self.document.model.get_connection_optional(connection_id)
-        if connection is None:
-            # Core Simple Wire identity and persistent SLD presentation identity
-            # are distinct. Resolve the active companion through its persisted
-            # Core mapping, or resolve an already-orphaned authored presentation
-            # through its non-authoritative deletion provenance so redo can record
-            # the same SLD inverse without resurrecting a Core binding.
-            candidates = tuple(
-                item
-                for item in self.document.model.connections
-                if item.properties.get("core_connection_id") == connection_id
-                or (
-                    str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
-                    and item.properties.get("orphaned_from_core_connection_id") == connection_id
-                )
+        # Resolve by authoritative Core mapping before trying a same-named
+        # presentation ID. Core IDs and SLD IDs occupy separate identity
+        # domains; a same-named engineer-authored or Line/Cable presentation
+        # must never shadow the Simple Wire companion during deletion/undo.
+        candidates = tuple(
+            item
+            for item in self.document.model.connections
+            if str(item.properties.get("core_connection_id", "")) == str(connection_id)
+            or (
+                str(item.properties.get("lifecycle_state", "")).upper() == "ORPHANED"
+                and str(item.properties.get("orphaned_from_core_connection_id", "")) == str(connection_id)
             )
-            if len(candidates) > 1:
-                raise ValueError(
-                    f"Multiple SLD connection companions map to Core connection {connection_id!r}."
-                )
-            connection = candidates[0] if candidates else None
+        )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Multiple SLD connection companions map to Core connection {connection_id!r}."
+            )
+        connection = candidates[0] if candidates else None
+        if connection is None:
+            # Line/Cable SLD companions may retain their Core object ID as
+            # their presentation ID. Use this legacy/shared-ID path only when
+            # no explicit Core-to-presentation mapping exists.
+            connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
             return "REMOVED"
         presentation_id = connection.connection_id
