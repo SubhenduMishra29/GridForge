@@ -342,7 +342,7 @@ class ProjectScopedSynchronismAuditSink:
     unauditable. File or fsync errors propagate and therefore block close.
     """
 
-    def __init__(self, *, project_id: str, activation_generation: int, project_path, clock: Callable[[], float]):
+    def __init__(self, *, project_id: str, activation_generation: int, project_path, clock: Callable[[], float], clock_domain: str):
         from pathlib import Path
         from core.persistence.project_package import normalize_package_path
 
@@ -354,6 +354,8 @@ class ProjectScopedSynchronismAuditSink:
             raise ValueError("ANSI 25 requires a saved project path; unsaved projects cannot authorize breaker close.")
         if not callable(clock):
             raise TypeError("An explicit audit clock is required.")
+        if not isinstance(clock_domain, str) or not clock_domain.strip():
+            raise ValueError("An explicit audit clock domain is required.")
         package = normalize_package_path(Path(project_path))
         if not package.parent.is_dir():
             raise OSError("ANSI 25 audit directory does not exist; refusing to create an untracked audit location.")
@@ -361,6 +363,12 @@ class ProjectScopedSynchronismAuditSink:
         self._activation_generation = activation_generation
         self._path = package.with_name(package.name + ".ansi25-audit.jsonl")
         self._clock = clock
+        self._clock_domain = clock_domain.strip()
+
+    @property
+    def clock_domain(self) -> str:
+        """Return the explicitly declared timestamp domain used by this sink."""
+        return self._clock_domain
 
     @property
     def path(self):
@@ -410,6 +418,7 @@ def create_project_synchronism_guard(
     measurement_channel_service: object,
     audit_sink: Callable[[SynchronismDecision], None],
     clock: Callable[[], float],
+    clock_domain: str,
     bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> SynchronismCheckGuard:
     """Compose ANSI 25 for one candidate project activation.
@@ -432,6 +441,11 @@ def create_project_synchronism_guard(
         raise TypeError("A durable audit sink is required.")
     if not callable(clock):
         raise TypeError("An explicit clock in the channel timestamp domain is required.")
+    if not isinstance(clock_domain, str) or not clock_domain.strip():
+        raise ValueError("An explicit measurement timestamp domain is required.")
+    clock_domain = clock_domain.strip()
+    if getattr(audit_sink, "clock_domain", None) != clock_domain:
+        raise ValueError("ANSI 25 audit sink clock domain must match the measurement timestamp domain.")
 
     def validate_active_provenance() -> None:
         active_project_id = getattr(measurement_channel_service, "project_id", None)
@@ -463,6 +477,21 @@ def create_project_synchronism_guard(
             channels = channels()
         if not isinstance(channels, Mapping):
             raise TypeError("Active measurement channel service must expose a channels mapping.")
+        for channel_id in configuration.measurement_channel_ids.values():
+            channel = channels.get(channel_id)
+            if channel is None:
+                raise ValueError(f"ANSI 25 channel {channel_id!r} is unavailable.")
+            channel_domain = getattr(channel, "timestamp_domain", None)
+            if channel_domain != clock_domain:
+                raise DomainError(
+                    code="ANSI25_TIMESTAMP_DOMAIN_MISMATCH",
+                    message="Breaker close denied: measurement timestamp domain is missing or differs from the configured ANSI 25 clock domain.",
+                    details={
+                        "channel_id": channel_id,
+                        "expected_timestamp_domain": clock_domain,
+                        "active_timestamp_domain": channel_domain,
+                    },
+                )
         return phasor_measurements_from_channels(configuration, channels, now=clock())
 
     return SynchronismCheckGuard(
