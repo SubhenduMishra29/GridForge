@@ -13841,3 +13841,43 @@ Status:
     AUDIT RECORDED — ISSUE #757 REMAINS OPEN. Normal lifecycle guards and
     cancellation paths are present; the reported orphaned visual item and its
     owner require a reproducible runtime trace before a safe correction.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-001 — Issue #817 — Obstacle-Aware Orthogonal Routing
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/connections/connection_router.py; Issue #817.
+
+Changes:
+    1. Replaced the direct-only route implementation with a deterministic
+       rectilinear visibility-grid router.
+    2. Added finite-coordinate and axis-aligned bounds validation, obstacle
+       clearance, bend cost, and penalties for intersections with existing
+       routes.
+    3. Added path invariants: no duplicate consecutive points, no diagonal
+       segments, and no silent straight-line fallback when obstacles block
+       every route.
+    4. Kept routing renderer-neutral. The router does not resolve terminals,
+       change electrical connectivity, or mutate Core state.
+
+Integration boundary:
+    Callers must supply scene-space obstacle bounds and existing routes, and
+    must exclude or clip endpoint-owning equipment so terminal anchors are
+    not treated as interior obstacles. This change adds the routing capability
+    but does not claim that all active canvas renderers/tools already call it.
+    Active-tool integration and runtime near-miss verification remain follow-up
+    work before Issue #817 can be closed.
+
+Verification:
+    Repository source change only. No tests or CI were run, per repository
+    rules. Python syntax/import integrity and runtime route cases remain to be
+    checked before merge.
+
+Status:
+    IMPLEMENTED ON fix/issue-817-orthogonal-routing — PENDING REVIEW AND
+    SOURCE-LEVEL VERIFICATION. Issue #817 remains open.
