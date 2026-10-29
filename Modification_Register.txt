@@ -14720,3 +14720,44 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+======================================================================
+GF-ISSUE-855-2026-10-29 — Explicit ANSI 50BF capability status
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #855 — The Breaker Failure (ANSI 50BF) Backup Failure Cascade.
+
+Finding:
+    ProtectionSystem documentation mentions BREAKER_FAILURE / 50BF as a
+    possible multifunction-relay function, but the canonical protection
+    function catalog does not register ANSI 50BF. The source reviewed also
+    does not establish a 50BF timer-to-target mapping or an Application-owned
+    backup-clearing command path.
+
+Correction:
+    Register ANSI 50BF explicitly as NOT_IMPLEMENTED in the canonical function
+    catalog. This prevents the catalog from silently treating the absent
+    function as an unknown code and makes the current capability boundary
+    discoverable. No relay timer, breaker-target inference, worker-thread
+    mutation, or batch switching behavior was fabricated.
+
+Architecture:
+    Implementing 50BF remains a separate safety-critical change requiring
+    project-owned timer/settings, breaker-failure confirmation semantics,
+    explicit configured backup target mapping, deterministic event handling,
+    and an Application-owned transactional command path. Protection runtime
+    callbacks must not mutate Core/network state directly.
+
+Disposition:
+    Issue #855 remains open. This catalog correction does not implement the
+    breaker-failure cascade or prove the reported solver lockup is resolved.
+
+Verification boundary:
+    Source-level change only. No tests/CI, syntax/import checks, runtime fault
+    injection, or transient simulation was performed.
+
+======================================================================
