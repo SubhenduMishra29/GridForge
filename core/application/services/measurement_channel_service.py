@@ -174,6 +174,7 @@ class MeasurementChannelService:
             nominal_value=float(definition.get("nominal_value", 0.0)),
             scale=float(definition.get("scale", 1.0)),
             polarity=float(definition.get("polarity", 1.0)),
+            timestamp_domain=definition.get("timestamp_domain"),
         )
 
     @staticmethod
@@ -220,6 +221,7 @@ class MeasurementChannelService:
             "nominal_value": channel.nominal_value,
             "scale": channel.scale,
             "polarity": channel.polarity,
+            "timestamp_domain": channel.timestamp_domain,
         }
 
 
