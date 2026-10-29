@@ -14956,3 +14956,11 @@ Verification:
 - Audit records are appended to a JSONL sidecar adjacent to the normalized .gridforge package, not inside the replaceable package directory. Each record captures timestamp, project ID, activation generation, breaker ID, decision, reason codes, bus mode, and bypass authorization metadata.
 - The sink requires a saved project path and explicit clock; it does not fall back to in-memory audit. Each record is written append-only and fsync is required before the sink returns. Path, serialization, write, or fsync failures propagate so the pre-mutation guard cannot treat an unaudited decision as authorized.
 - The sink is an available composition primitive; it is NOT yet wired into main.py / production breaker-close composition. Timestamp-domain compatibility must be supplied by the caller. Directory-entry durability and multi-process writer behavior remain platform/operational concerns requiring explicit verification. ANSI 25 remains NOT_IMPLEMENTED until end-to-end composition and production verification.
+
+
+[2026-10-29 — GF-ISSUE-845 — explicit ANSI 25 timestamp-domain contract]
+- Branch: fix/ansi25-candidate-runtime-context
+- create_project_synchronism_guard now requires a non-empty timestamp-domain identifier and refuses composition unless the audit sink declares the same domain.
+- Before converting channel values to phasor measurements, the guard requires every configured ANSI 25 measurement channel to expose a matching timestamp_domain. Missing channels or missing/mismatched domain metadata deny close with a typed error; no implicit wall-clock assumption is made.
+- ProjectScopedSynchronismAuditSink requires and exposes its declared clock_domain so composition can reject a mismatched audit domain.
+- Integration limitation: MeasurementChannel currently documents timestamps as simulation/event/sample timestamps but does not itself expose timestamp_domain. Existing channel producers must be reconciled and explicitly declare their domain before ANSI 25 can authorize close. This intentional fail-closed gate does not establish that a supplied clock actually measures the declared domain; that remains a producer/composition responsibility. ANSI 25 remains NOT_IMPLEMENTED.
