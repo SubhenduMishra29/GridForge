@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 import math
 from dataclasses import replace
 from uuid import uuid4
@@ -57,6 +57,7 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
+from .synchronism_check import SynchronismCheckGuard
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -68,10 +69,21 @@ from .creation_schema import creation_contracts_from_definitions
 from .services.motor_dynamics_service import MotorDynamicsComposition
 
 
-def create_application(network: Any) -> Application:
-    """Construct the fully configured headless GridForge Application facade."""
+def create_application(
+    network: Any,
+    *,
+    synchronism_guard_factory: Callable[[Any, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+) -> Application:
+    """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
+
+    If no guard factory is supplied, breaker closes remain fail-closed. A supplied
+    factory is invoked for each candidate Network so project activation cannot
+    accidentally retain a guard bound to the previous project runtime.
+    """
     if network is None:
         raise ValueError("network is required.")
+    if synchronism_guard_factory is not None and not callable(synchronism_guard_factory):
+        raise TypeError("synchronism_guard_factory must be callable or None.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -106,7 +118,22 @@ def create_application(network: Any) -> Application:
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
-        model_service = ModelService(network=active_network)
+        synchronism_guard = None
+        if synchronism_guard_factory is not None:
+            synchronism_guard = synchronism_guard_factory(
+                active_network,
+                protection_configuration_service,
+                measurement_channel_service,
+            )
+            if not isinstance(synchronism_guard, SynchronismCheckGuard):
+                raise TypeError(
+                    "synchronism_guard_factory must return a SynchronismCheckGuard "
+                    "bound to the candidate project runtime."
+                )
+        model_service = ModelService(
+            network=active_network,
+            synchronism_guard=synchronism_guard,
+        )
         handlers: dict[str, Any] = {}
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
