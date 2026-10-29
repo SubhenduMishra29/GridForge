@@ -32,6 +32,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
+from core.model.breaker import Breaker
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -467,7 +468,7 @@ def create_application(
                 }
                 for breaker_id, breaker_configuration in typed_synchronism.breakers.items():
                     breaker = candidate_network.get_by_identity(breaker_id)
-                    if getattr(breaker, "id", None) != breaker_id or type(breaker).__name__ != "Breaker":
+                    if not isinstance(breaker, Breaker) or getattr(breaker, "id", None) != breaker_id:
                         raise ValueError(
                             f"ANSI 25 policy references missing or non-breaker equipment {breaker_id!r}."
                         )
