@@ -804,7 +804,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         # Topology and Map are compatibility surfaces outside WorkspaceController.
         # Keep their context transition explicit so SLD-only actions are disabled.
         workspace_surface_host.activate(surface_id)
-        engineering_context.update(discipline=surface_id, active_tool=None)
+        # These surfaces do not own the shared SLD selection. Do not carry
+        # selected SLD IDs into their editor context or action-state evaluation.
+        canvas_composition.selection_manager.clear()
+        engineering_context.update(
+            discipline=surface_id,
+            active_tool=None,
+            selected_ids=(),
+        )
 
     def _toggle_sld_maximize() -> None:
         _activate_workspace(SLD_WORKSPACE_ID, "sld")
