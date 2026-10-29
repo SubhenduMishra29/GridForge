@@ -14734,6 +14734,7 @@ Branch:
 
 Files:
     core/application/synchronism_check.py
+    core/application/bootstrap.py
     core/application/services/switching_model_service.py
     core/application/services/model_service.py
     core/application/__init__.py
@@ -14785,6 +14786,8 @@ Additional runtime composition correction:
     protection-configuration and measurement-channel services. Its return
     type is validated before model command handlers are composed.
     If no factory is supplied, the existing fail-closed breaker-close
-    behavior remains. This is an injection seam, not a substitute for
-    persisted ANSI 25 settings or a concrete measurement producer; those
-    remain required before production closes can be enabled.
+    behavior remains. The current main.py composition call does not yet
+    supply a factory, so breaker close is deliberately unavailable there
+    until project-persisted ANSI 25 settings and a concrete measurement
+    producer are integrated. This injection seam alone does not enable
+    production closing.
