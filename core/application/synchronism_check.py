@@ -392,9 +392,12 @@ class ProjectScopedSynchronismAuditSink:
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         descriptor = os.open(self._path, flags, 0o600)
         try:
-            written = os.write(descriptor, payload)
-            if written != len(payload):
-                raise OSError("Incomplete ANSI 25 audit record write.")
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("Incomplete ANSI 25 audit record write.")
+                remaining = remaining[written:]
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
