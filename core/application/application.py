@@ -1903,6 +1903,13 @@ class Application:
                         )
                     source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
                     target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
+                    if self._sld_service.rebind_orphaned_simple_wire(
+                        core_connection_id=str(item["connection_id"]),
+                        source_endpoint=source_endpoint,
+                        target_endpoint=target_endpoint,
+                        transaction=transaction,
+                    ):
+                        continue
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
