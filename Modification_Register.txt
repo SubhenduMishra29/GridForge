@@ -14791,3 +14791,14 @@ Additional runtime composition correction:
     until project-persisted ANSI 25 settings and a concrete measurement
     producer are integrated. This injection seam alone does not enable
     production closing.
+
+
+Additional ANSI 25 configuration contract:
+    SynchronismCheckConfiguration now exposes strict to_dict/from_dict
+    serialization. Deserialization requires every engineering limit,
+    freshness threshold, dead-bus voltage threshold, all four explicit
+    live/dead mode permissions, and bypass_allowed. Missing or unexpected
+    fields are rejected; no numerical limits or operating permissions are
+    supplied during deserialization. This provides the typed serialization
+    contract but is not yet wired into the canonical project persistence
+    lifecycle or user-facing project settings.
