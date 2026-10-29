@@ -14845,3 +14845,40 @@ Verification boundary:
     rollback diff before merging.
 
 ======================================================================
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 measurement binding contract increment
+======================================================================
+
+Date:
+    2026-10-29
+
+Changes:
+    - SynchronismCheckConfiguration now requires exactly six distinct logical
+      MeasurementChannel IDs: left/right voltage, phase angle and frequency.
+    - Every channel binding is mandatory and serialized with the policy. Strict
+      from_dict rejects missing or unexpected configuration fields.
+    - Added phasor_measurements_from_channels() to resolve the explicit bindings
+      against the Application-owned MeasurementChannel registry.
+    - Adapter validates channel identity, signal type, canonical engineering
+      units (kV, deg/degree symbol, Hz), availability, GOOD quality, finite scalar
+      engineering values, present timestamps, freshness and future-dated samples.
+    - Composite side timestamps use the oldest of that side's three samples, so
+      the guard cannot treat a mixed-age phasor as newer than its oldest input.
+    - bypass_allowed is now required explicitly; it no longer silently defaults
+      to False.
+
+Boundary / outstanding:
+    - The adapter is implemented and exported, but is not yet wired as the active
+      guard's measurement provider in the runtime composition root.
+    - Per-breaker/project policy editing and durable audit-sink integration remain
+      outstanding. No in-memory log is represented as a durable audit trail.
+    - Do not mark ANSI 25 implemented or enable production breaker closing until
+      all runtime dependencies are composed and validated.
+
+Verification:
+    Source edits only. No tests, CI, syntax/import checks or switching simulations
+    were run.
+
+======================================================================
