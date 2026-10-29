@@ -13707,3 +13707,67 @@ Status:
     not found in the inspected renderer; synchronous snapshot projection and
     potential repeated work are confirmed, but runtime profiling and complete
     activation wiring are required before a safe optimization.
+
+
+======================================================================
+GF-CANVAS-PRECISION-001 — Issue #758 — High-Zoom Coordinate Precision Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #758; ui/canvas/sld_graphics_item_factory.py;
+    ui/items/equipment_item.py; ui/equipment/symbol/symbol_definition.py;
+    ui/core/snap_system.py; ui/canvas/coordinate_system.py;
+    ui/canvas/graphics_view.py.
+
+Findings:
+    1. The alleged float64-to-float32 cast in SLDGraphicsItemFactory was not
+       found in the inspected active factory path. Node positions and line
+       endpoints are supplied as QPointF values from Python numeric
+       coordinates; the factory validates finite coordinates but does not
+       explicitly cast them to numpy.float32 or another single-precision type.
+
+    2. EquipmentItem resolves terminal anchors using QPointF and mapToScene().
+       SnapSystem reads current item snap points in scene coordinates, and its
+       contract explicitly separates viewport conversion from scene-space
+       snapping. The inspected coordinate system preserves QPointF fractional
+       viewport values by inverting viewportTransform() rather than relying
+       exclusively on integer mapToScene(QPoint) conversion.
+
+    3. Qt's internal graphics/rendering implementation may have its own numeric
+       representation limits, but the reported application-level float32
+       narrowing is not demonstrated by these Python sources. A few-pixel
+       visual discrepancy could also originate from symbol anchor definitions,
+       transforms, zoom-dependent stroke/rendering, or snap tolerance; source
+       inspection alone cannot distinguish these causes.
+
+Correction decision:
+    No precision-related cast or broad coordinate representation change was
+    applied because the alleged narrowing site was not found. Replacing Qt
+    geometry paths or changing snap tolerance without a reproducible mismatch
+    could make normal-scale interactions less stable and would not establish
+    that the precision issue is fixed.
+
+Required follow-up:
+    - Reproduce a high-zoom bus/breaker terminal mismatch and capture the
+      viewport cursor QPointF, inverse-transformed scene point, EquipmentItem
+      mapToScene terminal anchor, SnapResult position, and rendered path endpoint.
+    - Compare numeric scene coordinates before and after rendering and compute
+      pixel-space residual at the current view transform.
+    - Confirm whether any downstream extension or custom symbol code explicitly
+      narrows coordinates to float32.
+    - If a real discrepancy is found, correct the first narrowing or transform
+      mismatch at its owner; keep Core topology and electrical connectivity
+      authoritative and do not compensate by changing electrical terminals.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    high-zoom runtime measurements were performed, in accordance with
+    repository audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #758 REMAINS OPEN. No explicit float32 narrowing was
+    found in the inspected path. Runtime high-zoom coordinate capture is
+    required to localize the reported visual residual before changing code.
