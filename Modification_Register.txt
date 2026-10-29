@@ -13628,3 +13628,82 @@ Status:
     terminal-line graphic and stale pointer owner were not found in the
     inspected source path; runtime traceback and object-lifecycle evidence
     are required before a safe correction.
+
+
+======================================================================
+GF-SLD-ACTIVATE-001 — Issue #760 — Multi-SLD Document Activation and Re-Projection Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #760; ui/workspace/document_manager.py;
+    ui/editors/sld/sld_document_tabs.py; ui/sld/sld_document.py;
+    ui/canvas/canvas_composition.py; ui/canvas/sld_canvas_projection.py;
+    ui/canvas/sld_canvas_render_system.py.
+
+Findings:
+    1. DocumentManager.activate() resolves the registered document and updates
+       the active document identity; it does not itself construct or destroy
+       canvas graphics. SLDDocumentTabs is a presentation-only tab strip that
+       calls a supplied activation callback. The activation callback's full
+       application wiring and runtime timing were not established by this
+       bounded source inspection.
+
+    2. CanvasComposition.present_document() and present_composite_document()
+       synchronously project the selected SLD document into an immutable
+       snapshot and call SLDCanvasRenderSystem.synchronize(). These calls are
+       explicit UI presentation entry points.
+
+    3. SLDCanvasRenderSystem.synchronize() is documented and implemented as
+       incremental reconciliation. It compares per-item signatures, reuses
+       unchanged realized nodes/connections/annotations, and removes tracked
+       items absent from the desired snapshot. It does not unconditionally
+       clear the complete scene before every snapshot. Changed or newly
+       realized items can still require synchronous graphics creation on the
+       UI thread.
+
+    4. The issue's assertion that each activation necessarily tears down and
+       rebuilds hundreds of QGraphicsItems is not supported by the inspected
+       renderer path. However, each presentation call rebuilds the renderer-
+       neutral document snapshot, and there is no per-document snapshot cache
+       visible in CanvasComposition. Repeated activation can therefore repeat
+       projection/signature work even where graphics realization is reused.
+       Whether this is material or causes the reported flicker requires
+       runtime profiling.
+
+Correction decision:
+    No speculative persistent cache, background graphics creation, or
+    asynchronous activation was introduced. SLDCanvasSnapshot contains
+    immutable projected presentation values but its validity depends on the
+    document model and current Application read projections. Caching snapshots
+    without an explicit invalidation/version contract could display stale
+    electrical values or miss edits in background documents. QGraphicsItem
+    realization and scene mutation must remain on the UI thread.
+
+Required follow-up:
+    - Trace the actual tab activation callback through its caller to
+      CanvasComposition.present_document()/present_composite_document().
+    - Measure snapshot projection time separately from renderer reconciliation,
+      graphics item construction, and Qt paint/input latency on a multi-SLD
+      project with heavy custom symbols.
+    - Record document identity plus model/read-model version or revision and
+      define invalidation for model edits, Application events, draft changes,
+      symbol configuration changes, and document close before adding caching.
+    - Verify unchanged item signatures preserve graphics identity across tab
+      switches and that active-document switching cannot leak graphics or
+      draft state between documents.
+    - Keep all Qt/scene operations in UI adapters and preserve the canonical
+      Application/Core authority boundary.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    multi-SLD runtime profiling were performed, in accordance with repository
+    audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #760 REMAINS OPEN. Full-scene teardown/rebuild was
+    not found in the inspected renderer; synchronous snapshot projection and
+    potential repeated work are confirmed, but runtime profiling and complete
+    activation wiring are required before a safe optimization.
