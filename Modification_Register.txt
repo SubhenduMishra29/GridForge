@@ -10858,3 +10858,54 @@ Verification:
 
 Status:
     MERGED — PR #779; static source/diff inspection only, runtime behavior remains unverified.
+
+======================================================================
+GF-AUD-116 — Cancel parent creation state with transient interaction
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ToolManager activation, inline insertion cancellation, and transient
+    equipment-placement preview lifecycle
+
+Files:
+    ui/core/tool_manager.py
+    Modification_Register.txt
+
+Finding:
+    ToolManager.cancel() returned early after cancelling an active temporary
+    interaction. That bypassed cancellation of the parent CreationContext and
+    parent placement tool state. Tool switching could therefore remain blocked
+    by a stale CreationDraft, and Escape during inline insertion could leave
+    the parent placement tool's local preview state available to a later
+    creation session. Tool switches also did not explicitly guard an active
+    temporary interaction when no CreationDraft was active.
+
+Correction:
+    - Treat an active temporary interaction as cancellable state for an
+      explicitly authorized tool switch.
+    - Cancel the temporary interaction and parent placement tool before
+      discarding the CreationContext, then notify the controller once.
+    - On Escape during inline insertion, clear the parent placement tool's
+      local preview state before ending the CreationContext.
+    - Retain the guard against implicit switching while a creation or
+      temporary interaction is active.
+
+Architecture:
+    UI lifecycle coordination only. Core electrical truth, Application-owned
+    DraftNetwork state, and the canonical UI → Controller → Command →
+    Application → Core mutation path remain unchanged. No Qt imports were
+    added and no Core/UI dependency was introduced.
+
+Verification:
+    - Static source inspection and focused diff review only.
+    - No tests or CI were run, per repository rules.
+    - Python syntax/import checks and GUI runtime remain unverified.
+
+Status:
+    DRAFT — PR #775; keep issue #757 open pending full GUI verification.
+
+
+======================================================================
