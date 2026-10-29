@@ -57,7 +57,7 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
-from .synchronism_check import SynchronismCheckConfiguration, SynchronismCheckGuard
+from .synchronism_check import SynchronismCheckProjectConfiguration, SynchronismCheckGuard
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -397,7 +397,7 @@ def create_application(
                 synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None) if loaded is not None else None
                 if synchronism_configuration is not None:
                     # Strict typed validation: do not accept missing/extra policy fields.
-                    SynchronismCheckConfiguration.from_dict(synchronism_configuration)
+                    SynchronismCheckProjectConfiguration.from_dict(synchronism_configuration)
                     application.synchronism_check_configuration = dict(synchronism_configuration)
                 else:
                     application.synchronism_check_configuration = None
@@ -451,7 +451,7 @@ def create_application(
                     )
             synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None)
             if synchronism_configuration is not None:
-                typed_synchronism = SynchronismCheckConfiguration.from_dict(synchronism_configuration)
+                typed_synchronism = SynchronismCheckProjectConfiguration.from_dict(synchronism_configuration)
                 channel_definitions = {
                     str(item.get("channel_id", item.get("id", ""))): item
                     for item in loaded.measurement_definitions
@@ -465,22 +465,28 @@ def create_application(
                     "right_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
                     "right_frequency": ("FREQUENCY", {"hz"}),
                 }
-                for key, (expected_type, accepted_units) in expected_contracts.items():
-                    channel_id = typed_synchronism.measurement_channel_ids[key]
-                    definition = channel_definitions.get(channel_id)
-                    if definition is None:
+                for breaker_id, breaker_configuration in typed_synchronism.breakers.items():
+                    breaker = candidate_network.get_by_identity(breaker_id)
+                    if getattr(breaker, "id", None) != breaker_id or type(breaker).__name__ != "Breaker":
                         raise ValueError(
-                            f"ANSI 25 {key} references missing persisted measurement channel {channel_id!r}."
+                            f"ANSI 25 policy references missing or non-breaker equipment {breaker_id!r}."
                         )
-                    if str(definition.get("signal_type", "")).strip().upper() != expected_type:
-                        raise ValueError(
-                            f"ANSI 25 measurement channel {channel_id!r} must have signal_type {expected_type}."
-                        )
-                    unit = definition.get("unit")
-                    if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
-                        raise ValueError(
-                            f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
-                        )
+                    for key, (expected_type, accepted_units) in expected_contracts.items():
+                        channel_id = breaker_configuration.measurement_channel_ids[key]
+                        definition = channel_definitions.get(channel_id)
+                        if definition is None:
+                            raise ValueError(
+                                f"ANSI 25 {breaker_id!r} {key} references missing persisted measurement channel {channel_id!r}."
+                            )
+                        if str(definition.get("signal_type", "")).strip().upper() != expected_type:
+                            raise ValueError(
+                                f"ANSI 25 measurement channel {channel_id!r} must have signal_type {expected_type}."
+                            )
+                        unit = definition.get("unit")
+                        if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
+                            raise ValueError(
+                                f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
+                            )
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
