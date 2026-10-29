@@ -14460,3 +14460,47 @@ Verification boundary:
     high-zoom runtime capture, or multi-SLD activation runtime trace was performed.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-F — Topology hashing and multi-SLD persistence audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #809, #749, #750, #810.
+
+Findings:
+    - #809: Canonical TopologyManager sorts terminal attachments, edge identities,
+      buses, adjacency and island tuples. The alleged TopologyHasher call path was
+      not found in the inspected source paths. Require the actual hash module and
+      differing input snapshots before changing canonical ordering.
+    - #749: ProjectPresentationCollection preserves ordered documents and the
+      active_document_id. SLDService projection reconciliation is scoped to the
+      active bound document; this does not prove all background documents are
+      invalidated/reconciled after Core topology changes.
+    - #750: DocumentManager preserves ordered registry semantics and supports
+      explicit document movement; ProjectPresentationCollection persists ordered
+      documents plus active_document_id. Legacy coordinate migration is a separate
+      concern and needs a named historical schema/version and representative fixture.
+    - #810: The alleged CUDA result-streaming path is not established in the
+      canonical Power Flow source inspected. SelectTool tracks drag movement as a
+      transient interaction and submits SetSLDNodePositionCommand on release rather
+      than continuously mutating the node on mouse-move events. The reported
+      metric-refresh overwrite remains unproven without a runtime event/item trace.
+
+Disposition:
+    - Keep #809 open pending the exact hashing implementation and snapshots.
+    - Keep #749 open pending a background-document invalidation/reconciliation policy.
+    - Keep #750 open, separating document-order semantics from versioned coordinate
+      migration.
+    - Keep #810 open pending a reproducible study-refresh/drag trace.
+    - No speculative topology hash, migration, or graphics-state workaround was added.
+
+Verification boundary:
+    Source and issue inspection only. No tests, CI, syntax/import checks, GUI runtime
+    trace, topology hash comparison, or migration fixture was run.
+
+======================================================================
