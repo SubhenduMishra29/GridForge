@@ -14178,3 +14178,24 @@ Correction:
 Verification:
     Source-level correction only; no tests/CI run. Syntax, imports, runtime,
     and complete delete/undo/redo behavior remain unverified.
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-012 — Draft Commit Rebinds Authored Wire Orphans
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    Draft-to-Core commit projection now attempts the same provenance-checked
+    orphan rebind used by direct Simple Wire creation before rejecting a
+    canonical presentation-ID collision. A matching orphan is rebound in the
+    existing transaction; nonmatching collisions still fail closed. This
+    keeps draft commit and direct creation aligned for undo/redo replay.
+
+Verification:
+    Source-level correction only; no tests/CI run. Syntax, imports, runtime,
+    and full Draft-to-Core undo/redo remain unverified.
