@@ -332,6 +332,73 @@ class SynchronismCheckGuard:
         self._audit_sink(decision)
 
 
+
+class ProjectScopedSynchronismAuditSink:
+    """Append-only ANSI 25 audit stored beside, never inside, a project package.
+
+    The caller must construct one sink per candidate project activation and
+    supply a clock in the measurement timestamp domain. Unsaved projects are
+    rejected: an in-memory fallback would make breaker-close authorization
+    unauditable. File or fsync errors propagate and therefore block close.
+    """
+
+    def __init__(self, *, project_id: str, activation_generation: int, project_path, clock: Callable[[], float]):
+        from pathlib import Path
+        from core.persistence.project_package import normalize_package_path
+
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("A non-empty project_id is required for ANSI 25 audit.")
+        if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+            raise ValueError("A positive activation_generation is required for ANSI 25 audit.")
+        if project_path is None:
+            raise ValueError("ANSI 25 requires a saved project path; unsaved projects cannot authorize breaker close.")
+        if not callable(clock):
+            raise TypeError("An explicit audit clock is required.")
+        package = normalize_package_path(Path(project_path))
+        if not package.parent.is_dir():
+            raise OSError("ANSI 25 audit directory does not exist; refusing to create an untracked audit location.")
+        self._project_id = project_id
+        self._activation_generation = activation_generation
+        self._path = package.with_name(package.name + ".ansi25-audit.jsonl")
+        self._clock = clock
+
+    @property
+    def path(self):
+        """Return the external sidecar path for operational diagnostics."""
+        return self._path
+
+    def __call__(self, decision: SynchronismDecision) -> None:
+        import json
+        import os
+
+        if not isinstance(decision, SynchronismDecision):
+            raise TypeError("ANSI 25 audit sink accepts SynchronismDecision values only.")
+        timestamp = self._clock()
+        if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+            raise ValueError("ANSI 25 audit clock returned an invalid timestamp.")
+        record = {
+            "schema": 1,
+            "timestamp": timestamp,
+            "project_id": self._project_id,
+            "activation_generation": self._activation_generation,
+            "breaker_id": decision.breaker_id,
+            "permitted": decision.permitted,
+            "reason_codes": list(decision.reason_codes),
+            "mode": decision.mode.value if decision.mode is not None else None,
+            "bypassed": decision.bypassed,
+            "authorization_id": decision.authorization_id,
+        }
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\\n").encode("utf-8")
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        descriptor = os.open(self._path, flags, 0o600)
+        try:
+            written = os.write(descriptor, payload)
+            if written != len(payload):
+                raise OSError("Incomplete ANSI 25 audit record write.")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
 def create_project_synchronism_guard(
     *,
     project_id: str,
@@ -403,4 +470,4 @@ def create_project_synchronism_guard(
         clock=clock,
     )
 
-__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard"]
+__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard","ProjectScopedSynchronismAuditSink"]
