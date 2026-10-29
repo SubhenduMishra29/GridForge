@@ -13902,3 +13902,59 @@ Verification boundary:
     network performance run, or GUI runtime verification were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-29-B — Draft, placement, and clipboard issue audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issues #824, #815, #813, #807, #757, #752, #772.
+
+Source findings:
+    - #824: Escape cancels transient CreationContext/tool interaction. The inspected
+      path does not establish whether the reported lost route is a preview-only
+      interaction or an already-authored SLD route edit. Preserve canonical
+      document/Application state; no global scene-buffer workaround is justified
+      without a route-identity trace.
+    - #815: ToolManager retains the selected creation tool after placement and
+      recreates CreationDraft at the next input boundary. The described missing
+      sticky-tool behavior is not established by source; runtime interaction state
+      is required before adding a second sticky-tool mechanism.
+    - #813: Async DraftNetwork commit captures a serialized snapshot, project
+      activation generation, and source revision, then rejects execution if the
+      active project/revision/draft identity or serialized contents changed. The
+      claimed endpoint-mapping race is not established by this source path.
+    - #807: SnapSystem selects the nearest renderer-owned candidate in the active
+      scene and resolves equal-distance ties by deterministic discovery order.
+      Preview feedback oscillation remains possible but requires runtime candidate
+      and preview geometry tracing.
+    - #752: CommitNetworkHandler derives Core IDs deterministically from canonical
+      equipment type plus DraftEquipment.draft_id, and resolves DraftEndpointReference
+      through the same old-to-new Core ID map. A different temporary-ID generator
+      alone is not identity drift; the reported collision requires reproduction.
+    - #757: Existing GF-UI-TOOL-LIFECYCLE-001 audit remains valid: normal tool
+      switching is guarded, Escape explicitly cancels transient creation, and
+      Application-owned placed draft objects must not be deleted as preview garbage.
+    - #772: Existing GF-CLIP-001 audit remains valid. No canonical clipboard action
+      or clipboard-to-draft path was identified. The missing contract is a
+      serialized Application-owned clipboard payload, new draft IDs, endpoint
+      remapping, and atomic cancellable paste through draft commands.
+
+Disposition:
+    - No source implementation change is justified for #824, #815, #813, #807,
+      or #752 solely from the current issue descriptions; retain open pending the
+      concrete runtime traces recorded in their issue comments.
+    - Keep #772 open as a confirmed missing clipboard-to-draft contract. Implement
+      only after the supported equipment/connection selection semantics and
+      atomic paste/cancel ownership are defined.
+    - No issues closed by this audit.
+
+Verification boundary:
+    Source/issue inspection only. No tests, CI, syntax/import checks, concurrency
+    stress, UI interaction, or runtime verification were performed.
+
+======================================================================
