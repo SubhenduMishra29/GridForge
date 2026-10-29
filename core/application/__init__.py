@@ -112,4 +112,5 @@ __all__ = [
     "SynchronismDecision",
     "SynchronismCheckGuard",
     "phasor_measurements_from_channels",
+    "create_project_synchronism_guard",
 ]
