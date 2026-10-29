@@ -10857,4 +10857,4 @@ Verification:
     - Runtime serialization/import behavior remains unverified.
 
 Status:
-    PR proposed; not merged.
+    MERGED — PR #779; static source/diff inspection only, runtime behavior remains unverified.
