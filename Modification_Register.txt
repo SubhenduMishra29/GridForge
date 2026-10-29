@@ -13357,3 +13357,63 @@ Status:
     reproduction and scene-index evidence are required before a safe fix.
 
 
+
+
+
+======================================================================
+GF-SLD-ZORDER-001 — Issue #764: Deterministic Canvas Layering
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #764; ui/canvas/sld_canvas_render_system.py;
+    ui/canvas/sld_graphics_item_factory.py; ui/items/equipment_item.py;
+    ui/sld/items/sld_connection_item.py.
+
+Confirmed source finding:
+    The renderer assigned inconsistent partial z-values: draft nodes and
+    draft fallback nodes used z=1, annotations used z=5, while committed
+    equipment and both committed/draft connection items retained Qt's
+    default z=0. The renderer therefore did not encode a stable intended
+    ordering of wire < equipment < annotation. In particular, committed
+    wires and equipment could share z=0, leaving same-z overlap ordering
+    dependent on scene insertion order rather than the engineering layer
+    contract. The issue's claim of parallel background-thread insertion was
+    not established by the inspected code.
+
+Correction:
+    PR #796 defines explicit renderer layer constants and applies them to all
+    realized paths, including degraded committed equipment and draft fallback:
+        connections = 10
+        equipment   = 20
+        annotations = 30
+    Grid/background drawing remains behind scene items. The renderer continues
+    to synchronize the scene on the UI projection path; no parallel item
+    creation or Core mutation was introduced.
+
+Boundary:
+    Z-order is presentation-only. It changes visual stacking and hit-test
+    precedence according to QGraphicsScene rules, not Core electrical truth,
+    endpoint identity, topology, or solver inputs. Annotation labels continue
+    to accept no mouse buttons.
+
+Required follow-up:
+    - Inspect selection handles and any future overlay/control items to assign
+      explicit layer values rather than relying on the default z=0.
+    - Reproduce dense layouts with overlapping routes, equipment and labels
+      at several zoom levels; verify labels remain legible and equipment
+      receives pointer events as intended.
+    - Keep z-value policy centralized in the renderer rather than assigning
+      arbitrary values in unrelated item constructors.
+
+Verification:
+    Focused source inspection and correction only. No tests, CI, syntax/import
+    checks, or runtime large-layout rendering were performed.
+
+Status:
+    EXPLICIT LAYERING CORRECTED IN PR #796 — ISSUE #764 REMAINS OPEN pending
+    runtime verification of overlapping scene stacking and interaction.
+
+
