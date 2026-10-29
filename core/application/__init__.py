@@ -43,9 +43,11 @@ from .read_models import (
     RelayInputBindingReadModel,
     RelayReadModel,
     SimpleWireReadModel,
+    StudyResultReadModel,
 )
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
 from .revision import ProjectRevision
+from .study import StudyCaseDefinition, StudyRequest, StudyResult
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
@@ -83,6 +85,10 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "SimpleWireReadModel",
+    "StudyResultReadModel",
+    "StudyCaseDefinition",
+    "StudyRequest",
+    "StudyResult",
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",

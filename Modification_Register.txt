@@ -10909,3 +10909,1462 @@ Status:
 
 
 ======================================================================
+
+======================================================================
+GF-AUD-102 — Connect Study Result read models to the inspection view
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study result lifecycle, read-side presentation, and result inspection UI
+
+Files:
+    ui/panels/study_cases_panel.py
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    StudyResult values were retained by the Application and exposed through
+    StudyResultReadModel, but the Study Cases panel showed only lifecycle
+    status/freshness/message. The Study editor advertised result inspection,
+    while no selected-result presentation path connected the read model to
+    visible numerical result details.
+
+Correction:
+    - Extend the existing Study Cases panel with a result-details list and a
+      selection callback; the widget remains presentation-only and reads no
+      Core state.
+    - Cache project-scoped StudyResultReadModel values in StudyProjection and
+      render the result associated with the selected Study Case.
+    - Display study type, lifecycle status, source revision, project identity,
+      freshness, message, metadata, and bounded flattened result fields.
+    - Support dataclass, mapping, sequence, and array-like result payloads
+      without importing solver/Core objects into the UI.
+    - Clear cached results and result presentation on project load/close and
+      projection disposal; keep stale-result status visible.
+
+Verification:
+    - Static source review only; no tests, CI, Python syntax/import checks, or
+      GUI runtime were run, in accordance with repository acceptance rules.
+    - The full drawing → commit → study → result presentation path remains
+      subject to subsequent integration audit and GUI runtime verification.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 open.
+
+
+
+======================================================================
+GF-AUD-103 — Project current Power Flow results onto the SLD
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Selected Study Result → renderer-neutral SLD overlay → Canvas refresh
+
+Files:
+    ui/canvas/sld_canvas_projection.py
+    ui/projection/study_projection.py
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The SLD annotation pipeline resolved authored annotations only from
+    ElementReadModel attributes and engineering parameters. No selected-study
+    result was passed into the canvas projection, so calculated bus voltage
+    magnitude and angle were not available as result overlays on the SLD.
+
+Correction:
+    - Allow SLDCanvasProjection to receive the selected immutable
+      StudyResultReadModel through an explicit setter.
+    - Resolve the actual EngineeringPowerFlowResult contract (per-Bus
+      rows plus nested numerical success state), then map canonical result Bus
+      IDs to projected Bus equipment identities and add ephemeral
+      voltage-magnitude (pu) and voltage-angle (deg) annotations.
+    - Keep result overlays out of the persistent SLD document and Core model.
+    - Clear the selected result on project transitions, result deselection, or
+      results that are stale, unsuccessful, or not Power Flow.
+    - Wire StudyProjection selection changes to the SLD projection and refresh
+      the existing CanvasPlugin path; isolate overlay-refresh failures from
+      the result-details panel.
+
+Verification:
+    - Static source inspection only; no tests, CI, Python syntax/import checks,
+      or GUI runtime were run.
+    - Runtime confirmation of bus identity mapping, overlay rendering, and
+      refresh/clear behavior remains outstanding.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+
+======================================================================
+GF-AUD-104 — Invalidate result overlays after project mutations
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study result freshness, read-model refresh, and SLD overlay invalidation
+
+Files:
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    StudyProjection refreshed result freshness only when a study lifecycle
+    event arrived. A subsequent committed network, topology, protection, or
+    SLD presentation mutation could advance the source revision while leaving
+    the previously displayed Study Case row and SLD voltage overlay stale.
+
+Correction:
+    - Subscribe the study projection to NetworkChanged, TopologyChanged,
+      ProtectionChanged, and SLDPresentationChanged.
+    - Reload project-scoped StudyResultReadModel snapshots after those events
+      and update each visible row's current/stale state.
+    - Rehydrate available results on projection construction and ProjectLoaded
+      so the view does not depend exclusively on receiving future study events.
+    - Refresh the selected result overlay from the newly read model; stale or
+      unavailable Power Flow results no longer produce voltage annotations.
+    - Skip canvas refresh when the selected result identity, source revision,
+      status, freshness, study type, and value identity are unchanged, avoiding
+      duplicate redraws when one mutation publishes related topology/network events.
+
+Verification:
+    - Static source inspection only; no tests, CI, Python syntax/import checks,
+      or GUI runtime were run.
+    - Confirm event payload/revision behavior and canvas redraw performance in
+      runtime before treating stale-overlay invalidation as verified.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+
+======================================================================
+GF-AUD-105 — Provide an Application-owned Study Case creation path
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Case configuration → Application registration → Study Cases UI
+
+Files:
+    core/application/application.py
+    core/application/events.py
+    core/application/__init__.py
+    ui/controllers/study_case_controller.py
+    ui/panels/study_cases_panel.py
+    ui/projection/study_projection.py
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The Study Cases UI exposed only Run Study, while Application registered a
+    runnable Study Case as a side effect of receiving a valid StudyRequest for
+    execution. There was no complete engineer-facing path to configure and
+    register a case before attempting to run it.
+
+Correction:
+    - Add Application.create_study_case() to validate and register an immutable
+      StudyCaseDefinition against the active project/generation and revision,
+      without executing a solver.
+    - Reject unregistered study types and publish StudyCaseCreated only
+      after a validated case has been registered.
+    - Export the public StudyCaseDefinition, StudyRequest, StudyResult, and
+      StudyResultReadModel contracts through core.application.
+    - Scope the Application study_cases read property to the active project
+      generation so cases from prior activations are not presented as runnable.
+    - Add an explicit Power Flow case form for case name, Slack Bus, optional
+      PV Bus IDs, and required system base MVA. All other visible buses are
+      explicitly configured as PQ; configuration construction and validation
+      use the existing PowerFlowStudyConfiguration contract.
+    - Populate Slack Bus choices from Application NetworkReadModel data.
+    - Project registered cases before execution, display ready/stale state,
+      select a newly created case, and retain the existing Run Study command
+      path for execution.
+    - Refresh Bus choices after project/network changes and update the result
+      panel/SLD through existing Application event and projection boundaries.
+
+Verification:
+    - Static source inspection only; no tests, CI, Python syntax/import checks,
+      or GUI runtime were run.
+    - Verify the creation form, typed configuration, project-scope isolation,
+      and StudyCaseCreated event delivery during runtime review.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+
+======================================================================
+GF-AUD-106 — Persist Study Case definitions with project state
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Case lifecycle across project save, close, and reload
+
+Files:
+    core/persistence/project_package.py
+    core/persistence/migration.py
+    core/persistence/project_persistence.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    StudyCaseDefinition instances were held in the in-memory Application
+    registry and were absent from the canonical project persistence schema.
+
+Correction implemented on the PR branch:
+    - Bump canonical project schema from 3 to 4 and add deterministic 3-to-4
+      migration that initializes study_cases for existing projects.
+    - Serialize typed Power Flow, Short-Circuit, and Transient Stability
+      configuration contracts into a versioned, UI-neutral Study Case payload
+      inside canonical project.json.
+    - Validate payload shape, Study Case identity uniqueness, configuration
+      types, and referenced Bus IDs before returning a LoadedProject.
+    - Restore Study Cases transactionally during project activation, rebind
+      project identity and activation generation, and restore prior case state
+      if project activation rolls back.
+    - Pass active Application Study Cases through the existing canonical save
+      callback; do not persist numerical study results or SLD result overlays.
+    - Reject unsupported/non-JSON runtime configuration values rather than
+      silently dropping them.
+
+Verification:
+    - Static source review only; no tests, CI, Python syntax/import checks, or
+      GUI runtime were run.
+    - Runtime save-close-reopen, schema migration, rollback, and malformed
+      payload behavior remain unverified.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Case lifecycle across project save, close, and reload
+
+Files:
+    core/application/application.py
+    core/persistence/project_persistence.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    StudyCaseDefinition instances are held in the in-memory Application
+    registry. The canonical project persistence schema currently serializes
+    network, SLD presentation, dynamic models, protection/measurement/control
+    configuration, and related project state, but not Study Case definitions.
+    A created Study Case is therefore not demonstrated to survive save/reopen.
+
+Required correction:
+    - Define a versioned, UI-neutral persisted Study Case DTO for the typed
+      configuration contracts supported by the Application study registry.
+    - Serialize/deserialize study cases through the existing canonical project
+      persistence path, not a parallel file or UI-owned store.
+    - Rebind restored cases to the newly activated project ID and generation,
+      validate configuration types and referenced Bus identities, and reject
+      malformed or unsupported payloads without partially activating a project.
+    - Preserve results' source-revision freshness semantics; do not treat
+      persisted historical results as current after network revision changes.
+
+Verification:
+    - Static source inspection confirms no Study Case field is currently passed
+      through the canonical project persistence path.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    SUPERSEDED — duplicate historical entry. GF-AUD-106 above records the
+    implemented correction on PR #744; runtime verification remains pending.
+
+
+
+======================================================================
+GF-AUD-107 — Make Transient Stability initialization reproducible
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient Stability Study Case configuration → initial Power Flow → dynamic solver
+
+Files:
+    core/analysis/transient_stability.py
+    core/application/bootstrap.py
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Finding:
+    The registered Transient Stability handler required opaque PreparedPowerFlow
+    and PowerFlowResult runtime objects inside StudyRequest.configuration. Those
+    objects could not survive canonical persistence, so a restored typed case
+    could not independently reconstruct its initial operating point.
+
+Correction:
+    - Add an optional, typed PowerFlowStudyConfiguration to
+      TransientStabilityStudyConfiguration as explicit initialization intent.
+    - When runtime preparation objects are absent, prepare and solve the
+      initialization Power Flow from the active detached execution snapshot.
+    - Refuse to start dynamic integration if the initialization Power Flow
+      does not converge.
+    - Persist the typed initialization Power Flow configuration and exclude
+      ephemeral prepared/result objects from the serialized Study Case.
+    - Reject transient integration times or step sizes that are not finite.
+
+Verification:
+    - Static source inspection only; no tests, CI, syntax/import checks, or
+      GUI runtime were run.
+    - Runtime round-trip and convergence/failure-path behavior remain unverified.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-108 — Make Short-Circuit system base explicit in study intent
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Short-Circuit Study Case → detached sequence-network preparation → persistence
+
+Files:
+    core/analysis/short_circuit_configuration.py
+    core/application/study_preparation.py
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Finding:
+    Short-Circuit preparation read base_mva indirectly from free-form metadata.
+    The engineering system base was not represented as a typed configuration
+    field, making the numerical preparation contract less explicit and easier
+    to lose during Study Case creation or persistence.
+
+Correction:
+    - Add optional, validated, finite-positive base_mva to
+      ShortCircuitStudyConfiguration.
+    - Prefer the typed base_mva during sequence-network preparation; preserve
+      legacy metadata fallback for existing callers that have not migrated.
+    - Persist and restore the typed base_mva in the canonical Study Case DTO.
+    - Keep the existing solver input and detached topology boundary unchanged.
+
+Verification:
+    - Static source review only; no tests, CI, syntax/import checks, or runtime
+      numerical verification were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-109 — Reject non-finite Short-Circuit fault impedance
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Typed Short-Circuit configuration validation before sequence-network preparation
+
+Files:
+    core/analysis/short_circuit_configuration.py
+    Modification_Register.txt
+
+Finding:
+    ShortCircuitStudyConfiguration converted fault_impedance to complex but
+    did not reject NaN or infinite real/imaginary components. Such values could
+    cross the typed configuration boundary and reach numerical preparation.
+    element_ids were also accepted with duplicate identifiers and untrimmed
+    whitespace, making an element selection ambiguous.
+
+Correction:
+    - Require both real and imaginary fault-impedance components to be finite.
+    - Normalize element IDs by trimming whitespace and reject empty or duplicate
+      identifiers.
+    - Keep the existing typed configuration and Application preparation path;
+      no parallel validation service was introduced.
+
+Verification:
+    - Source block checked and updated through the repository API.
+    - No tests, CI, syntax/import checks, or numerical runtime were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-110 — Expose typed Short-Circuit and Transient Stability Study Cases
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Cases panel → UI controller → Application-owned typed case registry
+
+Files:
+    ui/controllers/study_case_controller.py
+    ui/panels/study_cases_panel.py
+    main.py
+    Modification_Register.txt
+
+Finding:
+    The Study Cases panel exposed only Power Flow creation even though the
+    Application registry and persistence contracts already supported typed
+    Short-Circuit and Transient Stability configurations. Engineers could not
+    create those cases through the normal UI workflow.
+
+Correction:
+    - Add a Study Type selector for Power Flow, Short-Circuit, and Transient
+      Stability while retaining the existing Study Cases panel and controller.
+    - Build ShortCircuitStudyConfiguration from selected fault Bus, fault
+      classification, finite R/X values, and explicit system base MVA.
+    - Build TransientStabilityStudyConfiguration from finite end time and
+      step size, with a typed Power Flow initialization configuration.
+    - Validate selected Bus identities and numeric values through the UI
+      controller, then delegate registration to Application.create_study_case.
+    - Wire the panel to the generic typed creation method. Study execution
+      remains Application-owned; no second study manager or solver path added.
+
+Verification:
+    - Repository source was fetched and the changed files were committed on
+      fix/end-to-end-study-results-path.
+    - Static source inspection only. No tests, CI, Python syntax/import checks,
+      or GUI runtime were run. Runtime execution still depends on a valid
+      committed network and, for transient studies, supported dynamic-model
+      associations/events in the active project.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-111 — Invalidate result overlays on granular Core mutation events
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study result freshness projection and SLD result overlay invalidation
+
+Files:
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    StudyProjection subscribed to aggregate NetworkChanged/TopologyChanged
+    events but did not subscribe to ElementCreated, ElementRemoved,
+    ElementUpdated, or NetworkCommitted. A command path that publishes a
+    granular mutation event without the aggregate event could leave a
+    previously-current Power Flow overlay visible after the Core state changed.
+
+Correction:
+    - Subscribe StudyProjection to the granular Core mutation and network
+      commit event classes.
+    - Route those events through the existing result/read-model refresh path.
+    - Preserve the Application read model as the sole result authority and
+      the existing SLD canvas as a read-only projection. Draft-only edits do
+      not invalidate a committed study result.
+
+Verification:
+    - Updated source and register committed to
+      fix/end-to-end-study-results-path.
+    - Repository source presence recheck pending; no tests, CI, syntax/import
+      checks, or GUI runtime were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-112 — Re-publish selected result after freshness refresh
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    StudyProjection selected-result details and SLD result overlay lifecycle
+
+Files:
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    GF-AUD-111 refreshed the result read-model cache after committed project
+    mutations, but cache refresh alone did not invoke the result_changed
+    callback. The canvas could therefore continue displaying the prior
+    overlay even after the newly read result was marked stale.
+
+Correction:
+    - After mutation-triggered refresh, re-select the existing selected
+      Study Case result identity through the existing StudyProjection API.
+    - Re-render result details and invoke the existing callback with the
+      refreshed result so the SLD projection can remove a stale overlay.
+    - If there is no selected result and no cases remain, retain the empty
+      result presentation path.
+
+Verification:
+    - Updated source and register committed to
+      fix/end-to-end-study-results-path.
+    - No tests, CI, syntax/import checks, or GUI runtime were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-113 — Separate numerical-study freshness from presentation/persistence revisions
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application ProjectRevision semantics, StudyReadService result status,
+    and StudyProjection Study Case status
+
+Files:
+    core/application/revision.py
+    core/application/read_service.py
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    StudyReadService marked a published result current only when its entire
+    ProjectRevision exactly matched the active revision. That included
+    presentation_revision and persisted_revision, so a presentation-only SLD
+    edit or a successful save could mark numerically identical study inputs
+    stale. StudyProjection used the same overly strict equality for Study Case
+    configuration status.
+
+Correction:
+    - Add ProjectRevision.matches_study_state() as the shared comparison for
+      numerical-study input identity, comparing model_revision and
+      topology_revision only.
+    - Retain project ID and activation-generation checks at the Application
+      read boundary, so a result from another project activation cannot become
+      current merely because revision counters happen to match.
+    - Use the shared comparison in StudyReadService and StudyProjection.
+    - Preserve exact source revision snapshots for provenance and diagnostics;
+      this changes only freshness interpretation, not revision tracking,
+      persistence, solver inputs, or event semantics.
+
+Verification:
+    - Updated files were committed on fix/end-to-end-study-results-path and
+      source re-fetch verification is required before merge.
+    - No tests, CI, Python syntax/import checks, or GUI runtime were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-114 — Include line, transformer, and cable service-state edits in topology revisions
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    RevisionService topology classification for supported model update commands
+
+Files:
+    core/application/revision_service.py
+    Modification_Register.txt
+
+Finding:
+    The supported model command registry includes model.update_line,
+    model.update_transformer, and model.update_cable. Their update contracts
+    permit changing in_service. RevisionService already advances model_revision
+    for successful model.* commands, but these three commands were absent from
+    _TOPOLOGY_UPDATE_COMMANDS. A successful service-state edit could therefore
+    leave topology_revision unchanged even though the electrically connected
+    network consumed by topology snapshots and study preparation had changed.
+
+Correction:
+    - Add model.update_line, model.update_transformer, and model.update_cable
+      to the existing topology-update classification.
+    - The existing _TOPOLOGY_STATE_FIELDS gate still means a parameter-only
+      update does not advance topology_revision; the revision advances for
+      these commands only when a topology-relevant field such as in_service is
+      explicitly supplied.
+    - Preserve the existing Application pre-commit transaction: failed
+      commands do not record a successful revision transition, and registered
+      undo restores the prior revision state.
+
+Verification:
+    - Source and register re-fetch verification required before merge.
+    - No tests, CI, Python syntax/import checks, or GUI runtime were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-115 — Classify capacitor and battery service-state changes for study topology freshness
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    RevisionService classification for capacitor and battery state mutations
+
+Files:
+    core/application/revision_service.py
+    Modification_Register.txt
+
+Finding:
+    The registered model command handlers expose model.update_capacitor,
+    model.put_capacitor_in_service, model.take_capacitor_out_of_service,
+    model.put_battery_in_service, and model.take_battery_out_of_service.
+    Capacitor updates can change the Bus endpoint or in_service state, but
+    model.update_capacitor was absent from _TOPOLOGY_UPDATE_COMMANDS. The
+    dedicated capacitor and battery service-state commands were also absent
+    from _TOPOLOGY_COMMANDS. Those successful state changes could advance the
+    model revision without advancing the topology revision used by topology
+    snapshots and study preparation.
+
+Correction:
+    - Add model.update_capacitor to _TOPOLOGY_UPDATE_COMMANDS; the existing
+      topology-relevant payload-field gate is preserved, so parameter-only
+      changes do not independently advance topology_revision.
+    - Add capacitor and battery put/take-service commands to
+      _TOPOLOGY_COMMANDS so their explicit service-state transitions advance
+      topology_revision through the existing successful-command transaction.
+    - Leave CT/CVT/PT service changes excluded as measurement equipment, and
+      do not introduce a parallel revision or invalidation service.
+
+Verification:
+    - RevisionService source updated on fix/end-to-end-study-results-path.
+    - Re-fetch source/register and PR metadata before treating this batch as
+      verified. No tests, CI, Python syntax/import checks, or GUI runtime were
+      run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+
+
+======================================================================
+GF-AUD-116
+======================================================================
+
+Scope:
+    Study result selection and live SLD numerical overlays
+
+Status:
+    🟢 CORRECTION APPLIED — STATIC SOURCE REVIEW
+
+Finding:
+    StudyProjection previously forwarded any selected StudyResult to the
+    SLD overlay callback, including failed, cancelled, or stale results.
+    This could display numerical values that were not valid for the current
+    authoritative project/model/topology revision.
+
+Correction:
+    Result details remain available for inspection, but the live SLD overlay
+    receives a result only when its status is completed and its Application
+    read model reports current=True. Otherwise the overlay callback receives
+    None, clearing the numerical projection.
+
+Boundary:
+    This is a read-only UI projection correction. It does not change Core
+    electrical truth, solver outputs, result persistence, or study freshness
+    authority. The Application read service remains responsible for computing
+    current/stale status from project/activation provenance and revisions.
+
+Verification:
+    Static source inspection only. No tests or CI were run. GUI runtime
+    behavior and end-to-end overlay clearing remain to be verified separately.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-117
+======================================================================
+
+Scope:
+    Solver convergence status and live SLD numerical overlays
+
+Status:
+    🟢 CORRECTION APPLIED — STATIC SOURCE REVIEW
+
+Finding:
+    A solver may finish its calculation without converging. StudyService
+    records handler return as a completed execution, which is distinct from
+    numerical convergence. The Power Flow result contract exposes a boolean
+    success field, but the SLD overlay guard previously did not inspect it.
+
+Correction:
+    StudyProjection now suppresses the live numerical overlay when the result
+    value explicitly reports success=False. The result details remain
+    inspectable, and studies whose result contracts do not expose a success
+    field continue to use the completed/current freshness gate.
+
+Boundary:
+    This correction distinguishes execution lifecycle from solver convergence
+    without redefining StudyService terminal status or altering solver output.
+
+Verification:
+    Static source inspection only. No tests or CI were run. Runtime behavior
+    for non-converged Power Flow and other study result contracts remains to
+    be verified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-118 — Bind transient initialization results to the prepared snapshot
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application StudyPreparationService → Transient Stability initial operating point
+
+Files:
+    core/application/study_preparation.py
+    Modification_Register.txt
+
+Finding:
+    Transient Stability preparation checked that the prepared Power Flow bus
+    ordering matched the canonical TopologySnapshot, but did not validate
+    that the supplied PowerFlowResult was converged and originated from that
+    exact PreparedPowerFlow input. Distinct snapshots can have identical Bus
+    IDs while representing different electrical parameters, so Bus identity
+    alone does not prove numerical snapshot identity.
+
+Correction:
+    - Reject an unsuccessful initial Power Flow result.
+    - Require result bus IDs and ordering to exactly match the prepared
+      Power Flow snapshot.
+    - Require result.snapshot_id to equal prepared_power_flow.input.snapshot_id.
+    - Keep the validation at the existing Application study-preparation
+      boundary; no duplicate study path or UI dependency is introduced.
+
+Verification:
+    - Source and Modification_Register.txt updated on
+      fix/end-to-end-study-results-path.
+    - Static source review only. No tests, CI, Python syntax/import checks,
+      or runtime numerical verification were run.
+
+Status:
+    IMPLEMENTED — PR #744 updated; runtime verification remains pending.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-119 — Clear prior result overlays while a Study Case reruns
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    StudyStarted lifecycle event → StudyProjection → SLD numerical overlay
+
+Files:
+    ui/projection/study_projection.py
+    Modification_Register.txt
+
+Finding:
+    A repeated execution of an existing Study Case emitted StudyStarted,
+    but StudyProjection retained the previously completed result and did not
+    clear the selected SLD overlay. The old result could remain visible while
+    a new calculation was running and be mistaken for the current execution.
+
+Correction:
+    - Remove the prior result from the projection cache on StudyStarted.
+    - When the running Study Case is selected, show an explicit in-progress
+      state and send None through the existing result callback to clear SLD
+      numerical overlays.
+    - Guard result selection during the started state so it does not reload
+      the old stored result and misrepresent it as the new run's output.
+    - Preserve historical result ownership in Application; this is a UI
+      projection lifecycle correction only.
+
+Verification:
+    - Source and register updated on fix/end-to-end-study-results-path and
+      re-fetch verification follows.
+    - Static source inspection only. No tests, CI, syntax/import checks, or
+      GUI runtime were run.
+
+Status:
+    IMPLEMENTED — PR #744 updated; runtime lifecycle verification pending.
+
+======================================================================
+
+
+
+======================================================================
+GF-AUD-120 — Distinguish numerical failure from successful study execution
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application study handlers → StudyService terminal lifecycle → result projection
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    StudyService correctly treats a handler's normal return as an execution
+    completion, but the Power Flow and Short-Circuit handlers returned solver
+    result objects even when those objects explicitly reported success=False.
+    This made a numerically unsuccessful calculation appear as a completed
+    study and could leave downstream UI code to interpret the result contract
+    inconsistently.
+
+Correction:
+    - Power Flow handler now checks the solver-level PowerFlowResult.success
+      before engineering-result conversion and raises a descriptive error when
+      the solver reports non-convergence.
+    - Short-Circuit handler now checks ShortCircuitResult.success and raises
+      with solver diagnostics when the fault calculation reports failure.
+    - Cancellation checks remain before these terminal validations so a
+      cancellation request is not misreported as a numerical failure.
+    - The existing StudyService exception path publishes StudyFailed and
+      retains the failed result/message for the read-only result projection.
+    - No new study lifecycle or parallel result authority is introduced.
+
+Verification:
+    - Updated source and register on fix/end-to-end-study-results-path.
+    - Static source comparison only; no tests, CI, syntax/import checks, or
+      runtime numerical studies were run, per repository rules.
+
+Status:
+    IMPLEMENTED — PR #744 updated; runtime verification remains pending.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-121 — Resolve cancellation-versus-exception terminal state atomically
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application StudyService terminal lifecycle and event consistency
+
+Files:
+    core/application/study.py
+    Modification_Register.txt
+
+Finding:
+    If a study handler raised while a cancellation request was already pending,
+    the exception path called token.finish() but discarded its cancellation
+    result. The service then stored a failed result and published StudyFailed,
+    contradicting the cancellation token's documented first-terminal-outcome
+    contract.
+
+Correction:
+    The exception path now resolves the terminal state using the return value
+    of token.finish(). If cancellation won before finish(), it stores a
+    cancelled StudyResult, publishes StudyCancelled, and returns that result.
+    Otherwise it stores/publishes failure and re-raises the original exception.
+
+Verification:
+    Source-level control-flow inspection only. No tests or CI were run, per
+    repository rules. Concurrent runtime behavior remains unverified.
+
+Status:
+    IMPLEMENTED — PR #744; runtime verification pending.
+
+
+======================================================================
+GF-AUD-122 — Validate persisted Transient Stability initialization buses
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Study Case persistence validation and Transient Stability initialization
+
+Files:
+    core/persistence/project_persistence.py
+    Modification_Register.txt
+
+Finding:
+    Persisted Power Flow and Short-Circuit Study Cases validate their referenced
+    Bus identities during deserialization, but a Transient Stability Study Case
+    carrying an initial Power Flow configuration did not validate that nested
+    configuration's Bus references against the loaded Network.
+
+Correction:
+    Study Case deserialization now applies the existing Power Flow Bus-reference
+    validation to the optional Power Flow initialization configuration embedded
+    in TransientStabilityStudyConfiguration. Invalid references fail project
+    loading rather than surviving activation until numerical preparation.
+
+Verification:
+    Source-level control-flow inspection only. No tests or CI were run, per
+    repository rules. Persistence round-trip/runtime behavior remains unverified.
+
+Status:
+    IMPLEMENTED — PR #744; runtime verification pending.
+
+
+======================================================================
+GF-AUD-123 — Enforce coherent study execution snapshot provenance
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application study execution context and detached input snapshots
+
+Files:
+    core/application/study.py
+    Modification_Register.txt
+
+Finding:
+    StudyExecutionContext checked the canonical TopologySnapshot provenance
+    but only checked that ProjectSnapshot was non-null. It did not verify that
+    the detached ProjectSnapshot belonged to the same project activation and
+    exact ProjectRevision as the request context.
+
+Correction:
+    StudyExecutionContext now validates ProjectSnapshot project_id,
+    activation_generation, and ProjectRevision against its own scope and
+    source_revision. A mismatched model snapshot cannot be paired with a
+    different topology provenance and proceed into numerical execution.
+
+Verification:
+    Source-level control-flow inspection only. No tests or CI were run, per
+    repository rules. Full concurrent mutation/runtime behavior remains unverified.
+
+Status:
+    IMPLEMENTED — PR #744; runtime verification pending.
+
+
+======================================================================
+GF-AUD-124 — Reject study snapshots captured across revision changes
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application detached ProjectSnapshot capture
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    ProjectSnapshot capture serialized the active Network, copied dynamic-model
+    associations, and only then read the current ProjectRevision. It did not
+    verify that the project activation or revision remained stable across this
+    capture sequence.
+
+Correction:
+    Capture now records project identity, activation generation, and revision
+    before copying the detached Network/dynamic-model state, then rechecks the
+    revision and active project scope. If the revision or activation changes
+    during capture, execution is rejected rather than pairing a potentially
+    mixed snapshot with the later revision.
+
+Verification:
+    Source-level inspection only. No tests or CI were run, per repository rules.
+    This guard narrows capture races but does not claim an atomic lock over every
+    internal Network mutation; concurrent runtime behavior remains unverified.
+
+Status:
+    IMPLEMENTED — PR #744; runtime verification pending.
+
+
+======================================================================
+GF-AUD-125 — Validate detached network snapshot against study provenance
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application study execution snapshot pairing
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    execute_study() validated the live TopologySnapshot before separately
+    capturing the detached ProjectSnapshot. A model mutation between these
+    boundaries could leave the execution context pairing topology and project
+    inputs that no longer describe the same requested revision.
+
+Correction:
+    After detached capture, execution now rechecks the active ProjectRevision,
+    project identity, activation generation, snapshot revision, and detached
+    network topology revision against the StudyRequest before constructing
+    StudyExecutionContext or registering/executing the case.
+
+Verification:
+    Source-level inspection and GitHub content re-fetch only. No tests or CI
+    were run, per repository rules. This is a fail-closed consistency guard,
+    not a substitute for a shared atomic mutation/snapshot lock.
+
+Status:
+    IMPLEMENTED — PR #744; runtime verification pending.
+
+
+======================================================================
+GF-AUD-126 — Preserve Study Case configuration revision and reject stale reruns
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Application Study Case execution and re-registration provenance
+
+Files:
+    core/application/application.py
+    Modification_Register.txt
+
+Finding:
+    execute_study_case() created a fresh StudyRequest using the current project
+    revision without checking the StudyCaseDefinition.source_revision. This
+    allowed an old configuration to be treated as current after electrical
+    model/topology changes. The post-execution registration path could also
+    replace the original configuration revision for an unchanged case.
+
+Correction:
+    - Before execution, compare the case's recorded revision with the active
+      revision using ProjectRevision.matches_study_state(), which ignores only
+      presentation and persistence bookkeeping.
+    - Reject execution when model or topology revisions differ, with an
+      explicit instruction to reconfigure or recreate the Study Case.
+    - When an unchanged case is executed against the same numerical study
+      state, preserve its original source_revision and display name rather
+      than silently relabeling the configuration with the execution revision.
+    - Keep the execution request's current full revision so existing
+      Application snapshot and execution provenance checks remain intact.
+
+Verification:
+    - Static source review and GitHub write response only. No tests, CI,
+      syntax/import checks, or runtime studies were run, per repository rules.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    re-fetch verification pending.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-127 — Read transient event definitions from the typed Study Case configuration
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient Stability event configuration → Application solver handler
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    The transient event scheduler read request.configuration['events'] only.
+    The supported Study Case contract wraps a typed
+    TransientStabilityStudyConfiguration under 'configuration', and the typed
+    configuration exposes metadata as its mapping extension point. Study Cases
+    created through the typed configuration path could therefore execute while
+    silently scheduling no configured events.
+
+Correction:
+    - Resolve event definitions from TransientStabilityStudyConfiguration.metadata
+      when the legacy top-level 'events' key is absent.
+    - Preserve the top-level event field as a compatibility path for direct
+      callers that already supply it.
+    - Fail closed when the selected event collection is not a sequence or an
+      individual event does not provide a mapping-like contract.
+    - Keep scheduling within the existing Application-owned transient handler.
+
+Verification:
+    - Source re-fetch confirmed the correction is present on the PR branch.
+    - No tests, CI, Python syntax/import checks, or runtime transient studies
+      were run, per repository rules.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    runtime event scheduling remains unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-128 — Cooperatively cancel long-running Transient Stability integration
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    StudyCancellationToken → Transient Stability analysis → solver time loop
+
+Files:
+    core/solver/dynamics/transient_stability.py
+    core/analysis/transient_stability.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    The Application handler checked cancellation only before and after the full
+    Transient Stability analysis. StudyService could mark a run cancelled after
+    completion, but a long transient integration did not poll the token during
+    its time loop and therefore could not stop promptly.
+
+Correction:
+    - Add an optional cooperative should_cancel callback to the transient solver
+      run API and poll it before recording the initial sample and on each step.
+    - Forward the callback through TransientStabilityAnalysis.run().
+    - Bind the callback to the Application StudyCancellationToken in the
+      transient handler; the handler returns no result when cancellation wins.
+    - Preserve the existing StudyService terminal-state arbitration so partial
+      samples are not published as a completed study result.
+
+Verification:
+    - Re-fetched the changed source files and confirmed the callback is wired
+      through the Application handler to the solver loop.
+    - No tests, CI, syntax/import checks, or runtime studies were run, per rules.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    cancellation latency during an individual DAE step remains bounded by that
+    step's execution time and runtime behavior remains unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-129 — Preserve configured priority and valid keyword-only event calls
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient Stability event configuration → analysis scheduling helpers → EventManager
+
+Files:
+    core/application/bootstrap.py
+    core/analysis/transient_events.py
+    Modification_Register.txt
+
+Finding:
+    The breaker-open and breaker-close event handlers called scheduling helpers
+    with positional arguments even though affected_equipment_ids and event_id
+    are keyword-only parameters. Those event types would raise TypeError while
+    configuring the study. In addition, event priority accepted by EventManager
+    was not carried from typed event metadata into the scheduling helpers, so
+    simultaneous events could silently fall back to event-ID ordering.
+
+Correction:
+    - Pass breaker event identifiers and affected equipment IDs by keyword.
+    - Add backward-compatible optional priority=0 parameters to all transient
+      event scheduling helpers and forward priority to EventManager.add().
+    - Read the optional event priority from each event mapping in the
+      Application configuration path.
+    - EventManager's deterministic ordering now honors (time, priority, ID)
+      for configured transient events.
+
+Verification:
+    - Re-fetched the modified source files and confirmed helper signatures and
+      Application calls carry event priority; no tests, CI, syntax/import checks,
+      or runtime studies were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    actual event execution and same-time fault/breaker interactions remain
+    runtime-unverified.
+
+======================================================================
+
+======================================================================
+GF-AUD-130 — Fail fast when breaker events cannot alter network elements
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient breaker event configuration → detached network state → Y-bus view
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    TransientEventState.set_breaker() records breaker state, but the passive
+    network solver builds its Y-bus from equipment_states. A breaker event with
+    no affected_equipment_ids therefore changed only the bookkeeping map and
+    could leave the electrical network unchanged while the simulation appeared
+    to execute the event.
+
+Correction:
+    - Require breaker-open and breaker-close events to identify affected
+      network equipment.
+    - Validate affected IDs against the detached snapshot's branch, transformer,
+      and shunt identifiers before scheduling the event.
+    - Raise a descriptive configuration error for missing or unknown targets,
+      rather than silently simulating a breaker operation with no network effect.
+
+Verification:
+    - Re-fetched the Application source after the change and confirmed the
+      validation path is committed.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    physical correspondence between breaker IDs and affected network elements
+    remains a project-model/configuration contract requiring runtime verification.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-131 — Validate transient fault impedance and bus identity before scheduling
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient fault event configuration → immutable fault intent → network solver
+
+Files:
+    core/analysis/transient_fault.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    TransientFault normalized impedance to complex but accepted NaN/Infinity
+    components. Those values could propagate into the algebraic network matrix
+    and fail only during numerical solution. Fault events also accepted bus IDs
+    absent from the detached network snapshot, delaying a configuration error
+    until the solver evaluated the event.
+
+Correction:
+    - Reject non-finite real or imaginary fault-impedance components when the
+      immutable TransientFault intent is created.
+    - Validate each fault event bus against the detached snapshot's canonical
+      bus IDs before scheduling it.
+    - Preserve the existing three-phase-only model contract and fault-clear
+      behavior; clearing a fault changes only active_fault and does not restore
+      or overwrite breaker/equipment state.
+
+Verification:
+    - Source edits committed and re-fetched for confirmation.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+    - Fault impedance is interpreted in the same per-unit network basis as the
+      prepared network; conversion from entered ohms/base values is not added by
+      this correction and remains a separate explicit configuration contract.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    numerical fault behavior remains runtime-unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-132 — Reject transient fault-clear events without an active fault
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient event dispatch → detached event-state mutation
+
+Files:
+    core/analysis/transient_event_state.py
+    Modification_Register.txt
+
+Finding:
+    clear_fault() silently accepted a fault-clear event when no fault was active.
+    The event manager then recorded the event as successfully executed even though
+    no electrical state changed, masking an invalid or incorrectly ordered event
+    schedule.
+
+Correction:
+    - Raise a descriptive ValueError if fault clearing is requested while no
+      fault is active.
+    - Keep clearing isolated to active_fault; breaker/equipment state remains
+      untouched when a valid fault-clear event executes.
+    - Event execution propagates action errors as EventError, so the transient
+      study fails rather than publishing a misleading successful event sequence.
+
+Verification:
+    - Source edit committed and re-fetched for confirmation.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+    - Same-time apply/clear ordering remains governed by EventManager's explicit
+      event priority and event-ID ordering; users must configure that ordering.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    runtime event-ordering behavior remains unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-133 — Preflight transient fault event ordering
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient event configuration → deterministic EventManager order → fault state
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    Fault apply/clear conflicts were detected only when the simulation reached
+    the event time. A second apply before clearing, or a clear without a preceding
+    apply in the configured schedule, could waste solver work before failing.
+
+Correction:
+    - Collect fault operations during event configuration and preflight them
+      before transient integration starts.
+    - Evaluate operations in the EventManager's deterministic order: event time,
+      ascending priority, then event ID.
+    - Reject overlapping fault applications and clears without an active fault
+      using descriptive configuration errors.
+    - Preserve EventManager execution-time checks as the runtime authority.
+
+Verification:
+    - Source edit committed and re-fetched for confirmation.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+    - Equal-time apply/clear ordering remains explicitly determined by configured
+      priority and then event ID; engineers should set priorities when intent
+      must not depend on event-ID lexical order.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    runtime event scheduling remains unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-134 — Enforce transient solver time-boundary and completion contract
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    DAE integration → transient trajectory → StudyService completion status
+
+Files:
+    core/solver/dynamics/transient_stability.py
+    Modification_Register.txt
+
+Finding:
+    The transient solver could accept non-finite time configuration or an initial
+    time outside the configured interval. It also trusted the integrator's
+    returned timestamp and returned a result after the integration loop without
+    asserting that a non-cancelled trajectory reached end_time. StudyService
+    treats a handler return as completed, so a partial trajectory could be
+    classified as a successful study if an unexpected solver exit occurred.
+
+Correction:
+    - Require finite start_time, end_time, dt, and initialization time.
+    - Require initialization time to lie within [start_time, end_time].
+    - Reject non-finite integrator timestamps and steps that overshoot the
+      requested event/end-time boundary beyond the event tolerance.
+    - Before returning, require every non-cancelled run to have reached the
+      configured end_time within the event tolerance; otherwise raise
+      TransientStabilityError so StudyService publishes failure rather than
+      completion.
+    - Preserve partial trajectories for cooperative cancellation; the existing
+      Application handler converts cancelled runs to the cancellation outcome.
+
+Verification:
+    - Source edit committed and re-fetched for confirmation.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    numerical integration and cancellation behavior remain runtime-unverified.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-135 — Validate transient event times against study interval
+======================================================================
+
+Date:
+    2026-10-28
+
+Scope:
+    Transient event configuration → event dispatch → trajectory result
+
+Files:
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Finding:
+    EventManager.process(start_time) dispatches every enabled event scheduled
+    at or before the initial time. Without configuration-bound validation, an
+    event before start_time could execute at initialization while retaining its
+    earlier scheduled timestamp, producing event history inconsistent with the
+    configured study interval and trajectory samples. Non-finite event times
+    were also not rejected explicitly at the Application boundary.
+
+Correction:
+    - Reject NaN and infinite transient event times.
+    - Require every configured transient event time to lie inclusively within
+      the typed study configuration's [start_time, end_time] interval before
+      registering it with EventManager.
+    - Keep events exactly at either boundary valid; start-time events are
+      applied before the initial recorded sample, and end-time events are
+      processed at the final integration boundary.
+
+Verification:
+    - Source edit committed and re-fetched for confirmation.
+    - No tests, CI, syntax/import checks, or runtime studies were run.
+
+Status:
+    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated;
+    event execution ordering and numerical runtime remain runtime-unverified.
+
+======================================================================

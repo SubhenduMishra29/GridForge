@@ -51,7 +51,7 @@ class StudyPreparationService:
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
         preparation = ShortCircuitPreparation(
             self._execution_context.project_snapshot.network,
-            base_mva=configuration.metadata.get("base_mva"),
+            base_mva=(configuration.base_mva if configuration.base_mva is not None else configuration.metadata.get("base_mva")),
         )
         return preparation.prepare(
             configuration.fault_type,
@@ -77,6 +77,26 @@ class StudyPreparationService:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+
+        # A transient operating point is valid only when the successful
+        # numerical result belongs to this exact detached Power Flow input.
+        # Bus ordering alone is insufficient: separate snapshots can share
+        # identical Bus IDs while carrying different model parameters.
+        if not power_flow_result.success:
+            raise ValueError(
+                "Transient Stability requires a converged initial Power Flow result."
+            )
+        if power_flow_result.bus_ids != prepared_power_flow.bus_ids:
+            raise ValueError(
+                "Initial Power Flow result bus ordering does not match the "
+                "prepared Power Flow snapshot."
+            )
+        expected_snapshot_id = prepared_power_flow.input.snapshot_id
+        if power_flow_result.snapshot_id != expected_snapshot_id:
+            raise ValueError(
+                "Initial Power Flow result snapshot identity does not match "
+                "the prepared Power Flow input."
+            )
 
         # Dynamics inherits canonical Bus identity from the same topology
         # snapshot used to prepare Power Flow. Dynamic-model associations

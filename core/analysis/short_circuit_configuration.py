@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -34,17 +35,28 @@ class ShortCircuitStudyConfiguration:
     fault_impedance: complex = 0.0j
     element_ids: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    base_mva: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fault_type", FaultType.from_value(self.fault_type))
         if not isinstance(self.fault_bus_id, str) or not self.fault_bus_id.strip():
             raise ValueError("fault_bus_id must be a non-empty string.")
         object.__setattr__(self, "fault_bus_id", self.fault_bus_id.strip())
-        object.__setattr__(self, "fault_impedance", complex(self.fault_impedance))
-        ids = tuple(str(item) for item in self.element_ids)
-        if any(not item.strip() for item in ids):
+        impedance = complex(self.fault_impedance)
+        if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag):
+            raise ValueError("fault_impedance real and imaginary components must be finite.")
+        object.__setattr__(self, "fault_impedance", impedance)
+        ids = tuple(str(item).strip() for item in self.element_ids)
+        if any(not item for item in ids):
             raise ValueError("element_ids must contain only non-empty identifiers.")
+        if len(set(ids)) != len(ids):
+            raise ValueError("element_ids must not contain duplicate identifiers.")
         object.__setattr__(self, "element_ids", ids)
+        if self.base_mva is not None:
+            base_mva = float(self.base_mva)
+            if not math.isfinite(base_mva) or base_mva <= 0.0:
+                raise ValueError("base_mva must be finite and greater than zero when supplied.")
+            object.__setattr__(self, "base_mva", base_mva)
         object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
 

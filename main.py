@@ -1250,7 +1250,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_canvas_render_system.bind_diagnostic_sink(_on_render_diagnostic)
     for diagnostic in sld_canvas_render_system.render_diagnostics:        _on_render_diagnostic(diagnostic)
     def study_case_error_handler(error: BaseException) -> None:
-        QMessageBox.critical(window, "Run Study", str(error))
+        QMessageBox.critical(window, "Study Case", str(error))
 
     study_case_controller = StudyCaseController(
         application=gridforge_application,
@@ -1258,6 +1258,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     study_tool_runtime.bind_study_case_controller(study_case_controller)
     study_cases_panel.set_run_handler(study_case_controller.run_study)
+    study_cases_panel.set_create_handler(study_case_controller.create_study_case)
     resources["study_case_controller"] = study_case_controller
 
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
@@ -1280,7 +1281,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
         controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
-    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
+    def _update_study_result_overlay(result: object | None) -> None:
+        """Refresh the SLD only when the selected result snapshot changes."""
+        if sld_canvas_projection.set_study_result(result):
+            synchronize_canvas()
+
+    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel, result_changed=_update_study_result_overlay)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import math
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -19,6 +20,12 @@ from typing import Any, Mapping, Sequence
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
+from core.application.revision import ProjectRevision
+from core.application.study import StudyCaseDefinition
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
+from core.analysis.transient_stability import TransientStabilityStudyConfiguration
+from core.solver.short_circuit.fault_types import FaultType
 from core.application.control_signal_mapping import ControlSignalMapping
 from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
@@ -56,6 +63,7 @@ class LoadedProject:
     draft_network: DraftNetwork | None = None
     protection_presentation: Mapping[str, Any] | None = None
     control_signal_mapping: ControlSignalMapping | None = None
+    study_cases: tuple[StudyCaseDefinition, ...] = ()
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -158,6 +166,16 @@ class ProjectPersistenceService:
             except (TypeError, ValueError, KeyError) as exc:
                 raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
 
+        try:
+            study_cases = tuple(
+                self._deserialize_study_case(item, project_id=project_id, network=network)
+                for item in project.get("study_cases", [])
+            )
+        except (TypeError, ValueError, KeyError, ProjectPersistenceError) as exc:
+            raise ProjectPersistenceError(f"Invalid persisted Study Case definition: {exc}") from exc
+        if len({case.study_id for case in study_cases}) != len(study_cases):
+            raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
+
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
             context, network, presentation, presentation_collection,
@@ -176,6 +194,7 @@ class ProjectPersistenceService:
             control_signal_mapping=control_signal_mapping,
             draft_network=draft_network,
             protection_presentation=protection_presentation,
+            study_cases=study_cases,
         )
 
     def save(self, context: ProjectContext, network: Network,
@@ -188,7 +207,8 @@ class ProjectPersistenceService:
              control_signal_mapping: ControlSignalMapping | None = None,
              draft_network: DraftNetwork | None = None,
              protection_presentation: Mapping[str, Any] | None = None,
-             presentation_collection: Mapping[str, Any] | None = None) -> None:
+             presentation_collection: Mapping[str, Any] | None = None,
+             study_cases: Sequence[StudyCaseDefinition] = ()) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -233,6 +253,14 @@ class ProjectPersistenceService:
             control_configuration.validate()
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping):
             raise TypeError("control_signal_mapping must be ControlSignalMapping or None.")
+        if not isinstance(study_cases, Sequence) or any(
+            not isinstance(item, StudyCaseDefinition) for item in study_cases
+        ):
+            raise TypeError("study_cases must be a sequence of StudyCaseDefinition values.")
+        if any(item.project_id != context.project_id for item in study_cases):
+            raise ProjectPersistenceError("study_cases contains a definition for a different project.")
+        if len({item.study_id for item in study_cases}) != len(study_cases):
+            raise ProjectPersistenceError("study_cases contains duplicate study identities.")
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -285,6 +313,7 @@ class ProjectPersistenceService:
             "presentations": canonical_collection,
             "dynamic_models": [item.to_dict() for item in dynamic_models],
             "measurement": {"channels": [dict(item) for item in measurement_definitions]},
+            "study_cases": [self._serialize_study_case(item) for item in study_cases],
         }
         if protection_configuration is not None:
             project["protection"] = protection_configuration.to_dict()
@@ -386,6 +415,235 @@ class ProjectPersistenceService:
         }
 
     @staticmethod
+    def _json_safe_study_value(value: Any) -> Any:
+        """Convert immutable JSON-compatible Study Case values to canonical data."""
+        from enum import Enum
+        if value is None or isinstance(value, (str, int, bool)):
+            return value
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise ProjectPersistenceError("Study Case floating-point values must be finite.")
+            return value
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, complex):
+            return {"__complex__": [value.real, value.imag]}
+        if isinstance(value, Mapping):
+            return {str(key): ProjectPersistenceService._json_safe_study_value(item) for key, item in value.items()}
+        if isinstance(value, (tuple, list)):
+            return [ProjectPersistenceService._json_safe_study_value(item) for item in value]
+        if isinstance(value, (set, frozenset)):
+            return sorted((ProjectPersistenceService._json_safe_study_value(item) for item in value), key=repr)
+        raise ProjectPersistenceError(
+            f"Study Case contains a non-persistable runtime value of type {type(value).__name__}."
+        )
+
+    @staticmethod
+    def _restore_study_value(value: Any) -> Any:
+        """Restore explicitly tagged complex values in persisted Study Case options."""
+        if isinstance(value, Mapping):
+            if set(value) == {"__complex__"}:
+                parts = value["__complex__"]
+                if not isinstance(parts, (list, tuple)) or len(parts) != 2:
+                    raise ProjectPersistenceError("Malformed persisted complex Study Case value.")
+                return complex(float(parts[0]), float(parts[1]))
+            return {
+                key: ProjectPersistenceService._restore_study_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [ProjectPersistenceService._restore_study_value(item) for item in value]
+        return value
+
+    @classmethod
+    def _serialize_power_flow_configuration(
+        cls, configuration: PowerFlowStudyConfiguration
+    ) -> dict[str, Any]:
+        return {
+            "bus_types": {key: value.value for key, value in configuration.bus_types.items()},
+            "base_mva": configuration.base_mva,
+            "tolerance": configuration.tolerance,
+            "max_iterations": configuration.max_iterations,
+            "voltage_bases_kv": dict(configuration.voltage_bases_kv),
+            "numerical_options": cls._json_safe_study_value(configuration.numerical_options),
+        }
+
+    @staticmethod
+    def _deserialize_power_flow_configuration(
+        payload: Mapping[str, Any]
+    ) -> PowerFlowStudyConfiguration:
+        return PowerFlowStudyConfiguration.from_mapping(
+            payload["bus_types"],
+            base_mva=payload["base_mva"],
+            tolerance=payload.get("tolerance", 1e-8),
+            max_iterations=payload.get("max_iterations", 50),
+            voltage_bases_kv=payload.get("voltage_bases_kv", {}),
+            numerical_options=payload.get("numerical_options", {}),
+        )
+
+    @classmethod
+    def _serialize_study_case(cls, case: StudyCaseDefinition) -> dict[str, Any]:
+        configuration = case.configuration.get("configuration")
+        if isinstance(configuration, PowerFlowStudyConfiguration):
+            typed = {
+                "kind": "power_flow",
+                **cls._serialize_power_flow_configuration(configuration),
+            }
+        elif isinstance(configuration, ShortCircuitStudyConfiguration):
+            typed = {
+                "kind": "short_circuit",
+                "fault_type": configuration.fault_type.value,
+                "fault_bus_id": configuration.fault_bus_id,
+                "fault_impedance": cls._json_safe_study_value(configuration.fault_impedance),
+                "element_ids": list(configuration.element_ids),
+                "metadata": cls._json_safe_study_value(configuration.metadata),
+                "base_mva": configuration.base_mva,
+            }
+        elif isinstance(configuration, TransientStabilityStudyConfiguration):
+            typed = {
+                "kind": "transient_stability",
+                "start_time": configuration.start_time,
+                "end_time": configuration.end_time,
+                "dt": configuration.dt,
+                "metadata": cls._json_safe_study_value(configuration.metadata),
+                "power_flow_configuration": (
+                    cls._serialize_power_flow_configuration(configuration.power_flow_configuration)
+                    if configuration.power_flow_configuration is not None else None
+                ),
+            }
+        else:
+            raise ProjectPersistenceError(
+                f"Unsupported typed Study Case configuration: {type(configuration).__name__}."
+            )
+        runtime_only_keys = {"prepared_power_flow", "power_flow_result"}
+        if (
+            isinstance(configuration, TransientStabilityStudyConfiguration)
+            and configuration.power_flow_configuration is None
+        ):
+            raise ProjectPersistenceError(
+                "Transient Stability Study Case must define power_flow_configuration "
+                "to remain runnable after project reload."
+            )
+        extras = {
+            key: cls._json_safe_study_value(value)
+            for key, value in case.configuration.items()
+            if key != "configuration" and key not in runtime_only_keys
+        }
+        revision = case.source_revision
+        return {
+            "schema": 1,
+            "study_id": str(case.study_id),
+            "study_type": case.study_type,
+            "display_name": case.display_name,
+            "source_revision": {
+                "model_revision": revision.model_revision,
+                "topology_revision": revision.topology_revision,
+                "presentation_revision": revision.presentation_revision,
+                "persisted_revision": revision.persisted_revision,
+            },
+            "configuration": typed,
+            "options": extras,
+        }
+
+    @classmethod
+    def _deserialize_study_case(
+        cls, data: Mapping[str, Any], *, project_id: str, network: Network
+    ) -> StudyCaseDefinition:
+        if data.get("schema") != 1:
+            raise ProjectPersistenceError(f"Unsupported Study Case schema {data.get('schema')!r}.")
+        try:
+            from uuid import UUID
+            study_id = UUID(str(data["study_id"]))
+            study_type = str(data["study_type"])
+            payload = data["configuration"]
+            if not isinstance(payload, Mapping):
+                raise TypeError("Study Case configuration must be an object.")
+            kind = payload.get("kind")
+            if kind == "power_flow":
+                typed = cls._deserialize_power_flow_configuration(payload)
+            elif kind == "short_circuit":
+                impedance = payload.get("fault_impedance", {"__complex__": [0.0, 0.0]})
+                if isinstance(impedance, Mapping) and "__complex__" in impedance:
+                    impedance = complex(*impedance["__complex__"])
+                typed = ShortCircuitStudyConfiguration(
+                    fault_type=FaultType.from_value(payload["fault_type"]),
+                    fault_bus_id=str(payload["fault_bus_id"]),
+                    fault_impedance=complex(impedance),
+                    element_ids=tuple(payload.get("element_ids", ())),
+                    metadata=payload.get("metadata", {}),
+                    base_mva=payload.get("base_mva"),
+                )
+            elif kind == "transient_stability":
+                initial_power_flow = payload.get("power_flow_configuration")
+                if initial_power_flow is not None and not isinstance(initial_power_flow, Mapping):
+                    raise TypeError("Transient Stability Power Flow initialization must be an object or null.")
+                typed = TransientStabilityStudyConfiguration(
+                    start_time=payload.get("start_time", 0.0),
+                    end_time=payload.get("end_time", 10.0),
+                    dt=payload.get("dt", 0.01),
+                    metadata=payload.get("metadata", {}),
+                    power_flow_configuration=(
+                        cls._deserialize_power_flow_configuration(initial_power_flow)
+                        if initial_power_flow is not None else None
+                    ),
+                )
+            else:
+                raise ProjectPersistenceError(f"Unsupported persisted Study Case configuration kind: {kind!r}.")
+            revision_data = data.get("source_revision", {})
+            revision = ProjectRevision(
+                model_revision=revision_data.get("model_revision", 0),
+                topology_revision=revision_data.get("topology_revision", 0),
+                presentation_revision=revision_data.get("presentation_revision", 0),
+                persisted_revision=revision_data.get("persisted_revision", 0),
+            )
+            options = data.get("options", {})
+            if not isinstance(options, Mapping):
+                raise TypeError("Study Case options must be an object.")
+            config = {"configuration": typed, **cls._restore_study_value(dict(options))}
+            case = StudyCaseDefinition(
+                study_id=study_id,
+                project_id=project_id,
+                activation_generation=1,
+                source_revision=revision,
+                study_type=study_type,
+                configuration=config,
+                display_name=str(data.get("display_name", "")),
+            )
+        except ProjectPersistenceError:
+            raise
+        except (TypeError, ValueError, KeyError, OverflowError) as exc:
+            raise ProjectPersistenceError(f"Malformed Study Case payload: {exc}") from exc
+
+        bus_ids = {
+            str(getattr(bus, "id", getattr(bus, "object_id", "")))
+            for bus in getattr(network, "buses", ())
+            if str(getattr(bus, "id", getattr(bus, "object_id", ""))).strip()
+        }
+        typed = case.configuration.get("configuration")
+        referenced = set()
+        power_flow_configuration = None
+        if isinstance(typed, PowerFlowStudyConfiguration):
+            power_flow_configuration = typed
+        elif isinstance(typed, TransientStabilityStudyConfiguration):
+            # Transient Stability can carry a persisted Power Flow initialization
+            # contract. Validate its bus references at load time as well; otherwise
+            # a malformed Study Case can survive project activation and fail much
+            # later during numerical preparation.
+            power_flow_configuration = typed.power_flow_configuration
+        if power_flow_configuration is not None:
+            referenced.update(power_flow_configuration.bus_types)
+            referenced.update(power_flow_configuration.voltage_bases_kv)
+        if isinstance(typed, ShortCircuitStudyConfiguration):
+            referenced.add(typed.fault_bus_id)
+        unknown = sorted(item for item in referenced if item not in bus_ids)
+        if unknown:
+            raise ProjectPersistenceError(
+                "Study Case references Bus identities absent from the persisted Network: "
+                + ", ".join(unknown)
+            )
+        return case
+
+    @staticmethod
     def _deserialize_control_configuration(data: Mapping[str, Any], project_id: str) -> ControlConfiguration:
         configuration = ControlConfiguration.from_dict(data)
         if configuration.project_id != project_id:
@@ -401,7 +659,7 @@ class ProjectPersistenceService:
         allowed = {
             "schema", "project", "network", "presentations", "dynamic_models",
             "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
-            "draft_network",
+            "draft_network", "study_cases",
         }
         unknown = sorted(set(project) - allowed)
         if unknown:
@@ -454,6 +712,9 @@ class ProjectPersistenceService:
         for key in ("control", "protection", "protection_presentation", "draft_network"):
             if key in project and project[key] is not None and not isinstance(project[key], Mapping):
                 raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
+        study_cases = project.get("study_cases", [])
+        if not isinstance(study_cases, list) or any(not isinstance(item, Mapping) for item in study_cases):
+            raise ProjectPersistenceError("Canonical study_cases must be an array of objects.")
 
     @staticmethod
     def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, presentation_collection: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None, measurement_definitions: Sequence[Mapping[str, Any]] = ()) -> None:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any
+import math
 from dataclasses import replace
 from uuid import uuid4
 
@@ -251,6 +252,7 @@ def create_application(network: Any) -> Application:
         previous_control_generation = application.control_engine.activation_generation
         previous_control_active = application.control_engine.configuration is not None
         previous_draft = application.draft_network
+        previous_study_cases = dict(application._study_cases)
 
         def restore_control_runtime() -> None:
             if not previous_control_active:
@@ -272,6 +274,7 @@ def create_application(network: Any) -> Application:
             application.protection_runtime = previous_protection_runtime
             application.protection_presentation = previous_protection_presentation
             application.set_draft_network(previous_draft)
+            application._study_cases = dict(previous_study_cases)
             dynamic_models.replace(previous_dynamic_models)
             restore_control_runtime()
 
@@ -295,6 +298,7 @@ def create_application(network: Any) -> Application:
                 application.protection_presentation = None
                 dynamic_models.replace(())
                 application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
+                application._study_cases = {}
             else:
                 configuration = (
                     loaded.protection_configuration
@@ -358,6 +362,14 @@ def create_application(network: Any) -> Application:
                 candidate_protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_runtime = candidate_protection_runtime
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
+                application._study_cases = {
+                    case.study_id: replace(
+                        case,
+                        project_id=context.project_id,
+                        activation_generation=generation,
+                    )
+                    for case in (getattr(loaded, "study_cases", ()) if loaded is not None else ())
+                }
 
         except Exception as transition_error:
             try:
@@ -461,6 +473,7 @@ def create_application(network: Any) -> Application:
             control_signal_mapping=application.control_signal_mapping,
             draft_network=application.draft_network,
             presentation_collection=presentation_collection,
+            study_cases=application.study_cases,
             protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
@@ -509,9 +522,14 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
-        analysis.solve()
+        numerical_result = analysis.solve()
         if token.cancelled:
             return None
+        if not numerical_result.success:
+            raise RuntimeError(
+                "Power Flow did not converge: "
+                f"{numerical_result.message or 'solver reported success=False'}"
+            )
         return analysis.to_engineering_result()
 
     def run_contingency(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
@@ -545,30 +563,107 @@ def create_application(network: Any) -> Application:
         result = analysis.run()
         if token.cancelled:
             return None
+        if not result.success:
+            diagnostics = "; ".join(result.diagnostics) or "solver reported success=False"
+            raise RuntimeError(f"Short-Circuit calculation failed: {diagnostics}")
         return result
 
     def configure_transient_events(request: StudyRequest, event_manager: EventManager, event_state: TransientEventState) -> None:
-        for event in request.configuration.get("events", ()):
+        typed_configuration = study_configuration(request, TransientStabilityStudyConfiguration)
+        # Study Case UI persists the typed configuration under `configuration`;
+        # event definitions belong to that configuration's metadata contract.
+        # Retain top-level `events` as a compatibility path for existing direct callers.
+        events = request.configuration.get("events")
+        if events is None:
+            events = typed_configuration.metadata.get("events", ())
+        if not isinstance(events, (tuple, list)):
+            raise TypeError("Transient Stability events must be a sequence of event mappings.")
+        fault_operations: list[tuple[float, int, str, str]] = []
+        for event in events:
+            if not callable(getattr(event, "get", None)):
+                raise TypeError("Each Transient Stability event must be a mapping.")
             kind = str(event["type"]).strip().lower()
             time = float(event["time"])
             event_id = str(event["event_id"])
-            if kind == "breaker_open":
-                schedule_breaker_open(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
-            elif kind == "breaker_close":
-                schedule_breaker_close(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
+            if not math.isfinite(time):
+                raise ValueError(
+                    f"Transient event {event_id!r} must have a finite event time."
+                )
+            if not typed_configuration.start_time <= time <= typed_configuration.end_time:
+                raise ValueError(
+                    f"Transient event {event_id!r} at t={time:.12g} s falls outside "
+                    f"the configured study interval "
+                    f"[{typed_configuration.start_time:.12g}, "
+                    f"{typed_configuration.end_time:.12g}] s."
+                )
+            if kind in {"breaker_open", "breaker_close"}:
+                breaker_id = str(event["breaker_id"])
+                affected_equipment_ids = tuple(
+                    str(value) for value in event.get("affected_equipment_ids", ())
+                )
+                if not affected_equipment_ids:
+                    raise ValueError(
+                        f"Transient event {event_id!r} ({kind}) must provide "
+                        "affected_equipment_ids to change the detached network."
+                    )
+                known_ids = {
+                    item.branch_id
+                    for item in (*event_state.snapshot.branches, *event_state.snapshot.transformers)
+                } | {item.shunt_id for item in event_state.snapshot.shunts}
+                unknown_ids = sorted(set(affected_equipment_ids) - known_ids)
+                if unknown_ids:
+                    raise ValueError(
+                        f"Transient breaker event {event_id!r} references unknown "
+                        f"network equipment IDs: {unknown_ids!r}."
+                    )
+                scheduler = schedule_breaker_open if kind == "breaker_open" else schedule_breaker_close
+                scheduler(
+                    event_manager, event_state, time, breaker_id,
+                    event_id=event_id,
+                    affected_equipment_ids=affected_equipment_ids,
+                    priority=int(event.get("priority", 0)),
+                )
             elif kind == "equipment_state":
-                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id)
+                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id=event_id, priority=int(event.get("priority", 0)))
             elif kind == "fault_apply":
                 fault = TransientFault(
                     fault_type=FaultType.from_value(event["fault_type"]),
                     bus_id=str(event["bus_id"]),
                     impedance=complex(event.get("impedance", 0.0j)),
                 )
-                schedule_fault_apply(event_manager, event_state, time, fault, event_id)
+                if fault.bus_id not in event_state.snapshot.bus_ids:
+                    raise ValueError(
+                        f"Transient fault event {event_id!r} references unknown "
+                        f"bus ID {fault.bus_id!r}."
+                    )
+                priority = int(event.get("priority", 0))
+                schedule_fault_apply(event_manager, event_state, time, fault, event_id=event_id, priority=priority)
+                fault_operations.append((time, priority, event_id, "apply"))
             elif kind == "fault_clear":
-                schedule_fault_clear(event_manager, event_state, time, event_id)
+                priority = int(event.get("priority", 0))
+                schedule_fault_clear(event_manager, event_state, time, event_id=event_id, priority=priority)
+                fault_operations.append((time, priority, event_id, "clear"))
             else:
                 raise ValueError(f"Unsupported transient event type: {kind!r}.")
+
+        # Preflight the single-active-fault contract using the exact ordering
+        # used by EventManager: time, ascending priority, then event ID.
+        fault_active = event_state.active_fault is not None
+        for _, _, event_id, operation in sorted(fault_operations):
+            if operation == "apply":
+                if fault_active:
+                    raise ValueError(
+                        f"Transient fault event {event_id!r} applies a fault while "
+                        "another fault is still active; schedule a fault_clear first."
+                    )
+                fault_active = True
+            else:
+                if not fault_active:
+                    raise ValueError(
+                        f"Transient fault-clear event {event_id!r} has no active fault "
+                        "in the configured event order."
+                    )
+                fault_active = False
 
     def run_transient_stability(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
         if token.cancelled:
@@ -577,7 +672,23 @@ def create_application(network: Any) -> Application:
         prepared_power_flow = request.configuration.get("prepared_power_flow")
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
-            raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
+            initial_power_flow_configuration = configuration.power_flow_configuration
+            if not isinstance(initial_power_flow_configuration, PowerFlowStudyConfiguration):
+                raise TypeError(
+                    "transient_stability requires an explicit power_flow_configuration "
+                    "when prepared runtime inputs are not supplied."
+                )
+            preparation = StudyPreparationService(execution_context)
+            prepared_power_flow = preparation.prepare_power_flow(initial_power_flow_configuration)
+            if token.cancelled:
+                return None
+            initial_power_flow_analysis = PowerFlowAnalysis.from_prepared(prepared_power_flow)
+            power_flow_result = initial_power_flow_analysis.solve()
+            if not bool(getattr(power_flow_result, "success", False)):
+                raise ValueError(
+                    "Transient Stability initialization Power Flow did not converge; "
+                    "dynamic integration was not started."
+                )
         prepared = StudyPreparationService(execution_context).prepare_transient_stability(
             configuration, prepared_power_flow, power_flow_result,
             DynamicMachineModelRegistry(execution_context.project_snapshot.dynamic_models),
@@ -602,7 +713,7 @@ def create_application(network: Any) -> Application:
                 "topology_revision": prepared.network.topology_revision,
             },
         )
-        result = analysis.run()
+        result = analysis.run(should_cancel=lambda: token.cancelled)
         if token.cancelled:
             return None
         return result

@@ -159,6 +159,19 @@ class _ProjectSchema2To3(ProjectMigration):
         return result
 
 
+class _ProjectSchema3To4(ProjectMigration):
+    source_schema = 3
+    target_schema = 4
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 3-to-4 received a non-schema-3 payload.")
+        result.setdefault("study_cases", [])
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -476,6 +489,7 @@ class ProjectPersistenceMigration:
     _project_steps: dict[int, ProjectMigration] = {
         1: _ProjectSchema1To2(),
         2: _ProjectSchema2To3(),
+        3: _ProjectSchema3To4(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3()}
 
@@ -507,6 +521,7 @@ class ProjectPersistenceMigration:
         # already advertises the current project schema.
         current.setdefault("dynamic_models", [])
         current.setdefault("measurement", {"channels": []})
+        current.setdefault("study_cases", [])
         current = self._migrate_presentation_collection(current)
         current = self._migrate_network_connectivity(current)
         self._reject_legacy_project_aliases(current)

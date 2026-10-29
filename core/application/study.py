@@ -38,7 +38,21 @@ class StudyExecutionContext:
             raise ValueError("TopologySnapshot provenance does not match study execution context.")
         if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
             raise ValueError("TopologySnapshot revision does not match source revision.")
-        if self.project_snapshot is None: raise ValueError("project_snapshot is required.")
+        if self.project_snapshot is None:
+            raise ValueError("project_snapshot is required.")
+        # Both detached inputs must describe the same activated project state.
+        # Matching only the topology snapshot is insufficient: a project/network
+        # snapshot from another activation or model revision could otherwise be
+        # paired with this request and yield a numerically valid but mis-scoped result.
+        if getattr(self.project_snapshot, "project_id", None) != self.project_id:
+            raise ValueError("ProjectSnapshot project identity does not match study execution context.")
+        if getattr(self.project_snapshot, "activation_generation", None) != self.activation_generation:
+            raise ValueError("ProjectSnapshot activation generation does not match study execution context.")
+        snapshot_revision = getattr(self.project_snapshot, "revision", None)
+        if not isinstance(snapshot_revision, ProjectRevision):
+            raise TypeError("ProjectSnapshot revision must be ProjectRevision.")
+        if snapshot_revision != self.source_revision:
+            raise ValueError("ProjectSnapshot revision does not match study execution context source revision.")
 
 @dataclass(frozen=True, slots=True)
 class StudyRequest:
@@ -331,19 +345,36 @@ class StudyService:
                 self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
         except Exception as exc:
+            # A cancellation request may race with a solver exception. Resolve
+            # the terminal state atomically: if cancellation was already
+            # requested before finish(), publish cancellation rather than a
+            # contradictory failure event. Otherwise preserve the exception.
             with self._lock:
-                token.finish()
-            result = StudyResult(
-                study_id=request.study_id,
-                project_id=request.project_id,
-                activation_generation=request.activation_generation,
-                source_revision=request.source_revision,
-                study_type=request.study_type,
-                status="failed",
-                message=str(exc),
-            )
-            with self._lock:
+                cancelled = token.finish()
+                if cancelled:
+                    result = StudyResult(
+                        study_id=request.study_id,
+                        project_id=request.project_id,
+                        activation_generation=request.activation_generation,
+                        source_revision=request.source_revision,
+                        study_type=request.study_type,
+                        status="cancelled",
+                        message="Study cancelled.",
+                    )
+                else:
+                    result = StudyResult(
+                        study_id=request.study_id,
+                        project_id=request.project_id,
+                        activation_generation=request.activation_generation,
+                        source_revision=request.source_revision,
+                        study_type=request.study_type,
+                        status="failed",
+                        message=str(exc),
+                    )
                 self._results[key] = result
+            if cancelled:
+                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+                return result
             self._event_bus.publish(StudyFailed(metadata=self._event_metadata(request, status="failed", error=str(exc))))
             raise
         finally:

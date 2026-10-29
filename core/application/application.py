@@ -47,7 +47,7 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
@@ -269,8 +269,64 @@ class Application:
 
     @property
     def study_cases(self) -> tuple[StudyCaseDefinition, ...]:
-        """Return the immutable Application-owned runnable Study Case definitions."""
-        return tuple(self._study_cases.values())
+        """Return runnable Study Cases scoped to the active project generation."""
+        lifecycle = self._project_lifecycle
+        if lifecycle is None:
+            return ()
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            return ()
+        generation = lifecycle.activation_generation
+        return tuple(
+            case for case in self._study_cases.values()
+            if case.project_id == context.project_id
+            and case.activation_generation == generation
+        )
+
+    def create_study_case(
+        self,
+        *,
+        study_type: str,
+        configuration: Mapping[str, Any],
+        display_name: str = "",
+    ) -> StudyCaseDefinition:
+        """Register a validated Study Case without executing its solver."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot create a Study Case without a valid active project.")
+        request = StudyRequest(
+            study_id=uuid4(),
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision,
+            study_type=study_type,
+            configuration=configuration,
+        )
+        registered_types = self._study_service.registered_study_types()
+        if request.study_type not in registered_types:
+            raise ValueError(
+                f"No study handler is registered for {request.study_type!r}; "
+                f"available study types: {', '.join(registered_types)}."
+            )
+        case = StudyCaseDefinition(
+            study_id=request.study_id,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            study_type=request.study_type,
+            configuration=request.configuration,
+            display_name=display_name,
+        )
+        self._study_cases[case.study_id] = case
+        self._event_bus.publish(StudyCaseCreated(metadata={
+            "study_id": str(case.study_id),
+            "study_type": case.study_type,
+            "display_name": case.display_name,
+            "project_id": case.project_id,
+            "activation_generation": case.activation_generation,
+        }))
+        return case
 
     def study_case(self, study_id: UUID) -> StudyCaseDefinition:
         """Resolve one structured Study Case without exposing Core state to UI."""
@@ -288,6 +344,27 @@ class Application:
         """Capture a validated request as the Application-owned runnable Study Case."""
         try:
             case = StudyCaseDefinition.from_request(request)
+            existing = self._study_cases.get(case.study_id)
+            if (
+                existing is not None
+                and existing.project_id == case.project_id
+                and existing.activation_generation == case.activation_generation
+            ):
+                # Preserve the revision at which an unchanged Study Case was
+                # configured. Presentation/persistence edits do not change its
+                # numerical input identity and must not rewrite provenance.
+                if (
+                    existing.study_type == case.study_type
+                    and existing.configuration == case.configuration
+                    and existing.source_revision.matches_study_state(request.source_revision)
+                ):
+                    case = replace(
+                        case,
+                        source_revision=existing.source_revision,
+                        display_name=existing.display_name,
+                    )
+                else:
+                    case = replace(case, display_name=existing.display_name)
         except (TypeError, ValueError):
             # Existing non-UI callers retain the StudyService contract; only
             # requests that satisfy the structured Study Case contract become
@@ -304,6 +381,12 @@ class Application:
             raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
         if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
             raise ValueError("Study Case project scope does not match the active project generation.")
+        # Do not silently bless a configuration after electrical inputs change.
+        if not case.source_revision.matches_study_state(self.revision):
+            raise ValueError(
+                "Study Case configuration is stale for the active electrical model/topology. "
+                "Reconfigure or recreate the Study Case before execution."
+            )
         request = StudyRequest(
             study_id=case.study_id,
             project_id=context.project_id,
@@ -1167,13 +1250,36 @@ class Application:
         return context
 
     def capture_project_snapshot(self) -> ProjectSnapshot:
+        """Capture a detached snapshot only if project scope and revisions stay stable."""
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None: raise RuntimeError("No active project.")
-        network_snapshot = deserialize_network(serialize_network(lifecycle.network))
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot capture a study snapshot without an active project.")
+        project_id = context.project_id
+        activation_generation = lifecycle.activation_generation
+        revision_before = self.revision
+        active_network = lifecycle.network
+        network_snapshot = deserialize_network(serialize_network(active_network))
         dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
-        return ProjectSnapshot(project_id=context.project_id, activation_generation=lifecycle.activation_generation,
-                               revision=self.revision, network=network_snapshot, dynamic_models=dynamic_models)
+        revision_after = self.revision
+        current_context = lifecycle.context
+        if (
+            current_context is None
+            or current_context.project_id != project_id
+            or lifecycle.activation_generation != activation_generation
+            or not lifecycle.has_project
+            or lifecycle.state != "ACTIVE"
+        ):
+            raise RuntimeError("Project activation changed while capturing the study snapshot.")
+        if revision_before != revision_after:
+            raise RuntimeError("Project revision changed while capturing the study snapshot; retry study execution.")
+        return ProjectSnapshot(
+            project_id=project_id,
+            activation_generation=activation_generation,
+            revision=revision_after,
+            network=network_snapshot,
+            dynamic_models=dynamic_models,
+        )
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
         if not isinstance(request, StudyRequest):
@@ -1207,6 +1313,23 @@ class Application:
         if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
             raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
         project_snapshot = self.capture_project_snapshot()
+        # The canonical topology and detached project snapshot are captured
+        # through separate boundaries. Refuse to pair them if a mutation landed
+        # between those captures or if the detached network carries a different
+        # topology revision than the StudyRequest.
+        if self.revision != request.source_revision:
+            raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
+        if (
+            project_snapshot.project_id != request.project_id
+            or project_snapshot.activation_generation != request.activation_generation
+            or project_snapshot.revision != request.source_revision
+        ):
+            raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
+        detached_network = project_snapshot.network
+        detached_state = getattr(detached_network, "state", None)
+        detached_topology_revision = getattr(detached_state, "topology_revision", None)
+        if detached_topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Detached network topology revision does not match StudyRequest.")
         execution_context = StudyExecutionContext(
             project_id=request.project_id,
             activation_generation=request.activation_generation,

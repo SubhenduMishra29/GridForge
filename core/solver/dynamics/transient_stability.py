@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from types import MappingProxyType
-from typing import Mapping
+from typing import Callable, Mapping
 
 import numpy as np
 
@@ -102,6 +103,8 @@ class TransientStabilitySolver:
         self.end_time = float(end_time)
         self.dt = float(dt if dt is not None else getattr(dae_solver.integrator, "dt", 0.01))
         self.event_manager = event_manager or EventManager()
+        if not all(math.isfinite(value) for value in (self.start_time, self.end_time, self.dt)):
+            raise ValueError("start_time, end_time, and dt must be finite.")
         if self.start_time < 0.0:
             raise ValueError("start_time cannot be negative.")
         if self.end_time <= self.start_time:
@@ -123,13 +126,20 @@ class TransientStabilitySolver:
         """Initialize from one detached dynamic state vector."""
         candidate = self.dae_solver.machine_system.validate_global_state(np.asarray(state, dtype=float)).copy()
         self._time = self.start_time if time is None else float(time)
-        if self._time < 0.0:
-            raise ValueError("initial time cannot be negative.")
+        if not math.isfinite(self._time):
+            raise ValueError("initial time must be finite.")
+        if self._time < self.start_time or self._time > self.end_time:
+            raise ValueError("initial time must lie within [start_time, end_time].")
         self.dae_solver.evaluate(candidate, self._time)
         self._state = candidate
         return candidate.copy()
 
-    def run(self, *, record_initial: bool = True) -> TransientStabilityResult:
+    def run(
+        self,
+        *,
+        record_initial: bool = True,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> TransientStabilityResult:
         if self._state is None:
             raise TransientStabilityError("Transient-stability solver must be initialized before run().")
 
@@ -139,12 +149,14 @@ class TransientStabilitySolver:
         powers: list[dict[str, tuple[float, float]]] = []
         executions: list[EventExecution] = []
 
-        if record_initial:
+        if record_initial and not (should_cancel is not None and should_cancel()):
             executions.extend(self.event_manager.process(self._time))
             initial = self.dae_solver.evaluate(self._state, self._time)
             self._record(initial, times, states, voltages, powers)
 
         while self._time < self.end_time - self.event_manager.tolerance:
+            if should_cancel is not None and should_cancel():
+                break
             previous_time = self._time
             next_event_time = self.event_manager.next_event_time(previous_time)
             target_time = min(previous_time + self.dt, self.end_time)
@@ -166,8 +178,14 @@ class TransientStabilitySolver:
                     f"Transient-stability simulation failed at t={previous_time:.12g} s."
                 ) from exc
 
+            if not math.isfinite(float(solution.time)):
+                raise TransientStabilityError("Integrator returned a non-finite simulation time.")
             if solution.time <= previous_time:
                 raise TransientStabilityError("Simulation time failed to advance.")
+            if solution.time > target_time + self.event_manager.tolerance:
+                raise TransientStabilityError(
+                    "Integrator advanced beyond the requested event or end-time boundary."
+                )
             self._state = solution.state.copy()
             self._time = float(solution.time)
 
@@ -176,6 +194,13 @@ class TransientStabilitySolver:
                 solution = self.dae_solver.evaluate(self._state, self._time)
 
             self._record(solution, times, states, voltages, powers)
+
+        cancelled = should_cancel is not None and should_cancel()
+        if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
+            raise TransientStabilityError(
+                f"Simulation ended at t={self._time:.12g} s before configured "
+                f"end_time={self.end_time:.12g} s."
+            )
 
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
