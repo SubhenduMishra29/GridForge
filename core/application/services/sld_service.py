@@ -139,6 +139,14 @@ class SLDService:
                 continue
 
             core_id = str(core_id)
+            expected_presentation_id = self.presentation_connection_id(core_id)
+            if str(connection.connection_id) != expected_presentation_id:
+                diagnostics.append({
+                    "code": "PRESENTATION_ID_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "expected_connection_id": expected_presentation_id,
+                    "core_connection_id": core_id,
+                })
             if core_id in companions:
                 diagnostics.append({
                     "code": "DUPLICATE_PRESENTATION_COMPANION",
