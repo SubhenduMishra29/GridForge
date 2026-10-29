@@ -55,6 +55,7 @@ from .synchronism_check import (
     BusMode, SynchronismCheckConfiguration, SynchronismCheckProjectConfiguration, PhasorMeasurement,
     BypassAuthorization, SynchronismDecision, SynchronismCheckGuard,
     phasor_measurements_from_channels,
+    create_project_synchronism_guard,
 )
 
 __all__ = [
