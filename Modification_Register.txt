@@ -14802,3 +14802,46 @@ Additional ANSI 25 configuration contract:
     supplied during deserialization. This provides the typed serialization
     contract but is not yet wired into the canonical project persistence
     lifecycle or user-facing project settings.
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 project persistence integration increment
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix-ansi25-enforcement
+
+Changes:
+    - Advanced canonical PROJECT_SCHEMA_VERSION from 4 to 5.
+    - Added deterministic schema 4-to-5 migration. It deliberately leaves
+      synchronism_check absent for projects without explicit policy; no engineering
+      thresholds or live/dead permissions are synthesized.
+    - ProjectPersistenceService accepts, validates as an object, saves and loads
+      the optional top-level synchronism_check mapping.
+    - LoadedProject exposes synchronism_check_configuration as a detached mapping.
+    - Application bootstrap validates a loaded policy through
+      SynchronismCheckConfiguration.from_dict before activating it, restores policy
+      state during activation rollback, clears it on project close, and includes it
+      in the canonical project save call.
+    - Policy remains project state only. This increment does not supply measurement
+      channel identities, create a physical measurement producer, or make the
+      synchronism guard operational by itself.
+
+Architecture and safety boundary:
+    - Persistence stores a detached mapping and does not import Application policy
+      classes into Core persistence.
+    - Application owns typed policy validation.
+    - Absence remains an unconfigured/fail-closed state.
+    - ANSI 25 stays NOT_IMPLEMENTED in the protection catalog until complete
+      measurement binding, audit-sink composition and breaker-close runtime behavior
+      are established.
+
+Verification boundary:
+    Repository source edits only. No tests, CI, Python syntax/import checks,
+    or switching simulations were run. Review the schema migration and activation
+    rollback diff before merging.
+
+======================================================================
