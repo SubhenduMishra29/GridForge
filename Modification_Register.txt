@@ -14720,3 +14720,50 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+2026-10-29 — WORKSPACE TRANSITION ROLLBACK RECOVERY CORRECTION
+======================================================================
+
+Scope
+-----
+ui/workspace/project_workspace.py
+ProjectWorkspaceLifecycle._restore_transition_snapshot()
+
+Confirmed defect
+----------------
+Rollback previously stopped immediately when WorkspaceController.deactivate()
+raised. That prevented independent restoration attempts for the project identity,
+document collection, active document, view collection, active view, and prior
+workspace/layout. A realization-layer failure could therefore suppress recovery
+of logical workspace state and obscure additional recovery failures.
+
+Correction applied
+------------------
+- Rollback now attempts workspace deactivation, document/view clearing,
+  project restoration, each document/view registration, active selections,
+  and workspace/layout restoration as independent steps.
+- A failed step no longer prevents later independent restoration attempts.
+- All restoration failures are retained in a combined diagnostic; the first
+  failure is preserved as the exception cause and individual failures are
+  attached as exception notes when supported.
+- The frozen boundary remains unchanged: this is UI workspace lifecycle
+  recovery; it does not move project/domain truth into UI or introduce Qt
+  dependencies into Core.
+
+Branch
+------
+fix/workspace-transition-rollback-recovery
+
+Commit
+------
+bdb47b0794d9f40ad3667145b724098fe0d53570
+
+Verification status
+-------------------
+Source-level replacement was applied against the current main version and
+committed to the focused correction branch. No tests, CI, GUI runtime, or
+import checks were run. Project-scoped undo/redo history and cross-workspace
+selection/action synchronization remain open audit items pending their own
+source trace; they are not marked corrected by this entry.
