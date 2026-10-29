@@ -14076,3 +14076,37 @@ Verification:
 
 Status:
     ENDPOINT PAYLOAD CONTRACT GUARD ADDED. ISSUE #817 REMAINS OPEN.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-008 — Direct Simple Wire SLD Identity Mapping
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    The direct Simple Wire pre-commit projection used the Core connection ID
+    as the persistent SLD connection ID. Draft commit already uses the
+    SLDService.presentation_connection_id() mapping (sld-wire-<core-id>).
+    This inconsistency could leave direct-created SLD companions outside the
+    canonical identity scheme used by projection audits and lifecycle cleanup.
+
+Correction:
+    Direct Simple Wire projection now uses the SLDService canonical
+    presentation_connection_id() while preserving the original Core connection
+    ID in core_connection_id metadata. Line/Cable projection IDs are unchanged.
+    This is a presentation identity correction only; endpoint identity and
+    authoritative connectivity remain Core-owned.
+
+Verification:
+    Source-level transaction audit identified and corrected the identity
+    mismatch. No tests or CI run. Syntax/import checks and runtime verification
+    remain pending.
+
+Status:
+    DIRECT SIMPLE WIRE PROJECTION IDENTITY ALIGNED WITH DRAFT COMMIT. ISSUE #817
+    REMAINS OPEN PENDING END-TO-END SLD/NETWORK VERIFICATION.
