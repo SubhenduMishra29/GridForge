@@ -612,6 +612,16 @@ class SLDCanvasRenderSystem:
                             try:
                                 visual_source, visual_target = endpoints_getter()
                                 route_points_existing = tuple(route_getter())
+                                map_to_scene = getattr(existing_item, "mapToScene", None)
+                                if callable(map_to_scene):
+                                    def scene_point(point):
+                                        mapped = map_to_scene(QPointF(float(point[0]), float(point[1])))
+                                        return (float(mapped.x()), float(mapped.y()))
+                                    visual_source = scene_point(visual_source)
+                                    visual_target = scene_point(visual_target)
+                                    route_points_existing = tuple(
+                                        scene_point(point) for point in route_points_existing
+                                    )
                                 existing_routes.append((
                                     tuple(visual_source),
                                     *route_points_existing,
