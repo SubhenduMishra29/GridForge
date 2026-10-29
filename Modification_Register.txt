@@ -14948,3 +14948,11 @@ Boundary:
 Verification:
     Source edits only. No tests or CI were run, per repository audit rules.
 ======================================================================
+
+
+[2026-10-29 — GF-ISSUE-845 — durable ANSI 25 audit sidecar]
+- Branch: fix/ansi25-candidate-runtime-context
+- Added ProjectScopedSynchronismAuditSink in core/application/synchronism_check.py.
+- Audit records are appended to a JSONL sidecar adjacent to the normalized .gridforge package, not inside the replaceable package directory. Each record captures timestamp, project ID, activation generation, breaker ID, decision, reason codes, bus mode, and bypass authorization metadata.
+- The sink requires a saved project path and explicit clock; it does not fall back to in-memory audit. Each record is written append-only and fsync is required before the sink returns. Path, serialization, write, or fsync failures propagate so the pre-mutation guard cannot treat an unaudited decision as authorized.
+- The sink is an available composition primitive; it is NOT yet wired into main.py / production breaker-close composition. Timestamp-domain compatibility must be supplied by the caller. Directory-entry durability and multi-process writer behavior remain platform/operational concerns requiring explicit verification. ANSI 25 remains NOT_IMPLEMENTED until end-to-end composition and production verification.
