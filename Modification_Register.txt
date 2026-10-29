@@ -13916,3 +13916,36 @@ Status:
     EXTERIOR VISIBILITY CORRIDOR CORRECTED — ISSUE #817 REMAINS OPEN. Existing
     route crossing integration and the near-miss electrical-connectivity path
     still require direct source audit and verification.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-003 — Issue #817 — Existing Route Awareness
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/canvas/sld_canvas_render_system.py; ui/connections/connection_router.py.
+
+Finding:
+    The renderer passed obstacle bounds to the router but did not pass existing
+    realized connection polylines. The router's crossing penalty capability was
+    therefore unused by the active SLD auto-route path.
+
+Correction:
+    The renderer now collects route endpoints and intermediate route points
+    from already-realized connection items and supplies those polylines as
+    soft crossing-penalty inputs for new automatic routes. Unsupported/stale
+    visual geometry is skipped rather than allowed to affect electrical state.
+    Existing paths remain presentation-only; this does not mutate routes or
+    establish electrical connectivity.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Python syntax/import integrity and runtime routing scenarios remain pending.
+
+Status:
+    EXISTING ROUTE PENALTIES WIRED INTO RENDERER — ISSUE #817 REMAINS OPEN.
+    The separate near-miss connectivity symptom still requires tracing through
+    the active authoring and Application command path before closure.
