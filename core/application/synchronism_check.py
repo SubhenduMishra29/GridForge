@@ -157,7 +157,8 @@ def phasor_measurements_from_channels(
 ) -> tuple[PhasorMeasurement, PhasorMeasurement]:
     """Build ANSI 25 side measurements from six explicitly bound logical channels.
 
-    Channel timestamps are interpreted as Unix seconds, matching the guard clock.
+    Channel timestamps and ``now`` must use the same time domain as the guard
+    clock. Wall-clock and simulation-time timestamps must never be mixed.
     Only canonical engineering units are accepted; this adapter never guesses or
     silently converts units.
     """
