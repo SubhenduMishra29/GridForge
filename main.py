@@ -788,7 +788,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         # Publish context only after the canonical workspace transition succeeds.
         # The visible editor and action router must share one active discipline.
         workspace_controller.activate(workspace_id)
-        engineering_context.update(discipline=surface_id)
+
+        # Selection belongs to the active presentation, not to every workspace.
+        # Clear the shared SLD selection after a successful workspace switch so
+        # stale IDs cannot leak into another editor's context or action routing.
+        canvas_composition.selection_manager.clear()
+        active_tool = workspace_surface_host.active_tool_id_for(surface_id)
+        engineering_context.update(
+            discipline=surface_id,
+            active_tool=active_tool,
+            selected_ids=(),
+        )
 
     def _activate_surface(surface_id: str) -> None:
         # Topology and Map are compatibility surfaces outside WorkspaceController.
