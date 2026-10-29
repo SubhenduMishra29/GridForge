@@ -427,7 +427,7 @@ class StudyReadService:
             and current_revision is not None
             and result.project_id == current_project_id
             and result.activation_generation == current_activation_generation
-            and source_revision == current_revision
+            and source_revision.matches_study_state(current_revision)
         )
         return StudyResultReadModel(
             study_id=result.study_id,

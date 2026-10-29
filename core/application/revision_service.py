@@ -44,6 +44,8 @@ class RevisionService:
         "model.create_fuse", "model.delete_fuse",
         "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
+        "model.put_capacitor_in_service", "model.take_capacitor_out_of_service",
+        "model.put_battery_in_service", "model.take_battery_out_of_service",
         "model.create_breaker", "model.delete_breaker",
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
@@ -54,8 +56,16 @@ class RevisionService:
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
         "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
+        # Shunt service state and Bus attachment affect the electrical network
+        # consumed by topology snapshots and study preparation.
+        "model.update_capacitor",
         "model.update_disconnector",
         "model.update_fuse",
+        # These branch/equipment states alter the electrically connected
+        # network used by topology snapshots and numerical preparation.
+        "model.update_line",
+        "model.update_transformer",
+        "model.update_cable",
     })
 
     def __init__(self) -> None:

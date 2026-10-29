@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
-from core.application.read_models import ElementReadModel
+from core.application.read_models import ElementReadModel, StudyResultReadModel
 
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.sld.sld_model import SLDAnnotationBlock, SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
@@ -107,6 +107,24 @@ class SLDCanvasProjection:
         if read_model_provider is not None and not callable(read_model_provider):
             raise TypeError("read_model_provider must be callable or None.")
         self._read_model_provider = read_model_provider
+        self._study_result: StudyResultReadModel | None = None
+
+    def set_study_result(self, result: StudyResultReadModel | None) -> bool:
+        """Set the selected Application result and report whether the canvas must refresh."""
+        if result is not None and not isinstance(result, StudyResultReadModel):
+            raise TypeError("result must be a StudyResultReadModel or None")
+        previous = self._study_result
+        self._study_result = result
+        if previous is None or result is None:
+            return previous is not result
+        return not (
+            previous.study_id == result.study_id
+            and previous.source_revision == result.source_revision
+            and previous.status == result.status
+            and previous.current == result.current
+            and previous.study_type == result.study_type
+            and previous.value is result.value
+        )
 
     def project(
         self,
@@ -120,6 +138,7 @@ class SLDCanvasProjection:
         connections = tuple(self._project_connection(connection) for connection in model.connections)
         nodes_by_id = {node.node_id: node for node in nodes}
         annotations = tuple(self._project_annotation(block, nodes_by_id) for block in annotation_blocks)
+        annotations += self._project_study_result_annotations(nodes, self._study_result)
         return SLDCanvasSnapshot(nodes=nodes, connections=connections, annotations=annotations)
 
     @staticmethod
@@ -167,6 +186,74 @@ class SLDCanvasProjection:
             text="\n".join(lines),
             visible=block.visible and bool(lines),
         )
+
+    @staticmethod
+    def _project_study_result_annotations(
+        nodes: tuple[SLDCanvasNode, ...],
+        result: StudyResultReadModel | None,
+    ) -> tuple[SLDCanvasAnnotation, ...]:
+        """Overlay current successful power-flow voltages without changing the SLD document."""
+        if (
+            result is None
+            or result.status != "completed"
+            or not result.current
+            or result.study_type != "power_flow"
+        ):
+            return ()
+
+        value = result.value
+        numerical_result = getattr(value, "numerical_result", value)
+        if not bool(getattr(numerical_result, "success", False)):
+            return ()
+
+        engineering_buses = tuple(getattr(value, "buses", ()))
+        if engineering_buses:
+            result_rows = tuple(
+                (
+                    getattr(bus, "bus_id", None),
+                    getattr(bus, "voltage_pu", None),
+                    getattr(bus, "angle_deg", None),
+                )
+                for bus in engineering_buses
+            )
+        else:
+            bus_ids = tuple(getattr(numerical_result, "bus_ids", ()))
+            magnitudes = tuple(getattr(numerical_result, "voltage_magnitudes", ()))
+            angles = tuple(getattr(numerical_result, "voltage_angles", ()))
+            if not bus_ids or len(bus_ids) != len(magnitudes) or len(bus_ids) != len(angles):
+                return ()
+            result_rows = tuple(zip(bus_ids, magnitudes, angles))
+
+        nodes_by_bus_id = {
+            node.equipment_id: node
+            for node in nodes
+            if node.equipment_id
+            and node.read_model is not None
+            and str(node.read_model.element_type).strip().lower() == "bus"
+        }
+        overlays: list[SLDCanvasAnnotation] = []
+        for bus_id, magnitude, angle in result_rows:
+            if bus_id is None or magnitude is None or angle is None:
+                continue
+            try:
+                magnitude_value = float(magnitude)
+                angle_value = float(angle)
+            except (TypeError, ValueError):
+                continue
+            node = nodes_by_bus_id.get(str(bus_id))
+            if node is None:
+                continue
+            overlays.append(
+                SLDCanvasAnnotation(
+                    block_id=f"__study_result__:{result.study_id}:{node.node_id}",
+                    node_id=node.node_id,
+                    x=node.x + 70.0,
+                    y=node.y + 20.0,
+                    text=f"Study V: {magnitude_value:.5f} pu\nAngle: {angle_value:.3f} deg",
+                    visible=True,
+                )
+            )
+        return tuple(overlays)
 
     def _project_node(self, node: SLDNode) -> SLDCanvasNode:
         read_model = None

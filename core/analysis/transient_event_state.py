@@ -45,6 +45,8 @@ class TransientEventState:
         self._advance_revision()
 
     def clear_fault(self) -> None:
+        if self.active_fault is None:
+            raise ValueError("Cannot clear a transient fault when no fault is active.")
         self.active_fault = None
         self._advance_revision()
 
