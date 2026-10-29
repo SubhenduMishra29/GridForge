@@ -12403,3 +12403,42 @@ Verification:
     No tests or CI run, per repository audit rules.
 
 ======================================================================
+
+======================================================================
+GF-STUDY-001
+======================================================================
+
+Scope:
+    Power Flow operating-point provenance at the transient-stability boundary.
+
+Files:
+    core/analysis/power_flow_preparation.py
+    core/application/study_preparation.py
+
+Finding:
+    Transient-stability preparation checked bus ordering and the numerical
+    result's snapshot identity, but the prepared Power Flow object did not
+    carry the full active Application source revision. A numerically valid
+    result from an older model revision could therefore remain structurally
+    compatible with a newer study context.
+
+Correction:
+    - Add optional full source_revision provenance to PreparedPowerFlow.
+    - Stamp Power Flow snapshots created through StudyPreparationService with
+      the execution context's model, topology, presentation, and persisted
+      revision tuple.
+    - Reject unversioned operating points and model/topology revision drift;
+      presentation-only and persistence-only revision changes do not invalidate
+      electrical operating points.
+    - Reject wrong project activation, stale topology revision, unconverged
+      results, and result/input snapshot mismatches before dynamic initialization.
+    - Keep all checks at the headless Application/Core study boundary; UI
+      events and presentation read models are not electrical truth.
+
+Verification:
+    Static source review only. No tests or CI run, per repository rules.
+
+Status:
+    IMPLEMENTED ON fix/study-operating-point-provenance — REVIEW PENDING.
+
+======================================================================
