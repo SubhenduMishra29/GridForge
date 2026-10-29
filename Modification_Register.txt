@@ -14720,3 +14720,58 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 FAIL-CLOSED BREAKER-CLOSE ENFORCEMENT
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix-ansi25-enforcement
+
+Files:
+    core/application/synchronism_check.py
+    core/application/services/switching_model_service.py
+    core/application/services/model_service.py
+    core/application/__init__.py
+
+Approved policy:
+    - Project configuration must explicitly provide voltage magnitude
+      difference, phase-angle difference, frequency difference,
+      measurement freshness, dead-bus threshold, and permission for all
+      four live/dead-bus modes.
+    - No engineering tolerances or operating-mode permissions are
+      supplied by implicit defaults.
+    - Missing configuration, missing/invalid/stale measurements, or
+      disallowed live/dead mode denies closing.
+    - An optional bypass requires project configuration to enable it and
+      a non-empty, unexpired authorization identity, reason, and ID.
+    - Each decision is sent to the configured audit sink when provided.
+    - ANSI 25 authorization is checked before breaker state mutation in
+      close_breaker, update_breaker(closed=True), and closed breaker
+      creation. Missing guard denies these paths.
+
+Architecture:
+    SynchronismCheckGuard is an Application policy boundary. It receives
+    project-owned configuration and timestamped measurement snapshots
+    through injected providers. It does not derive electrical truth from
+    SLD graphics and does not mutate Core state. SwitchingModelService
+    performs the authorized mutation and topology invalidation.
+
+Integration contract:
+    The runtime composition root must construct SynchronismCheckGuard
+    with authoritative project configuration, measurement providers,
+    and an audit sink, then inject it into ModelService or call
+    configure_synchronism_guard before permitting breaker close.
+    Until this is configured, breaker close is intentionally denied.
+
+Verification boundary:
+    Source changes were committed to the feature branch. No tests, CI,
+    Python syntax/import checks, or switching simulations were run.
+    Issue #845 remains open until the runtime composition root supplies
+    real project providers and the end-to-end close path is verified.
+
+======================================================================
