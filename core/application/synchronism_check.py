@@ -149,6 +149,49 @@ class SynchronismDecision:
     bypassed: bool = False
     authorization_id: str | None = None
 
+@dataclass(frozen=True, slots=True)
+class SynchronismCheckProjectConfiguration:
+    """Explicit per-breaker ANSI 25 policy registry for one project."""
+
+    breakers: Mapping[str, SynchronismCheckConfiguration]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.breakers, Mapping):
+            raise TypeError("ANSI 25 project configuration breakers must be a mapping.")
+        normalized: dict[str, SynchronismCheckConfiguration] = {}
+        for breaker_id, configuration in self.breakers.items():
+            if not isinstance(breaker_id, str) or not breaker_id.strip() or breaker_id != breaker_id.strip():
+                raise ValueError("ANSI 25 breaker IDs must be canonical non-empty strings.")
+            if not isinstance(configuration, SynchronismCheckConfiguration):
+                raise TypeError(f"ANSI 25 policy for breaker {breaker_id!r} is not typed.")
+            normalized[breaker_id] = configuration
+        object.__setattr__(self, "breakers", MappingProxyType(normalized))
+
+    def for_breaker(self, breaker_id: str) -> SynchronismCheckConfiguration | None:
+        return self.breakers.get(breaker_id)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema": 1,
+            "breakers": {
+                breaker_id: configuration.to_dict()
+                for breaker_id, configuration in self.breakers.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping) -> "SynchronismCheckProjectConfiguration":
+        if not isinstance(data, Mapping) or set(data) != {"schema", "breakers"} or data.get("schema") != 1:
+            raise ValueError("ANSI 25 project configuration requires exactly schema=1 and breakers.")
+        raw_breakers = data["breakers"]
+        if not isinstance(raw_breakers, Mapping):
+            raise TypeError("ANSI 25 project configuration breakers must be an object.")
+        return cls({
+            breaker_id: SynchronismCheckConfiguration.from_dict(configuration)
+            for breaker_id, configuration in raw_breakers.items()
+        })
+
+
 def phasor_measurements_from_channels(
     configuration: SynchronismCheckConfiguration,
     channels: Mapping[str, MeasurementChannel],
@@ -288,4 +331,4 @@ class SynchronismCheckGuard:
     def _audit(self, decision):
         self._audit_sink(decision)
 
-__all__=["BusMode","SynchronismCheckConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels"]
+__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels"]
