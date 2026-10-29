@@ -2420,11 +2420,14 @@ class Application:
             if not self._commit_in_flight or command is None:
                 raise RuntimeError("No asynchronous DraftNetwork commit awaits completion.")
         try:
-            if result.success:
-                if self._validation_service is not None:
-                    self._validation_service.invalidate()
-                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-                self._publish_semantic_events(command, result, operation="execute")
+            # The worker has completed before this UI-thread callback; the lock
+            # preserves the normal Application command/event serialization order.
+            with self._execution_lock:
+                if result.success:
+                    if self._validation_service is not None:
+                        self._validation_service.invalidate()
+                        self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                    self._publish_semantic_events(command, result, operation="execute")
             return result
         finally:
             self.abort_async_commit()
