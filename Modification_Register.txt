@@ -14110,3 +14110,49 @@ Verification:
 Status:
     DIRECT SIMPLE WIRE PROJECTION IDENTITY ALIGNED WITH DRAFT COMMIT. ISSUE #817
     REMAINS OPEN PENDING END-TO-END SLD/NETWORK VERIFICATION.
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-009 — Audit Canonical Simple Wire Identity
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    The read-only activation audit emits PRESENTATION_ID_MISMATCH when a
+    bound Simple Wire companion does not use the canonical
+    sld-wire-<core_connection_id> presentation identity. The audit reports the
+    mismatch without renaming or mutating persistent SLD state.
+
+Verification:
+    Source inspected; no tests/CI run. Syntax/import/runtime behavior remains
+    unverified.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-010 — Preserve Authored Simple Wire on Redo
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; core/application/application.py;
+    fix/issue-817-orthogonal-routing.
+
+Correction:
+    When deleting a Simple Wire with engineer-authored presentation overrides,
+    the SLD companion is retained as ORPHANED. Recreating the same Core
+    connection identity now rebinds that exact canonical orphaned companion
+    in place, preserving its authored route/presentation data and registering
+    a transaction inverse before mutation. Rebinding fails closed if endpoint
+    node identity differs or the canonical ID is occupied by a nonmatching
+    object.
+
+Verification:
+    Source-level change only; no tests/CI run. Python syntax, imports, runtime
+    behavior, and full delete/undo/redo execution remain unverified.
+
