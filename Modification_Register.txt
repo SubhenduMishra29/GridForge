@@ -12997,3 +12997,85 @@ Status:
     flicker and active-path subpixel coordinate conversion.
 
 
+
+
+
+======================================================================
+GF-WORKSPACE-TOOL-001 — Issue #769: Tool Lifecycle Across SLD Activation
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #769; ui/workspace/project_workspace_adapter.py;
+    ui/workspace/project_workspace.py; ui/core/tool_manager.py;
+    ui/canvas/interaction_manager.py; ui/canvas/canvas_composition.py;
+    ui/canvas/sld_canvas_render_system.py.
+
+Findings:
+    1. ProjectWorkspaceApplicationAdapter.activate_document() captures a
+       lifecycle snapshot, calls the optional document-transition guard,
+       activates the lifecycle document, activates the Application
+       presentation, calls the presentation-activation bridge, and publishes
+       the update. On failure it restores lifecycle/Application/presentation
+       state. This is a coordinated activation path.
+
+    2. The document-transition guard is optional in the adapter and is not
+       configured by the inspected adapter constructor. Repository search
+       did not locate a call configuring it. Therefore the intended pre-switch
+       interaction cleanup is not demonstrated by the inspected wiring.
+
+    3. ToolManager owns the active tool and temporary interaction tool and
+       exposes cancel(), deactivate(), and dispose() lifecycle operations.
+       InteractionManager dispatches events to that ToolManager and owns its
+       input adapter. The inspected InteractionManager does not subscribe to
+       active-document identity changes or check that its input belongs to
+       the currently active document before dispatch.
+
+    4. Canvas composition builds an InteractionManager around the supplied
+       ToolManager and view. SLDCanvasSurface.present_document() and
+       present_composite_document() replace the visible snapshot through the
+       render system. These paths establish a single-canvas projection update,
+       but do not alone prove that all transient tool state and callbacks are
+       invalidated before a document transition.
+
+    5. The issue's exact symptom—mutations to a hidden document at matching
+       coordinates—was not reproduced and is not established by source review
+       alone. The audit did not find evidence sufficient to claim that the
+       ToolManager directly mutates the inactive document; canonical
+       Application presentation and draft ownership must be traced at runtime.
+
+Correction decision:
+    Do not insert a speculative global cancel/deactivate call without
+    identifying the composition owner and its recovery semantics. The adapter
+    already has a guard seam for document activation; the gap is proving and
+    enforcing the lifecycle wiring and document ownership invariant.
+
+Required correction contract:
+    - Wire a document-transition guard at the composition root for every
+      SLD document activation. It must cancel temporary interaction state and
+      clear transient previews before changing active document identity.
+    - Make the guard idempotent and ensure it does not discard already
+      persisted DraftNetwork objects or committed SLD document state.
+    - Bind each input dispatch to the currently active document/view context;
+      reject or ignore stale input from a background canvas rather than
+      resolving against whichever presentation happens to be globally active.
+    - On activation failure, restore prior document, presentation bridge and
+      interaction readiness without leaving the prior tool active against a
+      partially switched canvas.
+    - Keep per-document SLD geometry and draft state canonical; selection and
+      graphics items are presentation state and must not be used as Core
+      topology authority.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime multi-document interaction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #769 REMAINS OPEN. The optional document guard
+    appears unwired in the inspected source path; the reported hidden-document
+    mutation still requires runtime reproduction and end-to-end ownership
+    verification before claiming resolution.
+
+
