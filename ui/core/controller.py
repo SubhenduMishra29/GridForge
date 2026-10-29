@@ -139,6 +139,11 @@ class Controller(QObject):
         self.state_changed.emit()
         return result
 
+    def commit_network_async(self) -> Any:
+        """Schedule the canonical DraftNetwork commit on the Application worker."""
+        self._ensure_active()
+        return self._require_application().commit_draft_network_async()
+
     def complete_network_commit(self, result: Any) -> Any:
         """Finalize an asynchronous commit on the UI thread and refresh projections."""
         self._ensure_active()
