@@ -332,6 +332,11 @@ class MeasurementChannel:
     timestamp:
         Optional simulation/event/sample timestamp.
 
+    timestamp_domain:
+        Explicit identifier for the clock domain of timestamp. None means
+        the timestamp domain is unknown and safety-sensitive consumers must
+        fail closed.
+
     sample_sequence:
         Optional monotonically increasing sample/update identifier.
 
@@ -368,6 +373,7 @@ class MeasurementChannel:
         quality: MeasurementQuality = MeasurementQuality.UNKNOWN,
         raw_value: float | complex = 0.0,
         timestamp: Optional[float] = None,
+        timestamp_domain: Optional[str] = None,
         sample_sequence: Optional[int] = None,
         stale_after: Optional[float] = None,
     ) -> None:
@@ -451,6 +457,9 @@ class MeasurementChannel:
 
         self.timestamp = self._validate_timestamp(
             timestamp
+        )
+        self.timestamp_domain = self._validate_timestamp_domain(
+            timestamp_domain
         )
 
         self.sample_sequence = (
@@ -618,6 +627,17 @@ class MeasurementChannel:
         return value
 
     # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_timestamp_domain(
+        value: Optional[str],
+    ) -> Optional[str]:
+        """Validate explicit clock-domain metadata without guessing a default."""
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("timestamp_domain must be a non-empty string or None.")
+        return value.strip()
 
     @staticmethod
     def _validate_timestamp(
@@ -811,7 +831,8 @@ class MeasurementChannel:
         value: float | complex,
         *,
         timestamp: Optional[float] = None,
-        quality: Optional[MeasurementQuality] = None,
+        timestamp_domain: Optional[str] = None,
+        quality: Optional[MeasurementQuality]  = None,
         available: Optional[bool] = None,
         sample_sequence: Optional[int] = None,
     ) -> None:
@@ -825,6 +846,10 @@ class MeasurementChannel:
 
         timestamp:
             Optional sample timestamp.
+
+        timestamp_domain:
+            Optional explicit clock-domain identifier. Supply it when the
+            producer establishes or changes the timestamp domain.
 
         quality:
             Optional quality update.
@@ -847,6 +872,11 @@ class MeasurementChannel:
         if timestamp is not None:
             self.timestamp = self._validate_timestamp(
                 timestamp
+            )
+
+        if timestamp_domain is not None:
+            self.timestamp_domain = self._validate_timestamp_domain(
+                timestamp_domain
             )
 
         if quality is not None:
@@ -1145,6 +1175,7 @@ class MeasurementChannel:
                 == MeasurementValidity.VALID
             ),
             "timestamp": self.timestamp,
+            "timestamp_domain": self.timestamp_domain,
             "sample_sequence": self.sample_sequence,
             "stale_after": self.stale_after,
             "source": self.source_id,
