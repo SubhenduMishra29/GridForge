@@ -13980,3 +13980,35 @@ Verification:
 Status:
     SNAP CANDIDATE SIGNAL CLEANUP CORRECTED. ISSUE #817 REMAINS OPEN WHILE THE
     NEAR-MISS VISUAL-VERSUS-ELECTRICAL CONNECTIVITY PATH IS STILL UNVERIFIED.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-005 — Topology Endpoint Projection Contract
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    CreateSimpleWireConnectionCommand normalizes endpoints to
+    TopologyEndpointReference. The Application SLD pre-commit coordinator
+    previously accepted only EndpointReference and rejected the normalized
+    command payload before creating the semantic SLD connection companion.
+
+Correction:
+    The coordinator now explicitly unwraps terminal and Bus topology
+    references to their contained canonical EndpointReference for projection.
+    Junction endpoints fail with a specific error until a dedicated SLD
+    Junction presentation contract exists. No geometry-derived identity or
+    electrical topology inference was introduced.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Source-level
+    syntax/import integrity and transaction-path verification remain pending.
+
+Status:
+    APPLICATION/SLD ENDPOINT TYPE CONTRACT CORRECTED. ISSUE #817 REMAINS OPEN
+    UNTIL THE COMPLETE DRAFT AND COMMITTED CONNECTION PATH IS VERIFIED.
