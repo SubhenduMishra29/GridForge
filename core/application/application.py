@@ -1896,11 +1896,6 @@ class Application:
                         item.get("sld_connection_id")
                         or self._sld_service.presentation_connection_id(str(item["connection_id"]))
                     )
-                    existing = self._sld_service.document.model.get_connection_optional(connection_id)
-                    if existing is not None:
-                        raise ValueError(
-                            f"SLD connection identity collision for committed connection {connection_id!r}."
-                        )
                     source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
                     target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
                     if self._sld_service.rebind_orphaned_simple_wire(
@@ -1910,6 +1905,11 @@ class Application:
                         transaction=transaction,
                     ):
                         continue
+                    existing = self._sld_service.document.model.get_connection_optional(connection_id)
+                    if existing is not None:
+                        raise ValueError(
+                            f"SLD connection identity collision for committed connection {connection_id!r}."
+                        )
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
