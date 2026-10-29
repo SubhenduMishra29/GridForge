@@ -10860,7 +10860,7 @@ Status:
     MERGED — PR #779; static source/diff inspection only, runtime behavior remains unverified.
 
 ======================================================================
-GF-AUD-116 — Cancel parent creation state with transient interaction
+GF-AUD-117 — Cancel parent creation state with transient interaction
 ======================================================================
 
 Date:
@@ -10905,7 +10905,7 @@ Verification:
     - Python syntax/import checks and GUI runtime remain unverified.
 
 Status:
-    DRAFT — PR #775; keep issue #757 open pending full GUI verification.
+    MERGED — PR #775; keep issue #757 open pending full GUI verification.
 
 
 ======================================================================
