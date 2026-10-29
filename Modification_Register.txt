@@ -14767,3 +14767,42 @@ committed to the focused correction branch. No tests, CI, GUI runtime, or
 import checks were run. Project-scoped undo/redo history and cross-workspace
 selection/action synchronization remain open audit items pending their own
 source trace; they are not marked corrected by this entry.
+
+======================================================================
+WORKSPACE SWITCH SELECTION / ENGINEERING CONTEXT CORRECTION
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    The canonical workspace activation path changed the active workspace
+    and updated only EngineeringContext.discipline. The shared SLD
+    SelectionManager retained selected IDs, and EngineeringContext could
+    retain the previous active_tool and selected_ids. Editor-context
+    construction reads the shared selection, so IDs from the prior surface
+    could leak into a newly activated workspace.
+
+Correction:
+    After successful WorkspaceController.activate(), clear the shared UI
+    selection and publish the new discipline, that surface's active tool,
+    and an empty selected_ids tuple to EngineeringContextStore. A failed
+    workspace activation does not clear selection or publish the new context.
+
+Architecture:
+    UI-only interaction/presentation state. No Qt or SLD object is passed
+    into Core, and no electrical/domain truth is moved out of Core.
+
+Verification:
+    Source-level call-path audit only. No tests, CI, GUI runtime, Python
+    syntax compilation, or import checks were run. Confirm the
+    active_tool_id_for(surface_id) contract and runtime action-state
+    behavior during the remaining integration review.
+
+======================================================================
