@@ -20,6 +20,7 @@ from core.control.context import ControlExecutionContext
 from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
+from core.network import TopologyEndpointReference
 
 from .command import Command
 from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
@@ -1895,13 +1896,20 @@ class Application:
                         item.get("sld_connection_id")
                         or self._sld_service.presentation_connection_id(str(item["connection_id"]))
                     )
+                    source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
+                    target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
+                    if self._sld_service.rebind_orphaned_simple_wire(
+                        core_connection_id=str(item["connection_id"]),
+                        source_endpoint=source_endpoint,
+                        target_endpoint=target_endpoint,
+                        transaction=transaction,
+                    ):
+                        continue
                     existing = self._sld_service.document.model.get_connection_optional(connection_id)
                     if existing is not None:
                         raise ValueError(
                             f"SLD connection identity collision for committed connection {connection_id!r}."
                         )
-                    source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
-                    target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
@@ -2144,17 +2152,70 @@ class Application:
         # terminal/connection operation.
         if command.command_type in {"model.create_line", "model.create_cable"} and (source_ref is None or target_ref is None):
             return
-        if not isinstance(source_ref, EndpointReference) or not isinstance(target_ref, EndpointReference):
-            raise ValueError("Connection commands require canonical EndpointReference endpoints.")
+
+        # Simple Wire commands normalize their endpoints to topology-level
+        # references before reaching Application. Unwrap only the explicitly
+        # declared terminal/Bus payload; never infer an endpoint from graphics
+        # coordinates or silently map a Junction to a terminal.
+        def sld_endpoint_reference(value: Any) -> EndpointReference:
+            if isinstance(value, EndpointReference):
+                return value
+            if isinstance(value, TopologyEndpointReference):
+                if value.is_terminal:
+                    endpoint = value.terminal_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_terminal:
+                        return endpoint
+                    raise ValueError(
+                        "Terminal topology endpoint does not contain a valid canonical terminal reference."
+                    )
+                if value.is_bus:
+                    endpoint = value.bus_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_bus:
+                        return endpoint
+                    raise ValueError(
+                        "Bus topology endpoint does not contain a valid canonical Bus attachment reference."
+                    )
+                if value.is_junction:
+                    raise ValueError(
+                        "SLD connection projection does not support Junction endpoints; "
+                        "a dedicated Junction presentation contract is required."
+                    )
+                raise ValueError(
+                    f"Unsupported topology endpoint kind for SLD projection: {value.kind!r}."
+                )
+            raise ValueError(
+                "Connection commands require canonical EndpointReference or "
+                "TopologyEndpointReference endpoints."
+            )
+
+        source_ref = sld_endpoint_reference(source_ref)
+        target_ref = sld_endpoint_reference(target_ref)
         if source_ref == target_ref:
             raise ValueError("Connection endpoints must be distinct.")
 
         source = self._sld_endpoint_for_reference(source_ref)
         target = self._sld_endpoint_for_reference(target_ref)
 
+        # Core connection identity and persistent SLD presentation identity
+        # are separate contracts. Draft commit already uses this mapping; direct
+        # Simple Wire commands must use it too so activation audits, deletion,
+        # undo/redo, and draft-commit projection resolve the same companion.
+        sld_connection_id = (
+            self._sld_service.presentation_connection_id(connection_id)
+            if command.command_type == "connectivity.create_simple_wire"
+            else connection_id
+        )
+        if command.command_type == "connectivity.create_simple_wire" and self._sld_service.rebind_orphaned_simple_wire(
+            core_connection_id=connection_id,
+            source_endpoint=source,
+            target_endpoint=target,
+            transaction=transaction,
+        ):
+            return
+
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
-                connection_id=connection_id,
+                connection_id=sld_connection_id,
                 source_node_id=source["node_id"],
                 target_node_id=target["node_id"],
                 source_endpoint=source,
