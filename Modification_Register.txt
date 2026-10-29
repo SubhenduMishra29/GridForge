@@ -13771,3 +13771,73 @@ Status:
     AUDIT RECORDED — ISSUE #758 REMAINS OPEN. No explicit float32 narrowing was
     found in the inspected path. Runtime high-zoom coordinate capture is
     required to localize the reported visual residual before changing code.
+
+
+======================================================================
+GF-UI-TOOL-LIFECYCLE-001 — Issue #757 — Equipment Placement Tool State Leak Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #757; ui/core/tool_manager.py; ui/creation/creation_context.py;
+    ui/tools/electrical_insertion_tool.py; ui/canvas/draft_sld_projection.py;
+    ui/canvas/sld_canvas_render_system.py.
+
+Findings:
+    1. ToolManager has explicit lifecycle guards: ordinary tool switching is
+       rejected while a CreationContext draft or temporary interaction remains
+       active. Callers that authorize cancellation enter the explicit cancel
+       path instead of silently dropping the active tool reference.
+
+    2. Escape handling cancels the active CreationContext and notifies the
+       controller when a draft existed. ToolManager.cancel() also cancels the
+       temporary interaction and parent tool state, then clears CreationContext.
+       ElectricalInsertionTool clears its target/preview state on deactivation
+       and cancellation.
+
+    3. CreationContext owns only transient UI authoring state. DraftSLDProjection
+       reads Application-owned DraftNetwork state, and renderer synchronization
+       reconciles draft graphics against the latest projected snapshot. A
+       draft object that has already been placed into Application DraftNetwork
+       is not equivalent to an untracked CreationDraft and must not be silently
+       deleted as garbage during tool deactivation.
+
+    4. The specific claimed path—tool pointer dropped without lifecycle cleanup,
+       leaving a scene item outside both renderer ownership and DraftNetwork—
+       was not established by the inspected code. A ghost could still arise if
+       a caller bypasses ToolManager guards or a preview item is attached
+       outside the renderer/PreviewLayer ownership paths, but this requires
+       runtime evidence and the actual item identity.
+
+Correction decision:
+    No speculative cleanup sweep was added. The source already guards normal
+    tool switching and explicitly cancels CreationContext on Escape/deactivate.
+    A global scene sweep on every tool change could remove legitimate committed
+    graphics or Application-owned draft objects and would violate projection
+    ownership. Cleanup must be scoped to the owning preview/renderer IDs.
+
+Required follow-up:
+    - Reproduce the exact tool transition (Escape, palette switch, pan/select
+      tool) and capture ToolManager.active_tool_id, CreationContext.active,
+      Application.read_draft_network(), PreviewLayer item IDs, renderer-owned
+      IDs, and scene item IDs before and after the transition.
+    - Determine whether the phantom is an uncommitted preview, an intentional
+      Application DraftNetwork placement, or a renderer item absent from the
+      latest snapshot.
+    - If an orphan is confirmed, fix its owning lifecycle transition and
+      remove only its tracked IDs; preserve legitimate placed draft equipment
+      until explicit cancellation/removal/commit through Application.
+    - Keep Core independent of Qt graphics and preserve the standard mutation
+      path for any authoritative DraftNetwork change.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime tool-switch reproduction were performed, in accordance with
+    repository audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #757 REMAINS OPEN. Normal lifecycle guards and
+    cancellation paths are present; the reported orphaned visual item and its
+    owner require a reproducible runtime trace before a safe correction.
