@@ -13958,3 +13958,403 @@ Verification boundary:
     stress, UI interaction, or runtime verification were performed.
 
 ======================================================================
+
+
+GF-ROUTING-ORTHOGONAL-001 — Issue #817 — Obstacle-Aware Orthogonal Routing
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/connections/connection_router.py; Issue #817.
+
+Changes:
+    1. Replaced the direct-only route implementation with a deterministic
+       rectilinear visibility-grid router.
+    2. Added finite-coordinate and axis-aligned bounds validation, obstacle
+       clearance, bend cost, and penalties for intersections with existing
+       routes.
+    3. Added path invariants: no duplicate consecutive points, no diagonal
+       segments, and no silent straight-line fallback when obstacles block
+       every route.
+    4. Kept routing renderer-neutral. The router does not resolve terminals,
+       change electrical connectivity, or mutate Core state.
+
+Integration boundary:
+    SLDCanvasRenderSystem supplies scene-space bounds for realized
+    non-endpoint nodes and realized connection polylines when it calculates
+    automatic routes. The router excludes source/target node bounds from its
+    obstacle set and uses existing routes as soft crossing/overlap penalties.
+    These are presentation inputs only; the router does not infer or mutate
+    electrical connectivity. Runtime near-miss verification and explicit
+    route-edit interaction review remain follow-up work before Issue #817 can
+    be closed.
+
+Verification:
+    Repository source change only. No tests or CI were run, per repository
+    rules. Python syntax/import integrity and runtime route cases remain to be
+    checked before merge.
+
+Status:
+    IMPLEMENTED ON fix/issue-817-orthogonal-routing — PENDING REVIEW AND
+    SOURCE-LEVEL VERIFICATION. Issue #817 remains open.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-002 — Issue #817 — Exterior Visibility Corridor
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/connections/connection_router.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    The visibility grid initially used only source/target coordinates and
+    obstacle clearance edges. When obstacle clearance regions overlap, those
+    coordinates can leave no usable path around the outside of the obstacle
+    group even where an exterior orthogonal route is geometrically possible.
+
+Correction:
+    Added deterministic exterior corridor coordinates beyond the full
+    obstacle envelope, with a margin derived from the obstacle span and
+    configured clearance. The router can now consider paths around the outside
+    of overlapping obstacle groups without changing endpoint identities or
+    electrical topology.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Python syntax/import integrity and runtime route scenarios remain pending
+    under the repository's stated acceptance process.
+
+Status:
+    EXTERIOR VISIBILITY CORRIDOR CORRECTED — ISSUE #817 REMAINS OPEN. Existing
+    route crossing integration and the near-miss electrical-connectivity path
+    still require direct source audit and verification.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-003 — Issue #817 — Existing Route Awareness
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/canvas/sld_canvas_render_system.py; ui/connections/connection_router.py.
+
+Finding:
+    The renderer passed obstacle bounds to the router but did not pass existing
+    realized connection polylines. The router's crossing penalty capability was
+    therefore unused by the active SLD auto-route path.
+
+Correction:
+    The renderer now collects route endpoints and intermediate route points
+    from already-realized connection items and supplies those polylines as
+    soft crossing-penalty inputs for new automatic routes. Unsupported/stale
+    visual geometry is skipped rather than allowed to affect electrical state.
+    Existing paths remain presentation-only; this does not mutate routes or
+    establish electrical connectivity.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Python syntax/import integrity and runtime routing scenarios remain pending.
+
+Status:
+    EXISTING ROUTE PENALTIES WIRED INTO RENDERER — ISSUE #817 REMAINS OPEN.
+    The separate near-miss connectivity symptom still requires tracing through
+    the active authoring and Application command path before closure.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-004 — Snap Candidate Lifecycle Cleanup
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/core/snap_system.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    SnapSystem.dispose() cleared the candidate and callback registries without
+    disconnecting movement signals registered on graphics items. A long-lived
+    item could retain a callback to the disposed service and later attempt a
+    refresh against an inactive SnapSystem.
+
+Correction:
+    Disposal now disconnects each registered movement callback before clearing
+    candidate references. Already-deleted Qt senders and already-disconnected
+    signals are handled as cleanup no-ops. Core topology and snap identity are
+    unchanged.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Syntax/import integrity and Qt lifecycle behavior remain pending review.
+
+Status:
+    SNAP CANDIDATE SIGNAL CLEANUP CORRECTED. ISSUE #817 REMAINS OPEN WHILE THE
+    NEAR-MISS VISUAL-VERSUS-ELECTRICAL CONNECTIVITY PATH IS STILL UNVERIFIED.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-005 — Topology Endpoint Projection Contract
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    CreateSimpleWireConnectionCommand normalizes endpoints to
+    TopologyEndpointReference. The Application SLD pre-commit coordinator
+    previously accepted only EndpointReference and rejected the normalized
+    command payload before creating the semantic SLD connection companion.
+
+Correction:
+    The coordinator now explicitly unwraps terminal and Bus topology
+    references to their contained canonical EndpointReference for projection.
+    Junction endpoints fail with a specific error until a dedicated SLD
+    Junction presentation contract exists. No geometry-derived identity or
+    electrical topology inference was introduced.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Source-level
+    syntax/import integrity and transaction-path verification remain pending.
+
+Status:
+    APPLICATION/SLD ENDPOINT TYPE CONTRACT CORRECTED. ISSUE #817 REMAINS OPEN
+    UNTIL THE COMPLETE DRAFT AND COMMITTED CONNECTION PATH IS VERIFIED.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-006 — Existing Route Coordinate Space
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/canvas/sld_canvas_render_system.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    SLDConnectionItem.visual_endpoints() and route_points() expose coordinates
+    from the item's local QGraphics path, while ConnectionRouter receives
+    scene-space source/target coordinates. Passing local existing-route points
+    directly can skew crossing penalties when an item has a non-identity scene
+    transform.
+
+Correction:
+    Existing connection endpoints and bends are now mapped through mapToScene
+    before being supplied to the router. Items without that mapping capability
+    retain their exposed coordinates as a compatibility fallback; unsupported
+    geometry remains non-authoritative presentation data.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Syntax/import and
+    transformed-item runtime behavior remain pending source-level verification.
+
+Status:
+    EXISTING ROUTE COORDINATE SPACE NORMALIZED. ISSUE #817 REMAINS OPEN.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-007 — Validate Unwrapped Endpoint Contracts
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    TopologyEndpointReference annotates its contained terminal/Bus references
+    as optional fields. Although construction validates each kind, the SLD
+    projection adapter should still verify the contained canonical reference
+    and its kind before passing it to endpoint resolution. This keeps the
+    Application boundary explicit if malformed objects or future construction
+    paths reach the coordinator.
+
+Correction:
+    The coordinator now verifies terminal references are EndpointReference
+    values of terminal kind and Bus references are EndpointReference values of
+    Bus kind. Junction and unsupported topology kinds fail with specific errors;
+    no type assertion or geometry-based inference is used.
+
+Verification:
+    Source updated on the feature branch. No tests or CI run. Syntax/import
+    integrity and full transaction behavior remain pending.
+
+Status:
+    ENDPOINT PAYLOAD CONTRACT GUARD ADDED. ISSUE #817 REMAINS OPEN.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-008 — Direct Simple Wire SLD Identity Mapping
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    The direct Simple Wire pre-commit projection used the Core connection ID
+    as the persistent SLD connection ID. Draft commit already uses the
+    SLDService.presentation_connection_id() mapping (sld-wire-<core-id>).
+    This inconsistency could leave direct-created SLD companions outside the
+    canonical identity scheme used by projection audits and lifecycle cleanup.
+
+Correction:
+    Direct Simple Wire projection now uses the SLDService canonical
+    presentation_connection_id() while preserving the original Core connection
+    ID in core_connection_id metadata. Line/Cable projection IDs are unchanged.
+    This is a presentation identity correction only; endpoint identity and
+    authoritative connectivity remain Core-owned.
+
+Verification:
+    Source-level transaction audit identified and corrected the identity
+    mismatch. No tests or CI run. Syntax/import checks and runtime verification
+    remain pending.
+
+Status:
+    DIRECT SIMPLE WIRE PROJECTION IDENTITY ALIGNED WITH DRAFT COMMIT. ISSUE #817
+    REMAINS OPEN PENDING END-TO-END SLD/NETWORK VERIFICATION.
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-009 — Audit Canonical Simple Wire Identity
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    The read-only activation audit emits PRESENTATION_ID_MISMATCH when a
+    bound Simple Wire companion does not use the canonical
+    sld-wire-<core_connection_id> presentation identity. The audit reports the
+    mismatch without renaming or mutating persistent SLD state.
+
+Verification:
+    Source inspected; no tests/CI run. Syntax/import/runtime behavior remains
+    unverified.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-010 — Preserve Authored Simple Wire on Redo
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; core/application/application.py;
+    fix/issue-817-orthogonal-routing.
+
+Correction:
+    When deleting a Simple Wire with engineer-authored presentation overrides,
+    the SLD companion is retained as ORPHANED. Recreating the same Core
+    connection identity now rebinds that exact canonical orphaned companion
+    in place, preserving its authored route/presentation data and registering
+    a transaction inverse before mutation. Rebinding fails closed if endpoint
+    node identity differs or the canonical ID is occupied by a nonmatching
+    object.
+
+Verification:
+    Source-level change only; no tests/CI run. Python syntax, imports, runtime
+    behavior, and full delete/undo/redo execution remain unverified.
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-011 — Fail Closed on Noncanonical Orphan Identity
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    Orphaned Simple Wire companions are resolved by their explicit
+    orphaned_from_core_connection_id provenance, not by assuming that the
+    presentation ID is canonical. Multiple matching orphans now fail closed;
+    a single noncanonical orphan also fails closed rather than allowing a
+    second canonical companion to be created beside retained authored state.
+    Automatic persistent-ID migration remains out of scope and requires an
+    explicit reconciliation contract.
+
+Verification:
+    Source-level correction only; no tests/CI run. Syntax, imports, runtime,
+    and complete delete/undo/redo behavior remain unverified.
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-012 — Draft Commit Rebinds Authored Wire Orphans
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/application.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    Draft-to-Core commit projection now attempts the same provenance-checked
+    orphan rebind used by direct Simple Wire creation before rejecting a
+    canonical presentation-ID collision. A matching orphan is rebound in the
+    existing transaction; nonmatching collisions still fail closed. This
+    keeps draft commit and direct creation aligned for undo/redo replay.
+
+Verification:
+    Source-level correction only; no tests/CI run. Syntax, imports, runtime,
+    and full Draft-to-Core undo/redo remain unverified.
+
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-013 — Undo Failure and Pre-Commit Rollback Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/command_manager.py; core/application/transaction.py;
+    fix/issue-817-orthogonal-routing.
+
+Audit:
+    1. CommandManager invokes the Application pre-commit hook while the
+       transaction remains open. Handler, result-validation, and hook failures
+       enter the same rollback boundary.
+    2. Transaction.rollback() attempts all registered inverse operations in
+       reverse order and records ROLLBACK_FAILED if any inverse fails. Rollback
+       finalizers run only if every content inverse succeeds.
+    3. CommandManager._rollback_safely() marks the manager DEGRADED when rollback
+       fails, preventing subsequent commands from proceeding on uncertain state.
+    4. A failed undo marks the manager DEGRADED; if zero inverse operations are
+       reported complete, it attempts to restore the undo history record first.
+       The fail-closed decision remains necessary because an inverse may mutate
+       before raising.
+    5. Post-commit history-recording failures also mark the manager DEGRADED;
+       committed Core state is not incorrectly rolled back.
+
+Correction decision:
+    No additional code change was warranted by this source pass. The inspected
+    transaction and history paths already implement reverse-order rollback,
+    continue attempting remaining inverses after an inverse failure, and fail
+    closed when Core/history integrity is uncertain.
+
+Verification:
+    Source inspection only. No tests/CI, syntax/import checks, failure injection,
+    or runtime transaction/undo verification were performed.
+
+Status:
+    SOURCE-LEVEL FAILURE-PATH AUDIT RECORDED. Issue #817 remains open pending
+    the required end-to-end SLD/network runtime verification.
