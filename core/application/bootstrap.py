@@ -57,7 +57,7 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
-from .synchronism_check import SynchronismCheckGuard
+from .synchronism_check import SynchronismCheckConfiguration, SynchronismCheckGuard
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -210,6 +210,8 @@ def create_application(
     initial_protection_runtime.compose(measurement_channel_service.channels)
     application.protection_runtime = initial_protection_runtime
     application.protection_presentation = None
+    application.synchronism_check_configuration = None
+    # Explicit project policy mapping; absent means ANSI 25 remains unconfigured.
     application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
     def activate_network(active_network: Any):
@@ -268,6 +270,7 @@ def create_application(
         previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
+        previous_synchronism_configuration = getattr(application, "synchronism_check_configuration", None)
         # Capture the exact pre-transition authority. Reconstructing a synthetic
         # ProjectContext or consulting lifecycle.network during compensation can
         # bind old channel definitions to the candidate network.
@@ -300,6 +303,7 @@ def create_application(
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             application.protection_presentation = previous_protection_presentation
+            application.synchronism_check_configuration = previous_synchronism_configuration
             application.set_draft_network(previous_draft)
             application._study_cases = dict(previous_study_cases)
             dynamic_models.replace(previous_dynamic_models)
@@ -323,6 +327,7 @@ def create_application(
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
                 application.protection_presentation = None
+                application.synchronism_check_configuration = None
                 dynamic_models.replace(())
                 application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
                 application._study_cases = {}
@@ -389,6 +394,13 @@ def create_application(
                 candidate_protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_runtime = candidate_protection_runtime
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
+                synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None) if loaded is not None else None
+                if synchronism_configuration is not None:
+                    # Strict typed validation: do not accept missing/extra policy fields.
+                    SynchronismCheckConfiguration.from_dict(synchronism_configuration)
+                    application.synchronism_check_configuration = dict(synchronism_configuration)
+                else:
+                    application.synchronism_check_configuration = None
                 application._study_cases = {
                     case.study_id: replace(
                         case,
@@ -437,6 +449,9 @@ def create_application(
                         f"Dynamic model association {association.machine_id!r} has invalid persisted "
                         "activation provenance."
                     )
+            synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None)
+            if synchronism_configuration is not None:
+                SynchronismCheckConfiguration.from_dict(synchronism_configuration)
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
@@ -495,6 +510,7 @@ def create_application(
             path,
             dynamic_models=dynamic_models.all(),
             protection_configuration=protection_configuration_service.configuration,
+            synchronism_check_configuration=getattr(application, "synchronism_check_configuration", None),
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,
