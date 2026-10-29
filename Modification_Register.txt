@@ -14972,3 +14972,10 @@ Verification:
 - This supplies the model-level contract required by the ANSI 25 guard. Existing producers that do not populate the field remain unknown-domain and are rejected by the guard until their source clock semantics are reconciled.
 - Compatibility: the new constructor/update parameter is optional and keyword-based; existing callers continue to construct channels, but cannot satisfy the ANSI 25 domain gate without explicit metadata.
 - Remaining: trace all measurement producers, persistence/load paths, and updates to assign and preserve the correct domain. ANSI 25 remains NOT_IMPLEMENTED; no tests or CI run.
+
+
+[2026-10-29 — GF-ISSUE-845 — persist measurement timestamp-domain declaration]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannelService now passes the optional `timestamp_domain` from canonical measurement definitions into MeasurementProvisioning/MeasurementChannel and includes the declared domain when serializing channel definitions.
+- This closes the persistence round-trip gap for the explicit declaration: save/load retains the configured domain instead of silently dropping it. Missing metadata remains None and continues to fail the ANSI 25 timestamp-domain gate.
+- This does not create or validate live sample timestamps and does not prove a producer uses the declared clock. Producer-level timestamp updates still need audit; ANSI 25 remains NOT_IMPLEMENTED. No tests/CI run.
