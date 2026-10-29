@@ -331,4 +331,53 @@ class SynchronismCheckGuard:
     def _audit(self, decision):
         self._audit_sink(decision)
 
+
+def create_project_synchronism_guard(
+    *,
+    project_configuration_provider: Callable[[], Mapping | SynchronismCheckProjectConfiguration | None],
+    measurement_channel_service: object,
+    audit_sink: Callable[[SynchronismDecision], None],
+    clock: Callable[[], float],
+    bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
+) -> SynchronismCheckGuard:
+    """Compose ANSI 25 against active project policy and live channel registry.
+
+    Callers must provide a durable, project-scoped audit sink and a clock in
+    the same time domain as channel timestamps. Neither dependency is guessed.
+    Policy and channel values are resolved at each close request to avoid stale
+    state across project activation and live measurement updates.
+    """
+    if not callable(project_configuration_provider):
+        raise TypeError("project_configuration_provider is required.")
+    if not callable(audit_sink):
+        raise TypeError("A durable audit sink is required.")
+    if not callable(clock):
+        raise TypeError("An explicit clock in the channel timestamp domain is required.")
+
+    def resolve_policy(breaker: Breaker) -> SynchronismCheckConfiguration | None:
+        raw = project_configuration_provider()
+        if raw is None:
+            return None
+        registry = raw if isinstance(raw, SynchronismCheckProjectConfiguration) else SynchronismCheckProjectConfiguration.from_dict(raw)
+        return registry.for_breaker(breaker.id)
+
+    def resolve_measurements(breaker: Breaker) -> tuple[PhasorMeasurement, PhasorMeasurement]:
+        configuration = resolve_policy(breaker)
+        if configuration is None:
+            raise ValueError(f"ANSI 25 policy missing for breaker {breaker.id!r}.")
+        channels = getattr(measurement_channel_service, "channels", None)
+        if callable(channels):
+            channels = channels()
+        if not isinstance(channels, Mapping):
+            raise TypeError("Active measurement channel service must expose a channels mapping.")
+        return phasor_measurements_from_channels(configuration, channels, now=clock())
+
+    return SynchronismCheckGuard(
+        configuration_provider=resolve_policy,
+        measurement_provider=resolve_measurements,
+        bypass_provider=bypass_provider,
+        audit_sink=audit_sink,
+        clock=clock,
+    )
+
 __all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels"]
