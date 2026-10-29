@@ -596,10 +596,36 @@ class SLDCanvasRenderSystem:
                             float(bounds.right()),
                             float(bounds.bottom()),
                         ))
+                    # Existing realized connection paths are presentation
+                    # geometry only. Use them as a soft routing cost so new
+                    # automatic routes prefer fewer overlaps/crossings without
+                    # changing endpoint identity or electrical connectivity.
+                    existing_routes = []
+                    for existing_id, existing_items in tuple(self._items.items()):
+                        if existing_id == connection.connection_id:
+                            continue
+                        for existing_item in existing_items:
+                            endpoints_getter = getattr(existing_item, "visual_endpoints", None)
+                            route_getter = getattr(existing_item, "route_points", None)
+                            if not callable(endpoints_getter) or not callable(route_getter):
+                                continue
+                            try:
+                                visual_source, visual_target = endpoints_getter()
+                                route_points_existing = tuple(route_getter())
+                                existing_routes.append((
+                                    tuple(visual_source),
+                                    *route_points_existing,
+                                    tuple(visual_target),
+                                ))
+                            except (TypeError, ValueError, RuntimeError):
+                                # Stale or unsupported presentation geometry is
+                                # ignored; it must never block electrical work.
+                                continue
                     route = self._connection_router.route(
                         (source.x(), source.y()),
                         (target.x(), target.y()),
                         obstacles=obstacle_bounds,
+                        existing_routes=existing_routes,
                     )
                     route_points = tuple(route.points[1:-1])
                 item = self._item_factory.create_connection(connection, source, target)
