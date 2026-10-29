@@ -204,13 +204,6 @@ class Application:
         }
 
     @property
-    def draft_network(self) -> Any | None:
-        return self._draft_network
-
-    def set_draft_network(self, draft_network: Any | None) -> None:
-        self._draft_network = draft_network
-
-    @property
     def creation_contract_registry(self) -> CreationContractRegistry:
         """Return the Application-owned registry of trusted creation contracts."""
         return self._creation_contract_registry
