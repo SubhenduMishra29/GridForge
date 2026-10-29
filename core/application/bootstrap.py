@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, Mapping
 import math
 from dataclasses import replace
 from uuid import uuid4
@@ -32,6 +32,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
+from core.model.breaker import Breaker
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -57,6 +58,7 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
+from .synchronism_check import SynchronismCheckProjectConfiguration, SynchronismCheckGuard
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -68,10 +70,21 @@ from .creation_schema import creation_contracts_from_definitions
 from .services.motor_dynamics_service import MotorDynamicsComposition
 
 
-def create_application(network: Any) -> Application:
-    """Construct the fully configured headless GridForge Application facade."""
+def create_application(
+    network: Any,
+    *,
+    synchronism_guard_factory: Callable[[Any, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+) -> Application:
+    """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
+
+    If no guard factory is supplied, breaker closes remain fail-closed. A supplied
+    factory is invoked for each candidate Network so project activation cannot
+    accidentally retain a guard bound to the previous project runtime.
+    """
     if network is None:
         raise ValueError("network is required.")
+    if synchronism_guard_factory is not None and not callable(synchronism_guard_factory):
+        raise TypeError("synchronism_guard_factory must be callable or None.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -106,7 +119,22 @@ def create_application(network: Any) -> Application:
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
-        model_service = ModelService(network=active_network)
+        synchronism_guard = None
+        if synchronism_guard_factory is not None:
+            synchronism_guard = synchronism_guard_factory(
+                active_network,
+                protection_configuration_service,
+                measurement_channel_service,
+            )
+            if not isinstance(synchronism_guard, SynchronismCheckGuard):
+                raise TypeError(
+                    "synchronism_guard_factory must return a SynchronismCheckGuard "
+                    "bound to the candidate project runtime."
+                )
+        model_service = ModelService(
+            network=active_network,
+            synchronism_guard=synchronism_guard,
+        )
         handlers: dict[str, Any] = {}
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
@@ -183,6 +211,8 @@ def create_application(network: Any) -> Application:
     initial_protection_runtime.compose(measurement_channel_service.channels)
     application.protection_runtime = initial_protection_runtime
     application.protection_presentation = None
+    application.synchronism_check_configuration = None
+    # Explicit project policy mapping; absent means ANSI 25 remains unconfigured.
     application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
     def activate_network(active_network: Any):
@@ -241,6 +271,7 @@ def create_application(network: Any) -> Application:
         previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
+        previous_synchronism_configuration = getattr(application, "synchronism_check_configuration", None)
         # Capture the exact pre-transition authority. Reconstructing a synthetic
         # ProjectContext or consulting lifecycle.network during compensation can
         # bind old channel definitions to the candidate network.
@@ -273,6 +304,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             application.protection_presentation = previous_protection_presentation
+            application.synchronism_check_configuration = previous_synchronism_configuration
             application.set_draft_network(previous_draft)
             application._study_cases = dict(previous_study_cases)
             dynamic_models.replace(previous_dynamic_models)
@@ -296,6 +328,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
                 application.protection_presentation = None
+                application.synchronism_check_configuration = None
                 dynamic_models.replace(())
                 application.set_draft_network(DraftNetwork.empty(context.project_id if context is not None else "closed-project", generation))
                 application._study_cases = {}
@@ -362,6 +395,13 @@ def create_application(network: Any) -> Application:
                 candidate_protection_runtime.compose(measurement_channel_service.channels)
                 application.protection_runtime = candidate_protection_runtime
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
+                synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None) if loaded is not None else None
+                if synchronism_configuration is not None:
+                    # Strict typed validation: do not accept missing/extra policy fields.
+                    SynchronismCheckProjectConfiguration.from_dict(synchronism_configuration)
+                    application.synchronism_check_configuration = dict(synchronism_configuration)
+                else:
+                    application.synchronism_check_configuration = None
                 application._study_cases = {
                     case.study_id: replace(
                         case,
@@ -410,6 +450,44 @@ def create_application(network: Any) -> Application:
                         f"Dynamic model association {association.machine_id!r} has invalid persisted "
                         "activation provenance."
                     )
+            synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None)
+            if synchronism_configuration is not None:
+                typed_synchronism = SynchronismCheckProjectConfiguration.from_dict(synchronism_configuration)
+                channel_definitions = {
+                    str(item.get("channel_id", item.get("id", ""))): item
+                    for item in loaded.measurement_definitions
+                    if isinstance(item, Mapping)
+                }
+                expected_contracts = {
+                    "left_voltage": ("VOLTAGE", {"kv"}),
+                    "left_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
+                    "left_frequency": ("FREQUENCY", {"hz"}),
+                    "right_voltage": ("VOLTAGE", {"kv"}),
+                    "right_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
+                    "right_frequency": ("FREQUENCY", {"hz"}),
+                }
+                for breaker_id, breaker_configuration in typed_synchronism.breakers.items():
+                    breaker = candidate_network.get_by_identity(breaker_id)
+                    if not isinstance(breaker, Breaker) or getattr(breaker, "id", None) != breaker_id:
+                        raise ValueError(
+                            f"ANSI 25 policy references missing or non-breaker equipment {breaker_id!r}."
+                        )
+                    for key, (expected_type, accepted_units) in expected_contracts.items():
+                        channel_id = breaker_configuration.measurement_channel_ids[key]
+                        definition = channel_definitions.get(channel_id)
+                        if definition is None:
+                            raise ValueError(
+                                f"ANSI 25 {breaker_id!r} {key} references missing persisted measurement channel {channel_id!r}."
+                            )
+                        if str(definition.get("signal_type", "")).strip().upper() != expected_type:
+                            raise ValueError(
+                                f"ANSI 25 measurement channel {channel_id!r} must have signal_type {expected_type}."
+                            )
+                        unit = definition.get("unit")
+                        if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
+                            raise ValueError(
+                                f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
+                            )
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
@@ -468,6 +546,7 @@ def create_application(network: Any) -> Application:
             path,
             dynamic_models=dynamic_models.all(),
             protection_configuration=protection_configuration_service.configuration,
+            synchronism_check_configuration=getattr(application, "synchronism_check_configuration", None),
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,

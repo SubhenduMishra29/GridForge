@@ -172,6 +172,22 @@ class _ProjectSchema3To4(ProjectMigration):
         return result
 
 
+class _ProjectSchema4To5(ProjectMigration):
+    """Add the optional, explicit ANSI 25 project configuration field."""
+
+    source_schema = 4
+    target_schema = 5
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 4-to-5 received a non-schema-4 payload.")
+        # Absence intentionally remains absence: ANSI 25 must fail closed until
+        # the project owner explicitly configures every required policy field.
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -490,6 +506,7 @@ class ProjectPersistenceMigration:
         1: _ProjectSchema1To2(),
         2: _ProjectSchema2To3(),
         3: _ProjectSchema3To4(),
+        4: _ProjectSchema4To5(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3()}
 

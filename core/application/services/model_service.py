@@ -21,6 +21,7 @@ from core.application.services.synchronous_machine_model_service import Synchron
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
+from core.application.synchronism_check import SynchronismCheckGuard
 from core.model.breaker import Breaker
 from core.model.bus import Bus
 from core.model.terminal import Terminal
@@ -30,7 +31,7 @@ from core.network.network import Network
 class ModelService(ModelServiceSupport):
     """Compatibility facade; all mutation logic remains in domain services."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(self, network: Network, synchronism_guard: SynchronismCheckGuard | None = None) -> None:
         if not isinstance(network, Network): raise TypeError("network must be a Network.")
         self._network = network
         self._bus_service = BusModelService(network)
@@ -45,7 +46,7 @@ class ModelService(ModelServiceSupport):
         self._line_service = LineModelService(network)
         self._transformer_service = TransformerModelService(network)
         self._cable_service = CableModelService(network)
-        self._switching_service = SwitchingModelService(network)
+        self._switching_service = SwitchingModelService(network, synchronism_guard=synchronism_guard)
         self._measurement_service = MeasurementModelService(network)
         self._pt_service = PTModelService(network)
         self._battery_service = BatteryModelService(network)
@@ -82,6 +83,10 @@ class ModelService(ModelServiceSupport):
     def cable_service(self): return self._cable_service
     @property
     def switching_service(self): return self._switching_service
+
+    def configure_synchronism_guard(self, guard: SynchronismCheckGuard) -> None:
+        """Configure the mandatory project-bound ANSI 25 close guard."""
+        self._switching_service.configure_synchronism_guard(guard)
 
     def create_bus(self, **kwargs): return self._bus_service.create_bus(**kwargs)
     def update_bus(self, **kwargs): return self._bus_service.update_bus(**kwargs)

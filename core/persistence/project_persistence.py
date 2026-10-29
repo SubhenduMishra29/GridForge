@@ -58,6 +58,7 @@ class LoadedProject:
     presentation_collection: Mapping[str, Any] | None = None
     dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
     protection_configuration: ProtectionProjectConfiguration | None = None
+    synchronism_check_configuration: Mapping[str, Any] | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
     control_configuration: ControlConfiguration | None = None
     draft_network: DraftNetwork | None = None
@@ -157,6 +158,10 @@ class ProjectPersistenceService:
         except (TypeError, ValueError, KeyError) as exc:
             raise ProjectPersistenceError(f"Invalid Control signal mapping: {exc}") from exc
 
+        synchronism_data = project.get("synchronism_check")
+        if synchronism_data is not None and not isinstance(synchronism_data, Mapping):
+            raise ProjectPersistenceError("Invalid persisted ANSI 25 synchronism configuration: expected an object.")
+
         protection_data = project.get("protection")
         protection_presentation = project.get("protection_presentation")
         protection_configuration = None
@@ -189,6 +194,7 @@ class ProjectPersistenceService:
             presentation_collection=presentation_collection,
             dynamic_models=dynamic_models,
             protection_configuration=protection_configuration,
+            synchronism_check_configuration=(dict(synchronism_data) if synchronism_data is not None else None),
             measurement_definitions=tuple(dict(item) for item in measurement_definitions),
             control_configuration=control_configuration,
             control_signal_mapping=control_signal_mapping,
@@ -202,6 +208,7 @@ class ProjectPersistenceService:
              path: str | Path | None = None,
              *, dynamic_models: Sequence[DynamicMachineModelAssociation] = (),
              protection_configuration: ProtectionProjectConfiguration | None = None,
+             synchronism_check_configuration: Mapping[str, Any] | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
              control_signal_mapping: ControlSignalMapping | None = None,
@@ -241,6 +248,8 @@ class ProjectPersistenceService:
             protection_configuration, ProtectionProjectConfiguration
         ):
             raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
+        if synchronism_check_configuration is not None and not isinstance(synchronism_check_configuration, Mapping):
+            raise TypeError("synchronism_check_configuration must be a mapping or None.")
         if not isinstance(measurement_definitions, Sequence) or any(
             not isinstance(item, Mapping) for item in measurement_definitions
         ):
@@ -317,6 +326,9 @@ class ProjectPersistenceService:
         }
         if protection_configuration is not None:
             project["protection"] = protection_configuration.to_dict()
+        if synchronism_check_configuration is not None:
+            # Keep project policy data explicit; typed policy validation belongs to Application.
+            project["synchronism_check"] = dict(synchronism_check_configuration)
         if protection_presentation is not None:
             project["protection_presentation"] = dict(protection_presentation)
         if control_configuration is not None:
@@ -659,7 +671,7 @@ class ProjectPersistenceService:
         allowed = {
             "schema", "project", "network", "presentations", "dynamic_models",
             "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
-            "draft_network", "study_cases",
+            "draft_network", "study_cases", "synchronism_check",
         }
         unknown = sorted(set(project) - allowed)
         if unknown:
@@ -709,7 +721,7 @@ class ProjectPersistenceService:
         channels = measurement.get("channels")
         if not isinstance(channels, list) or any(not isinstance(item, Mapping) for item in channels):
             raise ProjectPersistenceError("Canonical measurement.channels must be an array of objects.")
-        for key in ("control", "protection", "protection_presentation", "draft_network"):
+        for key in ("control", "protection", "protection_presentation", "draft_network", "synchronism_check"):
             if key in project and project[key] is not None and not isinstance(project[key], Mapping):
                 raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
         study_cases = project.get("study_cases", [])

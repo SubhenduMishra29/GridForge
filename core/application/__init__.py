@@ -51,6 +51,12 @@ from .study import StudyCaseDefinition, StudyRequest, StudyResult
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
+from .synchronism_check import (
+    BusMode, SynchronismCheckConfiguration, SynchronismCheckProjectConfiguration, PhasorMeasurement,
+    BypassAuthorization, SynchronismDecision, SynchronismCheckGuard,
+    phasor_measurements_from_channels,
+    create_project_synchronism_guard,
+)
 
 __all__ = [
     "Application",
@@ -99,4 +105,13 @@ __all__ = [
     "ValidationSeverity",
     "ValidationSummary",
     "ValidationService",
+    "BusMode",
+    "SynchronismCheckConfiguration",
+    "SynchronismCheckProjectConfiguration",
+    "PhasorMeasurement",
+    "BypassAuthorization",
+    "SynchronismDecision",
+    "SynchronismCheckGuard",
+    "phasor_measurements_from_channels",
+    "create_project_synchronism_guard",
 ]

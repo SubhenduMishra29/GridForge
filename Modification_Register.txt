@@ -14720,3 +14720,192 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 FAIL-CLOSED BREAKER-CLOSE ENFORCEMENT
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix-ansi25-enforcement
+
+Files:
+    core/application/synchronism_check.py
+    core/application/bootstrap.py
+    core/application/services/switching_model_service.py
+    core/application/services/model_service.py
+    core/application/__init__.py
+
+Approved policy:
+    - Project configuration must explicitly provide voltage magnitude
+      difference, phase-angle difference, frequency difference,
+      measurement freshness, dead-bus threshold, and permission for all
+      four live/dead-bus modes.
+    - No engineering tolerances or operating-mode permissions are
+      supplied by implicit defaults.
+    - Missing configuration, missing/invalid/stale measurements, or
+      disallowed live/dead mode denies closing.
+    - An optional bypass requires project configuration to enable it and
+      a non-empty, unexpired authorization identity, reason, and ID.
+    - An audit sink is mandatory when constructing the guard; every evaluated
+      decision is sent to it, and audit-sink failure aborts before mutation.
+    - ANSI 25 authorization is checked before breaker state mutation in
+      close_breaker, update_breaker(closed=True), and closed breaker
+      creation. Missing guard denies these paths.
+
+Architecture:
+    SynchronismCheckGuard is an Application policy boundary. It receives
+    project-owned configuration and timestamped measurement snapshots
+    through injected providers. It does not derive electrical truth from
+    SLD graphics and does not mutate Core state. SwitchingModelService
+    performs the authorized mutation and topology invalidation.
+
+Integration contract:
+    The runtime composition root must construct SynchronismCheckGuard
+    with authoritative project configuration, measurement providers,
+    and an audit sink, then inject it into ModelService or call
+    configure_synchronism_guard before permitting breaker close.
+    Until this is configured, breaker close is intentionally denied.
+
+Verification boundary:
+    Source changes were committed to the feature branch. No tests, CI,
+    Python syntax/import checks, or switching simulations were run.
+    Issue #845 remains open until the runtime composition root supplies
+    real project providers and the end-to-end close path is verified.
+
+======================================================================
+
+
+Additional runtime composition correction:
+    core/application/bootstrap.py now accepts an optional
+    synchronism_guard_factory. The factory is invoked for every candidate
+    Network and receives the candidate Network plus the project-scoped
+    protection-configuration and measurement-channel services. Its return
+    type is validated before model command handlers are composed.
+    If no factory is supplied, the existing fail-closed breaker-close
+    behavior remains. The current main.py composition call does not yet
+    supply a factory, so breaker close is deliberately unavailable there
+    until project-persisted ANSI 25 settings and a concrete measurement
+    producer are integrated. This injection seam alone does not enable
+    production closing.
+
+
+Additional ANSI 25 configuration contract:
+    SynchronismCheckConfiguration now exposes strict to_dict/from_dict
+    serialization. Deserialization requires every engineering limit,
+    freshness threshold, dead-bus voltage threshold, all four explicit
+    live/dead mode permissions, and bypass_allowed. Missing or unexpected
+    fields are rejected; no numerical limits or operating permissions are
+    supplied during deserialization. This provides the typed serialization
+    contract but is not yet wired into the canonical project persistence
+    lifecycle or user-facing project settings.
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 project persistence integration increment
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix-ansi25-enforcement
+
+Changes:
+    - Advanced canonical PROJECT_SCHEMA_VERSION from 4 to 5.
+    - Added deterministic schema 4-to-5 migration. It deliberately leaves
+      synchronism_check absent for projects without explicit policy; no engineering
+      thresholds or live/dead permissions are synthesized.
+    - ProjectPersistenceService accepts, validates as an object, saves and loads
+      the optional top-level synchronism_check mapping.
+    - LoadedProject exposes synchronism_check_configuration as a detached mapping.
+    - Application bootstrap validates a loaded policy through
+      SynchronismCheckConfiguration.from_dict before activating it, restores policy
+      state during activation rollback, clears it on project close, and includes it
+      in the canonical project save call.
+    - Policy remains project state only. This increment does not supply measurement
+      channel identities, create a physical measurement producer, or make the
+      synchronism guard operational by itself.
+
+Architecture and safety boundary:
+    - Persistence stores a detached mapping and does not import Application policy
+      classes into Core persistence.
+    - Application owns typed policy validation.
+    - Absence remains an unconfigured/fail-closed state.
+    - ANSI 25 stays NOT_IMPLEMENTED in the protection catalog until complete
+      measurement binding, audit-sink composition and breaker-close runtime behavior
+      are established.
+
+Verification boundary:
+    Repository source edits only. No tests, CI, Python syntax/import checks,
+    or switching simulations were run. Review the schema migration and activation
+    rollback diff before merging.
+
+======================================================================
+
+
+======================================================================
+GF-ISSUE-845 — ANSI 25 measurement binding contract increment
+======================================================================
+
+Date:
+    2026-10-29
+
+Changes:
+    - SynchronismCheckConfiguration now requires exactly six distinct logical
+      MeasurementChannel IDs: left/right voltage, phase angle and frequency.
+    - Every channel binding is mandatory and serialized with the policy. Strict
+      from_dict rejects missing or unexpected configuration fields.
+    - Added phasor_measurements_from_channels() to resolve the explicit bindings
+      against the Application-owned MeasurementChannel registry.
+    - Adapter validates channel identity, signal type, canonical engineering
+      units (kV, deg/degree symbol, Hz), availability, GOOD quality, finite scalar
+      engineering values, present timestamps, freshness and future-dated samples.
+    - Composite side timestamps use the oldest of that side's three samples, so
+      the guard cannot treat a mixed-age phasor as newer than its oldest input.
+    - bypass_allowed is now required explicitly; it no longer silently defaults
+      to False.
+
+Boundary / outstanding:
+    - The adapter is implemented and exported, but is not yet wired as the active
+      guard's measurement provider in the runtime composition root.
+    - Per-breaker/project policy editing and durable audit-sink integration remain
+      outstanding. No in-memory log is represented as a durable audit trail.
+    - Do not mark ANSI 25 implemented or enable production breaker closing until
+      all runtime dependencies are composed and validated.
+
+Verification:
+    Source edits only. No tests, CI, syntax/import checks or switching simulations
+    were run.
+
+======================================================================
+
+
+Additional validation added in the same increment:
+    - Project-candidate validation now verifies that each of the six configured
+      ANSI 25 channel IDs exists in persisted measurement definitions and that each
+      definition declares the expected signal type and canonical unit.
+    - A project with missing or mismatched channel references is rejected before
+      project activation. Runtime sample freshness and quality are still checked
+      at decision time by the channel adapter/guard.
+
+
+Per-breaker scoping correction:
+    - Added SynchronismCheckProjectConfiguration as a strict project registry keyed
+      by canonical breaker ID. Each breaker has its own complete synchronism limits,
+      four explicit live/dead permissions, bypass policy and six distinct channel IDs.
+    - Candidate-project validation rejects policy entries whose equipment ID does
+      not resolve to a Breaker, whose channel IDs are missing, or whose channel
+      definitions have the wrong signal type or engineering unit.
+    - This prevents one global set of bus measurements from being reused
+      unintentionally for every breaker. The active guard still needs to select
+      the matching policy by breaker ID and consume the adapter at runtime.
+
+
+[ANSI 25 runtime composition follow-up]
+- Added create_project_synchronism_guard() to resolve the active per-breaker policy and live MeasurementChannelService registry at close time; measurement resolution now uses the exact configuration snapshot selected by the guard for that breaker, avoiding a second policy lookup and cross-policy mismatch.
+- The composer requires explicit clock and audit-sink dependencies. It does not silently substitute EventBus logging or a wall-clock for simulation timestamps. Production activation remains blocked until the caller supplies a durable project-scoped audit sink, an appropriate timestamp-domain clock, and explicit bypass lifecycle policy.
+- No tests/CI or syntax/import checks were run.
