@@ -8,6 +8,7 @@ import time
 from typing import Callable, Mapping
 from core.application.errors import DomainError
 from core.model.breaker import Breaker
+from core.measurement.measurement_channel import MeasurementChannel, MeasurementQuality, MeasurementSignalType
 
 class BusMode(str, Enum):
     LIVE_LIVE = "LIVE_LIVE"
@@ -148,6 +149,67 @@ class SynchronismDecision:
     bypassed: bool = False
     authorization_id: str | None = None
 
+def phasor_measurements_from_channels(
+    configuration: SynchronismCheckConfiguration,
+    channels: Mapping[str, MeasurementChannel],
+) -> tuple[PhasorMeasurement, PhasorMeasurement]:
+    """Build ANSI 25 side measurements from six explicitly bound logical channels.
+
+    Channel timestamps are interpreted as Unix seconds, matching the guard clock.
+    Only canonical engineering units are accepted; this adapter never guesses or
+    silently converts units.
+    """
+    if not isinstance(configuration, SynchronismCheckConfiguration):
+        raise TypeError("ANSI 25 configuration is required.")
+    if not isinstance(channels, Mapping):
+        raise TypeError("Measurement channel registry must be a mapping.")
+
+    specifications = {
+        "left_voltage": (MeasurementSignalType.VOLTAGE, {"kv"}, "voltage_magnitude_kv"),
+        "left_phase_angle": (MeasurementSignalType.PHASE_ANGLE, {"deg", "°"}, "phase_angle_deg"),
+        "left_frequency": (MeasurementSignalType.FREQUENCY, {"hz"}, "frequency_hz"),
+        "right_voltage": (MeasurementSignalType.VOLTAGE, {"kv"}, "voltage_magnitude_kv"),
+        "right_phase_angle": (MeasurementSignalType.PHASE_ANGLE, {"deg", "°"}, "phase_angle_deg"),
+        "right_frequency": (MeasurementSignalType.FREQUENCY, {"hz"}, "frequency_hz"),
+    }
+    values: dict[str, tuple[float, float, str]] = {}
+    for key, (expected_type, accepted_units, field_name) in specifications.items():
+        channel_id = configuration.measurement_channel_ids[key]
+        channel = channels.get(channel_id)
+        if not isinstance(channel, MeasurementChannel):
+            raise ValueError(f"ANSI 25 channel {key!r} ({channel_id!r}) is missing.")
+        if channel.signal_type is not expected_type:
+            raise ValueError(f"ANSI 25 channel {channel_id!r} has the wrong signal type.")
+        if not isinstance(channel.unit, str) or channel.unit.strip().lower() not in accepted_units:
+            raise ValueError(f"ANSI 25 channel {channel_id!r} has an unsupported or missing engineering unit.")
+        if not channel.available or channel.quality is not MeasurementQuality.GOOD:
+            raise ValueError(f"ANSI 25 channel {channel_id!r} is unavailable or quality is not GOOD.")
+        if channel.timestamp is None or isinstance(channel.timestamp, bool) or not isinstance(channel.timestamp, (int, float)) or not math.isfinite(channel.timestamp):
+            raise ValueError(f"ANSI 25 channel {channel_id!r} has no valid sample timestamp.")
+        value = channel.engineering_value
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"ANSI 25 channel {channel_id!r} has a non-finite or non-scalar engineering value.")
+        values[key] = (float(value), float(channel.timestamp), field_name)
+
+    left_timestamp = min(values["left_voltage"][1], values["left_phase_angle"][1], values["left_frequency"][1])
+    right_timestamp = min(values["right_voltage"][1], values["right_phase_angle"][1], values["right_frequency"][1])
+    left = PhasorMeasurement(
+        voltage_magnitude_kv=values["left_voltage"][0],
+        phase_angle_deg=values["left_phase_angle"][0],
+        frequency_hz=values["left_frequency"][0],
+        timestamp=left_timestamp,
+        quality="VALID",
+    )
+    right = PhasorMeasurement(
+        voltage_magnitude_kv=values["right_voltage"][0],
+        phase_angle_deg=values["right_phase_angle"][0],
+        frequency_hz=values["right_frequency"][0],
+        timestamp=right_timestamp,
+        quality="VALID",
+    )
+    return left, right
+
+
 class SynchronismCheckGuard:
     """Project providers supply explicit settings, both bus measurements, and optional bypass authorization."""
     def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time):
@@ -218,4 +280,4 @@ class SynchronismCheckGuard:
     def _audit(self, decision):
         self._audit_sink(decision)
 
-__all__=["BusMode","SynchronismCheckConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard"]
+__all__=["BusMode","SynchronismCheckConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels"]
