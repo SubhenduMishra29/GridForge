@@ -12603,3 +12603,59 @@ Verification:
 Status:
     OPEN — verified boundary gap; implementation requires result-type inventory
     before a safe non-breaking correction can be made.
+
+
+======================================================================
+GF-SLD-INS-001 — Inline insertion scope and instrument-transformer semantics
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ElectricalInsertionService, insertion_contract, Breaker, CT, PT, CVT
+
+Finding:
+    Source inspection confirms that ElectricalInsertionService performs
+    transactional replacement of a SimpleWire with two replacement connection
+    records, uses canonical terminal-connection commands, and validates the
+    resulting connectivity and Network before returning success.
+
+    Breaker.__init__ defaults closed=True and normalizes the switching state
+    to bool. The issue's claimed null-state defect is not established by the
+    inspected constructor or insertion creation allowlist.
+
+    The insertion contract currently supports breaker, disconnector,
+    transformer, and current_transformer. It does not support PT or CVT.
+    This omission must not be corrected by treating PT/CVT as series elements:
+    the Core PT and CVT models each expose separate primary and secondary
+    terminal pairs. Their primary measurement connection is not equivalent to
+    a two-terminal series insertion; secondary measurement channels require
+    a distinct instrumentation/measurement integration path.
+
+Correction decision:
+    No speculative code change was made. Adding PT/CVT to the existing
+    two-terminal series insertion contract would incorrectly discard their
+    four-terminal semantics and could create electrically invalid topology.
+    PT/CVT insertion/tapping requires an explicit domain contract defining
+    primary-side connection semantics, secondary wiring, and measurement
+    channel activation before implementation.
+
+Required follow-up:
+    - Keep series insertion restricted to equipment whose Core terminal
+      contract is explicitly two-terminal and series-capable.
+    - Define a separate PT/CVT placement and primary-tap workflow using their
+      authoritative four-terminal Core models.
+    - Verify breaker state and CT measurement-channel behavior end-to-end
+      only after the appropriate runtime path is available.
+    - Preserve the canonical mutation path and transactional rollback.
+
+Verification:
+    Source-level inspection of electrical_insertion_service.py,
+    insertion_contract.py, electrical_insertion_tool.py, breaker.py, pt.py,
+    cvt.py, and measurement_commands.py.
+    No tests, CI, syntax/import checks, or runtime interaction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #774 REMAINS OPEN pending a separate, electrically
+    correct PT/CVT instrumentation connection contract and runtime verification.
