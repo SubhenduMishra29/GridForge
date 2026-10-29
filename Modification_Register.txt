@@ -14776,3 +14776,15 @@ Verification boundary:
     real project providers and the end-to-end close path is verified.
 
 ======================================================================
+
+
+Additional runtime composition correction:
+    core/application/bootstrap.py now accepts an optional
+    synchronism_guard_factory. The factory is invoked for every candidate
+    Network and receives the candidate Network plus the project-scoped
+    protection-configuration and measurement-channel services. Its return
+    type is validated before model command handlers are composed.
+    If no factory is supplied, the existing fail-closed breaker-close
+    behavior remains. This is an injection seam, not a substitute for
+    persisted ANSI 25 settings or a concrete measurement producer; those
+    remain required before production closes can be enabled.
