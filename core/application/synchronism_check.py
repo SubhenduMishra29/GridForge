@@ -31,9 +31,20 @@ class SynchronismCheckConfiguration:
                 raise ValueError(f"{name} must be finite and non-negative")
         if self.max_measurement_age_seconds <= 0 or self.max_phase_angle_difference_deg > 180:
             raise ValueError("Invalid ANSI 25 freshness or phase-angle limit")
-        if not isinstance(self.allowed_modes,Mapping) or any(mode not in self.allowed_modes or not isinstance(self.allowed_modes[mode],bool) for mode in BusMode):
+        if not isinstance(self.allowed_modes, Mapping):
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
-        object.__setattr__(self,"allowed_modes",MappingProxyType({mode:self.allowed_modes[mode] for mode in BusMode}))
+        supplied = {}
+        for key, value in self.allowed_modes.items():
+            try:
+                mode = key if isinstance(key, BusMode) else BusMode(key)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Unknown live/dead bus mode: {key!r}") from exc
+            if not isinstance(value, bool):
+                raise ValueError(f"Permission for {mode.value} must be bool")
+            supplied[mode] = value
+        if any(mode not in supplied for mode in BusMode):
+            raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
+        object.__setattr__(self, "allowed_modes", MappingProxyType({mode: supplied[mode] for mode in BusMode}))
         if not isinstance(self.bypass_allowed,bool): raise TypeError("bypass_allowed must be bool")
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +93,7 @@ class SynchronismCheckGuard:
         if not callable(configuration_provider) or not callable(measurement_provider): raise TypeError("Configuration and measurement providers are required")
         if bypass_provider is not None and not callable(bypass_provider): raise TypeError("bypass_provider must be callable")
         if audit_sink is not None and not callable(audit_sink): raise TypeError("audit_sink must be callable")
+        if not callable(clock): raise TypeError("clock must be callable")
         self._configuration_provider=configuration_provider; self._measurement_provider=measurement_provider
         self._bypass_provider=bypass_provider; self._audit_sink=audit_sink; self._clock=clock
 
@@ -121,7 +133,10 @@ class SynchronismCheckGuard:
                         if angle>config.max_phase_angle_difference_deg: reasons.append("ANSI25_PHASE_ANGLE_DIFFERENCE_EXCEEDED")
                         if abs(left.frequency_hz-right.frequency_hz)>config.max_frequency_difference_hz: reasons.append("ANSI25_FREQUENCY_DIFFERENCE_EXCEEDED")
         if reasons and config is not None and config.bypass_allowed and self._bypass_provider is not None:
-            auth=self._bypass_provider(breaker)
+            try:
+                auth=self._bypass_provider(breaker)
+            except Exception:
+                auth=None
             if isinstance(auth,BypassAuthorization) and auth.valid(now):
                 decision=SynchronismDecision(True,breaker.id,tuple(reasons),mode,True,auth.authorization_id)
                 self._audit(decision); return decision
