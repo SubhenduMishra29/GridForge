@@ -12480,3 +12480,36 @@ Verification:
 
 Status:
     PROPOSED — corrective PR; requires diff review before merge.
+
+
+======================================================================
+GF-PROT-044 — Verify breaker trip switching-state postcondition
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Application protection execution postcondition verification
+
+Finding:
+    Protection action resolution and command dispatch supported breaker trip,
+    but postcondition verification always returned unavailable/unsupported
+    for breaker trip because Breaker has no separate trip-latched state.
+
+Correction:
+    - Verify the authoritative Core Breaker closed field is False after trip.
+    - Treat this as confirmation of the requested switching-state result only.
+    - Do not claim a distinct trip-latched state or infer trip cause; the current
+      domain model does not persist that information.
+    - Keep protection action resolution and command dispatch in Application and
+      preserve active-project provenance checks.
+
+Verification:
+    - Source anchors reviewed and edit re-fetched from the feature branch.
+    - No tests, CI, syntax/import checks, or runtime studies run per repository rules.
+    - End-to-end operational transaction ordering and live protection execution
+      remain unverified.
+
+Status:
+    PROPOSED — corrective PR; review required before merge.
