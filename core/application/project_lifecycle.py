@@ -23,7 +23,7 @@ from .project_presentation import ProjectPresentationCollection
 ProjectLoader = Callable[[Path], LoadedProject]
 ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path, Mapping[str, Any] | None], None]
 NetworkFactory = Callable[[], Any]
-NetworkActivator = Callable[[Any], Callable[[], None] | None]
+NetworkActivator = Callable[[ProjectContext | None, Any, int], Callable[[], None] | None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
@@ -510,7 +510,7 @@ class ProjectLifecycleService:
             if rollback is not None:
                 rollback_stack.append(rollback)
 
-            rollback = self._activate_network(network)
+            rollback = self._activate_network(context, network, next_generation)
             if rollback is not None:
                 rollback_stack.append(rollback)
 
