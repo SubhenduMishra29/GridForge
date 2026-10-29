@@ -12553,3 +12553,53 @@ Verification:
 
 Status:
     SOURCE PATH VERIFIED — RUNTIME REHYDRATION NOT EXECUTED
+
+
+======================================================================
+GF-PERF-001 — Study result host/device presentation boundary audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Application StudyService, StudyReadService, StudyResultReadModel
+
+Finding:
+    StudyService stores the study handler's result value without an explicit
+    host/device residency contract. StudyReadService._to_read_model() forwards
+    result.value directly into StudyResultReadModel.value. The read-model
+    _freeze() helper freezes mappings and Python containers but leaves typed
+    result objects and numerical array objects unchanged. Therefore the
+    inspected boundary does not itself prove that device-resident arrays are
+    transferred, summarized, or excluded before presentation consumption.
+
+Correction decision:
+    No broad implicit copy or device-to-host transfer was added. Such a change
+    could synchronously copy large solver matrices on a UI read and defeat the
+    performance objective; rejecting every array-like result would also risk
+    breaking existing typed study result contracts. The correct implementation
+    requires explicit per-study presentation payloads/summaries and a defined
+    transfer policy at the solver-result-to-Application boundary, retaining
+    canonical numerical results as the authoritative study result.
+
+Required follow-up:
+    - Inventory concrete power-flow, short-circuit, contingency, and transient
+      stability result types and their array/device ownership.
+    - Define an explicit opt-in host presentation adapter for each result type.
+    - Keep large matrices and accelerator-resident buffers out of routine UI
+      snapshots; expose compact summaries and bounded slices where appropriate.
+    - Ensure transfer occurs only at an explicit consumer/presentation boundary,
+      never as an implicit side effect of StudyReadService.result()/snapshot().
+    - Preserve result provenance, immutable read-side semantics, and successful
+      StudyCompleted publication lifecycle.
+
+Verification:
+    Source-level trace of StudyService.execute(), StudyResult, StudyReadService,
+    StudyResultReadModel, and the solver architecture contract.
+    No tests, CI, syntax/import checks, runtime execution, or accelerator
+    profiling performed.
+
+Status:
+    OPEN — verified boundary gap; implementation requires result-type inventory
+    before a safe non-breaking correction can be made.
