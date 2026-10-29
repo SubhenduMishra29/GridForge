@@ -178,6 +178,10 @@ class NavigationController:
 
         self._is_panning = False
         self._pan_start = None
+        # Scrollbars accept integer values; retain subpixel movement across
+        # pointer events so repeated fractional deltas are not discarded.
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
         self._disposed = False
         self._zoom_changed_listeners: list[Callable[[float], None]] = []
@@ -233,6 +237,8 @@ class NavigationController:
 
         self._is_panning = True
         self._pan_start = position
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
     # --------------------------------------------------------
 
@@ -258,6 +264,8 @@ class NavigationController:
 
         if self._pan_start is None:
             self._is_panning = False
+            self._pan_remainder_x = 0.0
+            self._pan_remainder_y = 0.0
             return
 
         dx = (
@@ -273,15 +281,19 @@ class NavigationController:
         horizontal = self.view.horizontalScrollBar()
         vertical = self.view.verticalScrollBar()
 
-        horizontal.setValue(
-            horizontal.value()
-            - int(dx)
-        )
+        # QScrollBar stores integer positions. Truncating each pointer delta
+        # independently loses every fractional component, causing cumulative
+        # pan drift for high-resolution pointer events. Carry the remainder
+        # into the next event and apply only the integral displacement.
+        total_x = float(dx) + self._pan_remainder_x
+        total_y = float(dy) + self._pan_remainder_y
+        scroll_dx = math.trunc(total_x)
+        scroll_dy = math.trunc(total_y)
+        self._pan_remainder_x = total_x - scroll_dx
+        self._pan_remainder_y = total_y - scroll_dy
 
-        vertical.setValue(
-            vertical.value()
-            - int(dy)
-        )
+        horizontal.setValue(horizontal.value() - scroll_dx)
+        vertical.setValue(vertical.value() - scroll_dy)
 
         self._pan_start = position
 
@@ -296,6 +308,8 @@ class NavigationController:
 
         self._is_panning = False
         self._pan_start = None
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
     # ========================================================
     # WHEEL

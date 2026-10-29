@@ -12930,3 +12930,70 @@ Status:
     or source path.
 
 
+
+
+
+======================================================================
+GF-CANVAS-NAV-001 — Issue #770: Pan Precision and Viewport Culling
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #770; ui/canvas/navigation_controller.py;
+    ui/canvas/graphics_view.py; ui/canvas/coordinate_system.py;
+    ui/canvas/sld_canvas_render_system.py; ui/canvas/grid_scene.py.
+
+Confirmed source finding:
+    NavigationController.update_pan() converted each pointer delta to an
+    integer independently before updating the scrollbars, then advanced
+    _pan_start to the latest pointer position. Any fractional part of each
+    movement was discarded rather than accumulated. With fractional/high-
+    resolution pointer deltas, repeated subpixel motion can therefore produce
+    cumulative pan under-travel. This is a concrete source-level precision
+    defect consistent with the reported pan drift.
+
+Correction:
+    PR #790 carries fractional x/y displacement between pan updates. It
+    applies the integral part to the integer scrollbars and retains the
+    fractional remainder for the next pointer event. Remainders reset at
+    pan start, invalid pan state recovery, and pan end. This remains entirely
+    within the UI navigation boundary and does not change Core coordinates,
+    electrical state, snapping policy, or the canonical scene transform.
+
+Other findings:
+    - GraphicsView delegates cursor conversion to QGraphicsView.mapToScene()
+      and delegates navigation to NavigationController.
+    - CoordinateSystem documents an integer QPoint conversion path when the
+      input exposes toPoint(); this can lose subpixel pointer precision for
+      those callers. It remains a follow-up candidate because replacing the
+      mapping overload requires verifying supported Qt/PySide signatures and
+      all event adapters.
+    - The inspected SLDCanvasRenderSystem does not implement a custom
+      viewport-boundary culling engine for ordinary equipment symbols.
+      Qt scene/view transforms and item bounds are used for graphics; the
+      render system's explicit zoom-dependent visibility rule found in this
+      inspection is for annotation density. The reported equipment flicker
+      is not established from this source alone.
+
+Required follow-up:
+    - Reproduce the reported micro-flicker with large/multi-segment symbols at
+      deep zoom and viewport edges.
+    - If reproducible, trace any custom item visibility, clipping, scene
+      rectangle, or painter-bound logic before changing culling behavior.
+    - Trace QPointF-to-QPoint conversions along the active event path and
+      retain fractional coordinates where the Qt API permits.
+    - Do not introduce Core float64 coordinate or electrical-terminal changes:
+      pan/zoom are presentation transforms.
+
+Verification:
+    Source-level inspection and focused correction only. No tests, CI,
+    syntax/import checks, or runtime interaction were performed.
+
+Status:
+    PAN PRECISION CORRECTED IN PR #790 — ISSUE #770 REMAINS OPEN pending
+    runtime verification and separate investigation of reported equipment
+    flicker and active-path subpixel coordinate conversion.
+
+
