@@ -13561,3 +13561,70 @@ Status:
     HIT-TARGET RANKING CORRECTED IN PR #798 — ISSUE #762 REMAINS OPEN pending
     runtime verification of layered intersections, ambiguous-hit rejection,
     and transactional non-mutation on rejected gestures.
+
+
+======================================================================
+GF-SLD-ORPHAN-001 — Issue #761 — Deleted Equipment and Orphaned Terminal Graphic Audit
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #761; ui/canvas/sld_graphics_item_factory.py;
+    ui/items/equipment_item.py; ui/core/selection_manager.py;
+    ui/canvas/sld_canvas_render_system.py; ui/canvas/preview_layer.py.
+
+Findings:
+    1. The inspected SLDGraphicsItemFactory creates an EquipmentItem for an
+       equipment node. EquipmentItem exposes terminal anchor/snap metadata
+       from the symbol definition and equipment terminal model; this source
+       path does not establish separate persistent QGraphicsItem instances for
+       each electrical terminal line as described in the issue.
+
+    2. SLDCanvasRenderSystem._remove_realized() removes tracked renderer-owned
+       graphics, unbinds route-edit callbacks, unregisters snap candidates,
+       removes items from the scene, and clears associated render signatures
+       and diagnostics. The canonical renderer cleanup path is explicit.
+
+    3. SelectionManager stores selected object identities, not retained
+       QGraphicsItem pointers. Its graphics synchronization and ID lookup
+       enumerate the current scene and therefore do not establish a stale
+       pointer to a removed equipment item. A selected identity can outlive a
+       removed graphic until selection is reconciled, but that alone does not
+       prove the reported wrapped-C++-object crash.
+
+    4. PreviewLayer owns transient preview items and removes them from its
+       scene during clear/remove operations. The inspected files do not show a
+       terminal-line interaction buffer that retains a deleted child pointer.
+
+Correction decision:
+    No speculative deletion or selection change was added. The specific
+    parent/child terminal graphic ownership described by the issue was not
+    found in the inspected active source path. A fix without a reproducible
+    retained pointer could clear legitimate selection state or change shared
+    equipment/snap lifecycle behavior without addressing the real owner.
+
+Required follow-up:
+    - Reproduce multi-selection and deletion with the exact equipment symbol
+      and capture scene item types, parentItem(), scene(), object identity,
+      and terminal/snap metadata before and after renderer synchronization.
+    - Capture the complete RuntimeError traceback and identify which owner
+      retains the deleted QGraphicsItem wrapper (tool, preview layer, snap
+      candidate, selection adapter, or other interaction buffer).
+    - Confirm whether terminal lines are separate graphics in the active
+      runtime configuration or only terminal anchor metadata on EquipmentItem.
+    - Ensure any confirmed stale interaction cache is purged at the same
+      renderer removal lifecycle; never pass QGraphicsItem references into
+      Core or Application commands.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime multi-select/delete reproduction were performed, in accordance
+    with repository audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #761 REMAINS OPEN. The described independent
+    terminal-line graphic and stale pointer owner were not found in the
+    inspected source path; runtime traceback and object-lifecycle evidence
+    are required before a safe correction.
