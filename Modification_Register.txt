@@ -14880,3 +14880,31 @@ Verification:
     runtime, Python syntax compilation, or import checks were run.
 
 ======================================================================
+
+
+======================================================================
+2026-10-29 — WORKSPACE ROLLBACK EXCEPTION BOUNDARY CORRECTION
+======================================================================
+
+Scope:
+    ui/workspace/project_workspace.py
+    ProjectWorkspaceLifecycle._restore_transition_snapshot()
+
+Finding:
+    The best-effort rollback helper caught BaseException, which also captures
+    process-control exceptions such as KeyboardInterrupt and SystemExit and
+    converts them into ordinary restoration diagnostics.
+
+Correction:
+    Catch Exception for ordinary restoration failures. Process-control
+    exceptions are no longer intentionally swallowed or normalized by the
+    rollback helper.
+
+Architecture:
+    UI lifecycle recovery only. No Core/domain ownership changes.
+
+Verification boundary:
+    Source edit committed to fix/workspace-transition-rollback-recovery.
+    No tests/CI, syntax/import checks, or GUI runtime were run.
+
+======================================================================
