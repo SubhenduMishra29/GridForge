@@ -13882,3 +13882,37 @@ Verification:
 Status:
     IMPLEMENTED ON fix/issue-817-orthogonal-routing — PENDING REVIEW AND
     SOURCE-LEVEL VERIFICATION. Issue #817 remains open.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-002 — Issue #817 — Exterior Visibility Corridor
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/connections/connection_router.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    The visibility grid initially used only source/target coordinates and
+    obstacle clearance edges. When obstacle clearance regions overlap, those
+    coordinates can leave no usable path around the outside of the obstacle
+    group even where an exterior orthogonal route is geometrically possible.
+
+Correction:
+    Added deterministic exterior corridor coordinates beyond the full
+    obstacle envelope, with a margin derived from the obstacle span and
+    configured clearance. The router can now consider paths around the outside
+    of overlapping obstacle groups without changing endpoint identities or
+    electrical topology.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Python syntax/import integrity and runtime route scenarios remain pending
+    under the repository's stated acceptance process.
+
+Status:
+    EXTERIOR VISIBILITY CORRIDOR CORRECTED — ISSUE #817 REMAINS OPEN. Existing
+    route crossing integration and the near-miss electrical-connectivity path
+    still require direct source audit and verification.
