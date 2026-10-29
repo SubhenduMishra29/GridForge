@@ -12751,3 +12751,98 @@ Correction follow-up (2026-10-29):
     Verification: source-level change review only. No tests, CI, syntax/import
     checks, or runtime interaction were performed. Issue #773 remains open
     until full interaction behavior is verified.
+
+
+
+======================================================================
+GF-CLIP-001 — Issue #772: Cut, Copy, and Placement Pipeline
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #772; ui/core/selection_manager.py;
+    ui/tools/model_placement_tool.py; ui/tools/tool_shortcuts.py;
+    core/application/commands/draft_commands.py;
+    core/application/draft/handlers.py; ui/canvas/preview_layer.py;
+    ui/plugins/canvas_plugin.py.
+
+Findings:
+    1. The active SelectionManager owns transient UI selection IDs and
+       projects selection to graphics. It does not own a clipboard payload
+       or define copy/cut/paste identity semantics.
+
+    2. The inspected active tool shortcut contract defines SAVE, UNDO,
+       REDO, SELECT, CREATE, CONNECT, and CANCEL; it contains no canonical
+       COPY, CUT, or PASTE action. Repository tree inspection also found no
+       clipboard-named source module or clipboard command in the active
+       Application command set. This is evidence that the reported path
+       cannot currently be traced through a canonical clipboard service,
+       not proof that no ad hoc handler exists anywhere in the repository.
+
+    3. ModelPlacementTool creates a fresh draft identity for ordinary
+       placement and submits AddDraftEquipmentCommand. The Application
+       DraftCommandHandlers deserialize the draft equipment, record an
+       undo snapshot, and add it to DraftNetwork. The current code path
+       therefore provides a canonical draft mutation boundary, but does not
+       establish how a copied Core element_id would be stripped or
+       regenerated because a copy/paste serialization path was not found.
+
+    4. ModelPlacementTool.on_cancel() clears its own transient placement
+       state and preview graphics. PreviewLayer documents and implements
+       ownership of transient preview graphics. This is correct for a
+       preview-only interaction. It does not remove an already persisted
+       DraftNetwork equipment object; such cleanup must use the canonical
+       RemoveDraftEquipmentCommand and must be coordinated with the
+       placement transaction rather than implemented as scene-only cleanup.
+
+    5. CanvasPlugin.synchronize_sld() reconstructs the visible composite
+       snapshot from the active SLD document and DraftSLDProjection. This
+       supports reconciliation from authoritative document/draft state;
+       manually deleting or hiding phantom scene items would risk masking
+       stale authoritative draft data instead of correcting it.
+
+Correction decision:
+    Do not add a speculative clipboard implementation or infer a copy schema
+    from Core objects without tracing the intended user interaction and
+    supported object types. The current source inspection does not establish
+    the issue's claimed direct-Core overwrite; it establishes that the
+    canonical clipboard-to-draft lifecycle is not identifiable in the
+    inspected active contracts.
+
+Required correction contract:
+    - Define one Application-owned clipboard snapshot schema that carries
+      source type, copied values, terminal/connection references and
+      presentation metadata explicitly, while excluding source Core IDs,
+      committed IDs, Qt objects and graphics-item references.
+    - Allocate new draft identities for every pasted equipment and connection;
+      remap all internal endpoints through a paste-local old-to-new identity
+      map; never mutate or overwrite existing Core identity during paste.
+    - Submit all pasted objects through canonical Application draft commands
+      with transactional rollback. Do not directly mutate Core Network or
+      insert permanent graphics into QGraphicsScene.
+    - Treat paste placement as a cancellable draft transaction. Escape,
+      tool switch, project close and failed paste must remove only objects
+      created by that in-progress paste, via canonical inverse commands or a
+      single atomic Application operation; they must not delete pre-existing
+      draft objects.
+    - Re-project the composite canvas from SLD document + DraftNetwork after
+      successful mutation or cancellation so no scene-only phantom can remain.
+    - Preserve endpoint contracts and validate duplicate endpoint pairs before
+      the transaction commits. Do not copy stale terminal IDs or derive
+      electrical connectivity from layout geometry.
+    - Add explicit COPY/CUT/PASTE intent handling only after the command,
+      undo/redo, and selection contracts are traced end-to-end.
+
+Verification:
+    Source-level inspection only of the files listed above and active-tree
+    paths. No tests, CI, syntax/import checks, or runtime interaction were
+    performed, in accordance with the repository audit rules.
+
+Status:
+    AUDIT RECORDED — ISSUE #772 REMAINS OPEN. The canonical clipboard
+    serialization and atomic paste/cancel path require a dedicated
+    implementation after the command/selection lifecycle is fully specified.
+
+
