@@ -14720,3 +14720,29 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+\n
+GF-ISSUE-845-2026-10-29 — Explicit ANSI 25 capability status
+
+Finding:
+    The canonical protection function catalog had no ANSI 25 entry. The issue
+    and existing source reconciliation identify no approved sync-check evaluator
+    or configured voltage, phase-angle, frequency, and live/dead-bus contract.
+
+Correction:
+    Register ANSI 25 as NOT_IMPLEMENTED so capability discovery does not confuse
+    an absent catalog entry with a supported protection function. Do not infer
+    synchronism from binary topology connectivity or invent engineering limits.
+
+Required implementation contract:
+    Identify both breaker-side measurement points; define voltage magnitude,
+    phase-angle, and frequency-difference limits; define sample validity/freshness
+    and live/dead-bus modes; define explicit bypass authorization; and reject
+    automatic live-live close requests when the check is unavailable or fails.
+    Enforcement belongs at the Application/Core close-command boundary before
+    breaker state mutation, with a correlated decision/result event.
+
+Disposition:
+    Issue #845 remains open. This catalog correction does not implement sync-check
+    evaluation or prove the reported close path is guarded. No tests/CI, syntax or
+    import checks, runtime switching simulation, or fault injection were performed.
+
