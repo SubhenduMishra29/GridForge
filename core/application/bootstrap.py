@@ -451,7 +451,36 @@ def create_application(
                     )
             synchronism_configuration = getattr(loaded, "synchronism_check_configuration", None)
             if synchronism_configuration is not None:
-                SynchronismCheckConfiguration.from_dict(synchronism_configuration)
+                typed_synchronism = SynchronismCheckConfiguration.from_dict(synchronism_configuration)
+                channel_definitions = {
+                    str(item.get("channel_id", item.get("id", ""))): item
+                    for item in loaded.measurement_definitions
+                    if isinstance(item, Mapping)
+                }
+                expected_contracts = {
+                    "left_voltage": ("VOLTAGE", {"kv"}),
+                    "left_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
+                    "left_frequency": ("FREQUENCY", {"hz"}),
+                    "right_voltage": ("VOLTAGE", {"kv"}),
+                    "right_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
+                    "right_frequency": ("FREQUENCY", {"hz"}),
+                }
+                for key, (expected_type, accepted_units) in expected_contracts.items():
+                    channel_id = typed_synchronism.measurement_channel_ids[key]
+                    definition = channel_definitions.get(channel_id)
+                    if definition is None:
+                        raise ValueError(
+                            f"ANSI 25 {key} references missing persisted measurement channel {channel_id!r}."
+                        )
+                    if str(definition.get("signal_type", "")).strip().upper() != expected_type:
+                        raise ValueError(
+                            f"ANSI 25 measurement channel {channel_id!r} must have signal_type {expected_type}."
+                        )
+                    unit = definition.get("unit")
+                    if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
+                        raise ValueError(
+                            f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
+                        )
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
