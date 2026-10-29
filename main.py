@@ -1295,9 +1295,26 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
     if callable(bind_project_selection):
         bind_project_selection(canvas_composition.selection_manager)
-    canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
+    def _on_selection_changed(ids: object) -> None:
+        # The shared SelectionManager represents SLD selection only. Ignore
+        # late/hidden-canvas selection notifications while another discipline
+        # owns the active editor context.
+        if engineering_context.current.discipline != "sld":
+            return
+        engineering_context.update(selected_ids=ids)
+        workspace_surface_host.refresh_selection_context(ids)
+
+    canvas_composition.selection_manager.selection_changed.connect(_on_selection_changed)
+
+    def _on_controller_tool_changed(current: object, previous: object) -> None:
+        # This Controller owns SLD tool state. Do not let a hidden SLD tool
+        # change overwrite the active Control/Protection/Study tool context.
+        if engineering_context.current.discipline == "sld":
+            engineering_context.update(active_tool=current)
+        workspace_surface_host.refresh_tool_shelves()
+
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
-        controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
+        controller.tool_changed.connect(_on_controller_tool_changed)
     def _update_study_result_overlay(result: object | None) -> None:
         """Refresh the SLD only when the selected result snapshot changes."""
         if sld_canvas_projection.set_study_result(result):
