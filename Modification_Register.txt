@@ -14156,3 +14156,25 @@ Verification:
     Source-level change only; no tests/CI run. Python syntax, imports, runtime
     behavior, and full delete/undo/redo execution remain unverified.
 
+======================================================================
+GF-ROUTING-ORTHOGONAL-011 — Fail Closed on Noncanonical Orphan Identity
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    core/application/services/sld_service.py; fix/issue-817-orthogonal-routing.
+
+Correction:
+    Orphaned Simple Wire companions are resolved by their explicit
+    orphaned_from_core_connection_id provenance, not by assuming that the
+    presentation ID is canonical. Multiple matching orphans now fail closed;
+    a single noncanonical orphan also fails closed rather than allowing a
+    second canonical companion to be created beside retained authored state.
+    Automatic persistent-ID migration remains out of scope and requires an
+    explicit reconciliation contract.
+
+Verification:
+    Source-level correction only; no tests/CI run. Syntax, imports, runtime,
+    and complete delete/undo/redo behavior remain unverified.
