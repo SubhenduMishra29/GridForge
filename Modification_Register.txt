@@ -13287,3 +13287,73 @@ Status:
     runtime verification of cursor/preview alignment and snap parity.
 
 
+
+
+
+======================================================================
+GF-SLD-PATH-001 — Issue #765: Routed Path Bounds and Selection
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #765; ui/sld/items/sld_connection_item.py;
+    ui/canvas/sld_canvas_render_system.py; ui/sld/sld_route_edit_controller.py;
+    ui/sld/sld_model.py.
+
+Findings:
+    1. SLDConnectionItem.set_visual_route() updates the visual endpoints and
+       route-point tuple, then rebuilds the path via QGraphicsPathItem.setPath().
+       The reported direct mutation of an internal vertex collection without
+       path/bounds notification is not present in this inspected route-update
+       method.
+
+    2. For Simple Wire connections, SLDConnectionItem.shape() builds a widened
+       QPainterPathStroker hit envelope from the current path, and
+       boundingRect() returns that shape's bounds. Both therefore derive from
+       the current QPainterPath rather than a separately cached stale route
+       rectangle. Other connection kinds use QGraphicsPathItem's standard
+       shape/bounds behavior.
+
+    3. SLDCanvasRenderSystem resolves endpoint positions before comparing
+       connection render signatures. It calls set_visual_route() when route
+       or endpoint geometry changes and removes the previous realized item if
+       endpoint resolution fails. This provides an explicit geometry refresh
+       path when a new snapshot is synchronized.
+
+    4. The reported selection dead-zone and distant hit activation were not
+       reproduced. The source inspected does not establish a custom parent
+       bounding-box cache that remains stale after path replacement. Qt's
+       setPath() manages QGraphicsPathItem geometry change notifications; a
+       separate custom cache was not identified in the inspected item.
+
+Correction decision:
+    No speculative prepareGeometryChange() call was added around setPath().
+    QGraphicsPathItem owns its path/bounds change contract; redundant or
+    incorrectly ordered geometry notifications could create a new defect.
+    A code change requires a reproducible path update where the scene index
+    retains stale geometry despite setPath().
+
+Required follow-up:
+    - Reproduce engineer-owned route editing and endpoint movement while
+      selecting near both the new and old path.
+    - Capture path(), shape().boundingRect(), boundingRect(),
+      sceneBoundingRect(), and scene.items(point) before/after route update.
+    - Verify the active scene receives the updated item and that no duplicate
+      stale connection item remains in the scene.
+    - If the path is current but scene queries remain stale, inspect custom
+      item overrides and scene indexing/reparenting before modifying bounds.
+    - Keep wire hit geometry in the UI projection; route geometry must not
+      create or modify Core terminal identity.
+
+Verification:
+    Source-level inspection only. No tests, CI, syntax/import checks, or
+    runtime route-edit/selection interaction were performed.
+
+Status:
+    AUDIT RECORDED — ISSUE #765 REMAINS OPEN. The alleged stale cached
+    bounding-box mechanism was not found in the inspected item path; runtime
+    reproduction and scene-index evidence are required before a safe fix.
+
+
