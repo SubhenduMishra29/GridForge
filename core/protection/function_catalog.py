@@ -96,6 +96,7 @@ _SPECS = (
     ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay, CONTRACT_67),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay, CONTRACT_21),
+    ProtectionFunctionSpecification("25", "Synchronism check", ProtectionFunctionStatus.NOT_IMPLEMENTED),
 )
 
 _CATALOG: Mapping[str, ProtectionFunctionSpecification] = MappingProxyType({spec.code: spec for spec in _SPECS})
