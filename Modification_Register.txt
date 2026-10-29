@@ -10952,7 +10952,7 @@ Verification:
       subject to subsequent integration audit and GUI runtime verification.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 open.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 
@@ -10999,7 +10999,7 @@ Verification:
       refresh/clear behavior remains outstanding.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 
@@ -11043,7 +11043,7 @@ Verification:
       runtime before treating stale-overlay invalidation as verified.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 
@@ -11101,7 +11101,7 @@ Verification:
       and StudyCaseCreated event delivery during runtime review.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 
@@ -11149,7 +11149,7 @@ Verification:
       payload behavior remain unverified.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 ======================================================================
 
@@ -11233,7 +11233,7 @@ Verification:
     - Runtime round-trip and convergence/failure-path behavior remain unverified.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11271,7 +11271,7 @@ Verification:
       numerical verification were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11307,7 +11307,7 @@ Verification:
     - No tests, CI, syntax/import checks, or numerical runtime were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11353,7 +11353,7 @@ Verification:
       associations/events in the active project.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11392,7 +11392,7 @@ Verification:
       checks, or GUI runtime were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11429,7 +11429,7 @@ Verification:
     - No tests, CI, syntax/import checks, or GUI runtime were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11475,7 +11475,7 @@ Verification:
     - No tests, CI, Python syntax/import checks, or GUI runtime were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11517,7 +11517,7 @@ Verification:
     - No tests, CI, Python syntax/import checks, or GUI runtime were run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -11562,7 +11562,7 @@ Verification:
       run.
 
 Status:
-    IMPLEMENTED ON fix/end-to-end-study-results-path — PR #744 updated.
+    MERGED — PR #744; static source review only, runtime behavior remains unverified.
 
 
 ======================================================================
@@ -12397,7 +12397,7 @@ Authority boundary:
     replace authoritative Core state or treat SLD route geometry as topology.
 
 Status:
-    IMPLEMENTED ON fix/transaction-recovery-snapshot — STATIC REVIEW PENDING.
+    MERGED — PR #776; static source/diff review only, runtime and filesystem behavior remain unverified.
 
 Verification:
     No tests or CI run, per repository audit rules.
@@ -12439,6 +12439,6 @@ Verification:
     Static source review only. No tests or CI run, per repository rules.
 
 Status:
-    IMPLEMENTED ON fix/study-operating-point-provenance — REVIEW PENDING.
+    MERGED — PR #777; static source/diff review only, runtime behavior remains unverified.
 
 ======================================================================
