@@ -13949,3 +13949,34 @@ Status:
     EXISTING ROUTE PENALTIES WIRED INTO RENDERER — ISSUE #817 REMAINS OPEN.
     The separate near-miss connectivity symptom still requires tracing through
     the active authoring and Application command path before closure.
+
+
+======================================================================
+GF-ROUTING-ORTHOGONAL-004 — Snap Candidate Lifecycle Cleanup
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    ui/core/snap_system.py; fix/issue-817-orthogonal-routing.
+
+Finding:
+    SnapSystem.dispose() cleared the candidate and callback registries without
+    disconnecting movement signals registered on graphics items. A long-lived
+    item could retain a callback to the disposed service and later attempt a
+    refresh against an inactive SnapSystem.
+
+Correction:
+    Disposal now disconnects each registered movement callback before clearing
+    candidate references. Already-deleted Qt senders and already-disconnected
+    signals are handled as cleanup no-ops. Core topology and snap identity are
+    unchanged.
+
+Verification:
+    Source correction committed to the feature branch. No tests or CI run.
+    Syntax/import integrity and Qt lifecycle behavior remain pending review.
+
+Status:
+    SNAP CANDIDATE SIGNAL CLEANUP CORRECTED. ISSUE #817 REMAINS OPEN WHILE THE
+    NEAR-MISS VISUAL-VERSUS-ELECTRICAL CONNECTIVITY PATH IS STILL UNVERIFIED.
