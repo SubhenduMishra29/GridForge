@@ -12513,3 +12513,43 @@ Verification:
 
 Status:
     PROPOSED — corrective PR; review required before merge.
+
+
+======================================================================
+GF-MEAS-001 — Confirm measurement-definition rehydration on project activation
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Application bootstrap, project persistence, measurement channel lifecycle
+
+Finding:
+    Issue #746 alleged that persisted measurement definitions were loaded but
+    not passed into the active MeasurementChannelService during project open.
+
+Audit result:
+    The current main branch already wires the complete path:
+    - ProjectPersistenceService.load() returns LoadedProject.measurement_definitions
+      from the canonical project's measurement.channels data.
+    - create_application() composes activate_project_state() into the project
+      lifecycle and passes loaded.measurement_definitions into
+      MeasurementChannelService.activate() against the candidate Network and
+      activation generation before protection runtime composition.
+    - Project activation captures the previous measurement registry and restores
+      it during transactional compensation.
+    - save_project() persists measurement_channel_service.serialize_definitions().
+
+Disposition:
+    No runtime code correction required based on the inspected source path.
+    Issue #746 can be closed as already addressed in current main; this audit
+    does not claim an end-to-end reopen runtime check.
+
+Verification:
+    Source-level trace only across project_persistence.py, bootstrap.py,
+    project_lifecycle.py, and measurement_channel_service.py.
+    No tests, CI, syntax/import checks, or runtime project reopen performed.
+
+Status:
+    SOURCE PATH VERIFIED — RUNTIME REHYDRATION NOT EXECUTED
