@@ -19,15 +19,34 @@ from core.model.fuse import Fuse
 from core.model.switch import Switch
 from core.model.terminal import Terminal
 from core.network.network import Network
+from core.application.synchronism_check import SynchronismCheckGuard
 
 
 class SwitchingModelService(ModelServiceSupport):
     """Owns Application-layer mutation use cases for switching devices."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(self, network: Network, synchronism_guard: SynchronismCheckGuard | None = None) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
+        if synchronism_guard is not None and not isinstance(synchronism_guard, SynchronismCheckGuard):
+            raise TypeError("synchronism_guard must be a SynchronismCheckGuard or None.")
         self._network = network
+        self._synchronism_guard = synchronism_guard
+
+    def configure_synchronism_guard(self, guard: SynchronismCheckGuard) -> None:
+        """Install the project-bound ANSI 25 guard before permitting breaker closes."""
+        if not isinstance(guard, SynchronismCheckGuard):
+            raise TypeError("guard must be a SynchronismCheckGuard.")
+        self._synchronism_guard = guard
+
+    def _authorize_breaker_close(self, breaker: Breaker) -> None:
+        if self._synchronism_guard is None:
+            raise DomainError(
+                code="ANSI25_CONFIGURATION_REQUIRED",
+                message="Breaker close denied: no project-bound ANSI 25 guard is configured.",
+                details={"breaker_id": breaker.id},
+            )
+        self._synchronism_guard.authorize_close(breaker)
 
     @property
     def network(self) -> Network:
@@ -138,6 +157,8 @@ class SwitchingModelService(ModelServiceSupport):
         if endpoint_from is not None and endpoint_to is not None: self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_BREAKER_ENDPOINTS", "Breaker", breaker_id)
         self._ensure_not_exists("breaker", breaker_id, "Breaker")
         breaker = Breaker(id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka)
+        if closed:
+            self._authorize_breaker_close(breaker)
         self._network.add_breaker(breaker); transaction.record_undo(lambda breaker=breaker: self._network.remove_breaker(breaker)); return self._success(breaker, "breaker", breaker_id, f"Breaker created: {breaker_id}")
 
     def update_breaker(self, *, breaker_id: str, name: str | None = None, in_service: bool | None = None, closed: bool | None = None, failed: bool | None = None, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
@@ -154,6 +175,9 @@ class SwitchingModelService(ModelServiceSupport):
         def restore_snapshot() -> None:
             for key, value in old.items():
                 setattr(breaker, key, value)
+
+        if closed is True and not breaker.closed:
+            self._authorize_breaker_close(breaker)
 
         try:
             for key, value in (("name", name), ("in_service", in_service), ("closed", closed), ("failed", failed), ("voltage_kv", voltage_kv), ("current_a", current_a), ("interrupting_ka", interrupting_ka)):
@@ -196,7 +220,10 @@ class SwitchingModelService(ModelServiceSupport):
         transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
 
     def _set_breaker_closed(self, *, breaker_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.close() if closed else breaker.open(); topology_changed = old != breaker.closed
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed
+        if closed and not old:
+            self._authorize_breaker_close(breaker)
+        breaker.close() if closed else breaker.open(); topology_changed = old != breaker.closed
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
