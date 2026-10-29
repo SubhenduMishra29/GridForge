@@ -13502,3 +13502,62 @@ Status:
     relevant event bursts is confirmed, but the claimed solver-iteration
     repaint loop is not established by the inspected source. Runtime event
     tracing and profiling are required before a safe performance correction.
+
+
+======================================================================
+GF-SLD-INSERT-HIT-001 — Issue #762 — Layered Route Intersection Target Resolution
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #762; ui/tools/electrical_insertion_tool.py;
+    ui/sld/items/sld_connection_item.py; core/application/commands/insertion_commands.py;
+    core/application/services/electrical_insertion_service.py.
+
+Confirmed source finding:
+    ElectricalInsertionTool._resolve_target() accepted the first item supplied
+    by the event or the first non-null controller hit resolver. It did not
+    compare all Simple Wire candidates under the pointer. SLDConnectionItem
+    provides an insertion_target() calculation that returns the closest point,
+    distance and route segment for that particular connection, but the tool
+    did not use those distances to disambiguate overlapping route layers.
+    Consequently scene stacking/hit resolver order could select a different
+    electrical connection than the nearest geometric target.
+
+Correction:
+    PR #798 inspects all scene items at the pointer position when a scene
+    point-query API is available, asks each insertion-capable item for its
+    route-specific target, and ranks candidates by the returned finite distance.
+    If distinct Core connection identities are equally near within a small
+    numeric tolerance, the tool fails closed rather than splitting an
+    arbitrary wire at a true crossing. Explicit event-provided connection items
+    remain authoritative; older single-item controller adapters remain a
+    compatibility fallback when scene point queries are unavailable.
+
+Boundary:
+    The change is confined to UI hit-target resolution. The selected target
+    still crosses the canonical InsertEquipmentIntoConnectionCommand and
+    Application transaction service. No Qt graphics object is passed into
+    the command/Core payload; only connection identity, coordinates, segment
+    index and value contracts are sent. Core topology remains authoritative.
+
+Required follow-up:
+    - Reproduce two visually crossing Simple Wires with distinct Core
+      connection IDs; verify an unambiguous offset selects the nearest route.
+    - Verify an exactly ambiguous crossing is rejected without changing either
+      connection or creating equipment.
+    - Verify explicit connection-item events and controller-only adapters keep
+      their expected behavior.
+    - Confirm the active snap system exposes the same canonical scene used by
+      the renderer, and retain UI-only Qt imports through ui/core/qt.py.
+
+Verification:
+    Source-level correction only. No tests, CI, syntax/import checks, or
+    runtime interaction were performed, in accordance with repository rules.
+
+Status:
+    HIT-TARGET RANKING CORRECTED IN PR #798 — ISSUE #762 REMAINS OPEN pending
+    runtime verification of layered intersections, ambiguous-hit rejection,
+    and transactional non-mutation on rejected gestures.
