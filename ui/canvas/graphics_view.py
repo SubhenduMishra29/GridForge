@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, Qt, Signal
+from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -123,7 +123,26 @@ class GraphicsView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: Any) -> None:
-        point = self.mapToScene(event.position().toPoint() if hasattr(event.position(), "toPoint") else event.pos())
+        # mapToScene(QPoint) rounds/truncates QPointF mouse positions to
+        # integer viewport coordinates. Invert the current viewport transform
+        # instead so cursor feedback remains aligned during pan and placement.
+        viewport_position = (
+            event.position()
+            if callable(getattr(event, "position", None))
+            else QPointF(float(event.pos().x()), float(event.pos().y()))
+        )
+        inverse, invertible = self.viewportTransform().inverted()
+        if invertible:
+            point = inverse.map(
+                QPointF(float(viewport_position.x()), float(viewport_position.y()))
+            )
+        else:
+            integer_position = (
+                viewport_position.toPoint()
+                if callable(getattr(viewport_position, "toPoint", None))
+                else event.pos()
+            )
+            point = self.mapToScene(integer_position)
         self._last_cursor_scene_position = (float(point.x()), float(point.y()))
         self.cursor_scene_position.emit(self._last_cursor_scene_position)
         if self.interaction_manager is not None and self.interaction_manager.mouse_move(event):
