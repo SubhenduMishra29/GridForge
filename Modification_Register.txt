@@ -13232,3 +13232,58 @@ Status:
     SLD document, or Core topology registry.
 
 
+
+
+
+======================================================================
+GF-CANVAS-COORD-001 — Issue #766: Subpixel Coordinate Accumulation
+======================================================================
+
+Date:
+    2026-10-29
+
+Scope:
+    Issue #766; ui/canvas/coordinate_system.py;
+    ui/canvas/graphics_view.py; ui/canvas/model_placement_tool.py.
+
+Confirmed source finding:
+    CoordinateSystem.viewport_to_scene() converted QPointF-compatible mouse
+    coordinates to integer QPoint through toPoint() before mapToScene().
+    GraphicsView.mouseMoveEvent() performed the same integer conversion
+    before emitting cursor_scene_position. Fractional viewport movement was
+    therefore discarded at two active presentation-coordinate boundaries.
+    This is a concrete source-level precision defect consistent with preview
+    cursor drift during pan/placement.
+
+Correction:
+    PR #794 maps floating-point viewport positions through the inverse of
+    QGraphicsView.viewportTransform(), preserving subpixel positions under
+    the current pan/zoom transform. CoordinateSystem retains a legacy
+    mapToScene fallback for lightweight adapters without viewportTransform()
+    or when the transform is not invertible. GraphicsView uses the same
+    inverse-transform approach for cursor feedback and falls back to the
+    prior integer mapToScene path only when the transform cannot be inverted.
+
+Boundary:
+    The change is confined to UI coordinate conversion. It does not alter
+    Core coordinates, network topology, terminal identity, snap semantics,
+    or persisted equipment positions. Grid/object snapping remains owned by
+    SnapSystem after scene coordinates are resolved.
+
+Required follow-up:
+    - Reproduce high-resolution pointer movement while panning and dragging
+      placement previews at multiple zoom levels.
+    - Verify cursor signal and tool event coordinate parity under the active
+      PySide6 viewport transform.
+    - Inspect placement snapping separately if the preview still diverges;
+      do not compensate with accumulated mutable scene-coordinate offsets.
+
+Verification:
+    Focused source inspection and correction only. No tests, CI, syntax/import
+    checks, or runtime pointer interaction were performed.
+
+Status:
+    SUBPIXEL CONVERSION CORRECTED IN PR #794 — ISSUE #766 REMAINS OPEN pending
+    runtime verification of cursor/preview alignment and snap parity.
+
+
