@@ -272,7 +272,7 @@ class ProjectWorkspaceLifecycle:
         def attempt(label: str, operation) -> None:
             try:
                 operation()
-            except BaseException as exc:
+            except Exception as exc:
                 failures.append((label, exc))
 
         # Deactivation can fail in the view realization layer. Do not let that
