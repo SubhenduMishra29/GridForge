@@ -4,8 +4,9 @@
 The resolver consumes Core topology only. The Application layer may supply
 an engineer-authored branch identity from the CT's SLD node properties; the
 identity is accepted only after its terminal buses are checked against the
-CT's primary terminals. When no identity is configured, only a unique exact
-terminal-pair match is accepted.
+CT's primary terminals and the intervening conductive switching path. When
+no identity is configured, only a unique branch between the two
+switch-connected terminal zones is accepted.
 """
 
 from __future__ import annotations
@@ -57,8 +58,12 @@ class CTMeasurementAssociation:
             raise ValueError("Monitored branch must connect distinct Buses.")
         if self.measurement_side not in {"from", "to"}:
             raise ValueError("measurement_side must be 'from' or 'to'.")
-        if self.current_orientation_sign not in {-1, 1}:
-            raise ValueError("current_orientation_sign must be -1 or +1.")
+        if (
+            isinstance(self.current_orientation_sign, bool)
+            or not isinstance(self.current_orientation_sign, int)
+            or self.current_orientation_sign not in {-1, 1}
+        ):
+            raise ValueError("current_orientation_sign must be integer -1 or +1.")
         for name in ("activation_generation", "topology_revision"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -163,7 +168,8 @@ class CTMeasurementAssociationResolver:
             if selected is None:
                 raise CTMeasurementAssociationError(
                     f"SLD-selected monitored element {monitored_element_id!r} is not an active, "
-                    "fully connected Line, Cable, or Transformer in the current topology."
+                    "fully connected Line, Cable, or Transformer bridging the CT's current "
+                    "switch-connected primary terminal zones."
                 )
             candidates = [(monitored_element_id, *selected)]
         else:
@@ -173,8 +179,9 @@ class CTMeasurementAssociationResolver:
             ]
             if not candidates:
                 raise CTMeasurementAssociationError(
-                    f"CT {ct_id!r} does not resolve to an active branch with the same P1/P2 Bus pair. "
-                    "Configure the monitored element on the CT's SLD node and verify its electrical connections."
+                    f"CT {ct_id!r} does not resolve to an active branch bridging its two "
+                    "switch-connected primary terminal zones. Configure the monitored element "
+                    "on the CT's SLD node and verify its electrical connections."
                 )
             if len(candidates) > 1:
                 candidate_ids = tuple(sorted(item[0] for item in candidates))
