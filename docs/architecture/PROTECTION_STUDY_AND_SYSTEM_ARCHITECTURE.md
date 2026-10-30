@@ -350,11 +350,15 @@ For each scenario, the Application handler:
    the returned short-circuit provenance.
 5. Retains the typed `ShortCircuitResult` in a
    `ProtectionFaultScenarioResult` correlated to the scenario ID.
-6. Checks cancellation and active project/revision provenance between scenario
+6. Preserves the solver's independent `ContributionStatus` and diagnostics;
+   a numerically successful fault solve is not treated as measurement-ready
+   when source/branch current contributions are partial or unavailable.
+7. Checks cancellation and active project/revision provenance between scenario
    calculations.
 
 A Protection Study containing fault scenarios is reported as
-`fault_scenarios_calculated` when those calculations complete. It does not
+`fault_scenarios_calculated` only when the fault solve and contribution
+coverage are complete. Otherwise the study result is `partial`. It does not
 also evaluate live measurement samples and present them as fault-derived relay
 inputs. The result explicitly records
 `measurement_snapshot_evaluated=False` for this mode. The existing
