@@ -443,7 +443,7 @@ class ProtectionStudyHandler:
                     diagnostics=tuple(conversion_diagnostics)
                 )
             else:
-                scenario_execution = application.evaluate_protection_scenario(
+                scenario_execution = application._evaluate_protection_scenario(
                     scenario_id=scenario.scenario_id,
                     samples=tuple(scenario_samples),
                     evaluation_time=configuration.evaluation_time,
