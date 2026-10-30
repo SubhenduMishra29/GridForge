@@ -67,6 +67,23 @@ class ShortCircuitPreparation:
             )
             prefault_voltage = prefault_voltages[bus_index]
             snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
+            current_base_mva = self.base_mva
+            if self._sequence_network is not None:
+                supplied_sequence_base = getattr(self._sequence_network, "base_mva", None)
+                if (
+                    supplied_sequence_base is None
+                    or current_base_mva is None
+                    or not math.isclose(
+                        float(supplied_sequence_base),
+                        current_base_mva,
+                        rel_tol=1e-12,
+                        abs_tol=1e-12,
+                    )
+                ):
+                    # A detached prebuilt SequenceNetwork without matching
+                    # base provenance cannot support a trustworthy pu→A
+                    # conversion, even if a separate base was supplied.
+                    current_base_mva = None
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
@@ -98,7 +115,7 @@ class ShortCircuitPreparation:
                 project_id=topology_snapshot.project_id,
                 activation_generation=topology_snapshot.activation_generation,
                 topology_revision=topology_snapshot.topology_revision,
-                base_mva=self.base_mva,
+                base_mva=current_base_mva,
                 bus_base_voltage_kv=bus_base_voltage_kv,
             )
         finally:
