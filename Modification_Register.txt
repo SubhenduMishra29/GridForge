@@ -14720,3 +14720,56 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-IDMT-TCC-001 — IEC IDMT coordination and TCC workspace
+======================================================================
+
+Date:
+    2026-10-30
+
+Issue:
+    #868
+
+Scope:
+    - Existing IEC 60255 inverse-time equations and IEC SI/VI/EI curve
+      constants in core.protection.relay_functions were audited and retained.
+    - Existing generate_tcc_points() remains the canonical numerical TCC
+      point generator; no duplicate formula engine was introduced.
+    - Added explicit primary/backup IDMT coordination sweep over caller-
+      supplied fault-current scenarios and required grading margin.
+    - Added immutable IDMTCurvePointReadModel / IDMTCurveReadModel,
+      generated from persisted ANSI 51/51N settings.
+    - Added Application.read_idmt_curves() as the UI-neutral read boundary.
+    - Added the Protection TCC Coordination default panel with logarithmic
+      current/time axes and multi-curve overlays. Refresh reads snapshots
+      through Application; the chart does not calculate protection or
+      mutate settings/network state.
+
+Engineering boundaries:
+    - Current values retain the relay-input engineering convention; no
+      unsupported primary/secondary CT conversion or unit assumption is made.
+    - Primary/backup roles, fault-current scenarios, and required grading
+      margin must be explicitly supplied by the caller.
+    - Backup non-pickup is INDETERMINATE, not a false coordination pass.
+    - ANSI 51/51N catalog status is unchanged; chart availability does not
+      establish production protection coordination or scheme completeness.
+    - The issue's claim that all IDMT mathematics are absent is inaccurate:
+      IEC equations, inverse solution, TCC point generation, and arithmetic
+      coordination margin pre-existed. This change adds the missing integrated
+      read-model, explicit grading sweep, and log-log workspace.
+
+Verification:
+    - Source changes committed on feature/issue-868-idmt-tcc-workspace.
+    - No tests or CI run, per repository rule.
+    - Python syntax/import, PySide6 runtime chart rendering, curve overlay
+      interaction, and relay-coordination engineering validation remain
+      unverified and are not claimed complete.
+
+Disposition:
+    - Keep issue #868 open pending source/runtime verification and review of
+      project-level primary/backup relationship configuration and scenario
+      provenance. No production-ready claim.
+
+======================================================================
