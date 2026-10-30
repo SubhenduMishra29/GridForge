@@ -33,6 +33,7 @@ def test_cycle_keeps_evaluation_and_execution_diagnostics_separate() -> None:
     execution = ControlExecutionResult(
         failed_decisions=(failed,),
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
+        failure_diagnostics=(("failed", "dispatch failed"),),
     )
 
     result = ControlCycleResult(evaluation=evaluation, execution=execution)
