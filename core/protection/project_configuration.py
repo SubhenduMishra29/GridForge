@@ -168,6 +168,7 @@ class DifferentialProtectionSchemeConfiguration:
     protected_object_id: str
     measurement_binding_ids: tuple[str, ...]
     current_directions: Mapping[str, str]
+    differential_settings: Mapping[str, Any] = field(default_factory=dict)
     phase_compensation_degrees: Mapping[str, float] = field(default_factory=dict)
     enabled: bool = True
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -203,6 +204,42 @@ class DifferentialProtectionSchemeConfiguration:
                 raise ValueError("Differential current direction must be INTO_ZONE or OUT_OF_ZONE.")
             directions[binding_id] = normalized_direction
         object.__setattr__(self, "current_directions", MappingProxyType(directions))
+        if not isinstance(self.differential_settings, Mapping):
+            raise TypeError("differential_settings must be a mapping.")
+        settings = dict(self.differential_settings)
+        if settings:
+            required = {"pickup_current_a", "restraint_method", "slopes"}
+            allowed = required | {"breakpoints_a", "high_set_pickup_a"}
+            if not required.issubset(settings) or not set(settings).issubset(allowed):
+                raise ValueError("Differential settings require pickup_current_a, restraint_method and slopes; unsupported keys are not allowed.")
+            if settings["restraint_method"] not in {"HALF_SUM_MAGNITUDES", "SUM_MAGNITUDES", "MAX_MAGNITUDE"}:
+                raise ValueError("Differential settings restraint_method is unsupported.")
+            def finite_nonnegative(value: Any, name: str, *, positive: bool = False) -> float:
+                if isinstance(value, bool):
+                    raise TypeError(f"{name} must be numeric, not boolean.")
+                try:
+                    number = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise TypeError(f"{name} must be numeric.") from exc
+                if not math.isfinite(number) or number < 0.0 or (positive and number <= 0.0):
+                    raise ValueError(f"{name} must be finite and {'positive' if positive else 'non-negative'}.")
+                return number
+            settings["pickup_current_a"] = finite_nonnegative(settings["pickup_current_a"], "pickup_current_a", positive=True)
+            slopes = settings["slopes"]
+            if not isinstance(slopes, (list, tuple)) or not slopes:
+                raise ValueError("Differential settings require one or more slopes.")
+            settings["slopes"] = tuple(finite_nonnegative(value, "slope") for value in slopes)
+            breakpoints = settings.get("breakpoints_a", ())
+            if not isinstance(breakpoints, (list, tuple)):
+                raise TypeError("breakpoints_a must be a list or tuple.")
+            settings["breakpoints_a"] = tuple(finite_nonnegative(value, "breakpoint", positive=True) for value in breakpoints)
+            if len(settings["slopes"]) != len(settings["breakpoints_a"]) + 1:
+                raise ValueError("Differential slope count must equal breakpoint count plus one.")
+            if any(right <= left for left, right in zip(settings["breakpoints_a"], settings["breakpoints_a"][1:])):
+                raise ValueError("Differential breakpoints must be strictly increasing.")
+            if "high_set_pickup_a" in settings and settings["high_set_pickup_a"] is not None:
+                settings["high_set_pickup_a"] = finite_nonnegative(settings["high_set_pickup_a"], "high_set_pickup_a", positive=True)
+        object.__setattr__(self, "differential_settings", _freeze_value(settings))
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
         if not isinstance(self.phase_compensation_degrees, Mapping):
@@ -227,6 +264,7 @@ class DifferentialProtectionSchemeConfiguration:
             "protected_object_id": self.protected_object_id,
             "measurement_binding_ids": list(self.measurement_binding_ids),
             "current_directions": dict(self.current_directions),
+            "differential_settings": _thaw_value(self.differential_settings),
             "phase_compensation_degrees": dict(self.phase_compensation_degrees),
             "enabled": self.enabled,
             "metadata": _thaw_value(self.metadata),
@@ -242,6 +280,7 @@ class DifferentialProtectionSchemeConfiguration:
             protected_object_id=data["protected_object_id"],
             measurement_binding_ids=tuple(data["measurement_binding_ids"]),
             current_directions=dict(data["current_directions"]),
+            differential_settings=dict(data.get("differential_settings") or {}),
             phase_compensation_degrees=dict(data.get("phase_compensation_degrees") or {}),
             enabled=data.get("enabled", True),
             metadata=dict(data.get("metadata") or {}),
