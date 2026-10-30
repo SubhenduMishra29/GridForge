@@ -9,16 +9,6 @@ from core.solver.power_flow.result import PowerFlowResult
 
 
 def test_power_flow_result_prepares_dynamic_initial_state():
-    result = PowerFlowResult(
-        success=True,
-        iterations=3,
-        error=1e-10,
-        pv_to_pq=(),
-        history=(1.0, 1e-4, 1e-10),
-        message="converged",
-        voltage_magnitudes=(1.0, 0.98),
-        voltage_angles=(0.1, -0.02),
-    )
     power_flow_input = PowerFlowInput(
         bus_ids=("B1", "B2"),
         bus_types=(PowerFlowBusType.SLACK, PowerFlowBusType.PQ),
@@ -28,6 +18,18 @@ def test_power_flow_result_prepares_dynamic_initial_state():
         q_max=(None, None),
         initial_vm=(1.0, 1.0),
         initial_va=(0.0, 0.0),
+    )
+    result = PowerFlowResult(
+        success=True,
+        iterations=3,
+        error=1e-10,
+        pv_to_pq=(),
+        history=(1.0, 1e-4, 1e-10),
+        message="converged",
+        voltage_magnitudes=(1.0, 0.98),
+        voltage_angles=(0.1, -0.02),
+        bus_ids=power_flow_input.bus_ids,
+        snapshot_id=power_flow_input.snapshot_id,
     )
     machine = DynamicMachineModelDefinition(
         machine_id="G1",
