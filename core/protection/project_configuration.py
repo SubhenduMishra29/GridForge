@@ -193,11 +193,23 @@ class ProtectionProjectConfiguration:
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
         if configuration.element_id not in self._elements:
             raise KeyError(configuration.element_id)
+        for binding in self._bindings.values():
+            if binding.protection_element_id == configuration.element_id:
+                if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+                    raise ValueError(
+                        "Cannot change an input channel while a canonical measurement binding references it."
+                    )
         self._elements[configuration.element_id] = configuration
 
     def remove(self, element_id: str) -> ProtectionFunctionConfiguration:
-        try: return self._elements.pop(element_id)
-        except KeyError as exc: raise KeyError(f"Protection element is not configured: {element_id}") from exc
+        if any(binding.protection_element_id == element_id for binding in self._bindings.values()):
+            raise ValueError(
+                f"Cannot remove protection element {element_id!r} while measurement bindings reference it."
+            )
+        try:
+            return self._elements.pop(element_id)
+        except KeyError as exc:
+            raise KeyError(f"Protection element is not configured: {element_id}") from exc
 
     def get(self, element_id: str) -> ProtectionFunctionConfiguration:
         try: return self._elements[element_id]
