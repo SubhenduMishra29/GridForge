@@ -320,6 +320,11 @@ class ProtectionProjectConfiguration:
             raise TypeError("binding must be ProtectionMeasurementBinding.")
         if binding.binding_id not in self._bindings:
             raise KeyError(binding.binding_id)
+        if (
+            binding.measurement_type.strip().lower() != "current"
+            and any(binding.binding_id in scheme.measurement_binding_ids for scheme in self._differential_schemes.values())
+        ):
+            raise ValueError("A differential scheme member must remain a current measurement binding.")
         configuration = self.get(binding.protection_element_id)
         if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
             raise ValueError(
