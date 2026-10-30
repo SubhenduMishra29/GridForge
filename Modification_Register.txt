@@ -15204,3 +15204,77 @@ Disposition:
     update this register; do not revive superseded architecture paths.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Unified Protection Study and complete Protection System Engineering
+    architecture for GridForge V2.
+
+Status:
+    ARCHITECTURE BASELINE ESTABLISHED — PHASED IMPLEMENTATION REQUIRED.
+    NOT A PRODUCTION-READINESS DECLARATION.
+
+Decision:
+    One Application-owned Protection Study workflow shall configure,
+    validate, calculate, coordinate, evaluate, report and preserve
+    provenance for the complete project protection system.
+
+    Protection Study is the engineering workflow and result lifecycle.
+    Protection System is the configured protection arrangement and
+    runtime orchestration. They are related but are not interchangeable.
+
+    Protection remains a distinct subsystem integrated through explicit
+    contracts with Core model/network, measurement, switching/control,
+    Application study lifecycle, persistence and UI projections.
+
+Frozen boundaries:
+    - Core owns electrical/protection domain truth and calculations.
+    - Application owns Study lifecycle, configuration orchestration,
+      transactions, commands, provenance, events and result assembly.
+    - UI/SLD owns authoring interaction and read-only projection.
+    - Measurement channels and protection trip/signalling outputs are
+      separate paths.
+    - ProtectionElement does not own a universal ProtectionZone.
+    - Differential coverage is derived from configured CT boundaries;
+      other function coverage remains function-specific.
+    - Protection decisions do not directly mutate breaker state.
+    - No inferred feeder, relay, zone, input or trip target from SLD
+      geometry, proximity, ordering or arbitrary Bus-pair matching.
+
+Existing canonical contracts to reuse:
+    RelayBase, RelayInput, ProtectionElement, ProtectionDecision,
+    ProtectionSystem, ProtectionMeasurementBinding,
+    ProtectionProjectConfiguration, ProtectionConfigurationService,
+    ProtectionExecution, ProtectionOutputService, MeasurementChannel,
+    MeasurementProvisioning, StudyRequest, StudyCaseDefinition,
+    StudyExecutionContext and StudyPreparationService.
+
+Implementation phases:
+    A. Audit and reconcile existing contracts and function status.
+    B. Integrate Protection Study into the existing Study lifecycle.
+    C. Complete instrument and measurement association.
+    D. Complete protection scheme, output mapping and breaker-failure path.
+    E. Complete protection algorithms, IDMT/TCC and coordination.
+    F. Complete typed results, reporting and UI projections.
+    G. Static acceptance, register update and scoped freeze.
+
+Research references:
+    IEC 60255-1:2022; IEC 60255-151:2009; IEC 60255-121:2014;
+    IEC 60255-187-1:2021; IEC 61869-1:2023; IEC TS 60255-216-1:2025;
+    IEC 61850-7-4; IEC 62271-100:2021+AMD1:2024; IEEE C37.112-2018;
+    applicable IEEE C37 protection application guides.
+
+Verification:
+    Architecture and repository source inspection only.
+    No tests or CI run or required in this phase.
+    Protection functions and complete Study workflow remain unverified
+    until their implementation phases and engineering reviews are complete.
+
+======================================================================
