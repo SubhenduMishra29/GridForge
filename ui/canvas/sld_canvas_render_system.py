@@ -404,6 +404,16 @@ class SLDCanvasRenderSystem:
                 )
                 self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
+                # Missing or unresolved domain identity is not a presentation
+                # degradation: fabricating a generic equipment placeholder
+                # would imply an object the Application read model cannot
+                # establish. Remove any stale realization and expose only the
+                # structured diagnostic until authoritative identity returns.
+                if code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}:
+                    self._remove_realized(node.node_id)
+                    self._render_signatures.pop(node.node_id, None)
+                    self._degraded_node_ids.add(node.node_id)
+                    continue
                 degraded = previous_degraded
                 if degraded is None and previous_item is not None:
                     # Retain the last-good visible item, but leave its prior
