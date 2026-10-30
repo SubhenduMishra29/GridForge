@@ -315,8 +315,14 @@ class ProtectionStudyHandler:
     """Run a non-operating protection evaluation through the existing StudyService."""
 
     def __init__(self, application: Any) -> None:
-        if application is None or not callable(getattr(application, "evaluate_protection_cycle", None)):
-            raise TypeError("application must expose evaluate_protection_cycle().")
+        if (
+            application is None
+            or not callable(getattr(application, "evaluate_protection_cycle", None))
+            or not callable(getattr(application, "_evaluate_protection_scenario", None))
+        ):
+            raise TypeError(
+                "application must expose the live and detached-scenario protection evaluation boundaries."
+            )
         self._application = application
 
     def __call__(self, request: Any, execution_context: Any, cancellation: Any) -> ProtectionStudyResult | None:
