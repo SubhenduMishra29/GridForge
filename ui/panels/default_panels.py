@@ -18,6 +18,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
+    QChart, QChartView, QLineSeries, QLogValueAxis, QPainter,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -1033,12 +1034,113 @@ class PropertiesPanelWidget(QWidget):
             self._validation_label.setText("Engineering update accepted.")
 
 
+
+class IDMTTCCWorkspaceWidget(QWidget):
+    """Read-only log-log overlay workspace for Application IDMT curve snapshots."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("IDMTTCCWorkspace")
+        self._application: Any | None = None
+        self._chart = QChart()
+        self._chart.setTitle("Time–Current Characteristic (TCC)")
+        self._chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
+        self._view = QChartView(self._chart, self)
+        self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._status = QLabel(
+            "No IDMT curves loaded. Configure ANSI 51/51N pickup, curve and TMS, then refresh.",
+            self,
+        )
+        self._status.setWordWrap(True)
+        self._refresh_button = QPushButton("Refresh Curves", self)
+        self._refresh_button.setObjectName("RefreshIDMTTCC")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(self._refresh_button)
+        layout.addWidget(self._status)
+        layout.addWidget(self._view, 1)
+        self._current_axis: QLogValueAxis | None = None
+        self._time_axis: QLogValueAxis | None = None
+        self._series: list[QLineSeries] = []
+        self._refresh_button.clicked.connect(self.refresh_curves)
+
+    def bind_application(self, application: Any) -> None:
+        """Bind the Application read boundary; no Core or Qt state crosses it."""
+        if application is None or not callable(getattr(application, "read_idmt_curves", None)):
+            raise TypeError("Application must expose read_idmt_curves().")
+        self._application = application
+        self.refresh_curves()
+
+    def refresh_curves(self) -> None:
+        """Refresh from the current immutable Application read snapshots."""
+        if self._application is None:
+            self._status.setText("TCC workspace is not bound to the active Application.")
+            return
+        try:
+            models = self._application.read_idmt_curves()
+            self.set_curve_read_models(models)
+        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+            self._status.setText(f"Unable to load IDMT curves: {exc}")
+
+    def set_curve_read_models(self, models: Any) -> None:
+        """Replace overlays from immutable IDMTCurveReadModel values only."""
+        from core.application.read_models import IDMTCurveReadModel
+
+        snapshots = tuple(models)
+        if not all(isinstance(model, IDMTCurveReadModel) for model in snapshots):
+            raise TypeError("TCC workspace accepts IDMTCurveReadModel values only.")
+        if any(not model.points for model in snapshots):
+            raise ValueError("Every displayed IDMT curve must contain plot points.")
+
+        self._chart.removeAllSeries()
+        for axis in (self._current_axis, self._time_axis):
+            if axis is not None:
+                self._chart.removeAxis(axis)
+        self._series.clear()
+        self._current_axis = None
+        self._time_axis = None
+        if not snapshots:
+            self._status.setText("No ANSI 51/51N IDMT configurations are available.")
+            return
+
+        currents = [point.current for model in snapshots for point in model.points]
+        times = [point.operating_time_s for model in snapshots for point in model.points]
+        if any(value <= 0.0 for value in currents + times):
+            raise ValueError("Logarithmic TCC axes require positive current and time values.")
+
+        current_axis = QLogValueAxis(self)
+        current_axis.setBase(10.0)
+        current_axis.setTitleText("Current (relay-input engineering units)")
+        current_axis.setLabelFormat("%.3g")
+        current_axis.setRange(min(currents) * 0.999, max(currents) * 1.001)
+        time_axis = QLogValueAxis(self)
+        time_axis.setBase(10.0)
+        time_axis.setTitleText("Operating time (s)")
+        time_axis.setLabelFormat("%.3g")
+        time_axis.setRange(min(times) * 0.999, max(times) * 1.001)
+        self._chart.addAxis(current_axis, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(time_axis, Qt.AlignmentFlag.AlignLeft)
+        self._current_axis = current_axis
+        self._time_axis = time_axis
+
+        for model in snapshots:
+            series = QLineSeries(self._chart)
+            series.setName(f"{model.display_name} [{model.function_code} {model.curve}, TMS={model.TMS:g}]")
+            for point in model.points:
+                series.append(point.current, point.operating_time_s)
+            self._chart.addSeries(series)
+            series.attachAxis(current_axis)
+            series.attachAxis(time_axis)
+            self._series.append(series)
+        self._status.setText(f"Displaying {len(snapshots)} IDMT curve(s). Curves are read-only projections.")
+
 PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})
 EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser", metadata={"minimum_width": 230})
 PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties", metadata={"minimum_width": 300})
 ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List", metadata={"minimum_height": 180})
 MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events", metadata={"minimum_height": 150})
 STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases", metadata={"minimum_height": 150})
+IDMT_TCC_PANEL = PanelSpec(panel_id="idmt_tcc", title="Protection TCC Coordination", metadata={"minimum_height": 260})
 
 DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     PROJECT_PANEL,
@@ -1047,6 +1149,7 @@ DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     ELEMENT_LIST_PANEL,
     MESSAGES_PANEL,
     STUDY_CASES_PANEL,
+    IDMT_TCC_PANEL,
 )
 
 _PANEL_WIDGET_FACTORIES: dict[str, Callable[[QWidget | None], QWidget]] = {
@@ -1056,6 +1159,7 @@ _PANEL_WIDGET_FACTORIES: dict[str, Callable[[QWidget | None], QWidget]] = {
     "element_list": ElementListPanelWidget,
     "messages": MessagesPanelWidget,
     "study_cases": StudyCasesPanelWidget,
+    "idmt_tcc": IDMTTCCWorkspaceWidget,
 }
 
 
@@ -1092,7 +1196,7 @@ def compose_default_panel_specs() -> tuple[PanelSpec, ...]:
 
 def validate_default_panel_ids() -> tuple[str, ...]:
     ids = default_panel_ids()
-    if len(ids) != 6 or len(set(ids)) != 6:
+    if len(ids) != 7 or len(set(ids)) != 7:
         raise RuntimeError("Default panel IDs must be unique and complete.")
     return ids
 
@@ -1104,12 +1208,14 @@ __all__ = [
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",
+    "IDMTTCCWorkspaceWidget",
     "PROJECT_PANEL",
     "EQUIPMENT_PANEL",
     "PROPERTIES_PANEL",
     "ELEMENT_LIST_PANEL",
     "MESSAGES_PANEL",
     "STUDY_CASES_PANEL",
+    "IDMT_TCC_PANEL",
     "DEFAULT_PANEL_SPECS",
     "create_panel_widget",
     "panel_spec_with_widget",
