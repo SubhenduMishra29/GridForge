@@ -315,7 +315,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         editor_type = str(getattr(editor, "editor_type", "sld"))
         active_tool = workspace_surface_host.active_tool_id_for(editor_type)
         definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
-        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+        # The shared SelectionManager is the SLD selection authority only.
+        # Other editor disciplines must not inherit hidden/late SLD selection.
+        selected_ids = (
+            tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+            if editor_type == "sld"
+            else ()
+        )
         engineering = engineering_context.current.with_updates(
             project_id=getattr(getattr(gridforge_application.project_lifecycle, "context", None), "project_id", None),
             document_id=project_workspace_lifecycle.documents.active_document_id,
@@ -788,13 +794,30 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         # Publish context only after the canonical workspace transition succeeds.
         # The visible editor and action router must share one active discipline.
         workspace_controller.activate(workspace_id)
-        engineering_context.update(discipline=surface_id)
+
+        # Selection belongs to the active presentation, not to every workspace.
+        # Clear the shared SLD selection after a successful workspace switch so
+        # stale IDs cannot leak into another editor's context or action routing.
+        canvas_composition.selection_manager.clear()
+        active_tool = workspace_surface_host.active_tool_id_for(surface_id)
+        engineering_context.update(
+            discipline=surface_id,
+            active_tool=active_tool,
+            selected_ids=(),
+        )
 
     def _activate_surface(surface_id: str) -> None:
         # Topology and Map are compatibility surfaces outside WorkspaceController.
         # Keep their context transition explicit so SLD-only actions are disabled.
         workspace_surface_host.activate(surface_id)
-        engineering_context.update(discipline=surface_id, active_tool=None)
+        # These surfaces do not own the shared SLD selection. Do not carry
+        # selected SLD IDs into their editor context or action-state evaluation.
+        canvas_composition.selection_manager.clear()
+        engineering_context.update(
+            discipline=surface_id,
+            active_tool=None,
+            selected_ids=(),
+        )
 
     def _toggle_sld_maximize() -> None:
         _activate_workspace(SLD_WORKSPACE_ID, "sld")
@@ -1278,9 +1301,26 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
     if callable(bind_project_selection):
         bind_project_selection(canvas_composition.selection_manager)
-    canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
+    def _on_selection_changed(ids: object) -> None:
+        # The shared SelectionManager represents SLD selection only. Ignore
+        # late/hidden-canvas selection notifications while another discipline
+        # owns the active editor context.
+        if engineering_context.current.discipline != "sld":
+            return
+        engineering_context.update(selected_ids=ids)
+        workspace_surface_host.refresh_selection_context(ids)
+
+    canvas_composition.selection_manager.selection_changed.connect(_on_selection_changed)
+
+    def _on_controller_tool_changed(current: object, previous: object) -> None:
+        # This Controller owns SLD tool state. Do not let a hidden SLD tool
+        # change overwrite the active Control/Protection/Study tool context.
+        if engineering_context.current.discipline == "sld":
+            engineering_context.update(active_tool=current)
+        workspace_surface_host.refresh_tool_shelves()
+
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
-        controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
+        controller.tool_changed.connect(_on_controller_tool_changed)
     def _update_study_result_overlay(result: object | None) -> None:
         """Refresh the SLD only when the selected result snapshot changes."""
         if sld_canvas_projection.set_study_result(result):
