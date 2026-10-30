@@ -176,7 +176,7 @@ def evaluate_differential_scheme(
         restraint_current = _restraint_current(settings.restraint_method, magnitudes)
         threshold = _bias_threshold(settings, restraint_current)
         if not all(math.isfinite(value) for value in (operate_current, restraint_current, threshold)):
-            raise ValueError(f\"Differential calculation overflowed for phase {phase}.\")
+            raise ValueError(f"Differential calculation overflowed for phase {phase}.")
         bias_margin = operate_current - threshold
         high_set_margin = (
             None if settings.high_set_pickup_a is None
