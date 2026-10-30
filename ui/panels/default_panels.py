@@ -1054,15 +1054,43 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._status.setWordWrap(True)
         self._refresh_button = QPushButton("Refresh Curves", self)
         self._refresh_button.setObjectName("RefreshIDMTTCC")
+        self._primary_combo = QComboBox(self)
+        self._backup_combo = QComboBox(self)
+        self._cti_input = QDoubleSpinBox(self)
+        self._cti_input.setRange(0.0, 60.0)
+        self._cti_input.setDecimals(4)
+        self._cti_input.setSingleStep(0.05)
+        self._cti_input.setValue(0.3)
+        self._primary_currents = QLineEdit(self)
+        self._primary_currents.setPlaceholderText("e.g. 800, 1200, 2500")
+        self._backup_currents = QLineEdit(self)
+        self._backup_currents.setPlaceholderText("e.g. 760, 1100, 2300")
+        self._current_unit = QLineEdit(self)
+        self._current_unit.setText("A")
+        self._fault_location = QLineEdit(self)
+        self._fault_location.setPlaceholderText("Optional fault bus / location ID")
+        self._run_button = QPushButton("Run Coordination Study", self)
+        self._run_button.setObjectName("RunIDMTCoordinationStudy")
+        form = QFormLayout()
+        form.addRow("Primary function", self._primary_combo)
+        form.addRow("Backup function", self._backup_combo)
+        form.addRow("Required CTI (s)", self._cti_input)
+        form.addRow("Primary relay-input currents", self._primary_currents)
+        form.addRow("Backup relay-input currents", self._backup_currents)
+        form.addRow("Current unit", self._current_unit)
+        form.addRow("Fault location ID", self._fault_location)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(self._refresh_button)
+        layout.addLayout(form)
+        layout.addWidget(self._run_button)
         layout.addWidget(self._status)
         layout.addWidget(self._view, 1)
         self._current_axis: QLogValueAxis | None = None
         self._time_axis: QLogValueAxis | None = None
         self._series: list[QLineSeries] = []
         self._refresh_button.clicked.connect(self.refresh_curves)
+        self._run_button.clicked.connect(self.run_coordination_study)
 
     def bind_application(self, application: Any) -> None:
         """Bind the Application read boundary; no Core or Qt state crosses it."""
@@ -1079,8 +1107,117 @@ class IDMTTCCWorkspaceWidget(QWidget):
         try:
             models = self._application.read_idmt_curves()
             self.set_curve_read_models(models)
+            self._populate_function_selectors(models)
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
             self._status.setText(f"Unable to load IDMT curves: {exc}")
+
+    def _populate_function_selectors(self, models: Any) -> None:
+        """Populate explicit primary/backup selectors from available ANSI 51 curves."""
+        selected_primary = self._primary_combo.currentData()
+        selected_backup = self._backup_combo.currentData()
+        for combo in (self._primary_combo, self._backup_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            for model in models:
+                combo.addItem(f"{model.display_name} [{model.function_code}] — {model.element_id}", model.element_id)
+            combo.blockSignals(False)
+        if selected_primary:
+            index = self._primary_combo.findData(selected_primary)
+            if index >= 0:
+                self._primary_combo.setCurrentIndex(index)
+        if selected_backup:
+            index = self._backup_combo.findData(selected_backup)
+            if index >= 0:
+                self._backup_combo.setCurrentIndex(index)
+        if self._backup_combo.count() > 1 and self._backup_combo.currentIndex() == 0:
+            self._backup_combo.setCurrentIndex(1)
+
+    @staticmethod
+    def _parse_current_values(raw: str, field_name: str) -> tuple[float, ...]:
+        values = []
+        for index, token in enumerate(raw.split(",")):
+            token = token.strip()
+            if not token:
+                raise ValueError(f"{field_name} contains an empty current at position {index + 1}.")
+            value = float(token)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{field_name} values must be finite and positive.")
+            values.append(value)
+        if not values:
+            raise ValueError(f"{field_name} must contain at least one current.")
+        return tuple(values)
+
+    def run_coordination_study(self) -> None:
+        """Create and execute one project-scoped coordination Study Case."""
+        if self._application is None:
+            self._status.setText("TCC workspace is not bound to the active Application.")
+            return
+        primary_id = self._primary_combo.currentData()
+        backup_id = self._backup_combo.currentData()
+        if not primary_id or not backup_id:
+            self._status.setText("Select both a primary and a backup ANSI 51/51N function.")
+            return
+        if primary_id == backup_id:
+            self._status.setText("Primary and backup functions must be different.")
+            return
+        try:
+            from core.analysis.coordination_study import (
+                CoordinationFaultScenario,
+                CoordinationStudyConfiguration,
+                CoordinationStudyPair,
+            )
+            primary_values = self._parse_current_values(
+                self._primary_currents.text(), "Primary relay-input currents"
+            )
+            backup_values = self._parse_current_values(
+                self._backup_currents.text(), "Backup relay-input currents"
+            )
+            if len(primary_values) != len(backup_values):
+                raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
+            unit = self._current_unit.text().strip()
+            if not unit:
+                raise ValueError("Current unit is required; no CT or base conversion is inferred.")
+            location = self._fault_location.text().strip()
+            scenarios = tuple(
+                CoordinationFaultScenario(
+                    scenario_id=f"SCENARIO-{index + 1:03d}",
+                    primary_current=primary_current,
+                    backup_current=backup_current,
+                    current_unit=unit,
+                    fault_location_id=location,
+                )
+                for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
+            )
+            configuration = CoordinationStudyConfiguration(
+                pairs=(CoordinationStudyPair(str(primary_id), str(backup_id)),),
+                scenarios=scenarios,
+                required_cti_s=self._cti_input.value(),
+            )
+            case = self._application.create_protection_coordination_study_case(configuration)
+            execution = self._application.execute_study_case(case.study_id)
+            result_model = self._application.read_study_result(case.study_id)
+            if result_model is None or not result_model.current:
+                self._status.setText("Coordination result is unavailable or stale for the active project revision.")
+                return
+            result = result_model.value
+            if result is None:
+                self._status.setText("Coordination study completed without a result payload.")
+                return
+            rows = [
+                f"{point.scenario_id}: {point.status} | "
+                f"Ip={point.primary_current:g} {point.current_unit}, "
+                f"Ib={point.backup_current:g} {point.current_unit}, "
+                f"tp={point.primary_time_s:.4g}s, tb={point.backup_time_s:.4g}s, "
+                f"margin={point.margin_s:.4g}s, CTI={point.required_cti_s:.4g}s"
+                for point in result.points
+            ]
+            self._status.setText(
+                f"Study {execution.status.upper()} — {result.status}; "
+                f"{result.pair_count} pair(s), {result.scenario_count} scenario(s).\n"
+                + "\n".join(rows)
+            )
+        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+            self._status.setText(f"Coordination study rejected: {exc}")
 
     def set_curve_read_models(self, models: Any) -> None:
         """Replace overlays from immutable IDMTCurveReadModel values only."""
