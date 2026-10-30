@@ -14842,3 +14842,225 @@ Verification boundary:
     of full-suite success until the updated workflow completes.
 
 ======================================================================
+
+======================================================================
+2026-10-29 — WORKSPACE TRANSITION ROLLBACK RECOVERY CORRECTION
+======================================================================
+
+Scope
+-----
+ui/workspace/project_workspace.py
+ProjectWorkspaceLifecycle._restore_transition_snapshot()
+
+Confirmed defect
+----------------
+Rollback previously stopped immediately when WorkspaceController.deactivate()
+raised. That prevented independent restoration attempts for the project identity,
+document collection, active document, view collection, active view, and prior
+workspace/layout. A realization-layer failure could therefore suppress recovery
+of logical workspace state and obscure additional recovery failures.
+
+Correction applied
+------------------
+- Rollback now attempts workspace deactivation, document/view clearing,
+  project restoration, each document/view registration, active selections,
+  and workspace/layout restoration as independent steps.
+- A failed step no longer prevents later independent restoration attempts.
+- All restoration failures are retained in a combined diagnostic; the first
+  failure is preserved as the exception cause and individual failures are
+  attached as exception notes when supported.
+- The frozen boundary remains unchanged: this is UI workspace lifecycle
+  recovery; it does not move project/domain truth into UI or introduce Qt
+  dependencies into Core.
+
+Branch
+------
+fix/workspace-transition-rollback-recovery
+
+Commit
+------
+bdb47b0794d9f40ad3667145b724098fe0d53570
+
+Verification status
+-------------------
+Source-level replacement was applied against the current main version and
+committed to the focused correction branch. No tests, CI, GUI runtime, or
+import checks were run. Project-scoped undo/redo history and cross-workspace
+selection/action synchronization remain open audit items pending their own
+source trace; they are not marked corrected by this entry.
+
+======================================================================
+WORKSPACE SWITCH SELECTION / ENGINEERING CONTEXT CORRECTION
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    The canonical workspace activation path changed the active workspace
+    and updated only EngineeringContext.discipline. The shared SLD
+    SelectionManager retained selected IDs, and EngineeringContext could
+    retain the previous active_tool and selected_ids. Editor-context
+    construction reads the shared selection, so IDs from the prior surface
+    could leak into a newly activated workspace.
+
+Correction:
+    After successful WorkspaceController.activate(), clear the shared UI
+    selection and publish the new discipline, that surface's active tool,
+    and an empty selected_ids tuple to EngineeringContextStore. A failed
+    workspace activation does not clear selection or publish the new context.
+
+Architecture:
+    UI-only interaction/presentation state. No Qt or SLD object is passed
+    into Core, and no electrical/domain truth is moved out of Core.
+
+Verification:
+    Source-level call-path audit only. No tests, CI, GUI runtime, Python
+    syntax compilation, or import checks were run. Confirm the
+    active_tool_id_for(surface_id) contract and runtime action-state
+    behavior during the remaining integration review.
+
+======================================================================
+
+======================================================================
+COMPATIBILITY SURFACE SELECTION ISOLATION
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    Topology and Map activation uses the compatibility-surface path
+    outside WorkspaceController. That path changed discipline and cleared
+    active_tool, but retained shared SLD selection and EngineeringContext
+    selected_ids. This allowed SLD selection state to remain visible in
+    context while a non-SLD surface was active.
+
+Correction:
+    After successful compatibility-surface activation, clear the shared
+    UI selection and publish the surface discipline, active_tool=None,
+    and selected_ids=(). Failed activation does not mutate selection or
+    publish the new engineering context.
+
+Architecture:
+    UI-only transient interaction/presentation state. Core remains the
+    authority for electrical/domain truth; no Qt/SLD objects cross into Core.
+
+Verification:
+    Source-level call-path audit only. No tests, CI, GUI runtime, Python
+    syntax compilation, or import checks were run.
+
+======================================================================
+
+======================================================================
+ACTIVE-DISCIPLINE GUARD FOR SLD SELECTION AND TOOL EVENTS
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/workspace-transition-rollback-recovery
+
+Files:
+    main.py
+
+Finding:
+    The composition root forwarded every SelectionManager selection event
+    and every Controller tool_changed event directly into the shared
+    EngineeringContextStore. Both sources represent SLD-only state. If
+    a hidden SLD canvas emitted a late selection/tool event while Control,
+    Protection, Study, Topology, or Map was active, it could overwrite the
+    active editor's selected_ids or active_tool context.
+
+Correction:
+    Route these signals through named handlers. Selection changes update
+    EngineeringContext and the workspace selection context only while the
+    active discipline is SLD. Controller tool changes update active_tool
+    only while SLD is active; tool shelves are still refreshed for UI
+    synchronization.
+
+Architecture:
+    Presentation event routing only. No domain truth moved into UI and no
+    Qt/SLD objects cross the Core boundary.
+
+Verification:
+    Source-level audit and GitHub content update only. No tests, CI, GUI
+    runtime, Python syntax compilation, or import checks were run.
+
+======================================================================
+
+
+======================================================================
+2026-10-29 — WORKSPACE ROLLBACK EXCEPTION BOUNDARY CORRECTION
+======================================================================
+
+Scope:
+    ui/workspace/project_workspace.py
+    ProjectWorkspaceLifecycle._restore_transition_snapshot()
+
+Finding:
+    The best-effort rollback helper caught BaseException, which also captures
+    process-control exceptions such as KeyboardInterrupt and SystemExit and
+    converts them into ordinary restoration diagnostics.
+
+Correction:
+    Catch Exception for ordinary restoration failures. Process-control
+    exceptions are no longer intentionally swallowed or normalized by the
+    rollback helper.
+
+Architecture:
+    UI lifecycle recovery only. No Core/domain ownership changes.
+
+Verification boundary:
+    Source edit committed to fix/workspace-transition-rollback-recovery.
+    No tests/CI, syntax/import checks, or GUI runtime were run.
+
+======================================================================
+
+
+======================================================================
+2026-10-30 — WORKSPACE EDITOR-CONTEXT SELECTION ISOLATION CORRECTION
+======================================================================
+
+Scope:
+    main.py
+    _editor_context_factory()
+
+Finding:
+    Editor-context construction read selected IDs directly from the shared
+    SLD SelectionManager for every editor discipline. The event-routing
+    guards added to the workspace activation path did not protect this
+    independent read path. A Control, Protection, Study, Topology, or Map
+    editor context could therefore observe IDs belonging to a hidden SLD
+    canvas.
+
+Correction:
+    Read shared SelectionManager IDs only when editor_type is "sld".
+    Supply an empty selected_ids tuple to all non-SLD editor contexts.
+    The same discipline-scoped tuple is used by EngineeringContext and
+    EditorContext.selection_context, preventing divergent selection views.
+
+Architecture:
+    UI-only selection projection. The shared SelectionManager remains the
+    SLD selection authority; non-SLD contexts receive no SLD selection.
+    No Core/domain authority or mutation boundary changed.
+
+Verification:
+    Static source inspection confirms the read is guarded by editor_type.
+    Python syntax/import and workflow verification are pending after this
+    branch update. No tests or CI were run by this correction pass.
+
+======================================================================
