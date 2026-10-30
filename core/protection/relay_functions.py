@@ -230,6 +230,9 @@ def _finite_float(
     Convert a value to float and require finiteness.
     """
 
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be numeric, not boolean.")
+
     try:
         result = float(value)
     except (TypeError, ValueError) as exc:
@@ -1236,8 +1239,11 @@ def evaluate_idmt_coordination(
             coordinated = None
             indeterminate = True
         elif isinf(backup_time):
+            # A non-operating backup cannot establish a valid backup grading
+            # margin for this scenario; do not silently treat +inf as a pass.
             margin = inf
-            coordinated = True
+            coordinated = None
+            indeterminate = True
         elif isinf(primary_time):
             margin = float("-inf")
             coordinated = False
