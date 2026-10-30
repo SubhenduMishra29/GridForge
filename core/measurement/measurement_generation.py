@@ -95,7 +95,7 @@ class MeasurementGeneration:
     ) -> float | complex:
         """Convert PU current -> physical primary A -> CT secondary A."""
         self._validate_source(context, source, expected_types=frozenset({'CT'}))
-        self._validate_channel(channel, MeasurementSignalType.CURRENT)
+        self._validate_channel(channel, MeasurementSignalType.CURRENT, source)
         quantity = context.quantity
         if isinstance(quantity, LineFlowResult):
             raw = self._line_current(quantity, context)
@@ -120,7 +120,7 @@ class MeasurementGeneration:
     ) -> float:
         """Convert PU voltage -> physical primary kV -> PT/CVT secondary V."""
         self._validate_source(context, source, expected_types=frozenset({'PT', 'CVT'}))
-        self._validate_channel(channel, MeasurementSignalType.VOLTAGE)
+        self._validate_channel(channel, MeasurementSignalType.VOLTAGE, source)
         if not isinstance(context.quantity, PowerFlowResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "power-flow voltage")
@@ -157,7 +157,7 @@ class MeasurementGeneration:
         Applying a CT ratio directly to that value is therefore prohibited.
         """
         self._validate_source(context, source, expected_types=frozenset({'CT'}))
-        self._validate_channel(channel, MeasurementSignalType.CURRENT)
+        self._validate_channel(channel, MeasurementSignalType.CURRENT, source)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
@@ -230,7 +230,7 @@ class MeasurementGeneration:
         No feeder, zone, or CT association is inferred from graphical layout.
         '''
         self._validate_source(context, source, expected_types=frozenset({"CT"}))
-        self._validate_channel(channel, MeasurementSignalType.CURRENT)
+        self._validate_channel(channel, MeasurementSignalType.CURRENT, source)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit branch current")
@@ -475,12 +475,38 @@ class MeasurementGeneration:
                 )
 
     @staticmethod
-    def _validate_channel(channel: MeasurementChannel, expected: MeasurementSignalType) -> None:
+    def _validate_channel(
+        channel: MeasurementChannel,
+        expected: MeasurementSignalType,
+        source: Any,
+    ) -> None:
         if not isinstance(channel, MeasurementChannel):
             raise TypeError("channel must be a MeasurementChannel.")
         if channel.signal_type is not expected:
             raise ValueError(
                 f"MeasurementChannel signal_type must be {expected.value!r} for this conversion."
+            )
+        if channel.source_id != getattr(source, "id", None):
+            raise ValueError("MeasurementChannel source must be the same physical instrument used for generation.")
+        source_type = str(getattr(source, "element_type", type(source).__name__)).strip().upper()
+        secondary_roles = {
+            "CT": frozenset({"S1", "S2"}),
+            "PT": frozenset({"secondary_a", "secondary_b"}),
+            "CVT": frozenset({"X1", "X2"}),
+        }
+        if source_type not in secondary_roles:
+            raise UnsupportedMeasurementQuantity(
+                f"Measurement generation does not support a secondary-terminal contract for {source_type!r}."
+            )
+        terminal_reference = channel.source_terminal
+        if not isinstance(terminal_reference, EndpointReference) or not terminal_reference.is_terminal:
+            raise ValueError("MeasurementChannel must identify its physical secondary terminal.")
+        if terminal_reference.equipment_id != source.id:
+            raise ValueError("MeasurementChannel secondary terminal must belong to its physical source instrument.")
+        if terminal_reference.terminal_role not in secondary_roles[source_type]:
+            raise ValueError(
+                f"{source_type} measurement channel must originate from a configured secondary terminal; "
+                f"received {terminal_reference.terminal_role!r}."
             )
 
     @staticmethod
