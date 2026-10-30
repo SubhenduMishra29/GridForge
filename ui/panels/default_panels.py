@@ -1260,6 +1260,14 @@ class IDMTTCCWorkspaceWidget(QWidget):
         if not snapshots:
             self._status.setText("No ANSI 51/51N IDMT configurations are available.")
             return
+        units = {model.current_unit for model in snapshots}
+        if None in units or len(units) != 1:
+            self._status.setText(
+                "TCC overlay refused: every relay curve must declare the same current_unit. "
+                "No CT/base conversion is inferred."
+            )
+            return
+        current_unit = next(iter(units))
 
         currents = [point.current for model in snapshots for point in model.points]
         times = [point.operating_time_s for model in snapshots for point in model.points]
@@ -1268,7 +1276,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
 
         current_axis = QLogValueAxis(self)
         current_axis.setBase(10.0)
-        current_axis.setTitleText("Current (relay-input engineering units)")
+        current_axis.setTitleText(f"Current ({current_unit})")
         current_axis.setLabelFormat("%.3g")
         current_axis.setRange(min(currents), max(currents))
         time_axis = QLogValueAxis(self)
