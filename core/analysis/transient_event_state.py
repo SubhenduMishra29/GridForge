@@ -47,10 +47,17 @@ class TransientEventState:
         leave a partially cleared backup set. This method never mutates the
         authoritative project Network or dispatches Application commands.
         """
-        primary_id = str(failed_breaker_id).strip()
+        if not isinstance(failed_breaker_id, str):
+            raise TypeError("failed_breaker_id must be a string.")
+        if isinstance(backup_breaker_ids, (str, bytes)):
+            raise TypeError("backup_breaker_ids must be an iterable of breaker ID strings.")
+        primary_id = failed_breaker_id.strip()
         if not primary_id:
             raise ValueError("failed_breaker_id must be a non-empty string.")
-        targets = tuple(str(item).strip() for item in backup_breaker_ids)
+        targets = tuple(backup_breaker_ids)
+        if any(not isinstance(item, str) for item in targets):
+            raise TypeError("Backup breaker identifiers must be strings.")
+        targets = tuple(item.strip() for item in targets)
         if not targets:
             raise ValueError("At least one explicit backup breaker is required.")
         if any(not item for item in targets):
