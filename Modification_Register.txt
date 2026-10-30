@@ -14723,6 +14723,127 @@ Verification boundary:
 
 
 ======================================================================
+GF-RECONCILE-2026-10-30-A — Lifecycle, study provenance, and dynamics fixture contracts
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Regression fixtures for canonical SLD persistence, detached transient
+    stability snapshots, and Power Flow-to-Dynamics initialization.
+
+Corrections:
+    - Removed the synthetic "modified" field from the lifecycle test serializer.
+      Dirty/modified state is transient and is not part of the canonical SLD
+      document schema; the production persistence validator remains strict.
+    - Bound the detached PreparedPowerFlow fixture to the active Application
+      project ID, activation generation, and topology revision. This keeps the
+      study request and detached numerical snapshot on the same provenance
+      contract; no revision validation was relaxed.
+    - Supplied PowerFlowResult bus_ids and snapshot_id from the exact
+      PowerFlowInput used by Dynamics initialization. Result ordering and
+      snapshot identity remain explicit rather than inferred.
+
+Verification boundary:
+    Fixture corrections committed for workflow verification. No claim of
+    regression resolution or production readiness is made until the relevant
+    repository checks complete.
+
+======================================================================
+
+
+Persistence fixture follow-up:
+    - Migrated the lifecycle regression fixture to the typed
+      ProjectPresentationCollection serializer/deserializer and snapshot-provider
+      contract. The legacy single-document serializer is not a substitute for
+      the persisted collection contract. The failure-path fixture now raises
+      from the collection serializer, preserving the intended assertion that a
+      failed presentation serialization must not mark the project clean.
+
+
+Integrated regression verification additions:
+    - Included the separately scoped DraftConnection nested route canonicalizer
+      and SLD local-view dirty-state correction so the relevant workflow can
+      evaluate all four draft-commit failures and both SLD dirty-state failures
+      together with the lifecycle/study fixture corrections.
+    - Included the Application detached-study snapshot topology-revision
+      alignment correction discovered while tracing the remaining study failure.
+    - These changes remain strict at the canonical persistence, project dirty
+      authority, and study provenance boundaries.
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-C — Typed presentation activation and study revision binding
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    ProjectLifecycleService candidate validation and transient-stability
+    regression fixture provenance.
+
+Findings:
+    - ProjectLifecycleService deserialized a persisted presentation collection
+      into ProjectPresentationCollection, but candidate validation then read
+      LoadedProject.presentation_collection (the raw persistence mapping)
+      instead of the typed collection. This bypassed the deserialization
+      boundary and rejected valid saved projects.
+    - The transient-stability regression fixture supplied project, activation,
+      and topology identity but omitted PreparedPowerFlow.source_revision.
+      StudyPreparationService correctly rejects unversioned operating points.
+
+Corrections:
+    - Pass the typed presentation_collection candidate into
+      _validate_candidate() and validate that object before activation. Raw
+      persistence mappings remain owned by the deserializer boundary.
+    - Bind both PreparedPowerFlow fixture constructions to the exact
+      Application ProjectRevision tuple. No StudyPreparationService provenance
+      validation was relaxed.
+
+Verification boundary:
+    Source and fixture corrections committed for focused workflow verification.
+    PR #864 remains ineligible for merge until all required checks pass.
+
+======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-D — Full-suite import and workspace fixture alignment
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Public Application composition export and workspace manager regression
+    fixtures.
+
+Findings:
+    - The canonical create_application() composition factory is implemented
+      in core.application.bootstrap but was not exported from the
+      core.application package, while a test and public package consumer
+      import it from the package boundary.
+    - The workspace manager tests still imported the retired
+      WorkspacePlacement/placements API from workspace_definition. The
+      canonical workspace model is now WorkspaceDefinition.areas containing
+      AreaDefinition objects, with WorkspaceLayout.from_areas().
+
+Corrections:
+    - Export create_application from core.application and include it in
+      __all__, preserving the composition-root implementation in bootstrap.
+    - Migrate workspace manager fixtures to EditorDefinition,
+      AreaDefinition, WorkspaceDefinition.areas, and WorkspaceLayout.from_areas.
+      No legacy placement type was reintroduced into canonical workspace policy.
+
+Verification boundary:
+    Changes committed for full-suite import and startup verification. No claim
+    of full-suite success until the updated workflow completes.
+
+======================================================================
+
+======================================================================
 2026-10-29 — WORKSPACE TRANSITION ROLLBACK RECOVERY CORRECTION
 ======================================================================
 
