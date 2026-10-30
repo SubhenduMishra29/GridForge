@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from core.analysis.line_flow import LineFlowResult
 from core.model import EndpointReference, EquipmentType
+from core.model.ct import CurrentTransformer
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.measurement.measurement_generation import (
     MeasurementGeneration,
@@ -34,10 +35,10 @@ def test_measurement_current_uses_pu_to_primary_to_secondary_chain():
         signal_type=MeasurementSignalType.CURRENT,
         unit="A",
     )
-    source = SimpleNamespace(
-        id="ct-1",
-        ratio=10.0,
-        polarity="P1_P2",
+    source = CurrentTransformer(
+        "ct-1",
+        primary_rated_current_a=100.0,
+        secondary_rated_current_a=10.0,
         in_service=True,
     )
     context = PreparedMeasurementContext(
