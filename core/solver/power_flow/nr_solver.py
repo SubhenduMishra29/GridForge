@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import numpy as np
+from collections.abc import Callable
 
 from core.solver.common.jacobian import JacobianBuilder
 from core.solver.common.mismatch import PowerMismatch
@@ -57,7 +58,15 @@ class NewtonRaphsonSolver:
             va = tuple(float(x) for x in self.runtime_state.va)
         return PowerFlowResult(success=success, iterations=iterations, error=float(error), pv_to_pq=tuple(self._converted_pv), history=tuple(self.history), message=message, voltage_magnitudes=vm, voltage_angles=va, bus_ids=tuple(self.input.bus_ids), snapshot_id=self.input.snapshot_id)
 
-    def solve(self) -> PowerFlowResult:
+    def solve(self, *, should_cancel: Callable[[], bool] | None = None) -> PowerFlowResult:
+        """Execute Newton-Raphson with optional cooperative cancellation.
+
+        Cancellation is observed between numerical iterations. A running
+        dense linear solve is not forcibly interrupted; its result is discarded
+        at the next checkpoint.
+        """
+        if should_cancel is not None and not callable(should_cancel):
+            raise TypeError("should_cancel must be callable or None.")
         self.options.validate()
         self.linear_solver.regularization = float(self.options.regularization)
         self.q_handler.tolerance = float(self.options.q_limit_tolerance)
@@ -69,6 +78,10 @@ class NewtonRaphsonSolver:
         mismatch_engine, jacobian_builder = self._components()
         last_error = float("inf")
         for iteration in range(1, self.options.max_iterations + 1):
+            if should_cancel is not None and should_cancel():
+                self.runtime_state.converged = False
+                self.runtime_state.message = "Cancelled."
+                return self._result(False, iteration - 1, last_error, "Cancelled.", mismatch_engine)
             self.runtime_state.set_iteration(iteration)
             try:
                 mismatch = np.asarray(mismatch_engine.compute(), dtype=float).reshape(-1)
@@ -81,6 +94,10 @@ class NewtonRaphsonSolver:
             self.history.append(error)
             if self.options.verbose:
                 print(f"Iteration {iteration}: Mismatch={error:.6e}")
+            if should_cancel is not None and should_cancel():
+                self.runtime_state.converged = False
+                self.runtime_state.message = "Cancelled."
+                return self._result(False, iteration, error, "Cancelled.", mismatch_engine)
             if error <= self.options.tolerance:
                 self.runtime_state.converged = True
                 self.runtime_state.message = "Converged."
