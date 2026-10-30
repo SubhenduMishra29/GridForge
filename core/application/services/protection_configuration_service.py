@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from math import isfinite
 
 from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
@@ -307,6 +308,69 @@ class ProtectionConfigurationService:
         network = self._network_provider() if self._network_provider is not None else None
         if network is None:
             raise RuntimeError("No active Network is available for protection measurement binding.")
+        source_equipment = network.get_by_identity(binding.source_equipment_id)
+        instrument = network.get_by_identity(binding.instrument_id)
+        if source_equipment is None or instrument is None:
+            raise ResourceError(
+                code="PROTECTION_MEASUREMENT_SOURCE_NOT_FOUND",
+                message="Protection measurement source equipment or physical instrument is not in the active Network.",
+                details={
+                    "source_equipment_id": binding.source_equipment_id,
+                    "instrument_id": binding.instrument_id,
+                },
+            )
+        source_type = str(getattr(source_equipment, "TYPE", "")).strip().lower()
+        if binding.source_terminal_reference.equipment_type.value != source_type:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_TERMINAL_TYPE_MISMATCH",
+                message="Source terminal reference equipment type does not match the active source equipment.",
+                details={"source_equipment_id": binding.source_equipment_id},
+            )
+        source_roles = {getattr(item, "role", None) for item in getattr(source_equipment, "terminals", ())}
+        if binding.source_terminal_reference.terminal_role not in source_roles:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_TERMINAL_NOT_FOUND",
+                message="Source terminal reference is not a terminal of the active source equipment.",
+                details={
+                    "source_equipment_id": binding.source_equipment_id,
+                    "terminal_role": binding.source_terminal_reference.terminal_role,
+                },
+            )
+        instrument_type = str(getattr(instrument, "TYPE", "")).strip().upper()
+        measurement_type = binding.measurement_type.strip().lower()
+        if measurement_type == "current":
+            expected_types = {"CT"}
+            ratio_attribute = "ratio"
+        elif measurement_type == "voltage":
+            expected_types = {"PT", "CVT"}
+            ratio_attribute = "voltage_ratio"
+        else:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_TYPE_UNSUPPORTED",
+                message=f"Unsupported physical measurement type: {binding.measurement_type!r}",
+                details={"measurement_type": binding.measurement_type},
+            )
+        if instrument_type not in expected_types:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_INSTRUMENT_TYPE_MISMATCH",
+                message="Physical instrument type does not match the measurement quantity.",
+                details={
+                    "instrument_id": binding.instrument_id,
+                    "instrument_type": instrument_type,
+                    "measurement_type": measurement_type,
+                },
+            )
+        actual_ratio = float(getattr(instrument, ratio_attribute))
+        if not isfinite(actual_ratio) or abs(actual_ratio - binding.instrument_ratio) > max(1e-9, actual_ratio * 1e-9):
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_RATIO_MISMATCH",
+                message="Persisted instrument ratio does not match the authoritative physical instrument ratio.",
+                details={
+                    "instrument_id": binding.instrument_id,
+                    "configured_ratio": binding.instrument_ratio,
+                    "physical_ratio": actual_ratio,
+                },
+            )
         relay = network.get_by_id("relay", element.relay_id)
         relay_input = relay.get_input(binding.relay_input_id)
         if relay_input.channel_id != binding.channel_id or relay_input.channel is not channel:
