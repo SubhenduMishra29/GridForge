@@ -40,6 +40,31 @@ class CTMeasurementAssociation:
     in_service: bool
     topology_revision: int
 
+    def locate_measurement_endpoint(self, endpoint_reference: EndpointReference) -> str:
+        """Identify the CT primary side containing an explicitly selected endpoint.
+
+        Supports an equipment terminal (including transformer, motor, load or
+        other instrumented equipment) and a canonical Bus attachment. This
+        reports physical location only; it does not declare a protected zone
+        or infer current direction.
+        """
+        if not isinstance(endpoint_reference, EndpointReference):
+            raise TypeError("endpoint_reference must be a canonical EndpointReference.")
+        if endpoint_reference.is_terminal:
+            topology_reference = TopologyEndpointReference.from_terminal(endpoint_reference)
+        elif endpoint_reference.is_bus:
+            topology_reference = TopologyEndpointReference.from_bus(endpoint_reference)
+        else:
+            raise ValueError("CT measurement endpoint must be a terminal or Bus attachment.")
+        p1_matches = topology_reference in self.p1_component
+        p2_matches = topology_reference in self.p2_component
+        if p1_matches == p2_matches:
+            raise ValueError(
+                f"Selected measurement endpoint {endpoint_reference!r} must belong to "
+                f"exactly one primary topology component of CT {self.ct_id!r}."
+            )
+        return "P1_SIDE" if p1_matches else "P2_SIDE"
+
     def branch_current_direction(
         self,
         branch_terminal_reference: EndpointReference,
@@ -67,15 +92,8 @@ class CTMeasurementAssociation:
                 f"Branch side {side!r} does not match terminal role "
                 f"{branch_terminal_reference.terminal_role!r}."
             )
-        topology_reference = TopologyEndpointReference.from_terminal(branch_terminal_reference)
-        p1_matches = topology_reference in self.p1_component
-        p2_matches = topology_reference in self.p2_component
-        if p1_matches == p2_matches:
-            raise ValueError(
-                f"Configured Branch terminal {branch_terminal_reference!r} must belong to "
-                f"exactly one primary topology component of CT {self.ct_id!r}."
-            )
-        ct_terminal_at_branch = "P1" if p1_matches else "P2"
+        location = self.locate_measurement_endpoint(branch_terminal_reference)
+        ct_terminal_at_branch = "P1" if location == "P1_SIDE" else "P2"
         if side == "FROM":
             return 1 if ct_terminal_at_branch == "P2" else -1
         return 1 if ct_terminal_at_branch == "P1" else -1
