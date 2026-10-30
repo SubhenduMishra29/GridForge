@@ -37,10 +37,16 @@ def _positive(value: Any, name: str) -> float:
 
 @dataclass(frozen=True, slots=True)
 class CoordinationStudyPair:
-    """Explicit primary/backup protection-function identity pair."""
+    """Explicit primary/backup protection functions and optional SC branch mapping."""
 
     primary_element_id: str
     backup_element_id: str
+    primary_branch_id: str | None = None
+    backup_branch_id: str | None = None
+    primary_branch_side: str | None = None
+    backup_branch_side: str | None = None
+    primary_current_scale: float | None = None
+    backup_current_scale: float | None = None
 
     def __post_init__(self) -> None:
         primary = _identity(self.primary_element_id, "primary_element_id")
@@ -49,6 +55,21 @@ class CoordinationStudyPair:
             raise ValueError("Primary and backup protection elements must differ.")
         object.__setattr__(self, "primary_element_id", primary)
         object.__setattr__(self, "backup_element_id", backup)
+        for name in ("primary_branch_id", "backup_branch_id"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _identity(value, name))
+        for name in ("primary_branch_side", "backup_branch_side"):
+            value = getattr(self, name)
+            if value is not None:
+                side = _identity(value, name).lower()
+                if side not in {"from", "to"}:
+                    raise ValueError(f"{name} must be 'from' or 'to'.")
+                object.__setattr__(self, name, side)
+        for name in ("primary_current_scale", "backup_current_scale"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _positive(value, name))
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,24 +86,33 @@ class CoordinationRelayCurrent:
 
 @dataclass(frozen=True, slots=True)
 class CoordinationFaultScenario:
-    """Explicit relay-input currents for each protection function in a scenario."""
+    """One manual relay-current set or one completed Short-Circuit Study result."""
 
     scenario_id: str
-    currents_by_element_id: Mapping[str, CoordinationRelayCurrent]
+    currents_by_element_id: Mapping[str, CoordinationRelayCurrent] = None  # type: ignore[assignment]
     fault_location_id: str = ""
+    short_circuit_study_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scenario_id", _identity(self.scenario_id, "scenario_id"))
-        if not isinstance(self.currents_by_element_id, Mapping) or not self.currents_by_element_id:
-            raise ValueError("currents_by_element_id must be a non-empty mapping.")
+        source_id = self.short_circuit_study_id
+        if source_id is not None:
+            object.__setattr__(self, "short_circuit_study_id", _identity(source_id, "short_circuit_study_id"))
+        supplied = self.currents_by_element_id or {}
+        if not isinstance(supplied, Mapping):
+            raise TypeError("currents_by_element_id must be a mapping.")
         currents: dict[str, CoordinationRelayCurrent] = {}
-        for element_id, value in self.currents_by_element_id.items():
+        for element_id, value in supplied.items():
             identity = _identity(element_id, "currents_by_element_id key")
             if not isinstance(value, CoordinationRelayCurrent):
                 raise TypeError("currents_by_element_id values must be CoordinationRelayCurrent.")
             if identity in currents:
                 raise ValueError(f"Duplicate current record for protection function {identity!r}.")
             currents[identity] = value
+        if self.short_circuit_study_id is None and not currents:
+            raise ValueError("Manual coordination scenarios require relay-input current records.")
+        if self.short_circuit_study_id is not None and currents:
+            raise ValueError("Short-Circuit sourced scenarios cannot also provide manual currents.")
         object.__setattr__(self, "currents_by_element_id", MappingProxyType(currents))
         if not isinstance(self.fault_location_id, str):
             raise TypeError("fault_location_id must be a string.")
@@ -118,6 +148,21 @@ class CoordinationStudyConfiguration:
             for identity in (pair.primary_element_id, pair.backup_element_id)
         }
         for scenario in scenarios:
+            if scenario.short_circuit_study_id is not None:
+                for pair in pairs:
+                    if not all((
+                        pair.primary_branch_id,
+                        pair.backup_branch_id,
+                        pair.primary_branch_side,
+                        pair.backup_branch_side,
+                        pair.primary_current_scale,
+                        pair.backup_current_scale,
+                    )):
+                        raise ValueError(
+                            "Short-Circuit sourced scenarios require explicit branch IDs, "
+                            "branch sides, and current conversion scales for every pair."
+                        )
+                continue
             missing_currents = sorted(required_elements.difference(scenario.currents_by_element_id))
             if missing_currents:
                 raise ValueError(
@@ -144,6 +189,7 @@ class CoordinationStudyPointResult:
     backup_element_id: str
     scenario_id: str
     fault_location_id: str
+    source_study_id: str | None
     primary_current: float
     backup_current: float
     primary_current_unit: str
@@ -176,6 +222,7 @@ class CoordinationStudyPointResult:
             backup_element_id=str(result.backup),
             scenario_id=scenario.scenario_id,
             fault_location_id=scenario.fault_location_id,
+            source_study_id=scenario.short_circuit_study_id,
             primary_current=primary_input.current,
             backup_current=backup_input.current,
             primary_current_unit=primary_input.current_unit,
@@ -244,6 +291,36 @@ class CoordinationStudyResult:
         )
 
 
+def _short_circuit_relay_current(
+    result: Any,
+    branch_id: str | None,
+    side: str | None,
+    scale: float | None,
+    current_unit: str | None,
+    element_id: str,
+) -> CoordinationRelayCurrent:
+    """Convert one per-unit branch current using explicit side/base and CT scale."""
+    if not branch_id or side not in {"from", "to"} or scale is None:
+        raise ValueError(f"Short-Circuit branch mapping is incomplete for {element_id!r}.")
+    if current_unit is None:
+        raise ValueError(f"Protection function {element_id!r} has no declared current_unit.")
+    try:
+        branch = result.branch_currents[branch_id]
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise ValueError(f"Short-Circuit branch current {branch_id!r} is unavailable.") from exc
+    if branch.current_unit != "pu":
+        raise ValueError(f"Short-Circuit branch {branch_id!r} is not expressed in per-unit.")
+    base = branch.current_base_a_from if side == "from" else branch.current_base_a_to
+    if base is None:
+        raise ValueError(
+            f"Short-Circuit branch {branch_id!r} has no {side}-side ampere base; "
+            "provide base_mva and nominal bus voltage."
+        )
+    primary_amperes = float(branch.magnitude) * float(base)
+    relay_input_current = primary_amperes * float(scale)
+    return CoordinationRelayCurrent(relay_input_current, current_unit)
+
+
 class _ConfiguredIDMTFunction:
     """Operating-time adapter built from an immutable IDMT curve snapshot."""
 
@@ -271,6 +348,7 @@ def execute_coordination_study(
     source_model_revision: int,
     source_topology_revision: int,
     cancellation_token: Any | None = None,
+    short_circuit_results: Mapping[str, Any] | None = None,
 ) -> CoordinationStudyResult:
     """Evaluate every configured pair at every explicit fault scenario."""
     if not isinstance(configuration, CoordinationStudyConfiguration):
@@ -309,8 +387,44 @@ def execute_coordination_study(
         for scenario in configuration.scenarios:
             if cancellation_token is not None and cancellation_token.cancelled:
                 break
-            primary_input = scenario.currents_by_element_id[pair.primary_element_id]
-            backup_input = scenario.currents_by_element_id[pair.backup_element_id]
+            if scenario.short_circuit_study_id is None:
+                primary_input = scenario.currents_by_element_id[pair.primary_element_id]
+                backup_input = scenario.currents_by_element_id[pair.backup_element_id]
+            else:
+                results = short_circuit_results or {}
+                short_result = results.get(scenario.short_circuit_study_id)
+                if short_result is None:
+                    raise ValueError(
+                        f"Short-Circuit Study result is unavailable: {scenario.short_circuit_study_id!r}."
+                    )
+                if not getattr(short_result, "success", False) or str(getattr(short_result, "status", "")) != "ShortCircuitStatus.COMPLETE":
+                    raise ValueError("Coordination requires a successful COMPLETE Short-Circuit result.")
+                if str(getattr(short_result, "contribution_status", "")) != "ContributionStatus.COMPLETE":
+                    raise ValueError("Coordination requires COMPLETE Short-Circuit branch contribution data.")
+                provenance = getattr(short_result, "provenance", {})
+                if not isinstance(provenance, Mapping):
+                    raise ValueError("Short-Circuit result provenance is unavailable.")
+                if (
+                    provenance.get("project_id") != project_id
+                    or provenance.get("activation_generation") != activation_generation
+                    or provenance.get("topology_revision") != source_topology_revision
+                ):
+                    raise ValueError("Short-Circuit result provenance does not match the active coordination Study Case.")
+                if scenario.fault_location_id and str(short_result.fault_bus_id) != scenario.fault_location_id:
+                    raise ValueError(
+                        f"Scenario fault location {scenario.fault_location_id!r} does not match "
+                        f"Short-Circuit result fault bus {short_result.fault_bus_id!r}."
+                    )
+                primary_input = _short_circuit_relay_current(
+                    short_result, pair.primary_branch_id, pair.primary_branch_side,
+                    pair.primary_current_scale, curve_models[pair.primary_element_id].current_unit,
+                    pair.primary_element_id,
+                )
+                backup_input = _short_circuit_relay_current(
+                    short_result, pair.backup_branch_id, pair.backup_branch_side,
+                    pair.backup_current_scale, curve_models[pair.backup_element_id].current_unit,
+                    pair.backup_element_id,
+                )
             primary_unit = curve_models[pair.primary_element_id].current_unit
             backup_unit = curve_models[pair.backup_element_id].current_unit
             if primary_unit is None or backup_unit is None:
