@@ -522,9 +522,19 @@ instrument, not by a generic "measurement device" connection rule.
 - PT/CVT primary terminals are connected at the intended voltage
   measurement point: to the relevant SimpleLine/line connection or directly
   to the selected Bus, as appropriate to the SLD arrangement.
-- The primary connection must resolve to the intended canonical electrical
-  endpoint. A graphical SimpleLine alone is not electrical truth; its
-  endpoint references must resolve through the existing Core topology.
+- The persisted protection binding now accepts either a canonical terminal
+  EndpointReference (for example, a Line/Branch terminal exposed by the
+  SimpleLine projection) or a canonical Bus attachment EndpointReference.
+  The binding field is named source_endpoint_reference; older persisted
+  source_terminal_reference mappings remain readable.
+- Application resolves the selected endpoint and PT/CVT primary terminals
+  through ConnectivityResolver. Exactly one primary terminal must share the
+  selected endpoint's topology component, while the two PT/CVT primary
+  terminals must remain on distinct components.
+- SimpleLine remains an SLD/projection concept in this inspected Core
+  contract; the SLD adapter must supply its canonical Core line terminal
+  reference. A graphical SimpleLine or symbol anchor is never accepted as
+  electrical truth.
 - PT/CVT secondary terminals remain measurement interfaces. They do not
   become primary network Buses or power-path conductors.
 
@@ -537,3 +547,28 @@ source of branch-current results. Measurement conversion consumes that
 explicit Branch result only after the CT-to-Branch association has been
 validated. No SLD graphics, coordinates, or symbol anchors are used as
 electrical truth.
+
+
+## 18. Bus-capable measurement source binding
+
+ProtectionMeasurementBinding now persists a canonical
+`source_endpoint_reference` rather than assuming every measurement source
+is a physical equipment terminal. The endpoint may be either:
+
+- a terminal EndpointReference, retaining equipment type, equipment ID,
+  and terminal role; or
+- a Bus attachment EndpointReference, retaining Bus ID and canonical
+  attachment slot.
+
+The legacy `source_terminal_reference` persistence key is accepted during
+deserialization for existing project configurations. New serialization
+writes only `source_endpoint_reference`.
+
+Current measurement remains stricter: CT branch-current bindings require an
+explicit Branch terminal and cannot use a Bus attachment as a substitute.
+Voltage measurement accepts an explicit Bus attachment or a canonical
+terminal endpoint. Application validates the selected endpoint against the
+PT/CVT primary terminal topology and confirms the two primary terminals
+remain on distinct connectivity components. This enables direct Bus
+measurement and line-terminal measurement while preserving the SLD/Core
+boundary.
