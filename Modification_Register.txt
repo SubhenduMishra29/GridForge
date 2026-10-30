@@ -14994,3 +14994,9 @@ Verification:
 - MeasurementChannel.reset now clears timestamp_domain along with timestamp state, preventing a reset sample from retaining stale clock provenance.
 - Producers must supply timestamp and timestamp_domain together for ANSI 25 eligibility. The channel enforces declaration pairing, not the truth of the producer's clock source. Live producer call sites and production breaker-close composition remain to be audited; ANSI 25 remains NOT_IMPLEMENTED.
 - Source changes fetched back from the branch. No tests or CI were run, per repository audit rules.
+
+[2026-10-30 — GF-ISSUE-845 — invalidate provenance on untimestamped value updates]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannel.update always installs a new raw value. When the caller omits timestamp, the channel now clears the previous timestamp, timestamp_domain, and sample_sequence rather than retaining provenance from an earlier sample.
+- This prevents a new untimestamped value from inheriting an old sample's freshness or clock-domain declaration. A sample can satisfy ANSI 25 only when its own timestamp and explicit domain are supplied together; an omitted sequence remains unknown.
+- The correction is at the channel boundary. Live producer inventory, actual clock-source verification, and production breaker-close composition remain outstanding; ANSI 25 remains NOT_IMPLEMENTED. No tests or CI were run.
