@@ -232,33 +232,42 @@ Implementation phases, in dependency order:
 3. Validate all instrument/channel/relay/element/scheme/action references against one project snapshot.
 4. Enforce atomic configuration activation and stale-result invalidation.
 
-**Phase C — Instrument and measurement association**
+**Phase C — Fault-scenario preparation and calculation**
+1. Accept explicit, uniquely identified fault scenarios using the existing ShortCircuitStudyConfiguration contract.
+2. Prepare each scenario from one detached ProjectSnapshot and canonical TopologySnapshot.
+3. Reuse ShortCircuitPreparation and ShortCircuitAnalysis; do not create another fault solver or Study lifecycle.
+4. Preserve project, activation-generation and topology-revision provenance in each result.
+5. Retain typed scenario results and cancellation diagnostics without mutating live MeasurementChannels.
+6. Do not claim relay response until the instrument/measurement conversion path is complete.
+
+**Phase D — Instrument and measurement association**
 1. Resolve explicit CT/PT/CVT terminal references using canonical EndpointReference and Core Terminal contracts.
 2. Do not assume each primary instrument terminal maps directly to a Bus.
 3. Support multi-core and multi-secondary CT modelling only where physical model contracts support it.
 4. Reuse MeasurementProvisioning, MeasurementChannelService and ProtectionMeasurementBinding.
-5. Validate phase, sequence, polarity, units, ratio, source result mapping, channel freshness and quality policy.
+5. Convert scenario quantities through explicit instrument ratios, polarity and secondary-side contracts into detached, scenario-specific measurement samples.
+6. Validate phase, sequence, polarity, units, ratio, source result mapping, channel freshness and quality policy.
 
-**Phase D — Protection scheme and operation**
+**Phase E — Protection scheme and operation**
 1. Reconcile start/operate/output logic and explicit output-to-target mappings.
 2. Support multiple designated trip targets and backup targets where the scheme requires them.
 3. Integrate breaker-failure supervision, retrip and backup trip paths.
 4. Preserve Application command, transaction, acknowledgement and postcondition contracts.
 
-**Phase E — Engineering algorithms and coordination**
+**Phase F — Engineering algorithms and coordination**
 1. Complete IDMT curve equations and curve-family catalogues.
 2. Implement stateful time-overcurrent accumulation/reset semantics separately from static curve evaluation.
 3. Implement TCC read models, overlays, fault-current markers and grading-margin calculations.
 4. Complete 50/51/50N/51N and directional input semantics before expanding to differential, distance, bus and transformer schemes.
 5. Classify each function honestly and prevent unsupported functions from entering production execution.
 
-**Phase F — Study results and UI**
+**Phase G — Study results and UI**
 1. Publish typed result/read models only after successful study completion.
 2. Add relay/instrument/protection matrix, trip matrix, diagnostics and TCC visualization.
 3. Keep UI read-only with respect to calculation results; all edits flow through Application commands.
 4. Add persistence and reopen compatibility through canonical project configuration.
 
-**Phase G — Static acceptance and freeze**
+**Phase H — Static acceptance and freeze**
 1. Verify architecture ownership and imports.
 2. Verify affected package exports and `ui/core/qt.py` if Qt integration changes.
 3. Verify Python syntax and import integrity without running tests/CI unless explicitly requested.
