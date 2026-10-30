@@ -399,8 +399,7 @@ scenario-derived relay evaluation.
   electrical side, quantity, physical instrument, channel and RelayInput.
 - `MeasurementChannel` records the physical instrument and its secondary
   terminal reference.
-- The PR #905 CT association work resolves CT P1/P2 primary Bus locations and
-  S1/S2 secondary terminal references without assigning a protection zone.
+- The CT association contract resolves CT P1/P2 into separate canonical SimpleWire topology components and retains S1/S2 secondary terminal references. It does not assign a protection zone.
 - Application already creates immutable, per-cycle RelayInput sample
   snapshots and enforces project/configuration/channel provenance.
 
@@ -435,13 +434,16 @@ scenario-derived relay evaluation.
    configured ratio against the physical CT/PT/CVT.
 3. **Implemented — topology association guard:** current bindings must
    explicitly select a Branch FROM/TO terminal. The service resolves that
-   terminal and CT P1/P2 through `ElectricalBoundaryResolver`, requires
-   exactly one CT primary terminal at the selected branch-terminal Bus, and
-   requires the other CT primary terminal to resolve to a distinct Bus.
-   This validates physical association; it does not calculate current.
-4. **Pending:** add a pure branch-current conversion path using the solver's
-   canonical FROM-to-TO current direction, the selected side's Bus voltage
-   base, CT terminal orientation, and CT polarity exactly once. Preserve
+   terminal and CT P1/P2 through canonical SimpleWire topology components,
+   requires exactly one CT primary terminal to share the selected Branch
+   terminal component, and requires P1/P2 to remain on distinct components.
+   This validates inline CT placement; it does not infer a feeder or zone.
+4. **Implemented — CT branch orientation/conversion primitive:** the
+   conversion requires the persisted CT association and explicit Branch
+   terminal/side. It derives the sign from which P1/P2 SimpleWire component
+   contains that Branch terminal, uses the selected side's Bus current base,
+   and applies physical CT polarity and ratio once. Detached scenario RelayInput
+   samples and ProtectionSystem evaluation remain pending. Preserve
    phase and sequence values, including the residual-current convention
    required by 50N/51N.
 5. **Pending:** keep simulated values detached from live MeasurementChannel
