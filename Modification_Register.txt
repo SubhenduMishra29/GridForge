@@ -15680,6 +15680,8 @@ Changes:
       adjustment.
     - Added aggregate counts for coordinated, CTI-violating, backup
       non-operation, backup-only operation, and not-applicable points.
+    - Infinite coordination margins are distinguished as unbounded when the
+      primary does not operate and undefined when the backup does not operate.
 
 Engineering boundary:
     - Delay values remain calculated by Core RelayCoordination; UI only
