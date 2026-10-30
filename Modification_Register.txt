@@ -14751,3 +14751,12 @@ Verification boundary:
     repository checks complete.
 
 ======================================================================
+
+
+Persistence fixture follow-up:
+    - Migrated the lifecycle regression fixture to the typed
+      ProjectPresentationCollection serializer/deserializer and snapshot-provider
+      contract. The legacy single-document serializer is not a substitute for
+      the persisted collection contract. The failure-path fixture now raises
+      from the collection serializer, preserving the intended assertion that a
+      failed presentation serialization must not mark the project clean.
