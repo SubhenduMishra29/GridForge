@@ -582,3 +582,41 @@ PT/CVT primary terminal topology and confirms the two primary terminals
 remain on distinct connectivity components. This enables direct Bus
 measurement and line-terminal measurement while preserving the SLD/Core
 boundary.
+
+
+## 17. Explicit differential protection scheme configuration
+
+Differential scheme membership is a project-scoped engineering configuration,
+not a property inferred from CT placement, SimpleWire connectivity, Bus
+identity, or an individual ProtectionElement. The initial
+`DifferentialProtectionSchemeConfiguration` records:
+
+- a stable scheme identity;
+- the explicitly protected Core object type and ID (Bus, transformer, line,
+  generator, motor, or reactor);
+- at least two distinct, explicitly selected current-measurement binding IDs;
+- optional per-binding phase-compensation degrees, recorded as engineering
+  configuration but not yet applied by a differential calculation;
+- enabled state and detached metadata.
+
+The aggregate validates that every member binding exists and is a current
+measurement binding. A member binding cannot be removed or changed to a
+non-current binding while a scheme references it. The configuration is
+persisted with `ProtectionProjectConfiguration`. Application create/delete
+operations are transactional; when a Core Network provider is available,
+creation also validates that the declared protected object exists and its
+type matches.
+
+This contract permits Bus differential membership to reference CTs at
+different Bus attachments and transformer differential membership to
+reference CTs at the transformer's configured measurement boundaries. The
+scheme is not inferred from a Bus-to-Bus CT placement or from two CTs merely
+being present in the network.
+
+**Not implemented by this configuration pass:** CT ratio/vector-group
+compensation, phase mapping execution, zero-sequence compensation, differential
+and restraint current calculation, percentage-bias characteristic, harmonic
+or waveform restraint, CT saturation/stability supervision, operate/restraint
+decision logic, trip mapping, and differential study result reporting. The
+stored phase compensation is configuration only and must not be mistaken for
+an applied correction.
