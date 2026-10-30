@@ -388,7 +388,7 @@ class ProtectionConfigurationService:
                     "physical_ratio": actual_ratio,
                 },
             )
-        channel_signal = getattr(getattr(channel, "signal_type", None), "value", None)
+        channel_signal = str(getattr(getattr(channel, "signal_type", None), "value", "")).strip().lower()
         if channel_signal != measurement_type:
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_CHANNEL_TYPE_MISMATCH",
