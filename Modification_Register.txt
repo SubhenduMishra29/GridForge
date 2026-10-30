@@ -15692,3 +15692,13 @@ Verification:
 - The existing numerical short-circuit conversion remains Branch-contribution-specific. Equipment-terminal and Bus-side scenario-current source adapters, differential scheme membership, detached RelayInput snapshots and non-actuating ProtectionSystem evaluation remain pending.
 - Updated the Protection Study architecture document to distinguish CT physical placement, selected measurement endpoint and protection scheme membership.
 - No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+[2026-10-30] Protection Study — explicit differential scheme membership configuration
+- Added immutable DifferentialProtectionSchemeConfiguration as a project-scoped engineering configuration separate from CT placement and ProtectionElement identity.
+- Scheme configuration identifies the protected Core object type/ID and at least two distinct explicitly selected current-measurement binding IDs. Optional per-binding phase-compensation degrees are persisted as declared configuration only; no numerical compensation is claimed.
+- ProtectionProjectConfiguration now owns, validates, serializes and restores differential scheme configurations. It rejects missing/non-current member bindings and prevents removal or conversion of a referenced member binding to a non-current measurement.
+- Added transactional Application create/delete operations. If a Core Network provider is available, scheme creation verifies the protected object exists and its Core type matches the declared target.
+- Exported DifferentialProtectionSchemeConfiguration from core.protection.
+- No CT placement pattern automatically creates a scheme; Bus-to-Bus CT placement alone does not declare Bus differential protection.
+- Differential current/restraint calculations, transformer vector-group and ratio compensation, phase/zero-sequence compensation execution, restraint/stability logic, decisions and trip mapping remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
