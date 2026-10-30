@@ -15064,3 +15064,59 @@ Verification:
     branch update. No tests or CI were run by this correction pass.
 
 ======================================================================
+
+======================================================================
+GF-REGRESSION-BASELINE-2026-10-30 — Latest-main full-suite reconciliation
+======================================================================
+
+Date:
+    2026-10-30
+
+Baseline:
+    main @ 4e2d19ea14332f05ae41971616f7a5f670f4825e
+
+Initial verification:
+    GitHub Actions run 41012027524:
+        1,108 passed
+        35 failed
+        32 skipped
+
+Findings and corrections:
+    - Restored EngineeringContext.discipline when focusing a secondary
+      workspace Area; the fallback path now matches initial realization.
+    - Prevented committed SLD nodes with missing or unresolved authoritative
+      equipment identity from receiving fabricated generic equipment
+      placeholders. The renderer removes stale realization and retains the
+      structured diagnostic until valid identity is available.
+    - Reconciled regression fixtures with canonical SLD endpoint fields,
+      explicit symbol presentation, SLDController/SLDProjectionManager
+      composition, and the composite canvas snapshot contract.
+    - Updated Control interlock fixtures to provide explicit value, quality,
+      and timestamp; updated Control cycle fixtures to provide correlated
+      failure diagnostics and Application dispatch results.
+    - Updated protection and measurement fixtures to use the authoritative
+      relay read-model, typed CurrentTransformer source, and supported
+      Power Flow voltage measurement boundary.
+    - Updated DraftChanged assertions to read immutable event payloads.
+    - Updated study and validation projection panel fixtures to expose the
+      required read-model fields and panel method.
+    - Connected the detached Power Flow preparation fixture so it represents
+      one energized island and satisfies the one-slack-bus policy.
+    - Updated selection projection fixture to use canonical transformer
+      terminal roles FROM/TO.
+
+Architecture:
+    Core remains the authority for electrical and study truth.
+    Application remains the command/event/persistence boundary.
+    UI remains projection and interaction only. No Qt/QGraphics symbols
+    cross into Core. Strict SLD identity and measurement contracts are
+    preserved; no permissive compatibility aliases were introduced.
+
+Verification boundary:
+    Corrections are committed on
+    fix/main-regression-baseline-2026-10-30.
+    Regression workflow must be rerun against this branch before the
+    correction set can be merged and the baseline frozen. No tests were
+    run locally during the source-edit pass.
+
+======================================================================
