@@ -742,9 +742,9 @@ evaluation:
 
 The Application validates the exact binding, element/input/channel identities,
 CT instrument identity and ratio, CT secondary terminal, phase/sequence,
-canonical engineering unit, scenario/project/activation/topology provenance,
-and the declared protection input representation before installing any
-evaluation snapshot. Missing, duplicate, extra, stale, or unsupported inputs
+canonical engineering unit, channel engineering scale/polarity,
+scenario/project/activation/topology provenance, and the declared protection
+input representation before installing any evaluation snapshot. Missing, duplicate, extra, stale, or unsupported inputs
 block the complete scenario evaluation before a protection element executes.
 
 The snapshot is installed only for the duration of the ProtectionElement
