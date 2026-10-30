@@ -12,13 +12,14 @@ from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
 from core.application.services.sld_service import SLDService
 from ui.sld.sld_document import SLDDocument
+from ui.equipment.symbol.symbol_base import SymbolBase
 
 
 def _application():
     network = Network()
     network.add_bus(Bus("bus-1", nominal_voltage_kv=132.0))
     application = create_application(network)
-    application.attach_sld_service(SLDService(SLDDocument("initial:sld", project_id="initial")))
+    application.attach_sld_service(SLDService(SLDDocument("initial:sld", project_id="initial"), symbol_presentation_factory=lambda _element_type: SymbolBase("bus", "bus").to_dict()))
     application.configure_project_presentation_contract(
         factory=lambda context: SLDDocument(f"{context.project_id}:sld", project_id=context.project_id),
         serializer=lambda value: value.to_dict(),
@@ -32,7 +33,7 @@ def _application():
 def test_sld_command_uses_application_history_and_undo_redo() -> None:
     application, document = _application()
 
-    result = application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", x=10, y=20))
+    result = application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", element_type="BUS", x=10, y=20))
 
     assert result.success
     assert document.model.get_node("bus-1").position == (10.0, 20.0)
