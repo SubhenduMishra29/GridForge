@@ -2637,6 +2637,29 @@ class Application:
                     f"Physical relay {relay_id!r} is out of service, disabled, or blocked; "
                     "coordination execution is refused."
                 )
+        short_circuit_ids = {
+            scenario.short_circuit_study_id
+            for scenario in configuration.scenarios
+            if scenario.short_circuit_study_id is not None
+        }
+        short_circuit_results: dict[str, Any] = {}
+        if short_circuit_ids:
+            for study_result in self.read_study_results():
+                study_id = str(study_result.study_id)
+                if (
+                    study_id in short_circuit_ids
+                    and study_result.study_type == "short_circuit"
+                    and study_result.status == "completed"
+                    and study_result.current
+                    and study_result.value is not None
+                ):
+                    short_circuit_results[study_id] = study_result.value
+            missing_short_circuit = sorted(short_circuit_ids.difference(short_circuit_results))
+            if missing_short_circuit:
+                raise ValueError(
+                    "Coordination requires current, completed Short-Circuit Study results: "
+                    + ", ".join(missing_short_circuit)
+                )
         result = execute_coordination_study(
             configuration,
             curves,
@@ -2645,6 +2668,7 @@ class Application:
             source_model_revision=execution_context.source_revision.model_revision,
             source_topology_revision=execution_context.source_revision.topology_revision,
             cancellation_token=cancellation_token,
+            short_circuit_results=short_circuit_results,
         )
         lifecycle = self.project_lifecycle
         active_context = lifecycle.context
