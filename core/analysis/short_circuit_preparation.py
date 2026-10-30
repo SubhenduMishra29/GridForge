@@ -32,6 +32,10 @@ class ShortCircuitPreparation:
             raise ValueError("Short Circuit preparation requires at least one bus.")
         self._network = network
         self._sequence_network = sequence_network
+        if base_mva is not None:
+            if isinstance(base_mva, bool) or not math.isfinite(float(base_mva)) or float(base_mva) <= 0.0:
+                raise ValueError("base_mva must be finite and positive when supplied.")
+            base_mva = float(base_mva)
         self.base_mva = base_mva
         self._topology_snapshot = None
 
@@ -55,6 +59,10 @@ class ShortCircuitPreparation:
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
             prefault_voltages = tuple(
                 self._prepare_prefault_voltage(network, bus_id)
+                for bus_id in bus_ids
+            )
+            bus_base_voltage_kv = tuple(
+                self._bus_base_voltage_kv(network, bus_id)
                 for bus_id in bus_ids
             )
             prefault_voltage = prefault_voltages[bus_index]
@@ -90,6 +98,8 @@ class ShortCircuitPreparation:
                 project_id=topology_snapshot.project_id,
                 activation_generation=topology_snapshot.activation_generation,
                 topology_revision=topology_snapshot.topology_revision,
+                base_mva=self.base_mva,
+                bus_base_voltage_kv=bus_base_voltage_kv,
             )
         finally:
             self._network = None
@@ -231,6 +241,16 @@ class ShortCircuitPreparation:
         role = getattr(getattr(element, 'terminal', None), 'role', '')
         bus_id = next((r.bus_id for r in self._topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
         return self._network.get_by_identity(bus_id) if bus_id else None
+
+    @staticmethod
+    def _bus_base_voltage_kv(network: Any, bus_id: str) -> float | None:
+        """Return an explicit positive Bus voltage base for current conversion."""
+        bus = network.get_by_identity(bus_id)
+        try:
+            voltage = float(bus.nominal_voltage_kv)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        return voltage if math.isfinite(voltage) and voltage > 0.0 else None
 
     @staticmethod
     def _prepare_prefault_voltage(network: Any, bus_id: str) -> complex:
