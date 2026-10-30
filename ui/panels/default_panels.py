@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 from uuid import uuid4
 import logging
 from typing import Any
