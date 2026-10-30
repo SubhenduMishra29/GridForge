@@ -53,6 +53,7 @@ from core.analysis.contingency import (
 
 from .coordination_study import (
     CoordinationStudyPair,
+    CoordinationRelayCurrent,
     CoordinationFaultScenario,
     CoordinationStudyConfiguration,
     CoordinationStudyPointResult,
@@ -94,6 +95,7 @@ __all__ = [
     "ContingencyCaseResult",
     "ContingencyViolation",
     "CoordinationStudyPair",
+    "CoordinationRelayCurrent",
     "CoordinationFaultScenario",
     "CoordinationStudyConfiguration",
     "CoordinationStudyPointResult",
