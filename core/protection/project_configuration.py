@@ -168,10 +168,10 @@ class DifferentialProtectionSchemeConfiguration:
     protected_object_id: str
     measurement_binding_ids: tuple[str, ...]
     current_directions: Mapping[str, str]
-    differential_settings: Mapping[str, Any] = field(default_factory=dict)
     phase_compensation_degrees: Mapping[str, float] = field(default_factory=dict)
     enabled: bool = True
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    differential_settings: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in ("scheme_id", "protected_object_type", "protected_object_id"):
