@@ -85,9 +85,10 @@ def create_application(
 ) -> Application:
     """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
 
-    If no guard factory is supplied, breaker closes remain fail-closed. A supplied
-    factory is invoked for each candidate Network so project activation cannot
-    accidentally retain a guard bound to the previous project runtime.
+    Without a custom factory, each project runtime receives the built-in
+    project-scoped ANSI 25 guard. Durable audit is resolved at decision time,
+    so unsaved projects cannot close breakers until saved. A supplied factory
+    overrides the default and is invoked for each candidate Network.
     """
     if network is None:
         raise ValueError("network is required.")
