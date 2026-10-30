@@ -14761,3 +14761,58 @@ Verification boundary:
     injection, or transient simulation was performed.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-050BF-001
+======================================================================
+
+Scope:
+    Issue #855 — ANSI 50BF transient-study backup clearing and solver
+    execution isolation.
+
+Files:
+    core/analysis/transient_event_state.py
+    core/analysis/transient_events.py
+    core/analysis/__init__.py
+
+Finding:
+    The transient event scheduler executes deterministic study events
+    against a study-owned TransientEventState. The prior event helpers
+    covered ordinary breaker open/close operations but had no explicit
+    breaker-failure timer/backup-clearing primitive.
+
+Correction:
+    Added schedule_breaker_failure_backup().
+
+    The event is scheduled at trip_time + delay. At expiry:
+        - if the primary breaker has already opened, the event is a no-op;
+        - if the primary breaker remains closed, the explicitly supplied
+          backup breaker set is opened in one validated state update;
+        - all primary/backup IDs are checked before mutation;
+        - duplicate targets, empty targets, and self-targeting are rejected;
+        - the detached topology revision advances once for the batch.
+
+Architectural boundary:
+    The callback mutates only the current study's detached
+    TransientEventState. It does not call CommandManager, Application
+    commands, or mutate the authoritative project Network. Backup
+    targets are explicit and are never inferred from bus adjacency.
+
+Limitations:
+    This is a transient-study timer/backup-event primitive, not a complete
+    ANSI 50BF relay implementation. Current supervision, auxiliary-contact
+    acquisition, project-persisted settings, zone engineering, relay
+    configuration, and production orchestration remain outstanding.
+    The canonical protection catalog must continue to report ANSI 50BF
+    as NOT_IMPLEMENTED until those contracts are delivered.
+
+Verification:
+    Source edits committed to the existing PR #865 branch.
+    No tests or CI run, per repository rule. Runtime fault injection,
+    transient simulation, syntax/import verification, and physical
+    protection validation remain outstanding.
+
+Status:
+    PARTIAL IMPLEMENTATION — NOT PRODUCTION READY
+======================================================================
