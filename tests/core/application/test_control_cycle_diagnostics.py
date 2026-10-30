@@ -75,6 +75,7 @@ def test_cycle_attributes_execution_failure_to_originating_decision() -> None:
     execution = ControlExecutionResult(
         failed_decisions=(failed,),
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
+        failure_diagnostics=(("failed", "dispatch failed"),),
     )
     result = ControlCycleResult(
         evaluation=ControlEvaluationResult(simulation_time=1.0, decisions=(failed,)),
