@@ -156,7 +156,6 @@ class MeasurementGeneration:
         Applying a CT ratio directly to that value is therefore prohibited.
         """
         self._validate_source(context, source, expected_types=frozenset({'CT'}))
-        self._validate_channel(channel, MeasurementSignalType.CURRENT)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
@@ -169,15 +168,34 @@ class MeasurementGeneration:
                 "arbitrary branch current or calculated post-fault voltage is not established."
             )
         result = context.quantity
+        if root_key == "ground_current":
+            self._validate_channel(channel, MeasurementSignalType.RESIDUAL_CURRENT)
+            if channel.phase.value != "RESIDUAL":
+                raise ValueError("Ground-current measurement requires MeasurementPhase.RESIDUAL.")
+        else:
+            self._validate_channel(channel, MeasurementSignalType.CURRENT)
+            if channel.phase.value == "RESIDUAL":
+                raise ValueError("Residual-current channels may only consume the explicit ground_current quantity.")
         if context.bus_id != result.fault_bus_id:
             raise UnsupportedMeasurementQuantity(
                 f"Unsupported short-circuit mapping for source_id={context.source_id!r}, "
                 f"source_terminal={context.source_terminal!r}: physical measurement source bus "
                 f"{context.bus_id!r} does not correspond to fault location {result.fault_bus_id!r}."
             )
+        if channel.signal_type is MeasurementSignalType.RESIDUAL_CURRENT and root_key != "ground_current":
+            raise UnsupportedMeasurementQuantity(
+                "Residual-current channels require the explicit ground_current result (Ia + Ib + Ic = 3I0); "
+                "zero-sequence I0 and individual phase currents are not interchangeable."
+            )
+        if channel.signal_type is MeasurementSignalType.CURRENT and root_key == "ground_current":
+            raise UnsupportedMeasurementQuantity(
+                "ground_current is a residual-current quantity; bind it to a RESIDUAL_CURRENT channel."
+            )
         raw = result.values.get(root_key)
         if raw is None:
-            if root_key == "phase_currents":
+            if root_key == "ground_current":
+                raw = result.ground_current
+            elif root_key == "phase_currents":
                 raw = result.phase_currents
             elif root_key == "sequence_currents":
                 raw = result.sequence_currents
