@@ -213,6 +213,8 @@ class IDMTCurveReadModel:
     TMS: float
     points: tuple[IDMTCurvePointReadModel, ...]
     current_unit: str | None = None
+    function_enabled: bool = True
+    function_blocked: bool = False
 
     def __post_init__(self) -> None:
         for name in ("element_id", "relay_id", "display_name"):
@@ -240,6 +242,8 @@ class IDMTCurveReadModel:
             if not unit:
                 raise ValueError("current_unit must be non-empty when supplied.")
             object.__setattr__(self, "current_unit", unit)
+        if not isinstance(self.function_enabled, bool) or not isinstance(self.function_blocked, bool):
+            raise TypeError("function_enabled and function_blocked must be booleans.")
         points = tuple(self.points)
         if len(points) < 2 or not all(isinstance(p, IDMTCurvePointReadModel) for p in points):
             raise ValueError("points must contain at least two IDMTCurvePointReadModel values.")
@@ -296,6 +300,8 @@ class IDMTCurveReadModel:
                 if settings.get("current_unit", settings.get("pickup_unit")) is not None
                 else None
             ),
+            function_enabled=bool(getattr(configuration, "enabled", True)),
+            function_blocked=bool(getattr(configuration, "blocked", False)),
         )
 
 
