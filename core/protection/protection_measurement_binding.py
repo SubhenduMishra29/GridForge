@@ -10,6 +10,7 @@ or equipment mutation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -21,6 +22,7 @@ class ProtectionMeasurementBinding:
     """Immutable, correlation-complete protection measurement binding."""
 
     binding_id: str
+    protection_element_id: str
     source_equipment_id: str
     source_terminal_reference: EndpointReference
     electrical_side: str
@@ -35,7 +37,7 @@ class ProtectionMeasurementBinding:
 
     def __post_init__(self) -> None:
         for name in (
-            "binding_id", "source_equipment_id",
+            "binding_id", "protection_element_id", "source_equipment_id",
             "electrical_side", "measurement_type", "phase_or_sequence",
             "result_quantity", "instrument_id", "channel_id", "relay_input_id",
         ):
@@ -50,7 +52,7 @@ class ProtectionMeasurementBinding:
             raise ValueError("source_terminal_reference equipment identity must match source_equipment_id.")
 
         ratio = float(self.instrument_ratio)
-        if ratio <= 0.0:
+        if not isfinite(ratio) or ratio <= 0.0:
             raise ValueError("instrument_ratio must be positive.")
         object.__setattr__(self, "instrument_ratio", ratio)
 
@@ -77,6 +79,7 @@ class ProtectionMeasurementBinding:
         instrument: Any,
         channel: Any,
         relay_input: Any,
+        protection_element_id: str,
         instrument_ratio: float | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionMeasurementBinding":
@@ -86,13 +89,6 @@ class ProtectionMeasurementBinding:
         inferred from CT/PT/CVT class names, terminal ordering, or collection
         position.
         """
-        refs = {
-            "source_equipment": source_equipment,
-            "source_terminal": source_terminal,
-            "instrument": instrument,
-            "channel": channel,
-            "relay_input": relay_input,
-        }
         source_equipment_id = getattr(source_equipment, "id", None)
         if not isinstance(source_equipment_id, str) or not source_equipment_id.strip():
             raise ValueError("source_equipment must expose a non-empty stable id.")
@@ -130,6 +126,7 @@ class ProtectionMeasurementBinding:
 
         return cls(
             binding_id=binding_id,
+            protection_element_id=protection_element_id,
             source_equipment_id=source_equipment_id.strip(),
             source_terminal_reference=endpoint,
             electrical_side=electrical_side,
@@ -141,6 +138,58 @@ class ProtectionMeasurementBinding:
             channel_id=ids["channel"],
             relay_input_id=ids["relay_input"],
             metadata=metadata or {},
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached persistence representation."""
+        return {
+            "binding_id": self.binding_id,
+            "protection_element_id": self.protection_element_id,
+            "source_equipment_id": self.source_equipment_id,
+            "source_terminal_reference": dict(self.source_terminal_reference.to_mapping()),
+            "electrical_side": self.electrical_side,
+            "measurement_type": self.measurement_type,
+            "phase_or_sequence": self.phase_or_sequence,
+            "result_quantity": self.result_quantity,
+            "instrument_id": self.instrument_id,
+            "instrument_ratio": self.instrument_ratio,
+            "channel_id": self.channel_id,
+            "relay_input_id": self.relay_input_id,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionMeasurementBinding":
+        """Restore a binding without resolving or guessing live equipment."""
+        if not isinstance(data, Mapping):
+            raise TypeError("protection measurement binding must be a mapping.")
+        endpoint_data = data.get("source_terminal_reference")
+        if not isinstance(endpoint_data, Mapping):
+            raise TypeError("source_terminal_reference must be a mapping.")
+        from core.model.endpoint_reference import EndpointReferenceKind
+
+        kind = EndpointReferenceKind(endpoint_data["kind"])
+        if kind is not EndpointReferenceKind.TERMINAL:
+            raise ValueError("Protection measurement source must reference a physical equipment terminal.")
+        endpoint = EndpointReference.terminal(
+            equipment_type=EquipmentType(endpoint_data["equipment_type"]),
+            equipment_id=endpoint_data["object_id"],
+            terminal_role=endpoint_data["terminal_role"],
+        )
+        return cls(
+            binding_id=data["binding_id"],
+            protection_element_id=data["protection_element_id"],
+            source_equipment_id=data["source_equipment_id"],
+            source_terminal_reference=endpoint,
+            electrical_side=data["electrical_side"],
+            measurement_type=data["measurement_type"],
+            phase_or_sequence=data["phase_or_sequence"],
+            result_quantity=data["result_quantity"],
+            instrument_id=data["instrument_id"],
+            instrument_ratio=data["instrument_ratio"],
+            channel_id=data["channel_id"],
+            relay_input_id=data["relay_input_id"],
+            metadata=data.get("metadata", {}),
         )
 
     def correlation_key(self) -> tuple[str, str, str, str, str]:
