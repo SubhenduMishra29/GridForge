@@ -136,6 +136,10 @@ class IECOvercurrentSettings:
     TMS:
         IEC Time Multiplier Setting.
 
+    current_unit:
+        Explicit engineering-unit label for the relay-input current. This is
+        descriptive metadata; no CT or base conversion is performed.
+
     Notes
     -----
     These settings belong exclusively to this protection function.
