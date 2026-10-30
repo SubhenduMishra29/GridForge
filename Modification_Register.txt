@@ -15567,3 +15567,44 @@ Verification:
     Remote source inspection and static contract review only.
     No tests or CI run. Python syntax/import execution remains outstanding.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — CT INLINE SIMPLEWIRE ASSOCIATION AND PT/CVT PRIMARY PLACEMENT
+======================================================================
+
+Date:
+    2026-10-30
+
+Architecture clarification:
+    - CT is placed inline on a SimpleWire connection. P1 and P2 are on
+      separate primary SimpleWire topology components; S1/S2 remain isolated
+      measurement-secondary terminals.
+    - The engineer explicitly associates the CT with the monitored Branch
+      and FROM/TO terminal side. A SimpleWire segment is not itself treated
+      as an analysis Branch.
+    - PT/CVT primary terminals connect at the intended voltage measurement
+      point, using the applicable SimpleLine/line connection or direct Bus
+      attachment. The graphical SimpleLine is not electrical truth; canonical
+      Core endpoint connectivity remains authoritative.
+    - PT/CVT secondary terminals remain measurement interfaces, not primary
+      power-network Bus attachments.
+
+Implementation correction:
+    ProtectionConfigurationService now validates CT insertion using
+    ConnectivityResolver.terminal_component rather than requiring both CT
+    primary terminals to resolve to Bus IDs. Exactly one CT primary terminal
+    must share the explicitly selected Branch terminal's SimpleWire
+    component, and the CT P1/P2 components must remain distinct. This
+    supports inline CT placement on split SimpleWire segments and avoids
+    confusing a wire segment with the monitored Branch.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source/contract inspection and static review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
