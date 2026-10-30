@@ -182,10 +182,31 @@ class ProjectPersistenceService:
         if len({case.study_id for case in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
         study_cases_by_id = {str(case.study_id): case for case in study_cases}
+        protection_functions = {
+            item.element_id: item
+            for item in (protection_configuration.elements if protection_configuration is not None else ())
+        }
         for case in study_cases:
             typed_configuration = case.configuration.get("configuration")
             if not isinstance(typed_configuration, CoordinationStudyConfiguration):
                 continue
+            referenced_functions = {
+                element_id
+                for pair in typed_configuration.pairs
+                for element_id in (pair.primary_element_id, pair.backup_element_id)
+            }
+            for element_id in sorted(referenced_functions):
+                function = protection_functions.get(element_id)
+                if function is None:
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references protection function "
+                        f"{element_id!r}, which is absent from the project's protection configuration."
+                    )
+                if str(function.function_code).strip().upper() not in {"51", "51N"}:
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references {function.function_code!r} "
+                        f"function {element_id!r}; only ANSI 51/51N functions are valid."
+                    )
             for scenario in typed_configuration.scenarios:
                 source_id = scenario.short_circuit_study_id
                 if source_id is None:
