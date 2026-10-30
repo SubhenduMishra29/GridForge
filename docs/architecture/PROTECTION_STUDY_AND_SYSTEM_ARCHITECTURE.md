@@ -719,9 +719,10 @@ different CT ratios cannot accidentally satisfy the differential kernel's
 common-basis guard. Differential protection still requires an explicit,
 engineering-valid CT normalisation/compensation stage before its samples can
 be evaluated. Bus-attached and equipment-terminal CT contribution adapters,
-PT/CVT fault-voltage conversion, RelayInput snapshot assembly and
-ProtectionSystem scenario evaluation remain pending. No scenario relay
-decision or breaker action is claimed.
+PT/CVT fault-voltage conversion remains pending. Phase D5 now assembles
+detached RelayInput snapshots and evaluates eligible current protection
+functions for explicitly bound Branch FROM/TO CT samples. Unsupported
+instrument/input paths still fail closed, and no breaker action is dispatched.
 
 
 ## 21. Detached fault-scenario RelayInput evaluation — Phase D5
