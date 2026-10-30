@@ -15707,3 +15707,26 @@ Verification:
 - Strengthened DifferentialProtectionSchemeConfiguration so every member CT measurement binding must declare exactly one current direction: INTO_ZONE or OUT_OF_ZONE.
 - Direction is scheme-specific engineering configuration and is never inferred from CT P1/P2 physical orientation, Bus attachment, or SimpleWire topology.
 - The explicit direction mapping is immutable and included in project persistence. Differential phasor calculation remains pending.
+
+
+[2026-10-30] Protection Study Phase E2 — pure differential current kernel
+- Added headless Core differential numerical contracts: explicit settings,
+  detached three-phase complex RMS current samples, per-phase results and
+  immutable aggregate result.
+- The kernel uses the scheme's persisted INTO_ZONE/OUT_OF_ZONE directions
+  for signed phasor summation. It requires all member CT samples, exact
+  binding identity, a shared explicit reference-basis ID, finite A/B/C
+  phasors and a configured restraint definition.
+- Added selectable half-sum, sum and maximum-magnitude restraint methods;
+  continuous piecewise-linear multi-slope bias characteristic; and optional
+  independent high-set pickup.
+- Non-zero phase compensation is rejected until an equipment-specific
+  compensation adapter exists. The kernel does not silently ignore stored
+  compensation settings.
+- Results are immutable and non-actuating. No ProtectionDecision, trip/action
+  mapping or breaker operation is performed.
+- Transformer vector-group/ratio compensation, CT conversion/normalisation,
+  zero-sequence treatment, inrush and CT-saturation supervision, timing and
+  end-to-end ProtectionStudy sample integration remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
