@@ -143,7 +143,7 @@ def evaluate_differential_scheme(
             f"Differential sample set does not match scheme membership; "
             f"missing={missing}, unexpected={unexpected}."
         )
-    if any(abs(value) > 1e-12 for value in scheme.phase_compensation_degrees.values()):
+    if any(value != 0.0 for value in scheme.phase_compensation_degrees.values()):
         raise NotImplementedError(
             "Configured phase compensation requires an equipment-specific adapter; "
             "the generic differential kernel will not ignore it."
@@ -175,6 +175,8 @@ def evaluate_differential_scheme(
         operate_current = abs(signed_sum)
         restraint_current = _restraint_current(settings.restraint_method, magnitudes)
         threshold = _bias_threshold(settings, restraint_current)
+        if not all(math.isfinite(value) for value in (operate_current, restraint_current, threshold)):
+            raise ValueError(f\"Differential calculation overflowed for phase {phase}.\")
         bias_margin = operate_current - threshold
         high_set_margin = (
             None if settings.high_set_pickup_a is None
