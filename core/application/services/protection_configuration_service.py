@@ -18,6 +18,7 @@ from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
 from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
 from core.protection.input_contracts import validate_protection_input_contracts
+from core.protection.protection_measurement_binding import ProtectionMeasurementBinding
 from core.protection.project_configuration import (
     ProtectionFunctionConfiguration,
     ProtectionProjectConfiguration,
@@ -271,6 +272,88 @@ class ProtectionConfigurationService:
         return self._success(
             next_configuration,
             f"Protection measurement unbound: {configuration.element_id}:{normalized_input}",
+        )
+
+    def create_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Persist one element/input-scoped source binding transactionally."""
+        self._require_transaction(transaction)
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        active = self._require_configuration()
+        element = active.get(binding.protection_element_id)
+        if element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_BINDING_INPUT_MISMATCH",
+                message="Measurement binding does not match the configured element input channel.",
+                details={
+                    "element_id": binding.protection_element_id,
+                    "input_name": binding.relay_input_id,
+                    "channel_id": binding.channel_id,
+                },
+            )
+        channels = self._measurement_channel_provider() if self._measurement_channel_provider is not None else {}
+        channel = channels.get(binding.channel_id)
+        if channel is None:
+            raise ResourceError(
+                code="PROTECTION_CHANNEL_NOT_FOUND",
+                message=f"Measurement channel not found: {binding.channel_id}",
+                details={"channel_id": binding.channel_id},
+            )
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is None:
+            raise RuntimeError("No active Network is available for protection measurement binding.")
+        relay = network.get_by_id("relay", element.relay_id)
+        relay_input = relay.get_input(binding.relay_input_id)
+        if relay_input.channel_id != binding.channel_id or relay_input.channel is not channel:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_BINDING_RUNTIME_MISMATCH",
+                message="Persisted measurement binding does not match the active RelayInput channel reference.",
+                details={
+                    "element_id": element.element_id,
+                    "input_name": binding.relay_input_id,
+                    "channel_id": binding.channel_id,
+                },
+            )
+        active.add_measurement_binding(binding)
+        transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Protection source binding created: {binding.binding_id}",
+            metadata={
+                "object_type": "protection_measurement_binding",
+                "object_id": binding.binding_id,
+                "element_id": binding.protection_element_id,
+                "input_name": binding.relay_input_id,
+            },
+        )
+
+    def delete_measurement_binding(
+        self,
+        *,
+        binding_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Remove one source binding transactionally without changing channels."""
+        self._require_transaction(transaction)
+        if not isinstance(binding_id, str) or not binding_id.strip():
+            raise ValueError("binding_id must be a non-empty string.")
+        active = self._require_configuration()
+        binding = active.remove_measurement_binding(binding_id.strip())
+        transaction.record_undo(lambda: active.add_measurement_binding(binding))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Protection source binding removed: {binding.binding_id}",
+            metadata={
+                "object_type": "protection_measurement_binding",
+                "object_id": binding.binding_id,
+                "element_id": binding.protection_element_id,
+                "input_name": binding.relay_input_id,
+            },
         )
 
     def delete_configuration(self, *, element_id: str, transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
