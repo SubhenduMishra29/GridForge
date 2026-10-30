@@ -8,12 +8,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID
 
 from .revision import ProjectRevision
 from core.protection.decision import ProtectionDecision
+from core.protection.relay_functions import generate_tcc_points, normalize_iec_curve
 
 
 _CANONICAL_ATTRIBUTES: dict[str, tuple[str, ...]] = {
@@ -175,6 +177,114 @@ class RelayReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class IDMTCurvePointReadModel:
+    """One positive, finite point in an IDMT time-current characteristic."""
+
+    multiple: float
+    current: float
+    operating_time_s: float
+
+    def __post_init__(self) -> None:
+        for name in ("multiple", "current", "operating_time_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"{name} must be numeric.")
+            value = float(value)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive.")
+            object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True, slots=True)
+class IDMTCurveReadModel:
+    """Immutable Application projection of one configured IEC 51/51N curve.
+
+    Values are generated from the persisted protection configuration using
+    the canonical Core equation. Current uses the assigned relay-input
+    engineering units; this DTO does not assume primary or secondary amperes.
+    """
+
+    element_id: str
+    relay_id: str
+    function_code: str
+    display_name: str
+    pickup: float
+    curve: str
+    TMS: float
+    points: tuple[IDMTCurvePointReadModel, ...]
+
+    def __post_init__(self) -> None:
+        for name in ("element_id", "relay_id", "display_name"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        code = str(self.function_code).strip().upper()
+        if code not in {"51", "51N"}:
+            raise ValueError("IDMT curve read models support function codes 51 and 51N only.")
+        object.__setattr__(self, "function_code", code)
+        pickup = float(self.pickup)
+        tms = float(self.TMS)
+        if not math.isfinite(pickup) or pickup <= 0.0:
+            raise ValueError("pickup must be finite and positive.")
+        if not math.isfinite(tms) or tms <= 0.0:
+            raise ValueError("TMS must be finite and positive.")
+        object.__setattr__(self, "pickup", pickup)
+        object.__setattr__(self, "TMS", tms)
+        object.__setattr__(self, "curve", normalize_iec_curve(self.curve))
+        points = tuple(self.points)
+        if len(points) < 2 or not all(isinstance(p, IDMTCurvePointReadModel) for p in points):
+            raise ValueError("points must contain at least two IDMTCurvePointReadModel values.")
+        object.__setattr__(self, "points", points)
+
+    @classmethod
+    def from_configuration(
+        cls,
+        configuration: Any,
+        *,
+        minimum_multiple: float = 1.01,
+        maximum_multiple: float = 20.0,
+        point_count: int = 200,
+    ) -> "IDMTCurveReadModel":
+        """Build a detached curve projection from one persisted 51/51N config."""
+        code = str(getattr(configuration, "function_code", "")).strip().upper()
+        if code not in {"51", "51N"}:
+            raise ValueError("Only IEC 51 and 51N configurations produce IDMT curves.")
+        settings = getattr(configuration, "settings", None)
+        if not isinstance(settings, Mapping):
+            raise TypeError("IDMT protection settings must be a mapping.")
+        if "pickup" not in settings:
+            raise ValueError(f"Protection element {configuration.element_id!r} has no pickup setting.")
+        tms = settings.get("TMS", settings.get("tms"))
+        if tms is None:
+            raise ValueError(f"Protection element {configuration.element_id!r} has no TMS setting.")
+        curve = normalize_iec_curve(settings.get("curve", "SI"))
+        raw_points = generate_tcc_points(
+            pickup=settings["pickup"],
+            curve=curve,
+            TMS=tms,
+            minimum_multiple=minimum_multiple,
+            maximum_multiple=maximum_multiple,
+            points=point_count,
+        )
+        points = tuple(IDMTCurvePointReadModel(
+            multiple=item["multiple"],
+            current=item["current"],
+            operating_time_s=item["time"],
+        ) for item in raw_points)
+        return cls(
+            element_id=str(configuration.element_id),
+            relay_id=str(configuration.relay_id),
+            function_code=code,
+            display_name=str(configuration.name or configuration.element_id),
+            pickup=float(settings["pickup"]),
+            curve=curve,
+            TMS=float(tms),
+            points=points,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class StudyResultReadModel:
     """Immutable Application read-side view of one published study result.
 
@@ -227,4 +337,6 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "StudyResultReadModel",
+    "IDMTCurvePointReadModel",
+    "IDMTCurveReadModel",
 ]
