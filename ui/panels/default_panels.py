@@ -1089,6 +1089,11 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._fault_location.setPlaceholderText("Optional fault bus / location ID")
         self._run_button = QPushButton("Run Coordination Study", self)
         self._run_button.setObjectName("RunIDMTCoordinationStudy")
+        self._add_pair_button = QPushButton("Add Current Pair", self)
+        self._remove_pair_button = QPushButton("Remove Selected Pair", self)
+        self._pair_list = QListWidget(self)
+        self._pair_list.setObjectName("CoordinationStudyPairs")
+        self._coordination_pairs: list[dict[str, Any]] = []
         form = QFormLayout()
         form.addRow("Primary function", self._primary_combo)
         form.addRow("Backup function", self._backup_combo)
@@ -1110,6 +1115,10 @@ class IDMTTCCWorkspaceWidget(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(self._refresh_button)
         layout.addLayout(form)
+        layout.addWidget(QLabel("Coordination pairs (each pair retains its own current/branch mapping)", self))
+        layout.addWidget(self._pair_list)
+        layout.addWidget(self._add_pair_button)
+        layout.addWidget(self._remove_pair_button)
         layout.addWidget(self._run_button)
         layout.addWidget(self._status)
         layout.addWidget(self._view, 1)
@@ -1120,6 +1129,8 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._short_circuit_results: dict[str, Any] = {}
         self._refresh_button.clicked.connect(self.refresh_curves)
         self._run_button.clicked.connect(self.run_coordination_study)
+        self._add_pair_button.clicked.connect(self.add_coordination_pair)
+        self._remove_pair_button.clicked.connect(self.remove_coordination_pair)
         self._primary_combo.currentIndexChanged.connect(self._sync_current_units)
         self._backup_combo.currentIndexChanged.connect(self._sync_current_units)
         self._short_circuit_result_combo.currentIndexChanged.connect(self._populate_branch_selectors)
@@ -1231,18 +1242,94 @@ class IDMTTCCWorkspaceWidget(QWidget):
             raise ValueError(f"{field_name} must contain at least one current.")
         return tuple(values)
 
-    def run_coordination_study(self) -> None:
-        """Create and execute one project-scoped coordination Study Case."""
-        if self._application is None:
-            self._status.setText("TCC workspace is not bound to the active Application.")
-            return
+    def add_coordination_pair(self) -> None:
+        """Capture the editor state as one explicit, immutable study-pair definition."""
         primary_id = self._primary_combo.currentData()
         backup_id = self._backup_combo.currentData()
         if not primary_id or not backup_id:
             self._status.setText("Select both a primary and a backup ANSI 51/51N function.")
             return
-        if primary_id == backup_id:
+        if str(primary_id) == str(backup_id):
             self._status.setText("Primary and backup functions must be different.")
+            return
+        source = self._scenario_source.currentData()
+        pair: dict[str, Any] = {
+            "primary_id": str(primary_id),
+            "backup_id": str(backup_id),
+            "source": source,
+        }
+        try:
+            if source == "manual":
+                pair["primary_currents"] = self._parse_current_values(
+                    self._primary_currents.text(), "Primary relay-input currents"
+                )
+                pair["backup_currents"] = self._parse_current_values(
+                    self._backup_currents.text(), "Backup relay-input currents"
+                )
+                if len(pair["primary_currents"]) != len(pair["backup_currents"]):
+                    raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
+                pair["primary_unit"] = self._primary_unit.text().strip()
+                pair["backup_unit"] = self._backup_unit.text().strip()
+                if not pair["primary_unit"] or not pair["backup_unit"]:
+                    raise ValueError(
+                        "Both relay configurations must declare current_unit or pickup_unit. "
+                        "No CT or base conversion is inferred."
+                    )
+                pair["fault_location"] = self._fault_location.text().strip()
+            elif source == "short_circuit":
+                study_id = self._short_circuit_result_combo.currentData()
+                primary_branch = self._primary_branch_combo.currentData()
+                backup_branch = self._backup_branch_combo.currentData()
+                if not study_id or not primary_branch or not backup_branch:
+                    raise ValueError("Select a completed Short-Circuit Study and both relay branch mappings.")
+                primary_scale = float(self._primary_current_scale.text())
+                backup_scale = float(self._backup_current_scale.text())
+                if not math.isfinite(primary_scale) or primary_scale <= 0.0:
+                    raise ValueError("Primary current conversion scale must be finite and positive.")
+                if not math.isfinite(backup_scale) or backup_scale <= 0.0:
+                    raise ValueError("Backup current conversion scale must be finite and positive.")
+                pair.update({
+                    "study_id": str(study_id),
+                    "primary_branch": str(primary_branch),
+                    "backup_branch": str(backup_branch),
+                    "primary_side": str(self._primary_branch_side.currentData()),
+                    "backup_side": str(self._backup_branch_side.currentData()),
+                    "primary_scale": primary_scale,
+                    "backup_scale": backup_scale,
+                })
+            else:
+                raise ValueError(f"Unsupported coordination scenario source: {source!r}.")
+            key = (pair["primary_id"], pair["backup_id"])
+            if any((existing["primary_id"], existing["backup_id"]) == key for existing in self._coordination_pairs):
+                raise ValueError("This primary/backup pair is already in the coordination list.")
+            self._coordination_pairs.append(pair)
+            description = f'{pair["primary_id"]} → {pair["backup_id"]}'
+            if source == "short_circuit":
+                description += f' | {pair["primary_branch"]} ({pair["primary_side"]}) / {pair["backup_branch"]} ({pair["backup_side"]})'
+            else:
+                description += f' | {len(pair["primary_currents"])} manual scenario(s)'
+            self._pair_list.addItem(description)
+            self._status.setText(f"Added pair {len(self._coordination_pairs)}. Add more pairs or run the study.")
+        except (TypeError, ValueError) as exc:
+            self._status.setText(f"Pair not added: {exc}")
+
+    def remove_coordination_pair(self) -> None:
+        """Remove the selected pair from the pending study configuration."""
+        row = self._pair_list.currentRow()
+        if row < 0 or row >= len(self._coordination_pairs):
+            self._status.setText("Select a coordination pair to remove.")
+            return
+        self._pair_list.takeItem(row)
+        self._coordination_pairs.pop(row)
+        self._status.setText(f"Removed pair. {len(self._coordination_pairs)} pair(s) remain.")
+
+    def run_coordination_study(self) -> None:
+        """Create and execute one project-scoped multi-pair coordination Study Case."""
+        if self._application is None:
+            self._status.setText("TCC workspace is not bound to the active Application.")
+            return
+        if not self._coordination_pairs:
+            self._status.setText("Add at least one coordination pair before running the study.")
             return
         try:
             from core.analysis.coordination_study import (
@@ -1251,74 +1338,85 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 CoordinationStudyConfiguration,
                 CoordinationStudyPair,
             )
-            source = self._scenario_source.currentData()
+            sources = {pair["source"] for pair in self._coordination_pairs}
+            if len(sources) != 1:
+                raise ValueError("All pairs in one Study Case must use the same scenario source.")
+            source = next(iter(sources))
+            pairs = []
             if source == "manual":
-                primary_values = self._parse_current_values(
-                    self._primary_currents.text(), "Primary relay-input currents"
-                )
-                backup_values = self._parse_current_values(
-                    self._backup_currents.text(), "Backup relay-input currents"
-                )
-                if len(primary_values) != len(backup_values):
-                    raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
-                primary_unit = self._primary_unit.text().strip()
-                backup_unit = self._backup_unit.text().strip()
-                if not primary_unit or not backup_unit:
-                    raise ValueError(
-                        "Both relay configurations must declare current_unit or pickup_unit. "
-                        "No CT or base conversion is inferred."
+                scenario_counts = {
+                    len(pair["primary_currents"])
+                    for pair in self._coordination_pairs
+                } | {
+                    len(pair["backup_currents"])
+                    for pair in self._coordination_pairs
+                }
+                if len(scenario_counts) != 1:
+                    raise ValueError("Every pair must define the same number of manual fault scenarios.")
+                scenario_count = next(iter(scenario_counts))
+                scenarios_list = []
+                location = self._coordination_pairs[0]["fault_location"]
+                for index in range(scenario_count):
+                    currents_by_element: dict[str, Any] = {}
+                    for pair in self._coordination_pairs:
+                        if pair["fault_location"] != location:
+                            raise ValueError("All manual pairs in one Study Case must use the same fault location.")
+                        entries = (
+                            (pair["primary_id"], pair["primary_currents"][index], pair["primary_unit"]),
+                            (pair["backup_id"], pair["backup_currents"][index], pair["backup_unit"]),
+                        )
+                        for element_id, current, unit in entries:
+                            value = CoordinationRelayCurrent(current, unit)
+                            previous = currents_by_element.get(element_id)
+                            if previous is not None and previous != value:
+                                raise ValueError(
+                                    f"Conflicting manual current inputs were supplied for relay function {element_id!r}."
+                                )
+                            currents_by_element[element_id] = value
+                    scenarios_list.append(
+                        CoordinationFaultScenario(
+                            scenario_id=f"SCENARIO-{index + 1:03d}",
+                            currents_by_element_id=currents_by_element,
+                            fault_location_id=location,
+                        )
                     )
-                location = self._fault_location.text().strip()
-                scenarios = tuple(
-                    CoordinationFaultScenario(
-                        scenario_id=f"SCENARIO-{index + 1:03d}",
-                        currents_by_element_id={
-                            str(primary_id): CoordinationRelayCurrent(primary_current, primary_unit),
-                            str(backup_id): CoordinationRelayCurrent(backup_current, backup_unit),
-                        },
-                        fault_location_id=location,
-                    )
-                    for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
-                )
-                pair = CoordinationStudyPair(str(primary_id), str(backup_id))
+                scenarios = tuple(scenarios_list)
+                pairs = [
+                    CoordinationStudyPair(pair["primary_id"], pair["backup_id"])
+                    for pair in self._coordination_pairs
+                ]
             elif source == "short_circuit":
-                study_id = self._short_circuit_result_combo.currentData()
+                study_ids = {pair["study_id"] for pair in self._coordination_pairs}
+                if len(study_ids) != 1:
+                    raise ValueError("All Short-Circuit mapped pairs must use the same completed Study Case.")
+                study_id = next(iter(study_ids))
                 result_model = self._short_circuit_results.get(study_id)
-                primary_branch = self._primary_branch_combo.currentData()
-                backup_branch = self._backup_branch_combo.currentData()
-                if result_model is None or not primary_branch or not backup_branch:
-                    raise ValueError("Select a completed Short-Circuit Study and both relay branch mappings.")
-                try:
-                    primary_scale = float(self._primary_current_scale.text())
-                    backup_scale = float(self._backup_current_scale.text())
-                except (TypeError, ValueError) as exc:
-                    raise ValueError("Both current conversion scales are required and must be numeric.") from exc
-                if not math.isfinite(primary_scale) or primary_scale <= 0.0:
-                    raise ValueError("Primary current conversion scale must be finite and positive.")
-                if not math.isfinite(backup_scale) or backup_scale <= 0.0:
-                    raise ValueError("Backup current conversion scale must be finite and positive.")
-                fault_location = str(result_model.value.fault_bus_id)
+                if result_model is None:
+                    raise ValueError("The selected Short-Circuit result is no longer available; refresh curves and results.")
                 scenarios = (
                     CoordinationFaultScenario(
-                        scenario_id=f"SC-{str(study_id)[:8]}",
-                        fault_location_id=fault_location,
-                        short_circuit_study_id=str(study_id),
+                        scenario_id=f"SC-{study_id[:8]}",
+                        fault_location_id=str(result_model.value.fault_bus_id),
+                        short_circuit_study_id=study_id,
                     ),
                 )
-                pair = CoordinationStudyPair(
-                    str(primary_id),
-                    str(backup_id),
-                    primary_branch_id=str(primary_branch),
-                    backup_branch_id=str(backup_branch),
-                    primary_branch_side=str(self._primary_branch_side.currentData()),
-                    backup_branch_side=str(self._backup_branch_side.currentData()),
-                    primary_current_scale=primary_scale,
-                    backup_current_scale=backup_scale,
-                )
+                pairs = [
+                    CoordinationStudyPair(
+                        pair["primary_id"],
+                        pair["backup_id"],
+                        primary_branch_id=pair["primary_branch"],
+                        backup_branch_id=pair["backup_branch"],
+                        primary_branch_side=pair["primary_side"],
+                        backup_branch_side=pair["backup_side"],
+                        primary_current_scale=pair["primary_scale"],
+                        backup_current_scale=pair["backup_scale"],
+                    )
+                    for pair in self._coordination_pairs
+                ]
             else:
                 raise ValueError(f"Unsupported coordination scenario source: {source!r}.")
             configuration = CoordinationStudyConfiguration(
-                pairs=(pair,),
+                pairs=tuple(pairs),
                 scenarios=scenarios,
                 required_cti_s=self._cti_input.value(),
             )
