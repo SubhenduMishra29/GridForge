@@ -15418,3 +15418,44 @@ Verification:
     Static source review only. No tests or CI run. Python syntax/import
     execution remains outstanding.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE D CONTRACT AUDIT
+======================================================================
+
+Date:
+    2026-10-30
+
+Finding:
+    The existing MeasurementGeneration short-circuit path rejects arbitrary
+    branch current mapping and only accepts fault-Bus quantities. The
+    ProtectionMeasurementBinding contract is not integrated into
+    ProtectionProjectConfiguration persistence and identifies RelayInput
+    only by its local input name, not by the consuming protection element.
+    The open CT association work resolves primary Bus locations but does not
+    establish a branch/protection-zone inference, as required by architecture.
+
+Required correction order:
+    1. Scope each measurement binding to a protection element and input.
+    2. Persist the binding collection in the existing project protection
+       configuration contract.
+    3. Validate explicit source branch terminal, CT P1/P2 association,
+       secondary channel, and protection input mapping.
+    4. Implement branch-current per-unit to primary-A to CT-secondary-A
+       conversion using the selected branch side's Bus voltage base.
+    5. Feed detached scenario samples through Application's sealed
+       per-element/input snapshot path; never mutate live channels.
+    6. Evaluate protection decisions as non-actuating study outputs.
+
+No branch-current conversion or scenario-derived relay evaluation is
+claimed. The audit is recorded as a blocking Phase D implementation scope.
+
+Changed files:
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source/contract inspection only. No tests or CI run.
+    Python syntax/import execution remains outstanding.
+======================================================================
