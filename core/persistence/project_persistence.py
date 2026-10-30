@@ -25,6 +25,12 @@ from core.application.study import StudyCaseDefinition
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
+from core.analysis.coordination_study import (
+    CoordinationFaultScenario,
+    CoordinationRelayCurrent,
+    CoordinationStudyConfiguration,
+    CoordinationStudyPair,
+)
 from core.solver.short_circuit.fault_types import FaultType
 from core.application.control_signal_mapping import ControlSignalMapping
 from core.application.draft import DraftNetwork
@@ -511,6 +517,40 @@ class ProjectPersistenceService:
                     if configuration.power_flow_configuration is not None else None
                 ),
             }
+        elif isinstance(configuration, CoordinationStudyConfiguration):
+            typed = {
+                "kind": "protection_coordination",
+                "required_cti_s": configuration.required_cti_s,
+                "display_name": configuration.display_name,
+                "pairs": [
+                    {
+                        "primary_element_id": pair.primary_element_id,
+                        "backup_element_id": pair.backup_element_id,
+                        "primary_branch_id": pair.primary_branch_id,
+                        "backup_branch_id": pair.backup_branch_id,
+                        "primary_branch_side": pair.primary_branch_side,
+                        "backup_branch_side": pair.backup_branch_side,
+                        "primary_current_scale": pair.primary_current_scale,
+                        "backup_current_scale": pair.backup_current_scale,
+                    }
+                    for pair in configuration.pairs
+                ],
+                "scenarios": [
+                    {
+                        "scenario_id": scenario.scenario_id,
+                        "fault_location_id": scenario.fault_location_id,
+                        "short_circuit_study_id": scenario.short_circuit_study_id,
+                        "currents_by_element_id": {
+                            element_id: {
+                                "current": current.current,
+                                "current_unit": current.current_unit,
+                            }
+                            for element_id, current in scenario.currents_by_element_id.items()
+                        },
+                    }
+                    for scenario in configuration.scenarios
+                ],
+            }
         else:
             raise ProjectPersistenceError(
                 f"Unsupported typed Study Case configuration: {type(configuration).__name__}."
@@ -572,6 +612,58 @@ class ProjectPersistenceService:
                     element_ids=tuple(payload.get("element_ids", ())),
                     metadata=payload.get("metadata", {}),
                     base_mva=payload.get("base_mva"),
+                )
+            elif kind == "protection_coordination":
+                raw_pairs = payload.get("pairs")
+                raw_scenarios = payload.get("scenarios")
+                if not isinstance(raw_pairs, list) or not isinstance(raw_scenarios, list):
+                    raise TypeError("Coordination pairs and scenarios must be arrays.")
+                pairs = tuple(
+                    CoordinationStudyPair(
+                        primary_element_id=str(item["primary_element_id"]),
+                        backup_element_id=str(item["backup_element_id"]),
+                        primary_branch_id=item.get("primary_branch_id"),
+                        backup_branch_id=item.get("backup_branch_id"),
+                        primary_branch_side=item.get("primary_branch_side"),
+                        backup_branch_side=item.get("backup_branch_side"),
+                        primary_current_scale=item.get("primary_current_scale"),
+                        backup_current_scale=item.get("backup_current_scale"),
+                    )
+                    for item in raw_pairs
+                    if isinstance(item, Mapping)
+                )
+                if len(pairs) != len(raw_pairs):
+                    raise TypeError("Every coordination pair must be an object.")
+                scenarios_list = []
+                for item in raw_scenarios:
+                    if not isinstance(item, Mapping):
+                        raise TypeError("Every coordination scenario must be an object.")
+                    raw_currents = item.get("currents_by_element_id", {})
+                    if not isinstance(raw_currents, Mapping):
+                        raise TypeError("Scenario currents_by_element_id must be an object.")
+                    currents = {
+                        str(element_id): CoordinationRelayCurrent(
+                            current=value["current"],
+                            current_unit=str(value["current_unit"]),
+                        )
+                        for element_id, value in raw_currents.items()
+                        if isinstance(value, Mapping)
+                    }
+                    if len(currents) != len(raw_currents):
+                        raise TypeError("Every persisted relay current must be an object.")
+                    scenarios_list.append(
+                        CoordinationFaultScenario(
+                            scenario_id=str(item["scenario_id"]),
+                            fault_location_id=str(item.get("fault_location_id", "")),
+                            short_circuit_study_id=item.get("short_circuit_study_id"),
+                            currents_by_element_id=currents,
+                        )
+                    )
+                typed = CoordinationStudyConfiguration(
+                    pairs=pairs,
+                    scenarios=tuple(scenarios_list),
+                    required_cti_s=payload["required_cti_s"],
+                    display_name=str(payload.get("display_name", "Protection Coordination Study")),
                 )
             elif kind == "transient_stability":
                 initial_power_flow = payload.get("power_flow_configuration")
