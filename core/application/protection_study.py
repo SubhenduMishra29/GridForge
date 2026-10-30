@@ -24,7 +24,7 @@ from uuid import UUID
 from core.analysis.short_circuit import ShortCircuitAnalysis
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
-from core.solver.short_circuit.result import ShortCircuitResult, ShortCircuitStatus
+from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult, ShortCircuitStatus
 
 from core.application.protection_execution import ProtectionExecutionResult
 from core.application.revision import ProjectRevision
@@ -94,6 +94,19 @@ class ProtectionFaultScenarioResult:
     @property
     def success(self) -> bool:
         return self.short_circuit_result.success
+
+    @property
+    def contribution_status(self) -> ContributionStatus:
+        return self.short_circuit_result.contribution_status
+
+    @property
+    def measurement_contributions_complete(self) -> bool:
+        """Whether branch/source current contributions are complete enough for mapping."""
+        return self.contribution_status is ContributionStatus.COMPLETE
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        return tuple(self.short_circuit_result.diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +279,12 @@ class ProtectionStudyResult:
     def status(self) -> str:
         if self.measurement_snapshot_evaluated and self.execution.diagnostics:
             return "blocked"
-        if any(not item.success or item.status is not ShortCircuitStatus.COMPLETE for item in self.fault_scenarios):
+        if any(
+            not item.success
+            or item.status is not ShortCircuitStatus.COMPLETE
+            or not item.measurement_contributions_complete
+            for item in self.fault_scenarios
+        ):
             return "partial"
         if self.fault_scenarios and not self.measurement_snapshot_evaluated:
             return "fault_scenarios_calculated"
