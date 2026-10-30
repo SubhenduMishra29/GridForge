@@ -129,8 +129,8 @@ class ProtectionMeasurementBinding:
                 raise ValueError(f"{name} must expose a non-empty stable id.")
             ids[name] = object_id.strip()
 
-        if endpoint.equipment_id != source_equipment_id.strip():
-            raise ValueError("source_terminal does not belong to source_equipment.")
+        if endpoint.object_id != source_equipment_id.strip():
+            raise ValueError("source_endpoint does not belong to source_equipment.")
 
         if instrument_ratio is None:
             raise ValueError("instrument_ratio must be explicitly supplied; inference is not permitted.")
@@ -197,7 +197,7 @@ class ProtectionMeasurementBinding:
             binding_id=data["binding_id"],
             protection_element_id=data["protection_element_id"],
             source_equipment_id=data["source_equipment_id"],
-            source_terminal_reference=endpoint,
+            source_endpoint_reference=endpoint,
             electrical_side=data["electrical_side"],
             measurement_type=data["measurement_type"],
             phase_or_sequence=data["phase_or_sequence"],
