@@ -223,6 +223,8 @@ class IDMTCurveReadModel:
         if code not in {"51", "51N"}:
             raise ValueError("IDMT curve read models support function codes 51 and 51N only.")
         object.__setattr__(self, "function_code", code)
+        if isinstance(self.pickup, bool) or isinstance(self.TMS, bool):
+            raise TypeError("pickup and TMS must be numeric, not boolean.")
         pickup = float(self.pickup)
         tms = float(self.TMS)
         if not math.isfinite(pickup) or pickup <= 0.0:
@@ -258,6 +260,8 @@ class IDMTCurveReadModel:
         tms = settings.get("TMS", settings.get("tms"))
         if tms is None:
             raise ValueError(f"Protection element {configuration.element_id!r} has no TMS setting.")
+        if isinstance(settings["pickup"], bool) or isinstance(tms, bool):
+            raise TypeError("IDMT pickup and TMS settings must be numeric, not boolean.")
         curve = normalize_iec_curve(settings.get("curve", "SI"))
         raw_points = generate_tcc_points(
             pickup=settings["pickup"],
