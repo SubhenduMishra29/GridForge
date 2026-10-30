@@ -38,6 +38,7 @@ class CTMeasurementAssociation:
     """Immutable result of resolving one CT's primary measurement location."""
 
     ct_id: str
+    in_service: bool
     p1_bus_id: str
     p2_bus_id: str
     positive_current_direction: str
@@ -52,6 +53,8 @@ class CTMeasurementAssociation:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
             object.__setattr__(self, name, value.strip())
+        if not isinstance(self.in_service, bool):
+            raise TypeError("in_service must be a boolean.")
         if self.p1_bus_id == self.p2_bus_id:
             raise ValueError("A CT primary measurement location must span two distinct Buses.")
         candidates = tuple(self.candidate_equipment_ids)
@@ -109,11 +112,6 @@ class CTMeasurementAssociationResolver:
             raise CTMeasurementAssociationError(
                 f"CurrentTransformer '{ct.id}' does not resolve to the supplied canonical Network object."
             )
-        if not ct.in_service:
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' is out of service."
-            )
-
         p1_bus_id = self._resolve_primary_bus(ct, "P1", ct.p1_terminal)
         p2_bus_id = self._resolve_primary_bus(ct, "P2", ct.p2_terminal)
         if p1_bus_id == p2_bus_id:
@@ -135,6 +133,7 @@ class CTMeasurementAssociationResolver:
         direction = "P1_TO_P2" if ct.polarity.value == "P1_P2" else "P2_TO_P1"
         return CTMeasurementAssociation(
             ct_id=ct.id,
+            in_service=ct.in_service,
             p1_bus_id=p1_bus_id,
             p2_bus_id=p2_bus_id,
             positive_current_direction=direction,
@@ -149,7 +148,6 @@ class CTMeasurementAssociationResolver:
         return tuple(
             self.resolve(ct)
             for ct in sorted(self._network.current_transformers, key=lambda item: item.id)
-            if ct.in_service
         )
 
     def _resolve_primary_bus(self, ct: CurrentTransformer, role: str, terminal: Any) -> str:

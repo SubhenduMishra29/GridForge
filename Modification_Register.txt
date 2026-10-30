@@ -15254,3 +15254,17 @@ Verification boundary:
     or protection runtime integration.
 
 ======================================================================
+
+
+======================================================================
+GF-MEAS-CT-ASSOCIATION-2026-10-30-A — In-service state is not topology
+======================================================================
+
+Correction:
+    CT measurement association now resolves physical placement regardless
+    of the CT's in_service flag and carries that flag as result metadata.
+    An out-of-service CT remains inspectable and associated with its
+    physical measurement location; signal availability remains a separate
+    measurement/protection concern. resolve_all includes every registered
+    CT and does not silently omit out-of-service instruments.
+
