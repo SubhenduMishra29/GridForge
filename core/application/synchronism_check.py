@@ -396,7 +396,7 @@ class ProjectScopedSynchronismAuditSink:
             "bypassed": decision.bypassed,
             "authorization_id": decision.authorization_id,
         }
-        payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\\n").encode("utf-8")
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         descriptor = os.open(self._path, flags, 0o600)
         try:
