@@ -845,7 +845,9 @@ class MeasurementChannel:
             Raw value supplied by the measurement-generation layer.
 
         timestamp:
-            Optional sample timestamp.
+            Timestamp for this new sample. If omitted, prior timestamp
+            provenance is cleared and the sample cannot satisfy freshness
+            checks.
 
         timestamp_domain:
             Optional explicit clock-domain identifier. Supply it when the
@@ -858,7 +860,8 @@ class MeasurementChannel:
             Optional availability update.
 
         sample_sequence:
-            Optional sample/update sequence number.
+            Optional sample/update sequence number. If omitted, prior sequence
+            provenance is cleared for this new sample.
 
         Notes
         -----
@@ -892,16 +895,16 @@ class MeasurementChannel:
         )
 
         self.raw_value = validated_value
-        if timestamp is not None:
-            self.timestamp = validated_timestamp
-            # Never carry a previous sample's domain onto a new timestamp.
-            self.timestamp_domain = validated_domain
+        # update() always installs a new value. If its producer supplies no
+        # timestamp, invalidate all prior sample provenance rather than
+        # attaching an old timestamp/domain/sequence to the new value.
+        self.timestamp = validated_timestamp
+        self.timestamp_domain = validated_domain
+        self.sample_sequence = validated_sequence
         if quality is not None:
             self.quality = quality
         if available is not None:
             self.available = bool(available)
-        if sample_sequence is not None:
-            self.sample_sequence = validated_sequence
 
     # =================================================================
     # SIGNAL QUALITY / VALIDITY
