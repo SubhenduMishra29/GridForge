@@ -14778,3 +14778,79 @@ Disposition:
       provenance. No production-ready claim.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-IDMT-WORKFLOW-002 — Application coordination Study Case workflow
+======================================================================
+
+Date:
+    2026-10-30
+
+Issue:
+    #868
+
+Scope:
+    - Added immutable CoordinationStudyPair, CoordinationFaultScenario,
+      CoordinationStudyConfiguration, CoordinationStudyPointResult, and
+      CoordinationStudyResult contracts in core/analysis.
+    - Added RelayCoordination.check_pair_currents() so primary and backup
+      protection functions are evaluated at their independently supplied
+      relay-input currents. The existing common-current check_pair() API
+      delegates to this method and retains its prior call contract.
+    - Corrected required_additional_delay for a backup non-operation result:
+      negative-infinite margin now yields infinite required delay rather
+      than incorrectly returning zero.
+    - Registered protection_coordination with Application StudyService.
+      Coordination cases pass the existing project activation, source
+      revision, topology snapshot, project validation, cancellation, and
+      StudyCompleted/StudyFailed lifecycle.
+    - Added Application create_protection_coordination_study_case(),
+      read_protection_coordination_results(), and the project-scoped
+      execution handler.
+    - Execution uses immutable ANSI 51/51N curve read models and the
+      canonical RelayCoordination engine. Explicit pair identities and
+      per-scenario primary/backup relay-input currents are mandatory.
+    - Physical Relay in_service/enabled/blocked state and ProtectionFunction
+      enabled/blocked state are checked before calculation.
+    - Added current_unit to IECOvercurrentSettings and persisted relay
+      function settings. Coordination refuses to run unless each scenario
+      unit exactly matches the configured unit for the respective function.
+    - Added a UI workflow to select one primary and one backup ANSI 51/51N
+      function, enter matched primary/backup current scenarios, set CTI,
+      execute a Study Case, and display CTI margins and violations.
+    - Study results are read back through Application StudyResultReadModel
+      and are rejected for display if stale against active project revision.
+
+Engineering boundaries:
+    - The workflow evaluates explicit relay-input current scenarios. It
+      does not infer primary/backup pairs from topology, infer current
+      directions, or calculate CT/VT ratios.
+    - Current values must already be expressed in each function's declared
+      relay-input engineering unit. No primary/secondary ampere assumption
+      or CT/base conversion is performed.
+    - The current ShortCircuitResult branch-current contract does not expose
+      a declared current base/unit sufficient to safely convert solver
+      branch currents into relay-input currents. Automatic Short-Circuit
+      result ingestion is therefore deliberately not enabled. A separate
+      unit/base provenance contract and explicit relay-to-branch measurement
+      mapping are required before that integration.
+    - Study Case definitions follow the existing Application StudyService
+      lifecycle; project-file persistence of Study Cases and durable
+      coordination-pair settings is not introduced in this increment.
+    - The UI currently authors one pair per run; the Core/Application
+      configuration supports multiple pairs and scenarios.
+
+Verification:
+    - Source changes committed on feature/issue-868-idmt-tcc-workspace.
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and PySide6 runtime rendering were not
+      executed and are not claimed verified.
+
+Disposition:
+    - Implemented explicit-current coordination Study Case workflow.
+    - Issue #868 remains open for automatic short-circuit scenario provenance,
+      project-file persistence of coordination Study Cases/pairs, and
+      runtime verification. No production-ready claim.
+
+======================================================================
