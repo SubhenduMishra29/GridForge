@@ -237,7 +237,12 @@ def validate_protection_input_contracts(
                     if isinstance(settings, Mapping)
                     else None
                 )
-                if declared_unit is not None and declared_unit != unit:
+                normalized_declared_unit = (
+                    declared_unit.strip()
+                    if isinstance(declared_unit, str)
+                    else declared_unit
+                )
+                if normalized_declared_unit is not None and normalized_declared_unit != unit:
                     diagnostics.append(
                         f"{detail}: configured pickup unit {declared_unit!r} "
                         f"does not match the authoritative channel unit {unit!r}; "
