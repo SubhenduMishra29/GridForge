@@ -1178,6 +1178,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
         try:
             from core.analysis.coordination_study import (
                 CoordinationFaultScenario,
+                CoordinationRelayCurrent,
                 CoordinationStudyConfiguration,
                 CoordinationStudyPair,
             )
@@ -1200,10 +1201,10 @@ class IDMTTCCWorkspaceWidget(QWidget):
             scenarios = tuple(
                 CoordinationFaultScenario(
                     scenario_id=f"SCENARIO-{index + 1:03d}",
-                    primary_current=primary_current,
-                    backup_current=backup_current,
-                    primary_current_unit=primary_unit,
-                    backup_current_unit=backup_unit,
+                    currents_by_element_id={
+                        str(primary_id): CoordinationRelayCurrent(primary_current, primary_unit),
+                        str(backup_id): CoordinationRelayCurrent(backup_current, backup_unit),
+                    },
                     fault_location_id=location,
                 )
                 for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
