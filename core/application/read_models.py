@@ -212,6 +212,7 @@ class IDMTCurveReadModel:
     curve: str
     TMS: float
     points: tuple[IDMTCurvePointReadModel, ...]
+    current_unit: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("element_id", "relay_id", "display_name"):
@@ -234,6 +235,11 @@ class IDMTCurveReadModel:
         object.__setattr__(self, "pickup", pickup)
         object.__setattr__(self, "TMS", tms)
         object.__setattr__(self, "curve", normalize_iec_curve(self.curve))
+        if self.current_unit is not None:
+            unit = str(self.current_unit).strip()
+            if not unit:
+                raise ValueError("current_unit must be non-empty when supplied.")
+            object.__setattr__(self, "current_unit", unit)
         points = tuple(self.points)
         if len(points) < 2 or not all(isinstance(p, IDMTCurvePointReadModel) for p in points):
             raise ValueError("points must contain at least two IDMTCurvePointReadModel values.")
@@ -285,6 +291,11 @@ class IDMTCurveReadModel:
             curve=curve,
             TMS=float(tms),
             points=points,
+            current_unit=(
+                str(settings.get("current_unit", settings.get("pickup_unit"))).strip()
+                if settings.get("current_unit", settings.get("pickup_unit")) is not None
+                else None
+            ),
         )
 
 
