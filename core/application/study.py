@@ -19,6 +19,7 @@ from .events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
+from core.analysis.coordination_study import CoordinationStudyConfiguration
 from core.network.topology_snapshot import TopologySnapshot
 
 
@@ -105,6 +106,8 @@ def _validate_study_case_configuration(study_type: str, configuration: Mapping[s
         raise TypeError("transient_stability Study Case requires TransientStabilityStudyConfiguration.")
     if study_type == "contingency" and not isinstance(typed, PowerFlowStudyConfiguration):
         raise TypeError("contingency Study Case requires its existing PowerFlowStudyConfiguration contract.")
+    if study_type == "protection_coordination" and not isinstance(typed, CoordinationStudyConfiguration):
+        raise TypeError("protection_coordination Study Case requires CoordinationStudyConfiguration.")
 
 
 @dataclass(frozen=True, slots=True)
