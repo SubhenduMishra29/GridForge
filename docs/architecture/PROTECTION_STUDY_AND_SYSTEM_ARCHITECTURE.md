@@ -595,6 +595,8 @@ identity, or an individual ProtectionElement. The initial
 - the explicitly protected Core object type and ID (Bus, transformer, line,
   generator, motor, or reactor);
 - at least two distinct, explicitly selected current-measurement binding IDs;
+- an explicit `INTO_ZONE` or `OUT_OF_ZONE` current direction for every
+  member binding; current direction is never inferred from CT P1/P2 placement;
 - optional per-binding phase-compensation degrees, recorded as engineering
   configuration but not yet applied by a differential calculation;
 - enabled state and detached metadata.
