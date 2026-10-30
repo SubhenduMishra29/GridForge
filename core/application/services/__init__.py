@@ -3,7 +3,11 @@
 # GridForge V2 — Headless Application Services
 # Author: Subhendu Mishra
 # ============================================================
-"""Application service package exports for the frozen V2 boundary."""
+"""
+GridForge V2
+============
+Application service package exports for the frozen V2 boundary.
+"""
 
 from __future__ import annotations
 

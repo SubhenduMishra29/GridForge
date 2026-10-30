@@ -10,22 +10,217 @@ GridForge V2 Network Layer
 
 Public package boundary for the assembled electrical network.
 
-The Network Layer assembles canonical objects from core.model into an
-engineering network representation. It owns membership, endpoint
-connectivity, topology and derived network state. It remains headless and
-independent of SLD/UI presentation.
+The Network Layer assembles canonical objects from ``core.model``
+into an engineering network representation.
 
-Y-bus construction belongs to core.numerical.
+Architecture
+------------
+
+    core.model
+        Canonical electrical entities
+              |
+              v
+    core.network
+        Network
+        Registry
+        Index
+        State
+        Topology
+              |
+              v
+    core.numerical
+        Y-bus and other numerical representations
+              |
+              v
+    core.analysis
+        Engineering studies
+              |
+              v
+    core.solver
+        Numerical algorithms
+
+Public Responsibilities
+-----------------------
+
+The package provides:
+
+    Network
+        Central assembled-network façade.
+
+    NetworkRegistry
+        Owns canonical network-element membership.
+
+    BusIndex
+        Owns deterministic bus-to-matrix indexing.
+
+    NetworkState
+        Owns network-derived validity and revision state.
+
+    TopologyManager
+        Builds and queries derived electrical topology.
+
+    PerUnitSystem
+        Re-export of the canonical Base-Layer per-unit service.
+
+Y-bus construction is owned by ``core.numerical`` and is not a
+Network-layer implementation or responsibility.
+
+Architectural Boundary
+----------------------
+
+``core.model`` owns the canonical electrical entities.
+
+``core.network`` does not define alternate electrical models.
+
+The Network Layer assembles references to canonical model objects
+and provides derived network representations required by analysis
+and numerical layers.
+
+Ownership
+---------
+
+Network owns:
+
+    - network membership;
+    - network-level assembly;
+    - deterministic bus indexing;
+    - topology service;
+    - derived network state.
+
+Network does not own:
+
+    - GUI state;
+    - SLD representation;
+    - engineering study orchestration;
+    - numerical matrix construction;
+    - numerical solver algorithms;
+    - electrical equipment definitions.
+
+Command Boundary
+----------------
+
+Commands and application services are responsible for engineering
+workflows such as:
+
+    create
+    connect
+    disconnect
+    register
+    remove
+    reconfigure
+
+The Network Layer provides the assembled-network APIs consumed by
+those application-level workflows.
+
+The Network package therefore remains headless and UI-independent.
+
+Internal Utility Boundary
+-------------------------
+
+``endpoint.resolve_terminal_bus`` is an internal network utility
+used for resolving canonical terminal relationships.
+
+It is intentionally not promoted as a primary package-level API.
+
+This prevents callers from treating endpoint resolution as a
+separate network-domain service.
+
+Per-Unit Boundary
+-----------------
+
+The canonical implementation remains:
+
+    core.base.per_unit.PerUnitSystem
+
+There is no duplicate Network-layer implementation.
+
+``PerUnitSystem`` is re-exported here only for convenient access.
+
+Stable Public API
+-----------------
+
+Typical usage:
+
+    from core.network import Network
+
+    network = Network()
+
+    network.add_bus(bus)
+    network.add_line(line)
+
+    network.ensure_bus_index()
+    network.rebuild_topology()
+
+Numerical consumers should obtain ``YBusBuilder`` from
+``core.numerical``, not from this package.
+
+The package-level exports are intentionally narrow.
+
+Consumers should prefer the Network façade rather than reaching
+through internal implementation modules unless a specific service
+contract explicitly requires it.
+
+GridForge V2 Status
+-------------------
+
+This package is part of the GridForge V2 Network Layer baseline.
+
+The package boundary is intentionally separated into:
+
+    network.py
+        façade
+
+    registry.py
+        membership
+
+    indexing.py
+        deterministic indexing
+
+    state.py
+        derived state
+
+    endpoint.py
+        terminal-to-bus resolution
+
+    topology.py
+        connectivity
+
+Y-bus construction belongs to:
+
+    core/numerical/ybus.py
+        numerical Y-bus representation and construction
+
+Changes to this boundary require architectural justification.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
 
+
+# =====================================================================
+# PRIMARY NETWORK FACADE
+# =====================================================================
+
 from .network import Network
 from .junction import Junction
 from .junction_registry import JunctionRegistry
+
+
+# =====================================================================
+# NETWORK ASSEMBLY SERVICES
+# =====================================================================
+
 from .registry import NetworkRegistry
 from .indexing import BusIndex
 from .state import NetworkState
+
+
+# =====================================================================
+# DERIVED NETWORK SERVICES
+# =====================================================================
+
 from .topology import TopologyManager
 from .topology_endpoint_reference import (
     TopologyEndpointReference,
@@ -40,35 +235,39 @@ from .connectivity import (
     SimpleWireCompatibility,
     SimpleWireConnection,
 )
-from .electrical_boundary import (
-    ElectricalBoundary,
-    ElectricalBoundaryResolver,
-    ElectricalBoundaryType,
-    EndpointCompatibility,
-    EndpointCompatibilityError,
-    conduction_state,
-)
-from .topology_snapshot import (
-    ConductiveEdge,
-    EquipmentBusAttachment,
-    TopologyProvenance,
-    TopologySnapshot,
-)
-from .ct_measurement_association import (
-    CTMeasurementAssociation,
-    CTMeasurementAssociationError,
-    CTMeasurementAssociationResolver,
-    CTMeasurementAssociationStatus,
-)
+
+
+# =====================================================================
+# BASE-LAYER SERVICE
+# =====================================================================
+
+# PerUnitSystem fundamentally belongs to core.base.
+#
+# It is re-exported here for Network-layer convenience only.
+#
+# There must be no duplicate:
+#
+#     core/network/per_unit.py
+
 from core.base.per_unit import PerUnitSystem
 
+
+# =====================================================================
+# PUBLIC PACKAGE API
+# =====================================================================
+
 __all__ = [
+    # Primary façade
     "Network",
     "Junction",
     "JunctionRegistry",
+
+    # Assembly infrastructure
     "NetworkRegistry",
     "BusIndex",
     "NetworkState",
+
+    # Derived network services
     "TopologyManager",
     "ConnectivityError",
     "ConnectivityResolver",
@@ -79,21 +278,29 @@ __all__ = [
     "SimpleWireConnection",
     "TopologyEndpointReference",
     "TopologyEndpointReferenceKind",
-    "ElectricalBoundary",
-    "ElectricalBoundaryResolver",
-    "ElectricalBoundaryType",
-    "EndpointCompatibility",
-    "EndpointCompatibilityError",
-    "conduction_state",
-    "ConductiveEdge",
-    "EquipmentBusAttachment",
-    "TopologyProvenance",
-    "TopologySnapshot",
+
+    # Base-layer service
+    "PerUnitSystem",
     "CTMeasurementAssociation",
     "CTMeasurementAssociationError",
     "CTMeasurementAssociationResolver",
     "CTMeasurementAssociationStatus",
-    "PerUnitSystem",
 ]
 
+
+# =====================================================================
+# PACKAGE VERSION
+# =====================================================================
+
 __version__ = "2.0.0"
+
+from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
+from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot
+
+
+from .ct_measurement_association import (
+    CTMeasurementAssociation,
+    CTMeasurementAssociationError,
+    CTMeasurementAssociationResolver,
+    CTMeasurementAssociationStatus,
+)
