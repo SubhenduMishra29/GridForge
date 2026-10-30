@@ -1249,7 +1249,7 @@ def evaluate_idmt_coordination(
             coordinated = False
             violation = True
         else:
-            margin = backup_time - primary_time
+            margin = coordination_margin(backup_time, primary_time)
             coordinated = margin >= required_margin
             finite_margins.append(margin)
             violation = violation or not coordinated
