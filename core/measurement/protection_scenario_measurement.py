@@ -1,9 +1,9 @@
 """Detached Protection Study measurement samples from explicit fault contributions.
 
 This adapter currently supports explicitly bound Branch FROM/TO CT current
-measurements only. It never updates live MeasurementChannel state and its
-CT-secondary values are not a common primary-current basis for differential
-protection.
+measurements only. It never updates live MeasurementChannel state. Values are
+expressed in canonical amperes on the CT secondary side; the reference-basis
+identity prevents unlike CT secondaries from being treated as a common basis.
 """
 from __future__ import annotations
 
@@ -54,8 +54,8 @@ class ProtectionScenarioMeasurementSample:
         if not isfinite(current.real) or not isfinite(current.imag):
             raise ValueError("Scenario measurement value must be finite.")
         object.__setattr__(self, "value", current)
-        if self.unit != "A_secondary":
-            raise ValueError("CT scenario current samples must be expressed in A_secondary.")
+        if self.unit != "A":
+            raise ValueError("CT scenario current samples must use the canonical ampere unit A.")
         if not isinstance(self.provenance, Mapping):
             raise TypeError("provenance must be a mapping.")
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
@@ -166,7 +166,7 @@ class ProtectionScenarioMeasurementAdapter:
             quantity_key=binding.result_quantity,
             phase_or_sequence=binding.phase_or_sequence,
             value=complex(value),
-            unit="A_secondary",
+            unit="A",
             reference_basis_id=basis_id,
             provenance=provenance,
         )
