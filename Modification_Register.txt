@@ -15879,3 +15879,48 @@ Verification:
     - No tests or CI run, per repository rules.
     - Project package round-trip, invalid-package rejection, and runtime
       51/51N chart parity remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Enforce ANSI 51 pickup/current-channel unit parity
+---------------------------------------------------------------
+
+Files:
+    - core/protection/input_contracts.py
+    - Modification_Register.txt
+
+Audit findings:
+    - MeasurementChannel exposes engineering_value as raw_value multiplied
+      by channel scale and polarity. Physical CT/PT/CVT transformation,
+      including ratio conversion, belongs to measurement generation.
+    - The ANSI 51 input contract requires a CURRENT signal in amperes (A).
+      RelayInput reads the channel engineering_value directly and performs
+      no unit or CT-ratio conversion.
+    - IEC 51 current_unit is descriptive pickup-basis metadata. Previously
+      a declared pickup unit could disagree with the bound channel unit
+      without being rejected, while the TCC read model displayed that
+      declaration as its axis unit.
+
+Correction:
+    - Protection input-contract validation now rejects a declared ANSI 51
+      current_unit/pickup_unit that differs from the authoritative bound
+      MeasurementChannel.unit.
+    - No conversion is attempted. CT ratio and any primary/secondary
+      conversion remain exclusively in measurement generation.
+    - An omitted pickup-unit declaration is not silently inferred by this
+      check; coordination Study Case creation continues to require an
+      explicit unit declaration.
+
+Limit:
+    - ANSI 51N's catalog input contract is explicitly marked unsupported
+      because the model cannot distinguish residual-current semantics
+      from ordinary/sequence current. Its TCC curve can be displayed from
+      settings, but production relay-input basis must not be represented
+      as verified until that residual-current contract is implemented.
+
+Verification:
+    - Source-level anchor and commit confirmed.
+    - No tests or CI run, per repository rules.
+    - End-to-end CT ratio transformation, runtime binding, and chart axis
+      parity remain unverified.
