@@ -1189,7 +1189,10 @@ class IDMTTCCWorkspaceWidget(QWidget):
     def _apply_application_event(self, event: Any) -> None:
         """Refresh only the projections invalidated by an Application event."""
         event_type = getattr(event, "event_type", "")
-        if event_type in {"protection.changed", "project.loaded", "project.closed"}:
+        if event_type == "project.closed":
+            self._clear_project_projection()
+            return
+        if event_type in {"protection.changed", "project.loaded"}:
             self.refresh_curves()
             return
         if event_type in {
@@ -1198,6 +1201,29 @@ class IDMTTCCWorkspaceWidget(QWidget):
             metadata = getattr(event, "payload", {})
             if metadata.get("study_type") == "short_circuit":
                 self._populate_short_circuit_results()
+
+    def _clear_project_projection(self) -> None:
+        """Remove all project-scoped TCC and coordination state on deactivation."""
+        self._curve_models.clear()
+        self._short_circuit_results.clear()
+        self._coordination_pairs.clear()
+        self._pair_list.clear()
+        self._primary_unit.clear()
+        self._backup_unit.clear()
+        for combo in (
+            self._primary_combo,
+            self._backup_combo,
+            self._short_circuit_result_combo,
+            self._primary_branch_combo,
+            self._backup_branch_combo,
+        ):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.blockSignals(False)
+        self.set_curve_read_models(())
+        self._status.setText(
+            "Project closed. TCC curves, Short-Circuit sources and coordination overlays were cleared."
+        )
 
     def refresh_curves(self) -> None:
         """Refresh from the current immutable Application read snapshots."""
@@ -1212,7 +1238,8 @@ class IDMTTCCWorkspaceWidget(QWidget):
             self._populate_short_circuit_results()
             self._sync_current_units()
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
-            self._status.setText(f"Unable to load IDMT curves: {exc}")
+            self._clear_project_projection()
+            self._status.setText(f"Unable to load IDMT curves; stale projection cleared: {exc}")
 
     def _populate_function_selectors(self, models: Any) -> None:
         """Populate explicit primary/backup selectors from available ANSI 51 curves."""
