@@ -15608,3 +15608,43 @@ Verification:
     Remote source/contract inspection and static review only.
     No tests or CI run. Python syntax/import execution remains outstanding.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — BUS-CAPABLE PT/CVT VOLTAGE SOURCE ASSOCIATION
+======================================================================
+
+Date:
+    2026-10-30
+
+Implementation:
+    ProtectionMeasurementBinding now uses the canonical
+    source_endpoint_reference and accepts either:
+      - a physical terminal EndpointReference; or
+      - a canonical Bus attachment EndpointReference.
+    Deserialization remains backward-compatible with persisted
+    source_terminal_reference mappings. New persistence writes
+    source_endpoint_reference.
+
+    ProtectionConfigurationService validates voltage measurement sources
+    against PT primary_a/primary_b or CVT H1/H2 topology components.
+    Exactly one primary terminal must share the selected source endpoint's
+    topology component, while the two primary terminals must remain on
+    distinct components. This supports direct Bus attachment and explicit
+    canonical line-terminal associations.
+
+    CT current measurement remains terminal-only and Branch-specific.
+    Bus references cannot be substituted for the explicit monitored Branch
+    terminal. The SLD SimpleLine projection must resolve to a canonical Core
+    line terminal; graphics are not accepted as electrical truth.
+
+Changed files:
+    core/protection/protection_measurement_binding.py
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source and contract inspection plus static review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
