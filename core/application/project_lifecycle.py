@@ -477,7 +477,13 @@ class ProjectLifecycleService:
                 "Project lifecycle is in ROLLBACK_FAILED state and requires recovery before another transition."
             ) from self._rollback_error
         if context is not None:
-            self._validate_candidate(context, loaded, network, presentation)
+            self._validate_candidate(
+                context,
+                loaded,
+                network,
+                presentation,
+                presentation_collection=presentation_collection,
+            )
         elif loaded is not None:
             raise ValueError("An empty activation cannot carry loaded project data.")
 
@@ -598,6 +604,8 @@ class ProjectLifecycleService:
         loaded: LoadedProject | None,
         network: Any,
         presentation: Any | None,
+        *,
+        presentation_collection: ProjectPresentationCollection | None = None,
     ) -> None:
         if not isinstance(context, ProjectContext):
             raise TypeError("Candidate project context must be a ProjectContext.")
@@ -616,9 +624,12 @@ class ProjectLifecycleService:
         if loaded is not None and loaded.context.project_id != context.project_id:
             raise ValueError("Loaded project context does not match the candidate context.")
 
-        collection = getattr(loaded, "presentation_collection", None) if loaded is not None else None
-        if collection is not None:
-            self._validate_presentation_collection(context, collection)
+        # Validate the typed collection produced by the configured
+        # deserializer. LoadedProject retains the raw persistence mapping;
+        # validating that raw payload here bypasses the deserialization
+        # boundary and rejects every valid persisted collection.
+        if presentation_collection is not None:
+            self._validate_presentation_collection(context, presentation_collection)
 
         if self._project_state_validator is None:
             raise RuntimeError("Application-owned candidate validator is not configured.")
