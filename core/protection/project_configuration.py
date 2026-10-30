@@ -167,6 +167,7 @@ class DifferentialProtectionSchemeConfiguration:
     protected_object_type: str
     protected_object_id: str
     measurement_binding_ids: tuple[str, ...]
+    current_directions: Mapping[str, str]
     phase_compensation_degrees: Mapping[str, float] = field(default_factory=dict)
     enabled: bool = True
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -191,6 +192,17 @@ class DifferentialProtectionSchemeConfiguration:
         if len(set(binding_ids)) != len(binding_ids):
             raise ValueError("Differential scheme measurement binding IDs must be unique.")
         object.__setattr__(self, "measurement_binding_ids", binding_ids)
+        if not isinstance(self.current_directions, Mapping):
+            raise TypeError("current_directions must be a mapping.")
+        if set(self.current_directions) != set(binding_ids):
+            raise ValueError("Every differential CT measurement binding must have exactly one explicit current direction.")
+        directions = {}
+        for binding_id, direction in self.current_directions.items():
+            normalized_direction = str(direction).strip().upper()
+            if normalized_direction not in {"INTO_ZONE", "OUT_OF_ZONE"}:
+                raise ValueError("Differential current direction must be INTO_ZONE or OUT_OF_ZONE.")
+            directions[binding_id] = normalized_direction
+        object.__setattr__(self, "current_directions", MappingProxyType(directions))
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
         if not isinstance(self.phase_compensation_degrees, Mapping):
@@ -214,6 +226,7 @@ class DifferentialProtectionSchemeConfiguration:
             "protected_object_type": self.protected_object_type,
             "protected_object_id": self.protected_object_id,
             "measurement_binding_ids": list(self.measurement_binding_ids),
+            "current_directions": dict(self.current_directions),
             "phase_compensation_degrees": dict(self.phase_compensation_degrees),
             "enabled": self.enabled,
             "metadata": _thaw_value(self.metadata),
@@ -228,6 +241,7 @@ class DifferentialProtectionSchemeConfiguration:
             protected_object_type=data["protected_object_type"],
             protected_object_id=data["protected_object_id"],
             measurement_binding_ids=tuple(data["measurement_binding_ids"]),
+            current_directions=dict(data["current_directions"]),
             phase_compensation_degrees=dict(data.get("phase_compensation_degrees") or {}),
             enabled=data.get("enabled", True),
             metadata=dict(data.get("metadata") or {}),
