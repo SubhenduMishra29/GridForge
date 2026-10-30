@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from functools import wraps
+from threading import RLock
 from typing import Any
 
 from core.application.endpoint_resolver import resolve_terminal_reference
@@ -21,6 +23,15 @@ from core.measurement.measurement_provisioning import MeasurementProvisioning
 from core.network.network import Network
 
 
+def _serialized_measurement_mutation(method):
+    """Serialize measurement-registry lifecycle operations with Application."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._execution_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class MeasurementChannelService:
     """Own the active project's authoritative MeasurementChannel collection.
 
@@ -29,11 +40,21 @@ class MeasurementChannelService:
     the source equipment and terminals.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, execution_lock: Any | None = None) -> None:
+        self._execution_lock = execution_lock if execution_lock is not None else RLock()
+        if not callable(getattr(self._execution_lock, "__enter__", None)) or not callable(getattr(self._execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
+
+    def bind_execution_lock(self, execution_lock: Any) -> None:
+        """Bind the same lock used by Application commands and project lifecycle."""
+        if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
+        if self._execution_lock is not execution_lock:
+            self._execution_lock = execution_lock
 
     @property
     def project_id(self) -> str | None:
@@ -66,6 +87,7 @@ class MeasurementChannelService:
         for channel_id in channel_ids:
             self.require(channel_id)
 
+    @_serialized_measurement_mutation
     def activate(
         self,
         context: Any | None,
@@ -116,6 +138,7 @@ class MeasurementChannelService:
             self._channels,
         )
 
+    @_serialized_measurement_mutation
     def restore_state(
         self,
         snapshot: tuple[str | None, int, Network | None, dict[str, MeasurementChannel]],
@@ -137,6 +160,7 @@ class MeasurementChannelService:
         self._network = network
         self._channels = channels
 
+    @_serialized_measurement_mutation
     def deactivate(self) -> None:
         self._project_id = None
         self._activation_generation = 0
