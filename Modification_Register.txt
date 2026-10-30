@@ -15758,3 +15758,46 @@ Verification:
     - No tests or CI run, per repository rules.
     - Runtime Study Case creation and reload behavior remain unverified.
 
+
+
+======================================================================
+
+2026-10-30 — Bind coordination inputs to exact Short-Circuit provenance
+------------------------------------------------------------------------
+
+Files:
+    - core/application/application.py
+    - core/analysis/coordination_study.py
+    - core/application/study_preparation.py
+    - core/analysis/short_circuit_preparation.py
+    - core/solver/short_circuit/input.py
+    - core/solver/short_circuit/short_circuit_solver.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination Study Case creation rejects stale source Study Cases and
+      requires each completed Short-Circuit result's project, activation,
+      model revision and topology revision to match its source Study Case.
+    - Coordination execution repeats source-case and result provenance
+      checks immediately before consuming the numerical result.
+    - ShortCircuitInput now carries optional model_revision provenance.
+    - Application StudyPreparationService supplies the exact model revision
+      to ShortCircuitPreparation; the solver preserves it in result provenance.
+    - Coordination engine now checks model_revision in addition to project,
+      activation generation and topology revision.
+    - Direct standalone Short-Circuit preparation remains compatible: when
+      no Application revision is supplied, provenance remains unavailable
+      rather than being fabricated.
+
+Engineering boundary:
+    - Application binds source result identity to its Study Case lifecycle.
+    - The Short-Circuit input/solver preserve supplied provenance unchanged.
+    - Coordination Analysis rejects incomplete or mismatched provenance;
+      no inference from a matching fault Bus or topology alone is allowed.
+
+Verification:
+    - Source-level propagation and validation anchors confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime provenance propagation and end-to-end study execution remain
+      unverified.
+
