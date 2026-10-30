@@ -314,7 +314,28 @@ class SynchronismCheckGuard:
 
     def authorize_close(self, breaker: Breaker) -> SynchronismDecision:
         if not isinstance(breaker,Breaker): raise TypeError("ANSI 25 guard requires a Breaker")
-        now=self._clock(); reasons=[]; mode=None
+        try:
+            now = self._clock()
+        except Exception:
+            now = None
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, (int, float))
+            or not math.isfinite(now)
+        ):
+            decision = SynchronismDecision(
+                False,
+                breaker.id,
+                ("ANSI25_CLOCK_UNAVAILABLE",),
+                None,
+            )
+            self._audit(decision)
+            raise DomainError(
+                code="ANSI25_CLOCK_UNAVAILABLE",
+                message="Breaker close denied: ANSI 25 evaluation clock is unavailable or invalid.",
+                details={"breaker_id": breaker.id, "reason_codes": decision.reason_codes},
+            )
+        reasons=[]; mode=None
         try:
             config=self._configuration_provider(breaker)
         except Exception:
