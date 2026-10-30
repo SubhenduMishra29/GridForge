@@ -57,14 +57,16 @@ class CoordinationFaultScenario:
     scenario_id: str
     primary_current: float
     backup_current: float
-    current_unit: str
+    primary_current_unit: str
+    backup_current_unit: str
     fault_location_id: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scenario_id", _identity(self.scenario_id, "scenario_id"))
         object.__setattr__(self, "primary_current", _positive(self.primary_current, "primary_current"))
         object.__setattr__(self, "backup_current", _positive(self.backup_current, "backup_current"))
-        object.__setattr__(self, "current_unit", _identity(self.current_unit, "current_unit"))
+        object.__setattr__(self, "primary_current_unit", _identity(self.primary_current_unit, "primary_current_unit"))
+        object.__setattr__(self, "backup_current_unit", _identity(self.backup_current_unit, "backup_current_unit"))
         if self.fault_location_id:
             object.__setattr__(self, "fault_location_id", _identity(self.fault_location_id, "fault_location_id"))
 
@@ -113,7 +115,8 @@ class CoordinationStudyPointResult:
     fault_location_id: str
     primary_current: float
     backup_current: float
-    current_unit: str
+    primary_current_unit: str
+    backup_current_unit: str
     primary_time_s: float
     backup_time_s: float
     margin_s: float
@@ -142,7 +145,8 @@ class CoordinationStudyPointResult:
             fault_location_id=scenario.fault_location_id,
             primary_current=scenario.primary_current,
             backup_current=scenario.backup_current,
-            current_unit=scenario.current_unit,
+            primary_current_unit=scenario.primary_current_unit,
+            backup_current_unit=scenario.backup_current_unit,
             primary_time_s=result.primary_time,
             backup_time_s=result.backup_time,
             margin_s=result.margin,
@@ -237,9 +241,10 @@ def execute_coordination_study(
     """Evaluate every configured pair at every explicit fault scenario."""
     if not isinstance(configuration, CoordinationStudyConfiguration):
         raise TypeError("configuration must be CoordinationStudyConfiguration.")
+    curve_models = {item.element_id: item for item in tuple(curve_read_models)}
     curves = {
-        item.element_id: _ConfiguredIDMTFunction(item)
-        for item in tuple(curve_read_models)
+        element_id: _ConfiguredIDMTFunction(item)
+        for element_id, item in curve_models.items()
     }
     required_ids = {
         identity
@@ -260,6 +265,25 @@ def execute_coordination_study(
         for scenario in configuration.scenarios:
             if cancellation_token is not None and cancellation_token.cancelled:
                 break
+            primary_unit = curve_models[pair.primary_element_id].current_unit
+            backup_unit = curve_models[pair.backup_element_id].current_unit
+            if primary_unit is None or backup_unit is None:
+                raise ValueError(
+                    "Coordination requires explicit current_unit/pickup_unit on both "
+                    f"relay settings: {pair.primary_element_id!r}, {pair.backup_element_id!r}."
+                )
+            if scenario.primary_current_unit != primary_unit:
+                raise ValueError(
+                    f"Scenario {scenario.scenario_id!r} primary current unit "
+                    f"{scenario.primary_current_unit!r} does not match configured "
+                    f"unit {primary_unit!r} for {pair.primary_element_id!r}."
+                )
+            if scenario.backup_current_unit != backup_unit:
+                raise ValueError(
+                    f"Scenario {scenario.scenario_id!r} backup current unit "
+                    f"{scenario.backup_current_unit!r} does not match configured "
+                    f"unit {backup_unit!r} for {pair.backup_element_id!r}."
+                )
             result = engine.check_pair_currents(
                 primary=primary,
                 backup=backup,
