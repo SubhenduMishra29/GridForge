@@ -25,6 +25,7 @@ from core.protection.input_contracts import validate_protection_input_contracts
 from core.protection.protection_measurement_binding import ProtectionMeasurementBinding
 from core.protection.project_configuration import (
     ProtectionFunctionConfiguration,
+    DifferentialProtectionSchemeConfiguration,
     ProtectionProjectConfiguration,
 )
 
@@ -609,6 +610,75 @@ class ProtectionConfigurationService:
                 "element_id": binding.protection_element_id,
                 "input_name": binding.relay_input_id,
             },
+        )
+
+    def create_differential_scheme(
+        self,
+        *,
+        scheme: DifferentialProtectionSchemeConfiguration,
+        transaction: Transaction,
+    ) -> ApplicationResult[DifferentialProtectionSchemeConfiguration]:
+        """Persist explicit CT measurement membership for a differential scheme."""
+        self._require_transaction(transaction)
+        if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+            raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
+        active = self._require_configuration()
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is not None:
+            try:
+                protected_object = network.get_by_id(scheme.protected_object_type, scheme.protected_object_id)
+            except (KeyError, LookupError) as exc:
+                raise ResourceError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_NOT_FOUND",
+                    message="Differential scheme protected object is not present in the active Core Network.",
+                    details={"object_type": scheme.protected_object_type, "object_id": scheme.protected_object_id},
+                ) from exc
+            actual_type = str(getattr(protected_object, "TYPE", scheme.protected_object_type)).strip().lower()
+            expected_type = scheme.protected_object_type
+            if actual_type != expected_type:
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_TYPE_MISMATCH",
+                    message="Differential scheme protected-object type does not match the authoritative Core object.",
+                    details={"expected_type": expected_type, "actual_type": actual_type, "object_id": scheme.protected_object_id},
+                )
+        active.add_differential_scheme(scheme)
+        transaction.record_undo(lambda: active.remove_differential_scheme(scheme.scheme_id))
+        return ApplicationResult.success_result(
+            value=scheme,
+            message=f"Differential protection scheme created: {scheme.scheme_id}",
+            metadata={
+                "object_type": "differential_protection_scheme",
+                "object_id": scheme.scheme_id,
+                "protected_object_type": scheme.protected_object_type,
+                "protected_object_id": scheme.protected_object_id,
+                "measurement_binding_ids": scheme.measurement_binding_ids,
+            },
+        )
+
+    def delete_differential_scheme(
+        self,
+        *,
+        scheme_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[DifferentialProtectionSchemeConfiguration]:
+        """Remove one differential scheme without altering its CT bindings."""
+        self._require_transaction(transaction)
+        if not isinstance(scheme_id, str) or not scheme_id.strip():
+            raise ValueError("scheme_id must be a non-empty string.")
+        active = self._require_configuration()
+        try:
+            scheme = active.remove_differential_scheme(scheme_id.strip())
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_DIFFERENTIAL_SCHEME_NOT_FOUND",
+                message=f"Differential protection scheme not found: {scheme_id}",
+                details={"scheme_id": scheme_id},
+            ) from exc
+        transaction.record_undo(lambda: active.add_differential_scheme(scheme))
+        return ApplicationResult.success_result(
+            value=scheme,
+            message=f"Differential protection scheme removed: {scheme.scheme_id}",
+            metadata={"object_type": "differential_protection_scheme", "object_id": scheme.scheme_id},
         )
 
     def delete_measurement_binding(
