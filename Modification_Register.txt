@@ -15730,3 +15730,22 @@ Verification:
   end-to-end ProtectionStudy sample integration remain pending.
 - No tests or CI were run. Python syntax/import/runtime execution remains
   unverified through the remote repository connector.
+
+
+[2026-10-30] Protection Study Phase E3 — persisted differential characteristics
+- Extended DifferentialProtectionSchemeConfiguration with optional immutable,
+  validated differential_settings persisted in project configuration.
+- Persisted settings include pickup current, explicit restraint method,
+  piecewise bias slopes and restraint breakpoints, plus optional independent
+  high-set pickup. Invalid keys, non-finite/negative values, invalid slope
+  counts and unordered breakpoints are rejected at configuration creation/load.
+- DifferentialProtectionSettings now serializes/deserializes the typed engine
+  settings. The pure Core kernel can consume an explicitly supplied settings
+  object or reconstruct it from the scheme's persisted settings.
+- Existing scheme constructor positional field order is preserved.
+- Settings persistence does not imply scenario integration: Protection Study
+  still does not generate detached CT phasors from short-circuit contributions.
+  No relay operation, ProtectionDecision, trip mapping or breaker action is
+  claimed.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
