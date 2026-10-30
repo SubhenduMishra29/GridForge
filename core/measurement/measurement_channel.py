@@ -865,43 +865,43 @@ class MeasurementChannel:
         Physical CT/PT/CVT transformation is not performed here.
         """
 
-        self.raw_value = self._validate_value(
-            value
+        # Validate the complete incoming sample before mutating channel state.
+        validated_value = self._validate_value(value)
+        validated_timestamp = (
+            self._validate_timestamp(timestamp)
+            if timestamp is not None
+            else None
+        )
+        if timestamp_domain is not None and timestamp is None:
+            raise ValueError(
+                "timestamp_domain cannot be changed without its timestamp."
+            )
+        validated_domain = (
+            self._validate_timestamp_domain(timestamp_domain)
+            if timestamp is not None
+            else None
+        )
+        if quality is not None and not isinstance(
+            quality, MeasurementQuality
+        ):
+            raise TypeError("quality must be a MeasurementQuality.")
+        validated_sequence = (
+            self._validate_sample_sequence(sample_sequence)
+            if sample_sequence is not None
+            else None
         )
 
+        self.raw_value = validated_value
         if timestamp is not None:
-            self.timestamp = self._validate_timestamp(
-                timestamp
-            )
-
-        if timestamp_domain is not None:
-            self.timestamp_domain = self._validate_timestamp_domain(
-                timestamp_domain
-            )
-
+            self.timestamp = validated_timestamp
+            # Never carry a previous sample's domain onto a new timestamp.
+            self.timestamp_domain = validated_domain
         if quality is not None:
-
-            if not isinstance(
-                quality,
-                MeasurementQuality,
-            ):
-                raise TypeError(
-                    "quality must be a MeasurementQuality."
-                )
-
             self.quality = quality
-
         if available is not None:
-            self.available = bool(
-                available
-            )
-
+            self.available = bool(available)
         if sample_sequence is not None:
-            self.sample_sequence = (
-                self._validate_sample_sequence(
-                    sample_sequence
-                )
-            )
+            self.sample_sequence = validated_sequence
 
     # =================================================================
     # SIGNAL QUALITY / VALIDITY
@@ -1112,32 +1112,19 @@ class MeasurementChannel:
         Reset signal state while retaining channel configuration.
         """
 
-        self.raw_value = self._validate_value(
-            value
-        )
+        validated_value = self._validate_value(value)
+        if not isinstance(quality, MeasurementQuality):
+            raise TypeError("quality must be a MeasurementQuality.")
+        validated_timestamp = self._validate_timestamp(timestamp)
+        validated_sequence = self._validate_sample_sequence(sample_sequence)
 
-        if not isinstance(
-            quality,
-            MeasurementQuality,
-        ):
-            raise TypeError(
-                "quality must be a MeasurementQuality."
-            )
-
+        self.raw_value = validated_value
         self.quality = quality
-        self.available = bool(
-            available
-        )
-
-        self.timestamp = self._validate_timestamp(
-            timestamp
-        )
-
-        self.sample_sequence = (
-            self._validate_sample_sequence(
-                sample_sequence
-            )
-        )
+        self.available = bool(available)
+        self.timestamp = validated_timestamp
+        # Reset cannot inherit a clock-domain declaration from an old sample.
+        self.timestamp_domain = None
+        self.sample_sequence = validated_sequence
 
     # =================================================================
     # DIAGNOSTICS
