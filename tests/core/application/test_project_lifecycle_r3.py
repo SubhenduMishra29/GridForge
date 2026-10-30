@@ -25,9 +25,8 @@ def _presentation(project_id: str = "PROJECT-001") -> SLDDocument:
 
 
 def _serializer(document: SLDDocument) -> dict:
-    payload = document.to_dict()
-    payload["modified"] = False
-    return payload
+    # Modified/dirty is transient lifecycle state, not canonical SLD data.
+    return document.to_dict()
 
 
 def _deserializer(data: dict) -> SLDDocument:
