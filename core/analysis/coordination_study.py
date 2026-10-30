@@ -213,6 +213,59 @@ class CoordinationStudyPointResult:
     status: str
     required_additional_backup_delay_s: float
 
+    def __post_init__(self) -> None:
+        for name in ("primary_element_id", "backup_element_id", "scenario_id"):
+            object.__setattr__(self, name, _identity(getattr(self, name), name))
+        if self.primary_element_id == self.backup_element_id:
+            raise ValueError("Coordination result primary and backup identities must differ.")
+        for name in ("primary_current_unit", "backup_current_unit"):
+            object.__setattr__(self, name, _identity(getattr(self, name), name))
+        if not isinstance(self.fault_location_id, str):
+            raise TypeError("fault_location_id must be a string.")
+        if self.source_study_id is not None:
+            object.__setattr__(self, "source_study_id", _identity(self.source_study_id, "source_study_id"))
+        for name in ("primary_current", "backup_current"):
+            object.__setattr__(self, name, _positive(getattr(self, name), name))
+        for name in ("primary_time_s", "backup_time_s", "margin_s", "required_cti_s", "required_additional_backup_delay_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not boolean.")
+            try:
+                value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be numeric.") from exc
+            if math.isnan(value) or value == float("-inf"):
+                raise ValueError(f"{name} cannot be NaN or negative infinity.")
+            if name in {"primary_time_s", "backup_time_s", "required_cti_s", "required_additional_backup_delay_s"} and value < 0.0:
+                raise ValueError(f"{name} cannot be negative.")
+            object.__setattr__(self, name, value)
+        allowed = {
+            "COORDINATED", "CTI_VIOLATION", "BACKUP_DOES_NOT_OPERATE",
+            "BACKUP_ONLY_OPERATION", "NOT_APPLICABLE",
+        }
+        if self.status not in allowed:
+            raise ValueError(f"Unsupported coordination point status: {self.status!r}.")
+        primary_operates = math.isfinite(self.primary_time_s)
+        backup_operates = math.isfinite(self.backup_time_s)
+        if self.status == "COORDINATED" and not (
+            primary_operates and backup_operates and self.margin_s >= self.required_cti_s
+        ):
+            raise ValueError("COORDINATED point has inconsistent operating times or CTI margin.")
+        if self.status == "CTI_VIOLATION" and not (
+            primary_operates and backup_operates and self.margin_s < self.required_cti_s
+        ):
+            raise ValueError("CTI_VIOLATION point has inconsistent operating times or margin.")
+        if self.status == "BACKUP_DOES_NOT_OPERATE" and not (
+            primary_operates and not backup_operates and self.margin_s == float("-inf")
+        ):
+            raise ValueError("BACKUP_DOES_NOT_OPERATE point has inconsistent operating times.")
+        if self.status == "BACKUP_ONLY_OPERATION" and not (
+            not primary_operates and backup_operates
+        ):
+            raise ValueError("BACKUP_ONLY_OPERATION point has inconsistent operating times.")
+        if self.status == "NOT_APPLICABLE" and (primary_operates or backup_operates):
+            raise ValueError("NOT_APPLICABLE requires both protection functions not to operate.")
+
     @classmethod
     def from_engine_result(
         cls,
