@@ -39,7 +39,7 @@ class ShortCircuitPreparation:
         self.base_mva = base_mva
         self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, model_revision: int | None = None) -> ShortCircuitInput:
         network = self._network
         if topology_snapshot is None:
             network.rebuild_topology()
@@ -115,6 +115,7 @@ class ShortCircuitPreparation:
                 project_id=topology_snapshot.project_id,
                 activation_generation=topology_snapshot.activation_generation,
                 topology_revision=topology_snapshot.topology_revision,
+                model_revision=model_revision,
                 base_mva=current_base_mva,
                 bus_base_voltage_kv=bus_base_voltage_kv,
             )
