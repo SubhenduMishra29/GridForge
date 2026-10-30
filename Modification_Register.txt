@@ -15326,3 +15326,59 @@ Verification:
     No production-readiness claim is made.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE C IMPLEMENTATION UPDATE
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Integrate explicit short-circuit fault scenarios into the existing
+    Protection Study configuration and result workflow.
+
+Implemented:
+    - Added immutable ProtectionFaultScenario and
+      ProtectionFaultScenarioResult contracts using the existing
+      ShortCircuitStudyConfiguration and ShortCircuitResult types.
+    - ProtectionStudyConfiguration accepts an ordered immutable collection
+      of uniquely identified fault scenarios.
+    - The Protection Study handler validates each fault Bus against the
+      captured canonical TopologySnapshot.
+    - Each scenario is prepared and calculated against the detached
+      ProjectSnapshot network through the existing ShortCircuitPreparation
+      and ShortCircuitAnalysis contracts.
+    - The resulting project identity, activation generation and topology
+      revision are checked against StudyRequest provenance before result
+      registration.
+    - Cancellation and active-project provenance are checked between
+      scenario calculations.
+    - Fault-scenario mode does not run the live measurement-snapshot path
+      or represent live channel samples as simulated fault inputs.
+    - Added public Application exports and architecture documentation.
+    - Preserved the existing StudyService lifecycle and frozen Core
+      model/network contracts.
+
+Explicit limitation:
+    Fault-current results are not yet converted through configured CT/PT/CVT
+    physical instrument models and secondary measurement paths into detached
+    scenario-specific RelayInput samples. No scenario-derived relay pickup,
+    operating time, ProtectionDecision, output target, breaker operation,
+    coordination or selectivity result is claimed. The live measurement
+    registry is not mutated.
+
+Changed files:
+    core/application/protection_study.py
+    core/application/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source and contract inspection only.
+    No tests or CI run.
+    Python syntax/import execution was not available through the repository
+    connector in this pass. No production-readiness claim is made.
+
+======================================================================
