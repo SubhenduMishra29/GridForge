@@ -2610,6 +2610,22 @@ class Application:
         if not isinstance(configuration, CoordinationStudyConfiguration):
             raise TypeError("protection_coordination request requires CoordinationStudyConfiguration.")
         curves = self.read_idmt_curves()
+        referenced_ids = {
+            identity
+            for pair in configuration.pairs
+            for identity in (pair.primary_element_id, pair.backup_element_id)
+        }
+        selected_curves = {item.element_id: item for item in curves if item.element_id in referenced_ids}
+        if len(selected_curves) != len(referenced_ids):
+            missing = sorted(referenced_ids.difference(selected_curves))
+            raise ValueError("Configured coordination functions are unavailable: " + ", ".join(missing))
+        for relay_id in sorted({selected_curves[item].relay_id for item in referenced_ids}):
+            relay = self.read_relay(relay_id)
+            if not relay.in_service or not relay.enabled or relay.blocked:
+                raise ValueError(
+                    f"Physical relay {relay_id!r} is out of service, disabled, or blocked; "
+                    "coordination execution is refused."
+                )
         result = execute_coordination_study(
             configuration,
             curves,
