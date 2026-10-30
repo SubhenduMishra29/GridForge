@@ -513,6 +513,16 @@ class Application:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
 
+    def resolve_ct_measurement_association(self, ct_id: str):
+        """Resolve the active SLD-configured CT to its validated Core branch."""
+        lifecycle = self.project_lifecycle
+        if lifecycle.context is None:
+            raise RuntimeError("CT measurement association requires an active project.")
+        return self.sld_service.resolve_ct_measurement_association(
+            lifecycle.network,
+            ct_id,
+        )
+
     def evaluate_protection_cycle(
         self,
         evaluation_time: float,
