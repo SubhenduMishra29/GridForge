@@ -15207,7 +15207,59 @@ Disposition:
 
 
 ======================================================================
-GF-MEAS-CT-ASSOCIATION-2026-10-30 — SLD-derived CT measurement association
+GF-MEAS-CT-ASSOCIATION-2026-10-30 — CT primary/secondary association
+======================================================================
+
+Scope:
+    core/network/ct_measurement_association.py
+    core/application/services/ct_measurement_association_service.py
+    core/measurement/measurement_provisioning.py
+    core/measurement/measurement_generation.py
+    core/network/__init__.py
+    core/application/services/__init__.py
+
+Finding:
+    CT P1/P2 identify the primary electrical measurement location, while
+    S1/S2 identify the physical secondary circuit terminals. These are
+    distinct references. The relay protection zone is an explicit relay/
+    protection-element configuration and must not be inferred from CT
+    placement or a guessed feeder association.
+
+Correction:
+    - Core resolves the registered CT P1/P2 terminals through canonical
+      ConnectivityResolver connectivity and records their Bus locations,
+      polarity direction, in-service state, and topology revision.
+    - The association exposes explicit P1/P2 primary EndpointReferences
+      separately from S1/S2 secondary EndpointReferences.
+    - Removed the previous heuristic that guessed monitored Line/Cable/
+      Transformer equipment by matching a pair of Bus IDs. CT association
+      does not select a protected feeder or protection zone.
+    - MeasurementProvisioning now rejects primary-side CT/PT/CVT terminals
+      as measurement-channel sources. CT channels require S1/S2, PT
+      channels require secondary_a/secondary_b, and CVT channels require
+      X1/X2 when those instrument types are provisioned.
+    - MeasurementGeneration validates that the channel belongs to the same
+      instrument and references one of its physical secondary terminals,
+      while PreparedMeasurementContext retains the primary-side terminal
+      reference used to select the electrical result quantity.
+    - RelayInput continues to consume MeasurementChannel only. Relay/
+      protection-element bindings and protection-zone/output mappings
+      remain explicit configuration; this resolver does not create them.
+
+Architecture:
+    Committed SLD authoring produces canonical Core equipment and
+    connectivity through the existing Application mutation path. Core
+    reads authoritative connectivity only. Application scopes the resolver
+    to the active project. MeasurementChannelService provisions channels
+    from configured physical secondary terminals. Protection consumes
+    those channels through RelayInput and the existing ProtectionElement /
+    ProtectionSystem architecture.
+
+Verification boundary:
+    No tests or CI were run. Static source and package-export reconciliation
+    only; Python syntax/import and runtime integration remain pending.
+    This change does not claim end-to-end 50N/51N or production readiness.
+
 ======================================================================
 
 Scope:

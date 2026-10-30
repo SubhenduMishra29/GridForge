@@ -1,17 +1,9 @@
 # Author: Subhendu Mishra
 """Canonical measurement-channel provisioning boundary.
 
-This module owns orchestration of logical MeasurementChannel creation from
-an authoritative physical measurement source and an explicit terminal
-EndpointReference. It does not own Core terminals, topology, or protection.
-
-    physical source + EndpointReference
-                 |
-                 v
-        MeasurementProvisioning
-                 |
-                 v
-        MeasurementChannel
+Application resolves the configured physical secondary terminal. Core
+validates that the terminal belongs to the instrument and is a secondary
+terminal before constructing the logical MeasurementChannel.
 """
 from __future__ import annotations
 
@@ -21,8 +13,15 @@ from core.model import EndpointReference
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 
 
+_SECONDARY_TERMINAL_ROLES = {
+    "CT": frozenset({"S1", "S2"}),
+    "PT": frozenset({"secondary_a", "secondary_b"}),
+    "CVT": frozenset({"X1", "X2"}),
+}
+
+
 class MeasurementProvisioning:
-    """Create logical measurement channels from explicit Core endpoint identity."""
+    """Create logical channels from explicitly configured instrument terminals."""
 
     @staticmethod
     def provision_channel(
@@ -35,42 +34,35 @@ class MeasurementProvisioning:
         name: str = "",
         **channel_kwargs: Any,
     ) -> MeasurementChannel:
-        """Provision one channel from an already-resolved Core terminal.
-
-        Application resolves the EndpointReference before entering this
-        Core boundary. Provisioning therefore consumes the authoritative
-        Core Terminal and its canonical EndpointReference without reaching
-        back into Application services or project context.
-        """
+        """Provision one channel from an authoritative physical secondary terminal."""
         if not isinstance(source_terminal_reference, EndpointReference):
-            raise TypeError(
-                "source_terminal_reference must be an EndpointReference."
-            )
+            raise TypeError("source_terminal_reference must be an EndpointReference.")
         if not source_terminal_reference.is_terminal:
-            raise ValueError(
-                "source_terminal_reference must identify a terminal."
-            )
+            raise ValueError("source_terminal_reference must identify a terminal.")
         if source is None or not hasattr(source, "id"):
             raise TypeError("source must expose a stable id.")
         source_id = getattr(source, "id")
         if not isinstance(source_id, str) or not source_id.strip():
             raise ValueError("source.id must be a non-empty string.")
         if source_terminal_reference.equipment_id != source_id.strip():
-            raise ValueError(
-                "source_terminal_reference equipment identity must match source.id."
-            )
-
+            raise ValueError("source_terminal_reference equipment identity must match source.id.")
         if source_terminal is None:
             raise TypeError("source_terminal must be an authoritative Core Terminal.")
         if getattr(source_terminal, "owner", None) is not source:
-            raise ValueError(
-                "source_terminal does not belong to the supplied source equipment."
-            )
+            raise ValueError("source_terminal does not belong to the supplied source equipment.")
         terminal_role = getattr(source_terminal, "role", None)
         if terminal_role != source_terminal_reference.terminal_role:
+            raise ValueError("source_terminal role must match source_terminal_reference.terminal_role.")
+
+        source_type = str(getattr(source, "element_type", type(source).__name__)).strip().upper()
+        expected_roles = _SECONDARY_TERMINAL_ROLES.get(source_type)
+        if expected_roles is not None and terminal_role not in expected_roles:
             raise ValueError(
-                "source_terminal role must match source_terminal_reference.terminal_role."
+                f"{source_type} measurement channels must be provisioned from a secondary terminal; "
+                f"received {terminal_role!r}."
             )
+        if expected_roles is not None and not source_terminal_reference.terminal_role:
+            raise ValueError("A physical secondary terminal role is required.")
 
         return MeasurementChannel(
             id=channel_id,

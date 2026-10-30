@@ -282,9 +282,7 @@ __all__ = [
     # Base-layer service
     "PerUnitSystem",
     "CTMeasurementAssociation",
-    "CTMeasurementAssociationError",
     "CTMeasurementAssociationResolver",
-    "CTMeasurementAssociationStatus",
 ]
 
 
@@ -300,7 +298,5 @@ from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyP
 
 from .ct_measurement_association import (
     CTMeasurementAssociation,
-    CTMeasurementAssociationError,
     CTMeasurementAssociationResolver,
-    CTMeasurementAssociationStatus,
 )
