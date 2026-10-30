@@ -10,7 +10,11 @@ from .protection_measurement_binding import ProtectionMeasurementBinding
 from .factory import ProtectionFactory
 from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
-from .project_configuration import (\n    ProtectionFunctionConfiguration,\n    DifferentialProtectionSchemeConfiguration,\n    ProtectionProjectConfiguration,\n)
+from .project_configuration import (
+    ProtectionFunctionConfiguration,
+    DifferentialProtectionSchemeConfiguration,
+    ProtectionProjectConfiguration,
+)
 from .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
@@ -23,7 +27,8 @@ __all__ = [
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
-    "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",\n    "ProtectionProjectConfiguration",
+    "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
+    "ProtectionProjectConfiguration",
     "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
     "get_protection_function", "list_protection_functions",
 ]
