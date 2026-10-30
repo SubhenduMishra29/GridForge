@@ -14879,6 +14879,18 @@ Engineering boundaries:
       added; no implicit or inferred pair mapping is introduced. Result rows
       identify the primary and backup protection-function IDs so multi-pair
       scenario results remain attributable to their evaluated pair.
+    - Application Study Case creation now validates every Short-Circuit source
+      against a registered Short-Circuit Study Case and a current, completed
+      canonical ShortCircuitResult before registration. Manual relay-input
+      units are checked against each referenced protection function's declared
+      current unit before a runnable Study Case is created.
+    - Project persistence applies symmetric coordination-reference validation
+      on save and load. It rejects missing protection-function definitions,
+      non-ANSI-51/51N references, and missing/non-Short-Circuit source Study
+      Cases before writing or activating a project package.
+    - Coordination result reads now expose only completed, current typed
+      CoordinationStudyResult payloads; failed, cancelled, stale, or malformed
+      results are not presented as completed coordination results.
     - The TCC overlay refuses mixed or undeclared current units; curves are
       not placed on a common logarithmic axis unless their unit labels match.
 
