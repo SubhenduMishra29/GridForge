@@ -15,6 +15,11 @@ from core.protection.coordination.relay_coordination import (
     RelayCoordination,
 )
 from core.protection.relay_functions import iec_time
+from core.solver.short_circuit.result import (
+    ContributionStatus,
+    ShortCircuitResult,
+    ShortCircuitStatus,
+)
 
 
 def _identity(value: Any, name: str) -> str:
@@ -299,7 +304,7 @@ class CoordinationStudyResult:
 
 
 def _short_circuit_relay_current(
-    result: Any,
+    result: ShortCircuitResult,
     branch_id: str | None,
     side: str | None,
     scale: float | None,
@@ -400,17 +405,11 @@ def execute_coordination_study(
             else:
                 results = short_circuit_results or {}
                 short_result = results.get(scenario.short_circuit_study_id)
-                if short_result is None:
-                    raise ValueError(
-                        f"Short-Circuit Study result is unavailable: {scenario.short_circuit_study_id!r}."
-                    )
-                short_status = getattr(short_result, "status", None)
-                short_status = getattr(short_status, "value", short_status)
-                contribution_status = getattr(short_result, "contribution_status", None)
-                contribution_status = getattr(contribution_status, "value", contribution_status)
-                if not getattr(short_result, "success", False) or short_status != "COMPLETE":
+                if not isinstance(short_result, ShortCircuitResult):
+                    raise TypeError("Short-Circuit Study result must be a canonical ShortCircuitResult.")
+                if not short_result.success or short_result.status is not ShortCircuitStatus.COMPLETE:
                     raise ValueError("Coordination requires a successful COMPLETE Short-Circuit result.")
-                if contribution_status != "COMPLETE":
+                if short_result.contribution_status is not ContributionStatus.COMPLETE:
                     raise ValueError("Coordination requires COMPLETE Short-Circuit branch contribution data.")
                 provenance = getattr(short_result, "provenance", {})
                 if not isinstance(provenance, Mapping):
