@@ -15982,3 +15982,20 @@ Verification:
     - No tests or CI run, per repository rules.
     - Package round-trip with the new enum values and full 50N/51N runtime
       evaluation against a prepared fault measurement remain unverified.
+
+
+Correction addendum (same audit pass):
+    - A follow-up provenance audit found that ShortCircuitResult.ground_current
+      is a fault-bus aggregate. PreparedMeasurementContext identifies the CT
+      and its terminal but does not identify the monitored branch. Mapping
+      that aggregate to an individual CT would therefore be electrically
+      unjustified.
+    - MeasurementGeneration now explicitly refuses residual-current
+      generation from the aggregate ground_current field. It does not infer
+      branch current from bus fault current, zero-sequence I0, or phase-current
+      collections.
+    - The RESIDUAL_CURRENT / RESIDUAL / A channel contract remains valid for
+      explicitly generated or externally supplied branch-correlated residual
+      measurements. The current short-circuit CT generation path remains
+      fail-closed until a typed branch-correlated residual-current quantity
+      and binding identity are introduced.
