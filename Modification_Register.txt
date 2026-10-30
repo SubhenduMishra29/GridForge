@@ -15155,3 +15155,52 @@ Verification boundary:
     pending; no freeze or merge is authorized until it passes.
 
 ======================================================================
+
+======================================================================
+GF-BASELINE-FREEZE-2026-10-30 — Corrected GridForge V2 mainline baseline
+======================================================================
+
+Frozen baseline candidate:
+    Mainline merge commit:
+        d36ec0a660ec1c851b4031fdda298232ea24498d
+
+Integrated correction sets:
+    PR #901 — lifecycle, draft-route canonicalization, SLD dirty state,
+              persistence, study provenance, Dynamics fixtures and
+              canonical workspace/import alignment.
+    PR #903 — workspace rollback recovery and discipline-scoped selection
+              isolation, reapplied on the corrected mainline.
+    PR #904 — latest-main regression reconciliation, strict SLD equipment
+              identity rendering, workspace discipline restoration, and
+              canonical regression fixture alignment.
+
+Full regression verification:
+    GitHub Actions run 41014146317 on PR #904 head
+    (tree content integrated by the mainline merge):
+        1,143 passed
+        0 failed
+        32 skipped
+
+    Startup, runtime engineering smoke, source integrity/syntax, targeted
+    startup regressions, relevant regression tests, and DraftNetwork-to-Core
+    commit boundary all passed.
+
+Architecture freeze:
+    - Core remains authoritative for electrical/domain truth, topology,
+      validation, studies, and results.
+    - Application remains the controlled mutation, transaction, event,
+      persistence, and orchestration boundary.
+    - UI/SLD/Canvas remains projection and interaction only.
+    - Committed SLD equipment rendering requires stable domain identity;
+      missing/unresolved identity produces diagnostics, not fabricated
+      equipment.
+    - No Qt/QGraphics dependency is introduced into Core.
+    - No parallel architecture or compatibility weakening is introduced.
+
+Disposition:
+    The corrected GridForge V2 mainline is frozen at the commit above,
+    subject to final verification of the post-merge mainline workflow.
+    Future architecture changes must reconcile against this baseline and
+    update this register; do not revive superseded architecture paths.
+
+======================================================================
