@@ -5,7 +5,7 @@ function. It never infers primary/backup relationships or CT conversions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -89,7 +89,7 @@ class CoordinationFaultScenario:
     """One manual relay-current set or one completed Short-Circuit Study result."""
 
     scenario_id: str
-    currents_by_element_id: Mapping[str, CoordinationRelayCurrent] = None  # type: ignore[assignment]
+    currents_by_element_id: Mapping[str, CoordinationRelayCurrent] = field(default_factory=dict)
     fault_location_id: str = ""
     short_circuit_study_id: str | None = None
 
@@ -397,9 +397,13 @@ def execute_coordination_study(
                     raise ValueError(
                         f"Short-Circuit Study result is unavailable: {scenario.short_circuit_study_id!r}."
                     )
-                if not getattr(short_result, "success", False) or str(getattr(short_result, "status", "")) != "ShortCircuitStatus.COMPLETE":
+                short_status = getattr(short_result, "status", None)
+                short_status = getattr(short_status, "value", short_status)
+                contribution_status = getattr(short_result, "contribution_status", None)
+                contribution_status = getattr(contribution_status, "value", contribution_status)
+                if not getattr(short_result, "success", False) or short_status != "COMPLETE":
                     raise ValueError("Coordination requires a successful COMPLETE Short-Circuit result.")
-                if str(getattr(short_result, "contribution_status", "")) != "ContributionStatus.COMPLETE":
+                if contribution_status != "COMPLETE":
                     raise ValueError("Coordination requires COMPLETE Short-Circuit branch contribution data.")
                 provenance = getattr(short_result, "provenance", {})
                 if not isinstance(provenance, Mapping):
