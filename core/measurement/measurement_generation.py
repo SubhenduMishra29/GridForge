@@ -234,8 +234,8 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit branch current")
             )
-        if isinstance(branch_current_direction, bool) or branch_current_direction not in (-1, 1):
-            raise ValueError("branch_current_direction must be explicitly supplied as +1 or -1.")
+        if isinstance(branch_current_direction, bool) or not isinstance(branch_current_direction, int) or branch_current_direction not in (-1, 1):
+            raise ValueError("branch_current_direction must be an integer explicitly supplied as +1 or -1.")
         result = context.quantity
         if not result.success or result.status.value != "COMPLETE":
             raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
@@ -262,11 +262,7 @@ class MeasurementGeneration:
                 f"{side}-side Bus {expected_bus!r}."
             )
         root_key, member_key = self._split_short_circuit_key(quantity_key)
-        if root_key == "current":
-            if member_key not in (None, "I"):
-                raise UnsupportedMeasurementQuantity("Scalar branch current accepts only the 'I' member.")
-            raw_pu = branch.current
-        elif root_key == "phase_currents":
+        if root_key == "phase_currents":
             if member_key is None or member_key not in branch.phase_currents:
                 raise UnsupportedMeasurementQuantity(f"Branch current quantity {quantity_key!r} is unavailable.")
             raw_pu = branch.phase_currents[member_key]
@@ -276,7 +272,7 @@ class MeasurementGeneration:
             raw_pu = branch.sequence_currents[member_key]
         else:
             raise UnsupportedMeasurementQuantity(
-                "Branch CT conversion supports current, phase_currents, or sequence_currents only."
+                "Branch CT conversion requires an explicit phase_currents.<phase> or sequence_currents.<sequence> member."
             )
 
         try:
