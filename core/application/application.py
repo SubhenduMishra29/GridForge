@@ -2712,6 +2712,57 @@ class Application:
                 raise ValueError(
                     f"Protection function {element_id!r} is disabled or blocked and cannot be selected."
                 )
+
+        # Reject invalid Short-Circuit provenance when the Study Case is
+        # authored, rather than allowing a configuration that can only fail
+        # later during execution or make the saved project unloadable.
+        source_study_ids = {
+            scenario.short_circuit_study_id
+            for scenario in configuration.scenarios
+            if scenario.short_circuit_study_id is not None
+        }
+        if source_study_ids:
+            registered_cases = {
+                str(case.study_id): case
+                for case in self.study_cases
+                if case.study_type == "short_circuit"
+            }
+            missing_cases = sorted(source_study_ids.difference(registered_cases))
+            if missing_cases:
+                raise ValueError(
+                    "Coordination references missing or non-Short-Circuit Study Cases: "
+                    + ", ".join(missing_cases)
+                )
+            completed_results = {
+                str(result.study_id): result
+                for result in self.read_study_results()
+                if result.study_type == "short_circuit"
+                and result.status == "completed"
+                and result.current
+                and isinstance(result.value, ShortCircuitResult)
+            }
+            missing_results = sorted(source_study_ids.difference(completed_results))
+            if missing_results:
+                raise ValueError(
+                    "Coordination requires current, completed Short-Circuit results before "
+                    "the Study Case can be created: " + ", ".join(missing_results)
+                )
+
+        # Manual relay currents are already explicit; verify their declared
+        # units against the selected protection-function settings at the
+        # Application boundary so invalid cases are not registered.
+        for scenario in configuration.scenarios:
+            if scenario.short_circuit_study_id is not None:
+                continue
+            for element_id in referenced:
+                supplied = scenario.currents_by_element_id[element_id]
+                expected_unit = curve_models[element_id].current_unit
+                if supplied.current_unit != expected_unit:
+                    raise ValueError(
+                        f"Scenario {scenario.scenario_id!r} current unit "
+                        f"{supplied.current_unit!r} does not match configured unit "
+                        f"{expected_unit!r} for {element_id!r}."
+                    )
         return self.create_study_case(
             study_type="protection_coordination",
             configuration={"configuration": configuration},
