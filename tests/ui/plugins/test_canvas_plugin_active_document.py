@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from ui.core.qt import QGraphicsScene
-from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection, CompositeSLDCanvasSnapshot
+from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.canvas.semantic_presentation_realization import SemanticPresentationRealization
 from ui.canvas.sld_graphics_item_factory import SLDGraphicsItemFactory
@@ -35,8 +36,20 @@ def _composition(application):
     scene = QGraphicsScene()
     projection = SLDCanvasProjection()
     render_system = SLDCanvasRenderSystem(scene, factory, realization)
+    class _Surface:
+        def present_composite_document(self, document, draft_snapshot):
+            committed = projection.project(document.model, document.annotation_blocks)
+            snapshot = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
+            render_system.synchronize(snapshot)
+            return snapshot
+
+        def clear_document(self):
+            render_system.clear()
+
     return SimpleNamespace(
         scene=scene,
+        surface=_Surface(),
+        draft_sld_projection=SimpleNamespace(project=lambda: DraftSLDCanvasSnapshot(nodes=(), connections=())),
         sld_canvas_projection=projection,
         sld_canvas_render_system=render_system,
     )
