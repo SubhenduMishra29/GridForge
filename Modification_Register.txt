@@ -15025,3 +15025,8 @@ Verification:
 - Candidate project validation now requires every ANSI 25 voltage/phase/frequency channel to originate from a PT or CVT secondary terminal. It resolves the PT/CVT primary terminals and both breaker terminals through ElectricalBoundaryResolver, then requires left-side channels to be physically associated with the breaker FROM bus and right-side channels with the TO bus; channels associated with the opposite bus are rejected.
 - MeasurementChannelService provisioning now rejects a source_terminal reference whose equipment identity/type does not match the declared measurement source.
 - This is topology-level provenance validation; it does not replace commissioning verification of instrument wiring, polarity, ratio, phase assignment or actual source clock. No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — serialize ANSI 25 policy replacement]
+- Application.synchronism_check_configuration now validates schema-2 policy on assignment and returns detached policy data on read. Replacement is serialized by the Application execution lock shared with breaker commands and measurement ingestion.
+- No tests or CI were run.
