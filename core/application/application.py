@@ -2681,20 +2681,45 @@ class Application:
         }
         short_circuit_results: dict[str, Any] = {}
         if short_circuit_ids:
+            source_cases = {
+                str(case.study_id): case
+                for case in self.study_cases
+                if case.study_type == "short_circuit"
+            }
+            missing_cases = sorted(short_circuit_ids.difference(source_cases))
+            if missing_cases:
+                raise ValueError(
+                    "Coordination references missing Short-Circuit Study Cases: "
+                    + ", ".join(missing_cases)
+                )
+            for source_id in sorted(short_circuit_ids):
+                source_case = source_cases[source_id]
+                if source_case.is_stale or not source_case.source_revision.matches_study_state(
+                    execution_context.source_revision
+                ):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} is stale; "
+                        "re-execute it before coordination."
+                    )
             for study_result in self.read_study_results():
                 study_id = str(study_result.study_id)
+                source_case = source_cases.get(study_id)
                 if (
                     study_id in short_circuit_ids
+                    and source_case is not None
                     and study_result.status == "completed"
                     and study_result.current
                     and isinstance(study_result.value, ShortCircuitResult)
+                    and study_result.project_id == source_case.project_id
+                    and study_result.activation_generation == source_case.activation_generation
+                    and study_result.source_revision.matches_study_state(source_case.source_revision)
                 ):
                     short_circuit_results[study_id] = study_result.value
             missing_short_circuit = sorted(short_circuit_ids.difference(short_circuit_results))
             if missing_short_circuit:
                 raise ValueError(
-                    "Coordination requires current, completed Short-Circuit Study results: "
-                    + ", ".join(missing_short_circuit)
+                    "Coordination requires current Short-Circuit results matching their "
+                    "Study Case provenance: " + ", ".join(missing_short_circuit)
                 )
         result = execute_coordination_study(
             configuration,
@@ -2797,6 +2822,13 @@ class Application:
                         f"{scenario.fault_location_id!r} does not match source Study Case "
                         f"{source_id!r} fault Bus {source_configuration.fault_bus_id!r}."
                     )
+            for source_id in sorted(source_study_ids):
+                source_case = registered_cases[source_id]
+                if source_case.is_stale or not source_case.source_revision.matches_study_state(self.revision):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} was authored against "
+                        "a different model/topology revision and must be re-executed."
+                    )
             completed_results = {
                 str(result.study_id): result
                 for result in self.read_study_results()
@@ -2811,6 +2843,18 @@ class Application:
                     "Coordination requires current, completed Short-Circuit results before "
                     "the Study Case can be created: " + ", ".join(missing_results)
                 )
+            for source_id in sorted(source_study_ids):
+                source_case = registered_cases[source_id]
+                source_result = completed_results[source_id]
+                if (
+                    source_result.project_id != source_case.project_id
+                    or source_result.activation_generation != source_case.activation_generation
+                    or not source_result.source_revision.matches_study_state(source_case.source_revision)
+                ):
+                    raise ValueError(
+                        f"Short-Circuit result {source_id!r} does not match its source Study Case "
+                        "project, activation, model, and topology provenance."
+                    )
 
         # Manual relay currents are already explicit; verify their declared
         # units against the selected protection-function settings at the
