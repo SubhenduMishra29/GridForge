@@ -242,6 +242,16 @@ def execute_coordination_study(
     if not isinstance(configuration, CoordinationStudyConfiguration):
         raise TypeError("configuration must be CoordinationStudyConfiguration.")
     curve_models = {item.element_id: item for item in tuple(curve_read_models)}
+    unavailable = sorted(
+        element_id for element_id, item in curve_models.items()
+        if not item.function_enabled or item.function_blocked
+    )
+    referenced_unavailable = sorted(required_id for required_id in required_ids if required_id in unavailable)
+    if referenced_unavailable:
+        raise ValueError(
+            "Coordination cannot use disabled or blocked protection functions: "
+            + ", ".join(referenced_unavailable)
+        )
     curves = {
         element_id: _ConfiguredIDMTFunction(item)
         for element_id, item in curve_models.items()
