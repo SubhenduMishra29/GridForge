@@ -62,7 +62,7 @@ def test_cycle_rejects_decision_in_multiple_execution_outcome_categories() -> No
     trip = _decision("trip")
     evaluation = _evaluation(trip)
 
-    with pytest.raises(ValueError, match="multiple execution outcome"):
+    with pytest.raises(ValueError, match="appears in both"):
         ControlCycleResult(
             evaluation=evaluation,
             execution=ControlExecutionResult(
