@@ -80,7 +80,7 @@ def test_canvas_plugin_synchronizes_current_application_document_after_replaceme
     application.presentation = restored_document
     snapshot = plugin.synchronize_sld()
 
-    assert snapshot.nodes == ()
+    assert snapshot.committed.nodes == ()
     assert plugin.sld_canvas_snapshot is snapshot
 
 
@@ -93,5 +93,5 @@ def test_canvas_plugin_clears_canvas_when_application_project_is_closed(qapp):
     application.presentation = None
     snapshot = plugin.synchronize_sld()
 
-    assert snapshot.nodes == ()
-    assert snapshot.connections == ()
+    assert snapshot.committed.nodes == ()
+    assert snapshot.committed.connections == ()
