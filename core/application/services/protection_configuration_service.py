@@ -14,6 +14,8 @@ from math import isfinite
 from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
+from core.model import Branch, CurrentTransformer, EndpointReference, EquipmentType
+from core.network.electrical_boundary import ElectricalBoundaryResolver
 from core.network.network import Network
 from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
@@ -349,6 +351,79 @@ class ProtectionConfigurationService:
         instrument_type = str(getattr(instrument, "TYPE", "")).strip().upper()
         measurement_type = binding.measurement_type.strip().lower()
         if measurement_type == "current":
+            if not isinstance(source_equipment, Branch):
+                raise DomainError(
+                    code="PROTECTION_CURRENT_SOURCE_NOT_BRANCH",
+                    message="Short-circuit feeder-current binding must identify an explicit two-terminal network Branch.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
+            side = binding.electrical_side.strip().lower()
+            expected_terminal_role = {"from": "FROM", "to": "TO"}.get(side)
+            if expected_terminal_role is None or binding.source_terminal_reference.terminal_role != expected_terminal_role:
+                raise DomainError(
+                    code="PROTECTION_CURRENT_BRANCH_SIDE_MISMATCH",
+                    message="Current measurement electrical_side must explicitly match the selected Branch FROM/TO terminal.",
+                    details={
+                        "branch_id": binding.source_equipment_id,
+                        "electrical_side": binding.electrical_side,
+                        "terminal_role": binding.source_terminal_reference.terminal_role,
+                    },
+                )
+            if not isinstance(instrument, CurrentTransformer):
+                raise DomainError(
+                    code="PROTECTION_CURRENT_INSTRUMENT_INVALID",
+                    message="Current measurement binding requires an authoritative CurrentTransformer.",
+                    details={"instrument_id": binding.instrument_id},
+                )
+            boundary = ElectricalBoundaryResolver(network)
+            try:
+                branch_bus_id = boundary.resolve(binding.source_terminal_reference).attached_bus_id
+                primary_bus_ids = {
+                    role: boundary.resolve(
+                        EndpointReference.terminal(
+                            equipment_type=EquipmentType("ct"),
+                            equipment_id=instrument.id,
+                            terminal_role=role,
+                        )
+                    ).attached_bus_id
+                    for role in ("P1", "P2")
+                }
+            except (TypeError, ValueError, KeyError) as exc:
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
+                    message="The selected Branch terminal and CT primary terminals must resolve through canonical Network connectivity.",
+                    details={
+                        "branch_id": binding.source_equipment_id,
+                        "instrument_id": binding.instrument_id,
+                        "reason": str(exc),
+                    },
+                ) from exc
+            if branch_bus_id is None or any(bus_id is None for bus_id in primary_bus_ids.values()):
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_UNRESOLVED",
+                    message="The selected Branch terminal and both CT primary terminals must resolve to canonical Buses.",
+                    details={
+                        "branch_id": binding.source_equipment_id,
+                        "instrument_id": binding.instrument_id,
+                        "branch_bus_id": branch_bus_id,
+                        "ct_primary_bus_ids": primary_bus_ids,
+                    },
+                )
+            matching_ct_roles = tuple(
+                role for role, bus_id in primary_bus_ids.items() if bus_id == branch_bus_id
+            )
+            if len(matching_ct_roles) != 1 or primary_bus_ids["P1"] == primary_bus_ids["P2"]:
+                raise DomainError(
+                    code="PROTECTION_CT_BRANCH_ASSOCIATION_AMBIGUOUS",
+                    message="Exactly one CT primary terminal must share the explicitly selected Branch terminal Bus; the other CT primary terminal must be on the opposite side.",
+                    details={
+                        "branch_id": binding.source_equipment_id,
+                        "instrument_id": binding.instrument_id,
+                        "branch_terminal_role": expected_terminal_role,
+                        "branch_bus_id": branch_bus_id,
+                        "ct_primary_bus_ids": primary_bus_ids,
+                    },
+                )
             expected_types = {"CT"}
             ratio_attribute = "ratio"
         elif measurement_type == "voltage":
