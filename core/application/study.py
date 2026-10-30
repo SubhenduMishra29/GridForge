@@ -121,8 +121,11 @@ class StudyCaseDefinition:
     study_type: str
     configuration: Mapping[str, Any]
     display_name: str = ""
+    is_stale: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.is_stale, bool):
+            raise TypeError("is_stale must be a boolean.")
         if not isinstance(self.study_id, UUID):
             raise TypeError("study_id must be a UUID.")
         if not isinstance(self.project_id, str) or not self.project_id.strip():
