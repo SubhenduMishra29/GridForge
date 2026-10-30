@@ -33,7 +33,7 @@ def test_cycle_keeps_evaluation_and_execution_diagnostics_separate() -> None:
     execution = ControlExecutionResult(
         failed_decisions=(failed,),
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
-        failure_diagnostics=(("failed", "dispatch failed"),),
+        failure_diagnostics=(("failed", "Control 'failed' execution failed: dispatch failed"),),
     )
 
     result = ControlCycleResult(evaluation=evaluation, execution=execution)
@@ -75,7 +75,7 @@ def test_cycle_attributes_execution_failure_to_originating_decision() -> None:
     execution = ControlExecutionResult(
         failed_decisions=(failed,),
         diagnostics=("Control 'failed' execution failed: dispatch failed",),
-        failure_diagnostics=(("failed", "dispatch failed"),),
+        failure_diagnostics=(("failed", "Control 'failed' execution failed: dispatch failed"),),
     )
     result = ControlCycleResult(
         evaluation=ControlEvaluationResult(simulation_time=1.0, decisions=(failed,)),
