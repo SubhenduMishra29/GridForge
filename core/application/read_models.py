@@ -290,9 +290,11 @@ class IDMTCurveReadModel:
             raise TypeError("IDMT protection settings must be a mapping.")
         if "pickup" not in settings:
             raise ValueError(f"Protection element {configuration.element_id!r} has no pickup setting.")
-        tms = settings.get("TMS", settings.get("tms"))
+        # Match IECOvercurrentSettings: an omitted TMS uses its canonical
+        # default of 1.0; an explicitly null TMS remains invalid.
+        tms = settings.get("TMS", settings.get("tms", 1.0))
         if tms is None:
-            raise ValueError(f"Protection element {configuration.element_id!r} has no TMS setting.")
+            raise ValueError(f"Protection element {configuration.element_id!r} has a null TMS setting.")
         if isinstance(settings["pickup"], bool) or isinstance(tms, bool):
             raise TypeError("IDMT pickup and TMS settings must be numeric, not boolean.")
         curve = normalize_iec_curve(settings.get("curve", "SI"))
