@@ -1065,8 +1065,10 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._primary_currents.setPlaceholderText("e.g. 800, 1200, 2500")
         self._backup_currents = QLineEdit(self)
         self._backup_currents.setPlaceholderText("e.g. 760, 1100, 2300")
-        self._current_unit = QLineEdit(self)
-        self._current_unit.setText("A")
+        self._primary_unit = QLineEdit(self)
+        self._primary_unit.setReadOnly(True)
+        self._backup_unit = QLineEdit(self)
+        self._backup_unit.setReadOnly(True)
         self._fault_location = QLineEdit(self)
         self._fault_location.setPlaceholderText("Optional fault bus / location ID")
         self._run_button = QPushButton("Run Coordination Study", self)
@@ -1077,7 +1079,8 @@ class IDMTTCCWorkspaceWidget(QWidget):
         form.addRow("Required CTI (s)", self._cti_input)
         form.addRow("Primary relay-input currents", self._primary_currents)
         form.addRow("Backup relay-input currents", self._backup_currents)
-        form.addRow("Current unit", self._current_unit)
+        form.addRow("Primary unit (relay settings)", self._primary_unit)
+        form.addRow("Backup unit (relay settings)", self._backup_unit)
         form.addRow("Fault location ID", self._fault_location)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -1089,8 +1092,11 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._current_axis: QLogValueAxis | None = None
         self._time_axis: QLogValueAxis | None = None
         self._series: list[QLineSeries] = []
+        self._curve_models: dict[str, Any] = {}
         self._refresh_button.clicked.connect(self.refresh_curves)
         self._run_button.clicked.connect(self.run_coordination_study)
+        self._primary_combo.currentIndexChanged.connect(self._sync_current_units)
+        self._backup_combo.currentIndexChanged.connect(self._sync_current_units)
 
     def bind_application(self, application: Any) -> None:
         """Bind the Application read boundary; no Core or Qt state crosses it."""
@@ -1106,8 +1112,10 @@ class IDMTTCCWorkspaceWidget(QWidget):
             return
         try:
             models = self._application.read_idmt_curves()
+            self._curve_models = {model.element_id: model for model in models}
             self.set_curve_read_models(models)
             self._populate_function_selectors(models)
+            self._sync_current_units()
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
             self._status.setText(f"Unable to load IDMT curves: {exc}")
 
@@ -1131,6 +1139,13 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 self._backup_combo.setCurrentIndex(index)
         if self._backup_combo.count() > 1 and self._backup_combo.currentIndex() == 0:
             self._backup_combo.setCurrentIndex(1)
+
+    def _sync_current_units(self, *_args: Any) -> None:
+        """Display authoritative current-unit contracts from each selected relay."""
+        primary = self._curve_models.get(self._primary_combo.currentData())
+        backup = self._curve_models.get(self._backup_combo.currentData())
+        self._primary_unit.setText(primary.current_unit or "" if primary is not None else "")
+        self._backup_unit.setText(backup.current_unit or "" if backup is not None else "")
 
     @staticmethod
     def _parse_current_values(raw: str, field_name: str) -> tuple[float, ...]:
@@ -1174,16 +1189,21 @@ class IDMTTCCWorkspaceWidget(QWidget):
             )
             if len(primary_values) != len(backup_values):
                 raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
-            unit = self._current_unit.text().strip()
-            if not unit:
-                raise ValueError("Current unit is required; no CT or base conversion is inferred.")
+            primary_unit = self._primary_unit.text().strip()
+            backup_unit = self._backup_unit.text().strip()
+            if not primary_unit or not backup_unit:
+                raise ValueError(
+                    "Both relay configurations must declare current_unit or pickup_unit. "
+                    "No CT or base conversion is inferred."
+                )
             location = self._fault_location.text().strip()
             scenarios = tuple(
                 CoordinationFaultScenario(
                     scenario_id=f"SCENARIO-{index + 1:03d}",
                     primary_current=primary_current,
                     backup_current=backup_current,
-                    current_unit=unit,
+                    primary_current_unit=primary_unit,
+                    backup_current_unit=backup_unit,
                     fault_location_id=location,
                 )
                 for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
@@ -1205,8 +1225,8 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 return
             rows = [
                 f"{point.scenario_id}: {point.status} | "
-                f"Ip={point.primary_current:g} {point.current_unit}, "
-                f"Ib={point.backup_current:g} {point.current_unit}, "
+                f"Ip={point.primary_current:g} {point.primary_current_unit}, "
+                f"Ib={point.backup_current:g} {point.backup_current_unit}, "
                 f"tp={point.primary_time_s:.4g}s, tb={point.backup_time_s:.4g}s, "
                 f"margin={point.margin_s:.4g}s, CTI={point.required_cti_s:.4g}s"
                 for point in result.points
