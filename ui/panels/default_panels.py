@@ -1039,10 +1039,14 @@ class PropertiesPanelWidget(QWidget):
 class IDMTTCCWorkspaceWidget(QWidget):
     """Read-only log-log overlay workspace for Application IDMT curve snapshots."""
 
+    _application_event_received = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("IDMTTCCWorkspace")
         self._application: Any | None = None
+        self._event_subscriptions: list[tuple[Any, type, Any]] = []
+        self._application_event_received.connect(self._apply_application_event)
         self._chart = QChart()
         self._chart.setTitle("Time–Current Characteristic (TCC)")
         self._chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
@@ -1138,11 +1142,62 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._short_circuit_result_combo.currentIndexChanged.connect(self._populate_branch_selectors)
 
     def bind_application(self, application: Any) -> None:
-        """Bind the Application read boundary; no Core or Qt state crosses it."""
+        """Bind Application read models and lifecycle notifications."""
         if application is None or not callable(getattr(application, "read_idmt_curves", None)):
             raise TypeError("Application must expose read_idmt_curves().")
+        self.unbind_application()
         self._application = application
+        event_bus = getattr(application, "event_bus", None)
+        subscribe = getattr(event_bus, "subscribe", None)
+        if callable(subscribe):
+            from core.application.events import (
+                ProtectionChanged,
+                ProjectClosed,
+                ProjectLoaded,
+                StudyCancelled,
+                StudyCompleted,
+                StudyFailed,
+                StudyStarted,
+            )
+            for event_type in (
+                ProtectionChanged,
+                ProjectLoaded,
+                ProjectClosed,
+                StudyStarted,
+                StudyCompleted,
+                StudyFailed,
+                StudyCancelled,
+            ):
+                handler = self._queue_application_event
+                subscribe(event_type, handler)
+                self._event_subscriptions.append((event_bus, event_type, handler))
         self.refresh_curves()
+
+    def unbind_application(self) -> None:
+        """Detach event subscriptions before the panel or Application is torn down."""
+        for event_bus, event_type, handler in self._event_subscriptions:
+            unsubscribe = getattr(event_bus, "unsubscribe", None)
+            if callable(unsubscribe):
+                unsubscribe(event_type, handler)
+        self._event_subscriptions.clear()
+        self._application = None
+
+    def _queue_application_event(self, event: Any) -> None:
+        """Marshal Application notifications onto the widget's Qt thread."""
+        self._application_event_received.emit(event)
+
+    def _apply_application_event(self, event: Any) -> None:
+        """Refresh only the projections invalidated by an Application event."""
+        event_type = getattr(event, "event_type", "")
+        if event_type in {"protection.changed", "project.loaded", "project.closed"}:
+            self.refresh_curves()
+            return
+        if event_type in {
+            "study.started", "study.completed", "study.failed", "study.cancelled"
+        }:
+            metadata = getattr(event, "payload", {})
+            if metadata.get("study_type") == "short_circuit":
+                self._populate_short_circuit_results()
 
     def refresh_curves(self) -> None:
         """Refresh from the current immutable Application read snapshots."""
