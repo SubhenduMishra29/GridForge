@@ -67,6 +67,8 @@ class CoordinationFaultScenario:
         object.__setattr__(self, "backup_current", _positive(self.backup_current, "backup_current"))
         object.__setattr__(self, "primary_current_unit", _identity(self.primary_current_unit, "primary_current_unit"))
         object.__setattr__(self, "backup_current_unit", _identity(self.backup_current_unit, "backup_current_unit"))
+        if not isinstance(self.fault_location_id, str):
+            raise TypeError("fault_location_id must be a string.")
         if self.fault_location_id:
             object.__setattr__(self, "fault_location_id", _identity(self.fault_location_id, "fault_location_id"))
 
