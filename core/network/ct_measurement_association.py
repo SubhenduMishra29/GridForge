@@ -144,7 +144,7 @@ class CTMeasurementAssociationResolver:
         )
 
     def resolve_all(self) -> tuple[CTMeasurementAssociation, ...]:
-        """Return deterministic associations for all in-service registered CTs."""
+        """Return deterministic associations for all registered CTs."""
         return tuple(
             self.resolve(ct)
             for ct in sorted(self._network.current_transformers, key=lambda item: item.id)

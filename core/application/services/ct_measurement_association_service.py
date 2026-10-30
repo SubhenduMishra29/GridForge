@@ -21,7 +21,7 @@ class CTMeasurementAssociationService:
 
     Application supplies the active project context and canonical Network.
     Core performs the electrical connectivity interpretation. Results are
-    tagged with project activation provenance by this service.
+    scoped to the active project's canonical Network by this service.
     """
 
     def resolve(self, context: Any, ct_id: str) -> CTMeasurementAssociation:
