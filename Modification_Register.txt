@@ -15693,3 +15693,38 @@ Verification:
     - No tests or CI run, per repository rules.
     - Runtime display and Qt behavior remain unverified.
 
+
+
+======================================================================
+
+2026-10-30 — Validate coordination Study Case source and branch references
+--------------------------------------------------------------------------
+
+Files:
+    - core/persistence/project_persistence.py
+    - Modification_Register.txt
+
+Changes:
+    - Consolidated coordination Study Case reference checks into one shared
+      persistence validator used symmetrically during save and load.
+    - Verifies each primary/backup protection function exists in the active
+      project's protection configuration and is ANSI 51/51N.
+    - Verifies explicitly mapped primary/backup branch IDs resolve to
+      branches in the persisted authoritative Network.
+    - Verifies every Short-Circuit source reference resolves to a typed
+      ShortCircuitStudyConfiguration.
+    - Verifies a coordination scenario's fault location matches the fault
+      Bus configured by its referenced Short-Circuit Study Case.
+    - Rejects inconsistent persisted references rather than allowing a
+      coordination case to load with silently changed study meaning.
+
+Engineering boundary:
+    - Validation is performed by Core persistence against typed Study Case
+      configuration and authoritative Network membership.
+    - It does not infer branch mappings, bus mappings, CT ratios or units.
+
+Verification:
+    - Shared save/load validation path and commit confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime save/load round-trip remains to be verified.
+
