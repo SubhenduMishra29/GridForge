@@ -372,30 +372,6 @@ class ProtectionConfigurationService:
         instrument_type = str(getattr(instrument, "TYPE", "")).strip().upper()
         measurement_type = binding.measurement_type.strip().lower()
         if measurement_type == "current":
-            if not source_reference.is_terminal:
-                raise DomainError(
-                    code="PROTECTION_CURRENT_SOURCE_ENDPOINT_INVALID",
-                    message="CT branch-current binding must reference an explicit Branch terminal, not a Bus attachment.",
-                    details={"source_equipment_id": binding.source_equipment_id},
-                )
-            if not isinstance(source_equipment, Branch):
-                raise DomainError(
-                    code="PROTECTION_CURRENT_SOURCE_NOT_BRANCH",
-                    message="Short-circuit feeder-current binding must identify an explicit two-terminal network Branch.",
-                    details={"source_equipment_id": binding.source_equipment_id},
-                )
-            side = binding.electrical_side.strip().lower()
-            expected_terminal_role = {"from": "FROM", "to": "TO"}.get(side)
-            if expected_terminal_role is None or source_reference.terminal_role != expected_terminal_role:
-                raise DomainError(
-                    code="PROTECTION_CURRENT_BRANCH_SIDE_MISMATCH",
-                    message="Current measurement electrical_side must explicitly match the selected Branch FROM/TO terminal.",
-                    details={
-                        "branch_id": binding.source_equipment_id,
-                        "electrical_side": binding.electrical_side,
-                        "terminal_role": source_reference.terminal_role,
-                    },
-                )
             if not isinstance(instrument, CurrentTransformer):
                 raise DomainError(
                     code="PROTECTION_CURRENT_INSTRUMENT_INVALID",
@@ -403,10 +379,40 @@ class ProtectionConfigurationService:
                     details={"instrument_id": binding.instrument_id},
                 )
             resolver = ConnectivityResolver(network)
+            if source_reference.is_bus:
+                selected_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                if binding.electrical_side.strip().lower() != "bus":
+                    raise DomainError(
+                        code="PROTECTION_CURRENT_BUS_SIDE_REQUIRED",
+                        message="A Bus-side CT current association must explicitly declare electrical_side='bus'.",
+                        details={"bus_id": source_equipment.id, "electrical_side": binding.electrical_side},
+                    )
+            else:
+                selected_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                if isinstance(source_equipment, Branch):
+                    side = binding.electrical_side.strip().lower()
+                    expected_role = {"from": "FROM", "to": "TO"}.get(side)
+                    if expected_role is None or source_reference.terminal_role != expected_role:
+                        raise DomainError(
+                            code="PROTECTION_CURRENT_BRANCH_SIDE_MISMATCH",
+                            message="Branch current association must explicitly identify the matching FROM or TO terminal.",
+                            details={
+                                "branch_id": binding.source_equipment_id,
+                                "electrical_side": binding.electrical_side,
+                                "terminal_role": source_reference.terminal_role,
+                            },
+                        )
+                elif binding.electrical_side.strip().lower() != "equipment":
+                    raise DomainError(
+                        code="PROTECTION_CURRENT_EQUIPMENT_SIDE_REQUIRED",
+                        message="An equipment-terminal CT association must explicitly declare electrical_side='equipment'; the exact terminal role remains part of the endpoint reference.",
+                        details={
+                            "equipment_id": source_equipment.id,
+                            "terminal_role": source_reference.terminal_role,
+                            "electrical_side": binding.electrical_side,
+                        },
+                    )
             try:
-                branch_component = set(
-                    resolver.terminal_component(source_reference)
-                )
                 primary_references = {
                     role: EndpointReference.terminal(
                         equipment_type=EquipmentType("ct"),
@@ -416,35 +422,41 @@ class ProtectionConfigurationService:
                     for role in ("P1", "P2")
                 }
                 primary_components = {
-                    role: set(resolver.terminal_component(reference))
+                    role: set(
+                        resolver.topology_component(
+                            TopologyEndpointReference.from_terminal(reference)
+                        )
+                    )
                     for role, reference in primary_references.items()
                 }
             except (TypeError, ValueError, KeyError) as exc:
                 raise DomainError(
                     code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
-                    message="The selected Branch terminal and CT primary terminals must resolve through canonical SimpleWire connectivity.",
+                    message="CT P1/P2 and the selected measurement endpoint must resolve through canonical SimpleWire connectivity.",
                     details={
-                        "branch_id": binding.source_equipment_id,
+                        "source_equipment_id": binding.source_equipment_id,
                         "instrument_id": binding.instrument_id,
                         "reason": str(exc),
                     },
                 ) from exc
-            matching_ct_roles = tuple(
-                role
-                for role, component in primary_components.items()
-                if primary_references[role] in branch_component
-            )
-            if (
-                len(matching_ct_roles) != 1
-                or primary_components["P1"] == primary_components["P2"]
-            ):
+            if primary_components["P1"] == primary_components["P2"]:
                 raise DomainError(
-                    code="PROTECTION_CT_BRANCH_ASSOCIATION_AMBIGUOUS",
-                    message="The selected Branch terminal must share exactly one CT primary SimpleWire component; CT P1 and P2 must remain on separate components so the CT is inserted in series.",
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_NOT_SERIES",
+                    message="CT P1 and P2 must resolve to separate SimpleWire topology components; a CT must be inserted in series.",
+                    details={"instrument_id": binding.instrument_id},
+                )
+            matching_ct_roles = tuple(
+                role for role, component in primary_components.items()
+                if selected_endpoint in component
+            )
+            if len(matching_ct_roles) != 1:
+                raise DomainError(
+                    code="PROTECTION_CT_MEASUREMENT_ASSOCIATION_AMBIGUOUS",
+                    message="The explicitly selected Branch, equipment terminal or Bus attachment must belong to exactly one CT primary SimpleWire component.",
                     details={
-                        "branch_id": binding.source_equipment_id,
+                        "source_equipment_id": binding.source_equipment_id,
                         "instrument_id": binding.instrument_id,
-                        "branch_terminal_role": expected_terminal_role,
+                        "source_endpoint": str(source_reference),
                         "matching_ct_primary_roles": matching_ct_roles,
                     },
                 )
