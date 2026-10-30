@@ -14876,7 +14876,9 @@ Engineering boundaries:
       authoring fails closed. Short-Circuit pairs must reference one completed
       source Study Case in a single coordination Study Case.
     - The workspace refuses execution until at least one pair is explicitly
-      added; no implicit or inferred pair mapping is introduced.
+      added; no implicit or inferred pair mapping is introduced. Result rows
+      identify the primary and backup protection-function IDs so multi-pair
+      scenario results remain attributable to their evaluated pair.
     - The TCC overlay refuses mixed or undeclared current units; curves are
       not placed on a common logarithmic axis unless their unit labels match.
 
