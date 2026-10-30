@@ -235,6 +235,23 @@ class ProtectionStudyResult:
         scenario_ids = tuple(item.scenario_id for item in scenarios)
         if len(set(scenario_ids)) != len(scenario_ids):
             raise ValueError("fault_scenarios result IDs must be unique.")
+        if bool(scenarios) == self.measurement_snapshot_evaluated:
+            raise ValueError(
+                "Protection Study result must represent either fault-scenario mode "
+                "or measurement-snapshot mode, not both or neither."
+            )
+        for scenario in scenarios:
+            provenance = scenario.short_circuit_result.provenance
+            expected = {
+                "project_id": self.project_id,
+                "activation_generation": self.activation_generation,
+                "topology_revision": self.topology_revision,
+            }
+            for key, value in expected.items():
+                if provenance.get(key) != value:
+                    raise ValueError(
+                        f"Fault scenario {scenario.scenario_id!r} result has mismatched {key} provenance."
+                    )
         object.__setattr__(self, "fault_scenarios", scenarios)
 
     @property
