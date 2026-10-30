@@ -393,7 +393,7 @@ class ProtectionConfigurationService:
                     details={
                         "branch_id": binding.source_equipment_id,
                         "electrical_side": binding.electrical_side,
-                        "terminal_role": binding.source_terminal_reference.terminal_role,
+                        "terminal_role": source_reference.terminal_role,
                     },
                 )
             if not isinstance(instrument, CurrentTransformer):
