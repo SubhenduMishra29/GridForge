@@ -15030,3 +15030,11 @@ Verification:
 [2026-10-30 — GF-ISSUE-845 — serialize ANSI 25 policy replacement]
 - Application.synchronism_check_configuration now validates schema-2 policy on assignment and returns detached policy data on read. Replacement is serialized by the Application execution lock shared with breaker commands and measurement ingestion.
 - No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — reject invalid ANSI 25 evaluation clock]
+- Branch: fix/ansi25-candidate-runtime-context
+- SynchronismCheckGuard now rejects a clock provider that raises, returns a boolean, returns a non-numeric value, or returns NaN/infinity before any phasor comparison can authorize breaker closure.
+- The denial is recorded through the mandatory audit sink; audit failure still blocks the operation. The guard raises ANSI25_CLOCK_UNAVAILABLE and leaves breaker state untouched.
+- This closes a fail-open edge case where NaN could make freshness comparisons evaluate false and allow an invalid clock value through a custom runtime composition.
+- No tests or CI were run, per repository rules. Python syntax/import and full close-path verification remain outstanding.
