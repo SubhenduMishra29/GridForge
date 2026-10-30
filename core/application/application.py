@@ -85,6 +85,7 @@ from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
+from core.measurement.ct_measurement_association import CTMeasurementAssociation
 from math import isfinite, atan2, degrees
 from pathlib import Path
 from .services.control_service import ControlApplicationService
@@ -513,7 +514,7 @@ class Application:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
 
-    def resolve_ct_measurement_association(self, ct_id: str):
+    def resolve_ct_measurement_association(self, ct_id: str) -> CTMeasurementAssociation:
         """Resolve the active SLD-configured CT to its validated Core branch."""
         lifecycle = self.project_lifecycle
         if lifecycle.context is None:
