@@ -15787,8 +15787,8 @@ Verification:
   validating scenario samples and installing immutable RelayInput evaluation
   snapshots. It validates active project/runtime/channel identities,
   ProtectionMeasurementBinding correlation, CT identity/ratio/secondary
-  terminal, phase/sequence, canonical engineering units, input representation
-  and project/activation/topology provenance.
+  terminal, phase/sequence, canonical engineering units, channel engineering
+  scale/polarity, input representation and project/activation/topology provenance.
 - Scenario snapshots use no fabricated acquisition timestamp and do not
   modify MeasurementChannel state. MeasurementQuality.UNKNOWN is retained
   because calculated study quantities are not sensor-quality telemetry;
