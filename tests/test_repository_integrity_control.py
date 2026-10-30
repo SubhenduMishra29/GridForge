@@ -32,7 +32,7 @@ class _FiniteTestComponent(ControlComponent):
         return ()
 
     def output_definition(self):
-        return (ControlSignal("ok", required=False),)
+        return (ControlSignal("ok", required=False, value_type=bool),)
 
     def output(self, state, inputs, time):
         return {"ok": True}
