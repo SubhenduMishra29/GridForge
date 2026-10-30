@@ -15008,5 +15008,13 @@ Verification:
 - The six voltage/phase/frequency samples must fit within the configured timestamp-skew window in addition to each sample independently meeting freshness, quality, type, unit and timestamp-domain requirements.
 - Bypass authorization is now scoped to one breaker, project ID and activation generation; it has an explicit issue/expiry interval capped at five minutes and is single-use within the active guard. Its scope and time provenance are included in the audit record. The default composition has no bypass provider, so bypass remains disabled unless an explicitly injected trusted provider supplies a scoped token.
 - MeasurementChannelService.publish_sample is the supported serialized live-ingestion boundary. It requires source timestamp, configured timestamp domain, quality and monotonically increasing sample sequence, rejects backwards timestamps, and shares Application's execution lock so compliant sample publication cannot interleave with breaker command authorization and mutation.
-- Live device/SCADA/PMU producer integrations have not yet been found or verified to use publish_sample. Direct mutation of exposed MeasurementChannel objects remains a bypass of the ingestion lock; production status is therefore NOT_IMPLEMENTED until producers are migrated and direct mutation is contained.
+- Live device/SCADA/PMU producer integrations have not yet been found or verified to use publish_sample. Project-managed MeasurementChannel.update/reset and sample-state attribute assignments are now blocked unless made through the owning service; source timestamp truth is still producer-supplied and not independently attested. Production status remains NOT_IMPLEMENTED until producers are migrated and trusted source clocks are verified.
 - No tests or CI were run, per repository audit rules.
+
+
+[2026-10-30 — GF-ISSUE-845 — seal project-managed measurement sample state]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannelService now binds a private per-service sample-update authority to every provisioned channel. Direct MeasurementChannel.update/reset calls and direct assignment to raw_value, timestamp, timestamp_domain, sample_sequence, quality or available are rejected for managed channels unless the owning service authorizes the mutation.
+- MeasurementChannelService.publish_sample is the supported live-ingestion boundary and is serialized with Application breaker commands through the shared execution lock. Application exposes publish_measurement_sample as the facade.
+- This contains ordinary in-process direct mutation paths; it is not a security boundary against hostile Python code that can introspect private object state. Actual device/SCADA/PMU producer integration and independent source-clock attestation remain outstanding. ANSI 25 remains NOT_IMPLEMENTED pending that integration and final close-path review.
+- No tests or CI were run.
