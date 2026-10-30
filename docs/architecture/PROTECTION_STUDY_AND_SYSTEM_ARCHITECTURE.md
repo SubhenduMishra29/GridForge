@@ -432,20 +432,28 @@ scenario-derived relay evaluation.
    validates element/input/channel correlation, active RelayInput identity,
    physical source equipment terminal identity, instrument family, and
    configured ratio against the physical CT/PT/CVT.
-3. **Implemented — topology association guard:** current bindings must
-   explicitly select a Branch FROM/TO terminal. The service resolves that
-   terminal and CT P1/P2 through canonical SimpleWire topology components,
-   requires exactly one CT primary terminal to share the selected Branch
-   terminal component, and requires P1/P2 to remain on distinct components.
-   This validates inline CT placement; it does not infer a feeder or zone.
-4. **Implemented — CT branch orientation/conversion primitive:** the
-   conversion requires the persisted CT association and explicit Branch
-   terminal/side. It derives the sign from which P1/P2 SimpleWire component
-   contains that Branch terminal, uses the selected side's Bus current base,
-   and applies physical CT polarity and ratio once. Detached scenario RelayInput
-   samples and ProtectionSystem evaluation remain pending. Preserve
-   phase and sequence values, including the residual-current convention
-   required by 50N/51N.
+3. **Implemented — topology association guard:** CT current bindings may
+   explicitly select (a) a Branch FROM/TO terminal, (b) a terminal of
+   monitored equipment such as a transformer, motor or load, or (c) a
+   canonical Bus attachment. The Application service resolves the selected
+   endpoint and CT P1/P2 through canonical SimpleWire topology components,
+   requires the selected endpoint to belong to exactly one CT primary side,
+   and requires P1/P2 to remain on distinct components. A Branch uses an
+   explicit FROM/TO side; an equipment terminal uses its exact terminal role;
+   a Bus attachment is explicitly declared as a Bus-side measurement.
+   This records physical measurement location only and does not infer a
+   feeder, protected equipment zone, or differential scheme.
+4. **Implemented — CT primary-side locator and Branch conversion primitive:**
+   CTMeasurementAssociation.locate_measurement_endpoint() identifies
+   P1_SIDE or P2_SIDE for an explicitly selected Branch terminal,
+   equipment terminal, or Bus attachment. The existing numerical conversion
+   primitive remains limited to short-circuit Branch FROM/TO contributions;
+   it derives direction from the configured Branch terminal, uses that
+   side's Bus current base, and applies physical CT polarity and ratio once.
+   Equipment-terminal and Bus-side scenario-current source adapters remain
+   pending. Detached scenario RelayInput samples and ProtectionSystem
+   evaluation also remain pending. Preserve phase and sequence values,
+   including the residual-current convention required by 50N/51N.
 5. **Pending:** keep simulated values detached from live MeasurementChannel
    objects. Extend Application's sealed sample-snapshot path to accept
    validated scenario samples keyed by protection element/input; preserve
@@ -465,8 +473,8 @@ The binding identity is now explicit and stable across project persistence:
 - `binding_id`: canonical binding record identity.
 - `protection_element_id`: consuming configured ProtectionElement identity.
 - `relay_input_id`: protection-local RelayInput name.
-- `source_equipment_id` and `source_terminal_reference`: explicit analysis
-  source equipment and canonical terminal identity.
+- `source_equipment_id` and `source_endpoint_reference`: explicit analysis
+  source equipment and canonical terminal or Bus-attachment identity.
 - `instrument_id` and `instrument_ratio`: physical CT/PT/CVT identity and
   explicitly captured ratio.
 - `channel_id`: authoritative MeasurementChannel identity.
