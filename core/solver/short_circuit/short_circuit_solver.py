@@ -285,6 +285,7 @@ class ShortCircuitSolver:
             "project_id": self.input.project_id,
             "activation_generation": self.input.activation_generation,
             "topology_revision": self.input.topology_revision,
+            "model_revision": self.input.model_revision,
             "branch_current_unit": "pu",
             "base_mva": self.input.base_mva,
             "bus_base_voltage_kv": {
