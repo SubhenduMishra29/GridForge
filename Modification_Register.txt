@@ -14720,3 +14720,10 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+2026-10-30 — SLD LOCAL VIEW DIRTY-STATE CORRECTION
+Scope: ui/sld/sld_state.py
+Finding: SLDState.mark_dirty() delegated to DocumentManager but reset local_view_dirty to False; without a manager, dirty also always reported False. This broke the local-view dirty contract and its isolation from Application project dirty authority.
+Correction: mark_dirty() now sets local_view_dirty=True after optional manager notification. The compatibility dirty property reports manager authority when attached and local_view_dirty when no manager is attached. mark_clean() continues clearing local state.
+Architecture: UI-owned SLD view state only; Application project dirty authority remains unchanged.
+Verification: Source review and Python syntax/import verification pending CI.
