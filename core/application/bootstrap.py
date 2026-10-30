@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 import math
+import time
 from dataclasses import replace
 from uuid import uuid4
 
@@ -33,6 +34,8 @@ from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.model.breaker import Breaker
+from core.model import CVT, PT, EndpointReference, EquipmentType
+from core.network.electrical_boundary import ElectricalBoundaryResolver
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -58,7 +61,13 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
-from .synchronism_check import SynchronismCheckProjectConfiguration, SynchronismCheckGuard
+from .synchronism_check import (
+    ProjectScopedSynchronismAuditSink,
+    BypassAuthorization,
+    SynchronismCheckProjectConfiguration,
+    SynchronismCheckGuard,
+    create_project_synchronism_guard,
+)
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -73,18 +82,22 @@ from .services.motor_dynamics_service import MotorDynamicsComposition
 def create_application(
     network: Any,
     *,
-    synchronism_guard_factory: Callable[[Any, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+    synchronism_guard_factory: Callable[[ProjectContext | None, Any, int, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+    synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> Application:
     """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
 
-    If no guard factory is supplied, breaker closes remain fail-closed. A supplied
-    factory is invoked for each candidate Network so project activation cannot
-    accidentally retain a guard bound to the previous project runtime.
+    Without a custom factory, each project runtime receives the built-in
+    project-scoped ANSI 25 guard. Durable audit is resolved at decision time,
+    so unsaved projects cannot close breakers until saved. A supplied factory
+    overrides the default and is invoked for each candidate Network.
     """
     if network is None:
         raise ValueError("network is required.")
     if synchronism_guard_factory is not None and not callable(synchronism_guard_factory):
         raise TypeError("synchronism_guard_factory must be callable or None.")
+    if synchronism_bypass_provider is not None and not callable(synchronism_bypass_provider):
+        raise TypeError("synchronism_bypass_provider must be callable or None.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -117,20 +130,65 @@ def create_application(
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     application: Application | None = None
 
-    def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
+    def build_runtime(active_network: Any, candidate_context: ProjectContext | None, candidate_generation: int) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         synchronism_guard = None
         if synchronism_guard_factory is not None:
             synchronism_guard = synchronism_guard_factory(
+                candidate_context,
                 active_network,
+                candidate_generation,
                 protection_configuration_service,
                 measurement_channel_service,
             )
-            if not isinstance(synchronism_guard, SynchronismCheckGuard):
-                raise TypeError(
-                    "synchronism_guard_factory must return a SynchronismCheckGuard "
-                    "bound to the candidate project runtime."
-                )
+        elif candidate_context is not None:
+            # The guard is composed for every project activation, including a
+            # new unsaved project. Its audit sink resolves the saved package
+            # path only when a close decision is made, so Save As can enable
+            # durable auditing without rebuilding the command runtime.
+            ansi25_clock_domain = "unix_time"
+
+            class CandidateProjectAuditSink:
+                clock_domain = ansi25_clock_domain
+
+                def __call__(self, decision):
+                    active_context = lifecycle.context if lifecycle is not None else None
+                    if (
+                        active_context is None
+                        or active_context.project_id != candidate_context.project_id
+                        or lifecycle.activation_generation != candidate_generation
+                    ):
+                        raise RuntimeError(
+                            "ANSI 25 audit refused: candidate project activation is no longer current."
+                        )
+                    if active_context.path is None:
+                        raise RuntimeError(
+                            "ANSI 25 audit refused: save the project before authorizing breaker close."
+                        )
+                    durable_sink = ProjectScopedSynchronismAuditSink(
+                        project_id=candidate_context.project_id,
+                        activation_generation=candidate_generation,
+                        project_path=active_context.path,
+                        clock=time.time,
+                        clock_domain=ansi25_clock_domain,
+                    )
+                    durable_sink(decision)
+
+            synchronism_guard = create_project_synchronism_guard(
+                project_id=candidate_context.project_id,
+                activation_generation=candidate_generation,
+                project_configuration_provider=lambda: application.synchronism_check_configuration,
+                measurement_channel_service=measurement_channel_service,
+                audit_sink=CandidateProjectAuditSink(),
+                clock=time.time,
+                clock_domain=ansi25_clock_domain,
+                bypass_provider=synchronism_bypass_provider,
+            )
+        if synchronism_guard is not None and not isinstance(synchronism_guard, SynchronismCheckGuard):
+            raise TypeError(
+                "synchronism_guard_factory must return a SynchronismCheckGuard "
+                "bound to the candidate project runtime."
+            )
         model_service = ModelService(
             network=active_network,
             synchronism_guard=synchronism_guard,
@@ -186,7 +244,7 @@ def create_application(
         )
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
-    command_manager, read_service, validation_service = build_runtime(network)
+    command_manager, read_service, validation_service = build_runtime(network, initial_context, 1)
     application = Application(
         command_manager=command_manager,
         read_service=read_service,
@@ -215,7 +273,7 @@ def create_application(
     # Explicit project policy mapping; absent means ANSI 25 remains unconfigured.
     application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
 
-    def activate_network(active_network: Any):
+    def activate_network(candidate_context: ProjectContext | None, active_network: Any, candidate_generation: int):
         """Replace project-bound Application runtime and return its rollback."""
         previous_command_manager = application._command_manager
         previous_read_service = application._read_service
@@ -230,7 +288,7 @@ def create_application(
         }
 
         try:
-            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
+            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network, candidate_context, candidate_generation)
             application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
             application._protection_read_service = ProtectionReadService(active_network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
         except Exception:
@@ -466,12 +524,35 @@ def create_application(
                     "right_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
                     "right_frequency": ("FREQUENCY", {"hz"}),
                 }
+                boundary = ElectricalBoundaryResolver(candidate_network)
                 for breaker_id, breaker_configuration in typed_synchronism.breakers.items():
                     breaker = candidate_network.get_by_identity(breaker_id)
                     if not isinstance(breaker, Breaker) or getattr(breaker, "id", None) != breaker_id:
                         raise ValueError(
                             f"ANSI 25 policy references missing or non-breaker equipment {breaker_id!r}."
                         )
+                    from_bus_id = boundary.resolve(
+                        EndpointReference.terminal(
+                            equipment_type=EquipmentType.BREAKER,
+                            equipment_id=breaker_id,
+                            terminal_role=breaker.from_terminal.role,
+                        )
+                    ).attached_bus_id
+                    to_bus_id = boundary.resolve(
+                        EndpointReference.terminal(
+                            equipment_type=EquipmentType.BREAKER,
+                            equipment_id=breaker_id,
+                            terminal_role=breaker.to_terminal.role,
+                        )
+                    ).attached_bus_id
+                    if from_bus_id is None or to_bus_id is None or str(from_bus_id) == str(to_bus_id):
+                        raise ValueError(
+                            f"ANSI 25 breaker {breaker_id!r} must have two distinct, resolvable bus-side terminals."
+                        )
+                    expected_side_buses = {
+                        "left": str(from_bus_id),
+                        "right": str(to_bus_id),
+                    }
                     for key, (expected_type, accepted_units) in expected_contracts.items():
                         channel_id = breaker_configuration.measurement_channel_ids[key]
                         definition = channel_definitions.get(channel_id)
@@ -487,6 +568,57 @@ def create_application(
                         if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
                             raise ValueError(
                                 f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
+                            )
+                        source_id = definition.get("source", definition.get("source_id"))
+                        source = candidate_network.get_by_identity(str(source_id))
+                        if not isinstance(source, (PT, CVT)):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} must originate from a PT or CVT source."
+                            )
+                        terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
+                        if not isinstance(terminal_data, Mapping):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} requires a canonical source terminal reference."
+                            )
+                        expected_equipment_type = EquipmentType.PT if isinstance(source, PT) else EquipmentType.CVT
+                        if (
+                            terminal_data.get("object_id") != source_id
+                            or terminal_data.get("equipment_type") != expected_equipment_type.value
+                        ):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} source terminal does not belong to its PT/CVT source."
+                            )
+                        secondary_terminals = source.secondary_terminals
+                        if callable(secondary_terminals):
+                            secondary_terminals = secondary_terminals()
+                        if not any(
+                            terminal.role == terminal_data.get("terminal_role")
+                            for terminal in secondary_terminals
+                        ):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} must use a PT/CVT secondary measurement terminal."
+                            )
+                        primary_terminals = source.primary_terminals
+                        if callable(primary_terminals):
+                            primary_terminals = primary_terminals()
+                        primary_bus_ids = set()
+                        for primary_terminal in primary_terminals:
+                            resolved_primary = boundary.resolve(
+                                EndpointReference.terminal(
+                                    equipment_type=expected_equipment_type,
+                                    equipment_id=str(source_id),
+                                    terminal_role=primary_terminal.role,
+                                )
+                            )
+                            if resolved_primary.attached_bus_id is not None:
+                                primary_bus_ids.add(str(resolved_primary.attached_bus_id))
+                        side = "left" if key.startswith("left_") else "right"
+                        expected_bus_id = expected_side_buses[side]
+                        opposite_bus_id = expected_side_buses["right" if side == "left" else "left"]
+                        if expected_bus_id not in primary_bus_ids or opposite_bus_id in primary_bus_ids:
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} is not physically associated with "
+                                f"the {side} bus side of breaker {breaker_id!r}."
                             )
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:

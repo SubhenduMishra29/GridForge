@@ -14909,3 +14909,132 @@ Per-breaker scoping correction:
 - Added create_project_synchronism_guard() to resolve the active per-breaker policy and live MeasurementChannelService registry at close time; measurement resolution now uses the exact configuration snapshot selected by the guard for that breaker, avoiding a second policy lookup and cross-policy mismatch.
 - The composer requires explicit clock and audit-sink dependencies. It does not silently substitute EventBus logging or a wall-clock for simulation timestamps. Production activation remains blocked until the caller supplies a durable project-scoped audit sink, an appropriate timestamp-domain clock, and explicit bypass lifecycle policy.
 - No tests/CI or syntax/import checks were run.
+
+
+======================================================================
+GF-ISSUE-845 — candidate-scoped ANSI 25 runtime composition contract
+======================================================================
+
+Date:
+    2026-10-29
+
+Branch:
+    fix/ansi25-candidate-runtime-context
+
+Changes:
+    - ProjectLifecycleService now supplies candidate ProjectContext and next
+      activation generation to its network activation callback before the
+      candidate Application runtime is composed.
+    - create_application's synchronism_guard_factory contract now receives
+      candidate context, candidate Network, candidate generation, and the
+      project-scoped configuration/measurement services.
+    - Initial runtime composition explicitly uses the initial project context
+      and generation 1; later activations receive the candidate identity and
+      next generation rather than implicitly capturing the previous project.
+    - create_project_synchronism_guard now requires the expected candidate
+      project ID and activation generation and validates both against the active
+      MeasurementChannelService before resolving policy or measurements. Mismatch
+      raises ANSI25_PROJECT_PROVENANCE_MISMATCH and denies breaker close.
+
+Boundary:
+    - This closes the candidate identity/generation handoff gap only. It does
+      not provide a durable audit store, clock-domain adapter, bypass lifecycle,
+      or user-facing policy editing path. ANSI 25 remains NOT_IMPLEMENTED and
+      breaker close must remain fail-closed unless all required dependencies
+      are supplied and source-level integration is verified.
+    - The NetworkActivator callback signature changed and every in-repository
+      construction/call site must be reconciled before merging this branch.
+
+Verification:
+    Source edits only. No tests or CI were run, per repository audit rules.
+======================================================================
+
+
+[2026-10-29 — GF-ISSUE-845 — durable ANSI 25 audit sidecar]
+- Branch: fix/ansi25-candidate-runtime-context
+- Added ProjectScopedSynchronismAuditSink in core/application/synchronism_check.py.
+- Audit records are appended to a JSONL sidecar adjacent to the normalized .gridforge package, not inside the replaceable package directory. Each record captures timestamp, project ID, activation generation, breaker ID, decision, reason codes, bus mode, and bypass authorization metadata.
+- The sink requires a saved project path and explicit clock; it does not fall back to in-memory audit. Each record is written append-only and fsync is required before the sink returns. Path, serialization, write, or fsync failures propagate so the pre-mutation guard cannot treat an unaudited decision as authorized.
+- The sink is an available composition primitive; it is NOT yet wired into main.py / production breaker-close composition. Timestamp-domain compatibility must be supplied by the caller. Directory-entry durability and multi-process writer behavior remain platform/operational concerns requiring explicit verification. ANSI 25 remains NOT_IMPLEMENTED until end-to-end composition and production verification.
+
+
+[2026-10-29 — GF-ISSUE-845 — explicit ANSI 25 timestamp-domain contract]
+- Branch: fix/ansi25-candidate-runtime-context
+- create_project_synchronism_guard now requires a non-empty timestamp-domain identifier and refuses composition unless the audit sink declares the same domain.
+- Before converting channel values to phasor measurements, the guard requires every configured ANSI 25 measurement channel to expose a matching timestamp_domain. Missing channels or missing/mismatched domain metadata deny close with a typed error; no implicit wall-clock assumption is made.
+- ProjectScopedSynchronismAuditSink requires and exposes its declared clock_domain so composition can reject a mismatched audit domain.
+- Integration limitation: MeasurementChannel currently documents timestamps as simulation/event/sample timestamps but does not itself expose timestamp_domain. Existing channel producers must be reconciled and explicitly declare their domain before ANSI 25 can authorize close. This intentional fail-closed gate does not establish that a supplied clock actually measures the declared domain; that remains a producer/composition responsibility. ANSI 25 remains NOT_IMPLEMENTED.
+
+
+[2026-10-29 — GF-ISSUE-845 — MeasurementChannel timestamp-domain metadata]
+- Branch: fix/ansi25-candidate-runtime-context
+- Added optional, explicitly validated `timestamp_domain` metadata to MeasurementChannel construction and update APIs; included it in diagnostics output. No default clock domain is inferred.
+- This supplies the model-level contract required by the ANSI 25 guard. Existing producers that do not populate the field remain unknown-domain and are rejected by the guard until their source clock semantics are reconciled.
+- Compatibility: the new constructor/update parameter is optional and keyword-based; existing callers continue to construct channels, but cannot satisfy the ANSI 25 domain gate without explicit metadata.
+- Remaining: trace all measurement producers, persistence/load paths, and updates to assign and preserve the correct domain. ANSI 25 remains NOT_IMPLEMENTED; no tests or CI run.
+
+
+[2026-10-29 — GF-ISSUE-845 — persist measurement timestamp-domain declaration]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannelService now passes the optional `timestamp_domain` from canonical measurement definitions into MeasurementProvisioning/MeasurementChannel and includes the declared domain when serializing channel definitions.
+- This closes the persistence round-trip gap for the explicit declaration: save/load retains the configured domain instead of silently dropping it. Missing metadata remains None and continues to fail the ANSI 25 timestamp-domain gate.
+- This does not create or validate live sample timestamps and does not prove a producer uses the declared clock. Producer-level timestamp updates still need audit; ANSI 25 remains NOT_IMPLEMENTED. No tests/CI run.
+
+
+[2026-10-29 — GF-ISSUE-845 — persistence-boundary timestamp-domain validation]
+- Branch: fix/ansi25-candidate-runtime-context
+- Canonical project-state validation now rejects a present-but-empty or non-string measurement `timestamp_domain` before the project is activated or saved. Missing/None remains permitted for legacy channels but cannot authorize ANSI 25.
+- Updated service serialization/provisioning and persistence validation have been fetched back from the branch. Producer semantics, runtime wiring and full repository syntax/import integrity remain outstanding; no tests/CI run.
+
+
+[2026-10-30 — GF-ISSUE-845 — atomic live sample timestamp-domain binding]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannel.update now validates the incoming sample metadata before mutating channel state. A new timestamp atomically replaces its domain declaration; if the producer omits the domain, the channel clears it to unknown rather than inheriting the prior sample's domain.
+- A timestamp_domain-only update is rejected because it could relabel an existing timestamp without a corresponding sample. Invalid value, timestamp, domain, quality, or sequence input is rejected before any channel fields are changed.
+- MeasurementChannel.reset now clears timestamp_domain along with timestamp state, preventing a reset sample from retaining stale clock provenance.
+- Producers must supply timestamp and timestamp_domain together for ANSI 25 eligibility. The channel enforces declaration pairing, not the truth of the producer's clock source. Live producer call sites and production breaker-close composition remain to be audited; ANSI 25 remains NOT_IMPLEMENTED.
+- Source changes fetched back from the branch. No tests or CI were run, per repository audit rules.
+
+[2026-10-30 — GF-ISSUE-845 — invalidate provenance on untimestamped value updates]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannel.update always installs a new raw value. When the caller omits timestamp, the channel now clears the previous timestamp, timestamp_domain, and sample_sequence rather than retaining provenance from an earlier sample.
+- This prevents a new untimestamped value from inheriting an old sample's freshness or clock-domain declaration. A sample can satisfy ANSI 25 only when its own timestamp and explicit domain are supplied together; an omitted sequence remains unknown.
+- The correction is at the channel boundary. Live producer inventory, actual clock-source verification, and production breaker-close composition remain outstanding; ANSI 25 remains NOT_IMPLEMENTED. No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — ANSI 25 runtime hardening and measurement ingestion boundary]
+- Branch: fix/ansi25-candidate-runtime-context
+- ANSI 25 policy now requires an explicit max_measurement_skew_seconds value and persists it as project policy schema 2. Legacy schema-1 policies are rejected for explicit migration; no unsafe skew tolerance is silently inferred.
+- The six voltage/phase/frequency samples must fit within the configured timestamp-skew window in addition to each sample independently meeting freshness, quality, type, unit and timestamp-domain requirements.
+- Bypass authorization is now scoped to one breaker, project ID and activation generation; it has an explicit issue/expiry interval capped at five minutes and is single-use within the active guard. Its scope and time provenance are included in the audit record. The default composition has no bypass provider, so bypass remains disabled unless an explicitly injected trusted provider supplies a scoped token.
+- MeasurementChannelService.publish_sample is the supported serialized live-ingestion boundary. It requires source timestamp, configured timestamp domain, quality and monotonically increasing sample sequence, rejects backwards timestamps, and shares Application's execution lock so compliant sample publication cannot interleave with breaker command authorization and mutation.
+- Live device/SCADA/PMU producer integrations have not yet been found or verified to use publish_sample. Project-managed MeasurementChannel.update/reset and sample-state attribute assignments are now blocked unless made through the owning service; source timestamp truth is still producer-supplied and not independently attested. Production status remains NOT_IMPLEMENTED until producers are migrated and trusted source clocks are verified.
+- No tests or CI were run, per repository audit rules.
+
+
+[2026-10-30 — GF-ISSUE-845 — seal project-managed measurement sample state]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannelService now binds a private per-service sample-update authority to every provisioned channel. Direct MeasurementChannel.update/reset calls and direct assignment to raw_value, timestamp, timestamp_domain, sample_sequence, quality or available are rejected for managed channels unless the owning service authorizes the mutation.
+- MeasurementChannelService.publish_sample is the supported live-ingestion boundary and is serialized with Application breaker commands through the shared execution lock. Application exposes publish_measurement_sample as the facade.
+- This contains ordinary in-process direct mutation paths; it is not a security boundary against hostile Python code that can introspect private object state. Actual device/SCADA/PMU producer integration and independent source-clock attestation remain outstanding. ANSI 25 remains NOT_IMPLEMENTED pending that integration and final close-path review.
+- No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — validate ANSI 25 measurement side provenance]
+- Branch: fix/ansi25-candidate-runtime-context
+- Candidate project validation now requires every ANSI 25 voltage/phase/frequency channel to originate from a PT or CVT secondary terminal. It resolves the PT/CVT primary terminals and both breaker terminals through ElectricalBoundaryResolver, then requires left-side channels to be physically associated with the breaker FROM bus and right-side channels with the TO bus; channels associated with the opposite bus are rejected.
+- MeasurementChannelService provisioning now rejects a source_terminal reference whose equipment identity/type does not match the declared measurement source.
+- This is topology-level provenance validation; it does not replace commissioning verification of instrument wiring, polarity, ratio, phase assignment or actual source clock. No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — serialize ANSI 25 policy replacement]
+- Application.synchronism_check_configuration now validates schema-2 policy on assignment and returns detached policy data on read. Replacement is serialized by the Application execution lock shared with breaker commands and measurement ingestion.
+- No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — reject invalid ANSI 25 evaluation clock]
+- Branch: fix/ansi25-candidate-runtime-context
+- SynchronismCheckGuard now rejects a clock provider that raises, returns a boolean, returns a non-numeric value, or returns NaN/infinity before any phasor comparison can authorize breaker closure.
+- The denial is recorded through the mandatory audit sink; audit failure still blocks the operation. The guard raises ANSI25_CLOCK_UNAVAILABLE and leaves breaker state untouched.
+- This closes a fail-open edge case where NaN could make freshness comparisons evaluate false and allow an invalid clock value through a custom runtime composition.
+- No tests or CI were run, per repository rules. Python syntax/import and full close-path verification remain outstanding.

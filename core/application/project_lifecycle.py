@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import wraps
+from threading import RLock
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
@@ -23,7 +25,7 @@ from .project_presentation import ProjectPresentationCollection
 ProjectLoader = Callable[[Path], LoadedProject]
 ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path, Mapping[str, Any] | None], None]
 NetworkFactory = Callable[[], Any]
-NetworkActivator = Callable[[Any], Callable[[], None] | None]
+NetworkActivator = Callable[[ProjectContext | None, Any, int], Callable[[], None] | None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
@@ -40,6 +42,15 @@ PresentationCollectionSnapshotProvider = Callable[[], ProjectPresentationCollect
 
 POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT = "READ_ONLY_ACTIVATION_AUDIT"
 PERSISTENT_RECONCILIATION_TRANSACTION = "PERSISTENT_RECONCILIATION_TRANSACTION"
+
+
+def _serialized_lifecycle_mutation(method):
+    """Run lifecycle mutations under the Application-shared execution lock."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._execution_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +88,7 @@ class ProjectLifecycleService:
         presentation_collection_deserializer: PresentationCollectionDeserializer | None = None,
         presentation_collection_activator: PresentationCollectionActivator | None = None,
         presentation_collection_snapshot_provider: PresentationCollectionSnapshotProvider | None = None,
+        execution_lock: Any | None = None,
     ) -> None:
         if network is None:
             raise ValueError("network is required.")
@@ -94,6 +106,9 @@ class ProjectLifecycleService:
             if callback is not None and not callable(callback):
                 raise TypeError(f"{name} must be callable.")
 
+        self._execution_lock = execution_lock if execution_lock is not None else RLock()
+        if not callable(getattr(self._execution_lock, "__enter__", None)) or not callable(getattr(self._execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
         self._network = network
         self._network_factory = network_factory
         self._activate_network = activate_network
@@ -116,6 +131,13 @@ class ProjectLifecycleService:
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
         self._rollback_error: Exception | None = None
+
+    def bind_execution_lock(self, execution_lock: Any) -> None:
+        """Bind the Application command lock before exposing lifecycle operations."""
+        if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
+        if self._execution_lock is not execution_lock:
+            self._execution_lock = execution_lock
 
     @property
     def context(self) -> ProjectContext | None: return self._context
@@ -299,6 +321,7 @@ class ProjectLifecycleService:
         self._serialize_presentation = serializer
         self._deserialize_presentation = deserializer
 
+    @_serialized_lifecycle_mutation
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
@@ -306,12 +329,14 @@ class ProjectLifecycleService:
         collection = ProjectPresentationCollection.single(presentation) if presentation is not None else None
         return self._activate_candidate(context, None, network, presentation, presentation_collection=collection)
 
+    @_serialized_lifecycle_mutation
     def open_project(self, path: str | Path) -> ProjectContext:
         target = self._normalize_path(path)
         loaded = self._load_project(target)
         presentation, collection = self._presentation_for_loaded(loaded)
         return self._activate_candidate(loaded.context, loaded, loaded.network, presentation, presentation_collection=collection)
 
+    @_serialized_lifecycle_mutation
     def discard_project_changes(self) -> ProjectContext:
         """Restore the persisted project state without manipulating command history."""
         context = self._require_context()
@@ -324,6 +349,7 @@ class ProjectLifecycleService:
         presentation, collection = self._presentation_for_loaded(loaded)
         return self._activate_candidate(loaded.context, loaded, loaded.network, presentation, presentation_collection=collection)
 
+    @_serialized_lifecycle_mutation
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
         context = self._require_context()
         starting_generation = self._activation_generation
@@ -429,9 +455,11 @@ class ProjectLifecycleService:
             self._context = context
         return context
 
+    @_serialized_lifecycle_mutation
     def save_project_as(self, path: str | Path) -> ProjectContext:
         return self.save_project(path)
 
+    @_serialized_lifecycle_mutation
     def close_project(self) -> ProjectContext | None:
         previous = self._context
         network = self._network_factory()
@@ -510,7 +538,7 @@ class ProjectLifecycleService:
             if rollback is not None:
                 rollback_stack.append(rollback)
 
-            rollback = self._activate_network(network)
+            rollback = self._activate_network(context, network, next_generation)
             if rollback is not None:
                 rollback_stack.append(rollback)
 

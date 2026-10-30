@@ -6,6 +6,7 @@ from types import MappingProxyType
 import math
 import time
 from typing import Callable, Mapping
+from threading import Lock
 from core.application.errors import DomainError
 from core.model.breaker import Breaker
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementQuality, MeasurementSignalType
@@ -22,17 +23,18 @@ class SynchronismCheckConfiguration:
     max_phase_angle_difference_deg: float
     max_frequency_difference_hz: float
     max_measurement_age_seconds: float
+    max_measurement_skew_seconds: float
     dead_bus_voltage_max_kv: float
     allowed_modes: Mapping[BusMode, bool]
     measurement_channel_ids: Mapping[str, str]
     bypass_allowed: bool
     def __post_init__(self):
-        for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","dead_bus_voltage_max_kv"):
+        for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","max_measurement_skew_seconds","dead_bus_voltage_max_kv"):
             value=getattr(self,name)
             if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:
                 raise ValueError(f"{name} must be finite and non-negative")
-        if self.max_measurement_age_seconds <= 0 or self.max_phase_angle_difference_deg > 180:
-            raise ValueError("Invalid ANSI 25 freshness or phase-angle limit")
+        if self.max_measurement_age_seconds <= 0 or self.max_measurement_skew_seconds <= 0 or self.max_measurement_skew_seconds > self.max_measurement_age_seconds or self.max_phase_angle_difference_deg > 180:
+            raise ValueError("Invalid ANSI 25 freshness, sample-skew, or phase-angle limit")
         if not isinstance(self.allowed_modes, Mapping):
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
         supplied = {}
@@ -74,6 +76,7 @@ class SynchronismCheckConfiguration:
             "max_phase_angle_difference_deg": self.max_phase_angle_difference_deg,
             "max_frequency_difference_hz": self.max_frequency_difference_hz,
             "max_measurement_age_seconds": self.max_measurement_age_seconds,
+            "max_measurement_skew_seconds": self.max_measurement_skew_seconds,
             "dead_bus_voltage_max_kv": self.dead_bus_voltage_max_kv,
             "allowed_modes": {mode.value: self.allowed_modes[mode] for mode in BusMode},
             "measurement_channel_ids": dict(self.measurement_channel_ids),
@@ -88,7 +91,7 @@ class SynchronismCheckConfiguration:
         required = {
             "max_voltage_difference_kv", "max_phase_angle_difference_deg",
             "max_frequency_difference_hz", "max_measurement_age_seconds",
-            "dead_bus_voltage_max_kv", "allowed_modes", "measurement_channel_ids", "bypass_allowed",
+            "max_measurement_skew_seconds", "dead_bus_voltage_max_kv", "allowed_modes", "measurement_channel_ids", "bypass_allowed",
         }
         missing = required.difference(data)
         extra = set(data).difference(required)
@@ -102,6 +105,7 @@ class SynchronismCheckConfiguration:
             max_phase_angle_difference_deg=data["max_phase_angle_difference_deg"],
             max_frequency_difference_hz=data["max_frequency_difference_hz"],
             max_measurement_age_seconds=data["max_measurement_age_seconds"],
+            max_measurement_skew_seconds=data["max_measurement_skew_seconds"],
             dead_bus_voltage_max_kv=data["dead_bus_voltage_max_kv"],
             allowed_modes=data["allowed_modes"],
             measurement_channel_ids=data["measurement_channel_ids"],
@@ -126,19 +130,40 @@ class PhasorMeasurement:
 
 @dataclass(frozen=True, slots=True)
 class BypassAuthorization:
+    """Short-lived, single-use authorization scoped to one project breaker activation."""
+
     authorized_by: str
     reason: str
-    expires_at: float
     authorization_id: str
+    breaker_id: str
+    project_id: str
+    activation_generation: int
+    issued_at: float
+    expires_at: float
+
     def __post_init__(self):
-        for name in ("authorized_by", "reason", "authorization_id"):
+        for name in ("authorized_by", "reason", "authorization_id", "breaker_id", "project_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
-        if isinstance(self.expires_at, bool) or not isinstance(self.expires_at, (int, float)) or not math.isfinite(self.expires_at):
-            raise ValueError("expires_at must be a finite timestamp")
-    def valid(self, now: float) -> bool:
-        return now < self.expires_at
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer")
+        for name in ("issued_at", "expires_at"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite timestamp")
+        if self.expires_at <= self.issued_at:
+            raise ValueError("Bypass authorization expiry must follow its issue time")
+        if self.expires_at - self.issued_at > 300.0:
+            raise ValueError("ANSI 25 bypass authorization lifetime cannot exceed five minutes")
+
+    def valid_for(self, *, now: float, breaker_id: str, project_id: str, activation_generation: int) -> bool:
+        return (
+            self.issued_at <= now < self.expires_at
+            and self.breaker_id == breaker_id
+            and self.project_id == project_id
+            and self.activation_generation == activation_generation
+        )
 
 @dataclass(frozen=True, slots=True)
 class SynchronismDecision:
@@ -148,6 +173,12 @@ class SynchronismDecision:
     mode: BusMode | None
     bypassed: bool = False
     authorization_id: str | None = None
+    bypass_authorized_by: str | None = None
+    bypass_reason: str | None = None
+    bypass_expires_at: float | None = None
+    bypass_issued_at: float | None = None
+    bypass_project_id: str | None = None
+    bypass_activation_generation: int | None = None
 
 @dataclass(frozen=True, slots=True)
 class SynchronismCheckProjectConfiguration:
@@ -172,7 +203,7 @@ class SynchronismCheckProjectConfiguration:
 
     def to_dict(self) -> dict:
         return {
-            "schema": 1,
+            "schema": 2,
             "breakers": {
                 breaker_id: configuration.to_dict()
                 for breaker_id, configuration in self.breakers.items()
@@ -181,8 +212,8 @@ class SynchronismCheckProjectConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping) -> "SynchronismCheckProjectConfiguration":
-        if not isinstance(data, Mapping) or set(data) != {"schema", "breakers"} or data.get("schema") != 1:
-            raise ValueError("ANSI 25 project configuration requires exactly schema=1 and breakers.")
+        if not isinstance(data, Mapping) or set(data) != {"schema", "breakers"} or data.get("schema") != 2:
+            raise ValueError("ANSI 25 project configuration requires exactly schema=2 and breakers; legacy policies require explicit migration.")
         raw_breakers = data["breakers"]
         if not isinstance(raw_breakers, Mapping):
             raise TypeError("ANSI 25 project configuration breakers must be an object.")
@@ -242,6 +273,12 @@ def phasor_measurements_from_channels(
             raise ValueError(f"ANSI 25 channel {channel_id!r} has a non-finite or non-scalar engineering value.")
         values[key] = (float(value), float(channel.timestamp), field_name)
 
+    sample_timestamps = tuple(timestamp for _, timestamp, _ in values.values())
+    sample_skew = max(sample_timestamps) - min(sample_timestamps)
+    if sample_skew > configuration.max_measurement_skew_seconds:
+        raise ValueError(
+            "ANSI 25 six-channel phasor snapshot exceeds max_measurement_skew_seconds."
+        )
     left_timestamp = min(values["left_voltage"][1], values["left_phase_angle"][1], values["left_frequency"][1])
     right_timestamp = min(values["right_voltage"][1], values["right_phase_angle"][1], values["right_frequency"][1])
     left = PhasorMeasurement(
@@ -263,17 +300,42 @@ def phasor_measurements_from_channels(
 
 class SynchronismCheckGuard:
     """Project providers supply explicit settings, both bus measurements, and optional bypass authorization."""
-    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time):
+    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time, bypass_project_id: str | None = None, bypass_activation_generation: int | None = None):
         if not callable(configuration_provider) or not callable(measurement_provider): raise TypeError("Configuration and measurement providers are required")
         if bypass_provider is not None and not callable(bypass_provider): raise TypeError("bypass_provider must be callable")
         if not callable(audit_sink): raise TypeError("audit_sink is required and must be callable")
         if not callable(clock): raise TypeError("clock must be callable")
+        if bypass_provider is not None and (not isinstance(bypass_project_id, str) or not bypass_project_id.strip() or isinstance(bypass_activation_generation, bool) or not isinstance(bypass_activation_generation, int) or bypass_activation_generation < 1):
+            raise ValueError("A bypass provider requires explicit project and activation-generation scope.")
         self._configuration_provider=configuration_provider; self._measurement_provider=measurement_provider
         self._bypass_provider=bypass_provider; self._audit_sink=audit_sink; self._clock=clock
+        self._bypass_project_id=bypass_project_id; self._bypass_activation_generation=bypass_activation_generation
+        self._consumed_bypass_ids: set[str] = set(); self._bypass_lock = Lock()
 
     def authorize_close(self, breaker: Breaker) -> SynchronismDecision:
         if not isinstance(breaker,Breaker): raise TypeError("ANSI 25 guard requires a Breaker")
-        now=self._clock(); reasons=[]; mode=None
+        try:
+            now = self._clock()
+        except Exception:
+            now = None
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, (int, float))
+            or not math.isfinite(now)
+        ):
+            decision = SynchronismDecision(
+                False,
+                breaker.id,
+                ("ANSI25_CLOCK_UNAVAILABLE",),
+                None,
+            )
+            self._audit(decision)
+            raise DomainError(
+                code="ANSI25_CLOCK_UNAVAILABLE",
+                message="Breaker close denied: ANSI 25 evaluation clock is unavailable or invalid.",
+                details={"breaker_id": breaker.id, "reason_codes": decision.reason_codes},
+            )
+        reasons=[]; mode=None
         try:
             config=self._configuration_provider(breaker)
         except Exception:
@@ -319,9 +381,27 @@ class SynchronismCheckGuard:
                 auth=self._bypass_provider(breaker)
             except Exception:
                 auth=None
-            if isinstance(auth,BypassAuthorization) and auth.valid(now):
-                decision=SynchronismDecision(True,breaker.id,tuple(reasons),mode,True,auth.authorization_id)
-                self._audit(decision); return decision
+            if isinstance(auth, BypassAuthorization) and auth.valid_for(
+                now=now,
+                breaker_id=breaker.id,
+                project_id=self._bypass_project_id,
+                activation_generation=self._bypass_activation_generation,
+            ):
+                with self._bypass_lock:
+                    if auth.authorization_id in self._consumed_bypass_ids:
+                        auth = None
+                    else:
+                        self._consumed_bypass_ids.add(auth.authorization_id)
+                if auth is not None:
+                    decision=SynchronismDecision(
+                        True, breaker.id, tuple(reasons), mode, True,
+                        auth.authorization_id, auth.authorized_by, auth.reason,
+                        auth.expires_at,
+                        auth.issued_at,
+                        auth.project_id,
+                        auth.activation_generation,
+                    )
+                    self._audit(decision); return decision
             reasons.append("ANSI25_BYPASS_UNAUTHORIZED_OR_EXPIRED")
         decision=SynchronismDecision(not reasons,breaker.id,tuple(reasons),mode)
         self._audit(decision)
@@ -332,29 +412,144 @@ class SynchronismCheckGuard:
         self._audit_sink(decision)
 
 
+
+class ProjectScopedSynchronismAuditSink:
+    """Append-only ANSI 25 audit stored beside, never inside, a project package.
+
+    The caller must construct one sink per candidate project activation and
+    supply a clock in the measurement timestamp domain. Unsaved projects are
+    rejected: an in-memory fallback would make breaker-close authorization
+    unauditable. File or fsync errors propagate and therefore block close.
+    """
+
+    def __init__(self, *, project_id: str, activation_generation: int, project_path, clock: Callable[[], float], clock_domain: str):
+        from pathlib import Path
+        from core.persistence.project_package import normalize_package_path
+
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("A non-empty project_id is required for ANSI 25 audit.")
+        if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+            raise ValueError("A positive activation_generation is required for ANSI 25 audit.")
+        if project_path is None:
+            raise ValueError("ANSI 25 requires a saved project path; unsaved projects cannot authorize breaker close.")
+        if not callable(clock):
+            raise TypeError("An explicit audit clock is required.")
+        if not isinstance(clock_domain, str) or not clock_domain.strip():
+            raise ValueError("An explicit audit clock domain is required.")
+        package = normalize_package_path(Path(project_path))
+        if not package.parent.is_dir():
+            raise OSError("ANSI 25 audit directory does not exist; refusing to create an untracked audit location.")
+        self._project_id = project_id
+        self._activation_generation = activation_generation
+        self._path = package.with_name(package.name + ".ansi25-audit.jsonl")
+        self._clock = clock
+        self._clock_domain = clock_domain.strip()
+
+    @property
+    def clock_domain(self) -> str:
+        """Return the explicitly declared timestamp domain used by this sink."""
+        return self._clock_domain
+
+    @property
+    def path(self):
+        """Return the external sidecar path for operational diagnostics."""
+        return self._path
+
+    def __call__(self, decision: SynchronismDecision) -> None:
+        import json
+        import os
+
+        if not isinstance(decision, SynchronismDecision):
+            raise TypeError("ANSI 25 audit sink accepts SynchronismDecision values only.")
+        timestamp = self._clock()
+        if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+            raise ValueError("ANSI 25 audit clock returned an invalid timestamp.")
+        record = {
+            "schema": 1,
+            "timestamp": timestamp,
+            "project_id": self._project_id,
+            "activation_generation": self._activation_generation,
+            "breaker_id": decision.breaker_id,
+            "permitted": decision.permitted,
+            "reason_codes": list(decision.reason_codes),
+            "mode": decision.mode.value if decision.mode is not None else None,
+            "bypassed": decision.bypassed,
+            "authorization_id": decision.authorization_id,
+            "bypass_authorized_by": decision.bypass_authorized_by,
+            "bypass_reason": decision.bypass_reason,
+            "bypass_expires_at": decision.bypass_expires_at,
+            "bypass_issued_at": decision.bypass_issued_at,
+            "bypass_project_id": decision.bypass_project_id,
+            "bypass_activation_generation": decision.bypass_activation_generation,
+        }
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        descriptor = os.open(self._path, flags, 0o600)
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("Incomplete ANSI 25 audit record write.")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
 def create_project_synchronism_guard(
     *,
+    project_id: str,
+    activation_generation: int,
     project_configuration_provider: Callable[[], Mapping | SynchronismCheckProjectConfiguration | None],
     measurement_channel_service: object,
     audit_sink: Callable[[SynchronismDecision], None],
     clock: Callable[[], float],
+    clock_domain: str,
     bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> SynchronismCheckGuard:
-    """Compose ANSI 25 against active project policy and live channel registry.
+    """Compose ANSI 25 for one candidate project activation.
+
+    The expected project identity and generation are immutable for this guard.
+    Before policy or measurements are consumed, the live channel service must
+    match both values. A guard captured from an earlier project activation is
+    therefore rejected rather than authorizing against another project's data.
 
     Callers must provide a durable, project-scoped audit sink and a clock in
     the same time domain as channel timestamps. Neither dependency is guessed.
-    Policy and channel values are resolved at each close request to avoid stale
-    state across project activation and live measurement updates.
     """
+    if not isinstance(project_id, str) or not project_id.strip():
+        raise ValueError("A non-empty candidate project_id is required.")
+    if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
+        raise ValueError("A positive candidate activation_generation is required.")
     if not callable(project_configuration_provider):
         raise TypeError("project_configuration_provider is required.")
     if not callable(audit_sink):
         raise TypeError("A durable audit sink is required.")
     if not callable(clock):
         raise TypeError("An explicit clock in the channel timestamp domain is required.")
+    if not isinstance(clock_domain, str) or not clock_domain.strip():
+        raise ValueError("An explicit measurement timestamp domain is required.")
+    clock_domain = clock_domain.strip()
+    if getattr(audit_sink, "clock_domain", None) != clock_domain:
+        raise ValueError("ANSI 25 audit sink clock domain must match the measurement timestamp domain.")
+
+    def validate_active_provenance() -> None:
+        active_project_id = getattr(measurement_channel_service, "project_id", None)
+        active_generation = getattr(measurement_channel_service, "activation_generation", None)
+        if active_project_id != project_id or active_generation != activation_generation:
+            raise DomainError(
+                code="ANSI25_PROJECT_PROVENANCE_MISMATCH",
+                message="Breaker close denied: ANSI 25 guard project or activation generation does not match the active measurement context.",
+                details={
+                    "expected_project_id": project_id,
+                    "active_project_id": active_project_id,
+                    "expected_activation_generation": activation_generation,
+                    "active_activation_generation": active_generation,
+                },
+            )
 
     def resolve_policy(breaker: Breaker) -> SynchronismCheckConfiguration | None:
+        validate_active_provenance()
         raw = project_configuration_provider()
         if raw is None:
             return None
@@ -362,11 +557,27 @@ def create_project_synchronism_guard(
         return registry.for_breaker(breaker.id)
 
     def resolve_measurements(breaker: Breaker, configuration: SynchronismCheckConfiguration) -> tuple[PhasorMeasurement, PhasorMeasurement]:
+        validate_active_provenance()
         channels = getattr(measurement_channel_service, "channels", None)
         if callable(channels):
             channels = channels()
         if not isinstance(channels, Mapping):
             raise TypeError("Active measurement channel service must expose a channels mapping.")
+        for channel_id in configuration.measurement_channel_ids.values():
+            channel = channels.get(channel_id)
+            if channel is None:
+                raise ValueError(f"ANSI 25 channel {channel_id!r} is unavailable.")
+            channel_domain = getattr(channel, "timestamp_domain", None)
+            if channel_domain != clock_domain:
+                raise DomainError(
+                    code="ANSI25_TIMESTAMP_DOMAIN_MISMATCH",
+                    message="Breaker close denied: measurement timestamp domain is missing or differs from the configured ANSI 25 clock domain.",
+                    details={
+                        "channel_id": channel_id,
+                        "expected_timestamp_domain": clock_domain,
+                        "active_timestamp_domain": channel_domain,
+                    },
+                )
         return phasor_measurements_from_channels(configuration, channels, now=clock())
 
     return SynchronismCheckGuard(
@@ -375,6 +586,8 @@ def create_project_synchronism_guard(
         bypass_provider=bypass_provider,
         audit_sink=audit_sink,
         clock=clock,
+        bypass_project_id=project_id if bypass_provider is not None else None,
+        bypass_activation_generation=activation_generation if bypass_provider is not None else None,
     )
 
-__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard"]
+__all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard","ProjectScopedSynchronismAuditSink"]

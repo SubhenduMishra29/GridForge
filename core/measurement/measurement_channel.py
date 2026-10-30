@@ -332,6 +332,11 @@ class MeasurementChannel:
     timestamp:
         Optional simulation/event/sample timestamp.
 
+    timestamp_domain:
+        Explicit identifier for the clock domain of timestamp. None means
+        the timestamp domain is unknown and safety-sensitive consumers must
+        fail closed.
+
     sample_sequence:
         Optional monotonically increasing sample/update identifier.
 
@@ -368,6 +373,7 @@ class MeasurementChannel:
         quality: MeasurementQuality = MeasurementQuality.UNKNOWN,
         raw_value: float | complex = 0.0,
         timestamp: Optional[float] = None,
+        timestamp_domain: Optional[str] = None,
         sample_sequence: Optional[int] = None,
         stale_after: Optional[float] = None,
     ) -> None:
@@ -376,6 +382,7 @@ class MeasurementChannel:
 
         self.id = id
         self.name = str(name)
+        self._sample_update_authority = None
 
         if not isinstance(
             signal_type,
@@ -452,6 +459,9 @@ class MeasurementChannel:
         self.timestamp = self._validate_timestamp(
             timestamp
         )
+        self.timestamp_domain = self._validate_timestamp_domain(
+            timestamp_domain
+        )
 
         self.sample_sequence = (
             self._validate_sample_sequence(
@@ -462,6 +472,21 @@ class MeasurementChannel:
         self.stale_after = self._validate_stale_after(
             stale_after
         )
+
+    _SAMPLE_STATE_FIELDS = frozenset({
+        "raw_value", "timestamp", "timestamp_domain",
+        "sample_sequence", "quality", "available",
+    })
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self._SAMPLE_STATE_FIELDS:
+            authority = getattr(self, "_sample_update_authority", None)
+            write_authority = getattr(self, "_sample_write_authority", None)
+            if authority is not None and write_authority is not authority:
+                raise PermissionError(
+                    "Project-managed measurement sample state is writable only through its owning service."
+                )
+        object.__setattr__(self, name, value)
 
     # =================================================================
     # VALIDATION
@@ -618,6 +643,17 @@ class MeasurementChannel:
         return value
 
     # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_timestamp_domain(
+        value: Optional[str],
+    ) -> Optional[str]:
+        """Validate explicit clock-domain metadata without guessing a default."""
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("timestamp_domain must be a non-empty string or None.")
+        return value.strip()
 
     @staticmethod
     def _validate_timestamp(
@@ -806,12 +842,22 @@ class MeasurementChannel:
     # MEASUREMENT UPDATE
     # =================================================================
 
+    def _bind_sample_update_authority(self, authority: Any) -> None:
+        """Bind service ownership for a project-managed live channel."""
+        if authority is None:
+            raise ValueError("A non-null sample update authority is required.")
+        if self._sample_update_authority not in (None, authority):
+            raise RuntimeError("MeasurementChannel is already owned by another sample service.")
+        self._sample_update_authority = authority
+
     def update(
         self,
         value: float | complex,
         *,
+        _authority: Any = None,
         timestamp: Optional[float] = None,
-        quality: Optional[MeasurementQuality] = None,
+        timestamp_domain: Optional[str] = None,
+        quality: Optional[MeasurementQuality]  = None,
         available: Optional[bool] = None,
         sample_sequence: Optional[int] = None,
     ) -> None:
@@ -824,7 +870,13 @@ class MeasurementChannel:
             Raw value supplied by the measurement-generation layer.
 
         timestamp:
-            Optional sample timestamp.
+            Timestamp for this new sample. If omitted, prior timestamp
+            provenance is cleared and the sample cannot satisfy freshness
+            checks.
+
+        timestamp_domain:
+            Optional explicit clock-domain identifier. Supply it when the
+            producer establishes or changes the timestamp domain.
 
         quality:
             Optional quality update.
@@ -833,45 +885,60 @@ class MeasurementChannel:
             Optional availability update.
 
         sample_sequence:
-            Optional sample/update sequence number.
+            Optional sample/update sequence number. If omitted, prior sequence
+            provenance is cleared for this new sample.
 
         Notes
         -----
         Physical CT/PT/CVT transformation is not performed here.
         """
 
-        self.raw_value = self._validate_value(
-            value
+        if self._sample_update_authority is not None and _authority is not self._sample_update_authority:
+            raise PermissionError(
+                "Project-managed MeasurementChannels must be updated through MeasurementChannelService.publish_sample()."
+            )
+
+        # Validate the complete incoming sample before mutating channel state.
+        validated_value = self._validate_value(value)
+        validated_timestamp = (
+            self._validate_timestamp(timestamp)
+            if timestamp is not None
+            else None
+        )
+        if timestamp_domain is not None and timestamp is None:
+            raise ValueError(
+                "timestamp_domain cannot be changed without its timestamp."
+            )
+        validated_domain = (
+            self._validate_timestamp_domain(timestamp_domain)
+            if timestamp is not None
+            else None
+        )
+        if quality is not None and not isinstance(
+            quality, MeasurementQuality
+        ):
+            raise TypeError("quality must be a MeasurementQuality.")
+        validated_sequence = (
+            self._validate_sample_sequence(sample_sequence)
+            if sample_sequence is not None
+            else None
         )
 
-        if timestamp is not None:
-            self.timestamp = self._validate_timestamp(
-                timestamp
-            )
-
-        if quality is not None:
-
-            if not isinstance(
-                quality,
-                MeasurementQuality,
-            ):
-                raise TypeError(
-                    "quality must be a MeasurementQuality."
-                )
-
-            self.quality = quality
-
-        if available is not None:
-            self.available = bool(
-                available
-            )
-
-        if sample_sequence is not None:
-            self.sample_sequence = (
-                self._validate_sample_sequence(
-                    sample_sequence
-                )
-            )
+        self._sample_write_authority = self._sample_update_authority
+        try:
+            self.raw_value = validated_value
+            # update() always installs a new value. If its producer supplies no
+            # timestamp, invalidate all prior sample provenance rather than
+            # attaching an old timestamp/domain/sequence to the new value.
+            self.timestamp = validated_timestamp
+            self.timestamp_domain = validated_domain
+            self.sample_sequence = validated_sequence
+            if quality is not None:
+                self.quality = quality
+            if available is not None:
+                self.available = bool(available)
+        finally:
+            self._sample_write_authority = None
 
     # =================================================================
     # SIGNAL QUALITY / VALIDITY
@@ -1071,6 +1138,7 @@ class MeasurementChannel:
         self,
         value: float | complex = 0.0,
         *,
+        _authority: Any = None,
         quality: MeasurementQuality = (
             MeasurementQuality.UNKNOWN
         ),
@@ -1082,32 +1150,27 @@ class MeasurementChannel:
         Reset signal state while retaining channel configuration.
         """
 
-        self.raw_value = self._validate_value(
-            value
-        )
-
-        if not isinstance(
-            quality,
-            MeasurementQuality,
-        ):
-            raise TypeError(
-                "quality must be a MeasurementQuality."
+        if self._sample_update_authority is not None and _authority is not self._sample_update_authority:
+            raise PermissionError(
+                "Project-managed MeasurementChannels must be reset through their owning measurement service."
             )
+        validated_value = self._validate_value(value)
+        if not isinstance(quality, MeasurementQuality):
+            raise TypeError("quality must be a MeasurementQuality.")
+        validated_timestamp = self._validate_timestamp(timestamp)
+        validated_sequence = self._validate_sample_sequence(sample_sequence)
 
-        self.quality = quality
-        self.available = bool(
-            available
-        )
-
-        self.timestamp = self._validate_timestamp(
-            timestamp
-        )
-
-        self.sample_sequence = (
-            self._validate_sample_sequence(
-                sample_sequence
-            )
-        )
+        self._sample_write_authority = self._sample_update_authority
+        try:
+            self.raw_value = validated_value
+            self.quality = quality
+            self.available = bool(available)
+            self.timestamp = validated_timestamp
+            # Reset cannot inherit a clock-domain declaration from an old sample.
+            self.timestamp_domain = None
+            self.sample_sequence = validated_sequence
+        finally:
+            self._sample_write_authority = None
 
     # =================================================================
     # DIAGNOSTICS
@@ -1145,6 +1208,7 @@ class MeasurementChannel:
                 == MeasurementValidity.VALID
             ),
             "timestamp": self.timestamp,
+            "timestamp_domain": self.timestamp_domain,
             "sample_sequence": self.sample_sequence,
             "stale_after": self.stale_after,
             "source": self.source_id,

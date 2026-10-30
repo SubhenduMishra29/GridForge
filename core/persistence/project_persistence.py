@@ -740,6 +740,13 @@ class ProjectPersistenceService:
             if channel_id in channel_ids:
                 raise ProjectPersistenceError(f"Duplicate persisted measurement channel ID: {channel_id}")
             channel_ids.add(channel_id)
+            timestamp_domain = definition.get("timestamp_domain")
+            if timestamp_domain is not None and (
+                not isinstance(timestamp_domain, str) or not timestamp_domain.strip()
+            ):
+                raise ProjectPersistenceError(
+                    f"Persisted measurement channel '{channel_id}' has an invalid timestamp_domain."
+                )
         if protection_configuration is not None:
             for configuration in protection_configuration.elements:
                 for input_name, channel_id in configuration.input_channel_ids.items():

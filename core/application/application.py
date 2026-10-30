@@ -65,6 +65,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .synchronism_check import SynchronismCheckProjectConfiguration
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -134,6 +135,8 @@ class Application:
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._execution_lock = RLock()
+        if self._measurement_channel_service is not None:
+            self._measurement_channel_service.bind_execution_lock(self._execution_lock)
         self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
         self._commit_state_lock = RLock()
         self._commit_in_flight = False
@@ -488,9 +491,52 @@ class Application:
     @property
     def presentation(self) -> Any: return self.project_lifecycle.presentation
     @property
+    def synchronism_check_configuration(self) -> dict[str, Any] | None:
+        """Return a detached ANSI 25 policy snapshot."""
+        with self._execution_lock:
+            configuration = getattr(self, "_synchronism_check_configuration", None)
+            return None if configuration is None else configuration.to_dict()
+
+    @synchronism_check_configuration.setter
+    def synchronism_check_configuration(self, value: Mapping[str, Any] | SynchronismCheckProjectConfiguration | None) -> None:
+        """Replace ANSI 25 policy atomically with command execution and sample ingestion."""
+        if value is None:
+            typed = None
+        elif isinstance(value, SynchronismCheckProjectConfiguration):
+            typed = value
+        elif isinstance(value, Mapping):
+            typed = SynchronismCheckProjectConfiguration.from_dict(value)
+        else:
+            raise TypeError("synchronism_check_configuration must be a schema-2 mapping, typed policy, or None.")
+        with self._execution_lock:
+            self._synchronism_check_configuration = typed
+
+    @property
     def measurement_channel_service(self) -> MeasurementChannelService:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
+
+    def publish_measurement_sample(
+        self,
+        channel_id: str,
+        value: float | complex,
+        *,
+        timestamp: float,
+        timestamp_domain: str,
+        quality: MeasurementQuality,
+        sample_sequence: int,
+        available: bool = True,
+    ) -> None:
+        """Publish a live sample through the lock shared with breaker commands."""
+        self.measurement_channel_service.publish_sample(
+            channel_id,
+            value,
+            timestamp=timestamp,
+            timestamp_domain=timestamp_domain,
+            quality=quality,
+            sample_sequence=sample_sequence,
+            available=available,
+        )
 
     def evaluate_protection_cycle(
         self,
@@ -1001,6 +1047,7 @@ class Application:
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
+        service.bind_execution_lock(self._execution_lock)
         self._project_lifecycle = service
         if self._measurement_lifecycle_service is not service and self._measurement_channel_service is not None:
             measurement_service = self._measurement_channel_service
@@ -1154,7 +1201,12 @@ class Application:
         raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
 
     def _run_project_transition(self, transition: Any) -> Any:
-        """Coordinate revision/validation state around one lifecycle activation transaction."""
+        """Serialize lifecycle activation and its reconciliation against all commands."""
+        with self._execution_lock:
+            return self._run_project_transition_locked(transition)
+
+    def _run_project_transition_locked(self, transition: Any) -> Any:
+        """Coordinate revision/validation state while the execution lock is held."""
         if not callable(transition):
             raise TypeError("transition must be callable.")
         revision_state = self._revision_service.snapshot_state()

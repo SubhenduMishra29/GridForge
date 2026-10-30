@@ -8,17 +8,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
+from functools import wraps
+from threading import RLock
 from typing import Any
 
 from core.application.endpoint_resolver import resolve_terminal_reference
 from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
+    MeasurementQuality,
     MeasurementPhase,
     MeasurementSignalType,
 )
 from core.measurement.measurement_provisioning import MeasurementProvisioning
 from core.network.network import Network
+
+
+def _serialized_measurement_mutation(method):
+    """Serialize measurement-registry lifecycle operations with Application."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._execution_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class MeasurementChannelService:
@@ -29,11 +42,22 @@ class MeasurementChannelService:
     the source equipment and terminals.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, execution_lock: Any | None = None) -> None:
+        self._execution_lock = execution_lock if execution_lock is not None else RLock()
+        self._sample_update_authority = object()
+        if not callable(getattr(self._execution_lock, "__enter__", None)) or not callable(getattr(self._execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
+
+    def bind_execution_lock(self, execution_lock: Any) -> None:
+        """Bind the same lock used by Application commands and project lifecycle."""
+        if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
+        if self._execution_lock is not execution_lock:
+            self._execution_lock = execution_lock
 
     @property
     def project_id(self) -> str | None:
@@ -66,6 +90,57 @@ class MeasurementChannelService:
         for channel_id in channel_ids:
             self.require(channel_id)
 
+    @_serialized_measurement_mutation
+    def publish_sample(
+        self,
+        channel_id: str,
+        value: float | complex,
+        *,
+        timestamp: float,
+        timestamp_domain: str,
+        quality: MeasurementQuality,
+        sample_sequence: int,
+        available: bool = True,
+    ) -> None:
+        """Publish one source-timestamped sample under the Application mutation lock.
+
+        Live measurement producers must use this boundary so sample publication
+        cannot interleave with a breaker-close command's ANSI 25 evaluation and
+        state mutation. Timestamp and sequence provenance are mandatory.
+        """
+        channel = self.require(channel_id)
+        if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+            raise ValueError("Measurement sample timestamp must be finite.")
+        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip():
+            raise ValueError("Measurement sample timestamp_domain is required.")
+        if channel.timestamp_domain != timestamp_domain:
+            raise ValueError(
+                f"Measurement channel {channel.id!r} is configured for timestamp domain "
+                f"{channel.timestamp_domain!r}, not {timestamp_domain!r}."
+            )
+        if not isinstance(quality, MeasurementQuality):
+            raise TypeError("Measurement sample quality must be MeasurementQuality.")
+        if isinstance(sample_sequence, bool) or not isinstance(sample_sequence, int) or sample_sequence < 0:
+            raise ValueError("Measurement sample_sequence must be a non-negative integer.")
+        if not isinstance(available, bool):
+            raise TypeError("Measurement sample availability must be bool.")
+        previous_sequence = channel.sample_sequence
+        previous_timestamp = channel.timestamp
+        if previous_sequence is not None and sample_sequence <= previous_sequence:
+            raise ValueError("Measurement sample_sequence must increase monotonically.")
+        if previous_timestamp is not None and timestamp < previous_timestamp:
+            raise ValueError("Measurement sample timestamp cannot move backwards.")
+        channel.update(
+            value,
+            timestamp=float(timestamp),
+            timestamp_domain=timestamp_domain,
+            quality=quality,
+            available=available,
+            sample_sequence=sample_sequence,
+            _authority=self._sample_update_authority,
+        )
+
+    @_serialized_measurement_mutation
     def activate(
         self,
         context: Any | None,
@@ -116,6 +191,7 @@ class MeasurementChannelService:
             self._channels,
         )
 
+    @_serialized_measurement_mutation
     def restore_state(
         self,
         snapshot: tuple[str | None, int, Network | None, dict[str, MeasurementChannel]],
@@ -137,6 +213,7 @@ class MeasurementChannelService:
         self._network = network
         self._channels = channels
 
+    @_serialized_measurement_mutation
     def deactivate(self) -> None:
         self._project_id = None
         self._activation_generation = 0
@@ -156,13 +233,22 @@ class MeasurementChannelService:
         if not isinstance(terminal_data, Mapping):
             raise ValueError(f"MeasurementChannel '{channel_id}' requires a source_terminal EndpointReference mapping.")
         reference = self._endpoint_reference(terminal_data)
+        if reference.object_id != source_id:
+            raise ValueError(
+                f"MeasurementChannel '{channel_id}' source_terminal must belong to source '{source_id}'."
+            )
         source = network.get_by_identity(source_id)
         if getattr(source, "id", None) != source_id:
             raise ValueError(f"Measurement source '{source_id}' could not be resolved.")
+        source_type = str(getattr(source, "element_type", "")).strip().lower()
+        if reference.equipment_type.value != source_type:
+            raise ValueError(
+                f"MeasurementChannel '{channel_id}' source_terminal equipment type does not match source '{source_id}'."
+            )
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
         terminal = resolve_terminal_reference(context, reference)
-        return MeasurementProvisioning.provision_channel(
+        channel = MeasurementProvisioning.provision_channel(
             source=source,
             source_terminal=terminal,
             source_terminal_reference=reference,
@@ -174,7 +260,10 @@ class MeasurementChannelService:
             nominal_value=float(definition.get("nominal_value", 0.0)),
             scale=float(definition.get("scale", 1.0)),
             polarity=float(definition.get("polarity", 1.0)),
+            timestamp_domain=definition.get("timestamp_domain"),
         )
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
 
     @staticmethod
     def _endpoint_reference(data: Mapping[str, Any]) -> EndpointReference:
@@ -220,6 +309,7 @@ class MeasurementChannelService:
             "nominal_value": channel.nominal_value,
             "scale": channel.scale,
             "polarity": channel.polarity,
+            "timestamp_domain": channel.timestamp_domain,
         }
 
 
