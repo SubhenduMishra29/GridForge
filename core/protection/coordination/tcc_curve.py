@@ -69,8 +69,15 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-import math
 from typing import Iterable
+import math
+
+from core.protection.relay_functions import (
+    iec_curve_definition,
+    iec_time,
+    normalize_iec_curve,
+    pickup_exceeded,
+)
 
 
 class TCCCurve:
@@ -95,62 +102,23 @@ class TCCCurve:
     """
 
     # =========================================================
-    # IEC CURVE DEFINITIONS
+    # IEC CURVE DEFINITIONS / INITIALIZATION
     # =========================================================
 
-    IEC_CURVES = {
-        "NORMAL_INVERSE": {
-            "k": 0.14,
-            "alpha": 0.02,
-        },
-        "VERY_INVERSE": {
-            "k": 13.5,
-            "alpha": 1.0,
-        },
-        "EXTREMELY_INVERSE": {
-            "k": 80.0,
-            "alpha": 2.0,
-        },
+    _LEGACY_NAMES = {
+        "SI": "NORMAL_INVERSE",
+        "VI": "VERY_INVERSE",
+        "EI": "EXTREMELY_INVERSE",
     }
 
-    # =========================================================
-    # INITIALIZATION
-    # =========================================================
-
-    def __init__(
-        self,
-        curve_type: str = "NORMAL_INVERSE",
-    ) -> None:
-        """
-        Initialize the TCC calculation engine.
-        """
-
-        curve_type = str(
-            curve_type
-        ).upper()
-
-        if curve_type not in self.IEC_CURVES:
-            raise ValueError(
-                f"Unsupported IEC curve: "
-                f"{curve_type}. Supported curves: "
-                f"{sorted(self.IEC_CURVES)}"
-            )
-
-        self.curve_type = curve_type
-
-        characteristics = (
-            self.IEC_CURVES[
-                curve_type
-            ]
-        )
-
-        self.k = float(
-            characteristics["k"]
-        )
-
-        self.alpha = float(
-            characteristics["alpha"]
-        )
+    def __init__(self, curve_type: str = "NORMAL_INVERSE") -> None:
+        """Initialize a compatibility adapter over the canonical IEC engine."""
+        canonical = normalize_iec_curve(curve_type)
+        self._curve_code = canonical
+        self.curve_type = self._LEGACY_NAMES[canonical]
+        definition = iec_curve_definition(canonical)
+        self.k = definition.k
+        self.alpha = definition.alpha
 
     # =========================================================
     # OPERATING TIME
@@ -162,108 +130,25 @@ class TCCCurve:
         pickup_current: float,
         TMS: float = 1.0,
     ) -> float:
-        """
-        Calculate IEC inverse-time operating time.
-
-        Equation
-        --------
-
-            t = TMS * k / (M^alpha - 1)
-
-        where:
-
-            M = |I| / Ip
-
-        Parameters
-        ----------
-        fault_current:
-            Fault current magnitude.
-
-        pickup_current:
-            Relay pickup current.
-
-        TMS:
-            IEC Time Multiplier Setting.
-
-        Returns
-        -------
-        float
-            Operating time in seconds.
-
-            infinity:
-                Current is at or below pickup.
-        """
-
-        pickup_current = float(
-            pickup_current
-        )
-
-        TMS = float(
-            TMS
-        )
-
-        if not math.isfinite(
-            pickup_current
-        ):
-            raise ValueError(
-                "Pickup current must be finite."
-            )
-
-        if pickup_current <= 0.0:
-            raise ValueError(
-                "Pickup current must be > 0."
-            )
-
-        if not math.isfinite(
-            TMS
-        ):
-            raise ValueError(
-                "TMS must be finite."
-            )
-
-        if TMS < 0.0:
-            raise ValueError(
-                "TMS must be >= 0."
-            )
-
-        current = abs(
-            float(fault_current)
-        )
-
-        if not math.isfinite(
-            current
-        ):
-            raise ValueError(
-                "Fault current must be finite."
-            )
-
-        M = (
-            current
-            /
-            pickup_current
-        )
-
-        # -----------------------------------------------------
-        # Below or exactly at pickup
-        # -----------------------------------------------------
-
-        if M <= 1.0:
-            return float("inf")
-
-        denominator = (
-            M ** self.alpha
-            - 1.0
-        )
-
-        if denominator <= 0.0:
-            return float("inf")
-
-        return (
-            TMS
-            *
-            self.k
-            /
-            denominator
+        """Calculate operating time through the canonical IEC equation."""
+        if isinstance(TMS, bool):
+            raise TypeError("TMS must be numeric, not boolean.")
+        try:
+            multiplier = float(TMS)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("TMS must be numeric.") from exc
+        if not math.isfinite(multiplier) or multiplier < 0.0:
+            raise ValueError("TMS must be finite and non-negative.")
+        # Preserve the historical TMS=0 compatibility behaviour while
+        # requiring all positive-TMS calculations to use the canonical
+        # numerically-stable IEC equation.
+        if multiplier == 0.0:
+            return 0.0 if pickup_exceeded(fault_current, pickup_current) else float("inf")
+        return iec_time(
+            current=fault_current,
+            pickup=pickup_current,
+            curve=self._curve_code,
+            TMS=multiplier,
         )
 
     # =========================================================
@@ -276,119 +161,38 @@ class TCCCurve:
         TMS: float = 1.0,
         multiplier_range: Iterable[float] | None = None,
     ) -> list[dict]:
-        """
-        Generate TCC curve points.
-
-        Parameters
-        ----------
-        pickup_current:
-            Relay pickup current.
-
-        TMS:
-            IEC Time Multiplier Setting.
-
-        multiplier_range:
-            Iterable containing current multiples relative
-            to pickup.
-
-            Example:
-
-                range(1, 21)
-
-            produces:
-
-                1x, 2x, ... 20x pickup.
-
-        Returns
-        -------
-        list[dict]
-            Curve points containing:
-
-                current
-                multiple
-                time
-        """
-
-        pickup_current = float(
-            pickup_current
-        )
-
-        if not math.isfinite(
-            pickup_current
-        ):
-            raise ValueError(
-                "Pickup current must be finite."
-            )
-
-        if pickup_current <= 0.0:
-            raise ValueError(
-                "Pickup current must be > 0."
-            )
-
+        """Generate numerical TCC points using the canonical time equation."""
         if multiplier_range is None:
-            multiplier_range = range(
-                1,
-                21,
+            multiplier_range = range(1, 21)
+        result: list[dict[str, float]] = []
+        for raw_multiplier in multiplier_range:
+            if isinstance(raw_multiplier, bool):
+                raise TypeError("Current multiplier must be numeric, not boolean.")
+            try:
+                multiplier = float(raw_multiplier)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Current multiplier must be numeric.") from exc
+            if not __import__("math").isfinite(multiplier) or multiplier <= 0.0:
+                raise ValueError("Current multiplier must be finite and positive.")
+            current = float(pickup_current) * multiplier
+            operating_time = self.calculate_time(
+                fault_current=current,
+                pickup_current=pickup_current,
+                TMS=TMS,
             )
-
-        curve = []
-
-        for multiplier in (
-            multiplier_range
-        ):
-
-            multiplier = float(
-                multiplier
-            )
-
-            if not math.isfinite(
-                multiplier
-            ):
-                raise ValueError(
-                    "Current multiplier must be finite."
-                )
-
-            if multiplier <= 0.0:
-                raise ValueError(
-                    "Current multiplier must "
-                    "be > 0."
-                )
-
-            current = (
-                pickup_current
-                *
-                multiplier
-            )
-
-            operating_time = (
-                self.calculate_time(
-                    fault_current=current,
-                    pickup_current=pickup_current,
-                    TMS=TMS,
-                )
-            )
-
-            curve.append(
-                {
-                    "current": current,
-                    "multiple": multiplier,
-                    "time": operating_time,
-                }
-            )
-
-        return curve
+            result.append({
+                "current": current,
+                "multiple": multiplier,
+                "time": operating_time,
+            })
+        return result
 
     # =========================================================
     # CHARACTERISTIC INFORMATION
     # =========================================================
 
-    def characteristic(
-        self,
-    ) -> dict:
-        """
-        Return the IEC characteristic constants.
-        """
-
+    def characteristic(self) -> dict:
+        """Return legacy curve identifier and canonical IEC constants."""
         return {
             "curve_type": self.curve_type,
             "k": self.k,
