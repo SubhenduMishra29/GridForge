@@ -381,3 +381,71 @@ measurement-snapshot authority.
   contracts, detached short-circuit preparation/execution and provenance checks.
 - `core/application/__init__.py` — public exports.
 - `Modification_Register.txt` — implementation record.
+
+
+## 15. Phase D audit — instrument-to-scenario measurement boundary
+
+The next integration was audited against the current Protection Study branch
+and the open CT association branch
+`feature/sld-derived-ct-measurement-association` (PR #905). The audit found
+that the existing contracts are not yet sufficient for a correct
+scenario-derived relay evaluation.
+
+### Confirmed existing contracts
+
+- `ShortCircuitResult.branch_currents` contains typed branch records with
+  from/to Bus identities, phase currents and sequence currents.
+- `ProtectionMeasurementBinding` correlates a source equipment terminal,
+  electrical side, quantity, physical instrument, channel and RelayInput.
+- `MeasurementChannel` records the physical instrument and its secondary
+  terminal reference.
+- The PR #905 CT association work resolves CT P1/P2 primary Bus locations and
+  S1/S2 secondary terminal references without assigning a protection zone.
+- Application already creates immutable, per-cycle RelayInput sample
+  snapshots and enforces project/configuration/channel provenance.
+
+### Blocking contract gaps
+
+1. The current `MeasurementGeneration.generate_short_circuit` path only
+   accepts quantities at the fault Bus. It explicitly rejects arbitrary
+   branch-current mapping, so it cannot yet supply a CT located on a feeder
+   branch from `ShortCircuitResult.branch_currents`.
+2. The existing `ProtectionMeasurementBinding` stores a
+   `relay_input_id`, but RelayInput identity is only its local input name.
+   The binding does not identify the consuming protection element, so it
+   cannot unambiguously distinguish the same input name reused by multiple
+   elements.
+3. `ProtectionProjectConfiguration` does not own or persist a collection of
+   `ProtectionMeasurementBinding` records. The binding is currently a
+   standalone value contract rather than an integrated project configuration.
+4. The CT association resolver in PR #905 identifies primary-side Bus
+   locations; it does not itself map the CT to a branch or protected zone.
+   That is correct and intentional. Branch selection must remain an explicit
+   engineering association, not a heuristic derived from CT position.
+5. The current short-circuit contribution status is now preserved by
+   `ProtectionFaultScenarioResult`; incomplete branch/source contributions
+   make the Protection Study partial and must not be used for relay evaluation.
+
+### Phase D implementation order
+
+1. Reconcile the binding identity contract so each binding explicitly names
+   its protection element and input, and integrate the binding collection
+   into the existing project protection configuration/persistence contract.
+2. Validate the binding against the active canonical Network, CT association,
+   configured physical CT secondary channel and the protection element's
+   actual input-channel mapping.
+3. Add a pure branch-current conversion path that selects an explicitly
+   configured branch and terminal side, verifies CT P1/P2 orientation against
+   branch from/to Bus identities, converts per-unit current using the
+   configured study MVA base and the selected side's Bus voltage base, and
+   applies CT ratio and polarity exactly once.
+4. Keep simulated values detached from live MeasurementChannel objects.
+   Extend Application's sealed sample-snapshot path to accept validated
+   scenario samples keyed by protection element/input; preserve all existing
+   freshness, quality, unit, project and topology guards.
+5. Only after these checks, evaluate the ProtectionSystem against the
+   scenario-specific samples and retain decisions as simulated study results.
+   The Study remains non-actuating.
+
+No branch-current-to-CT conversion or scenario-derived relay decision is
+claimed by the current Phase C implementation.
