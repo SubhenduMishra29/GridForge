@@ -692,3 +692,33 @@ The persisted values are expressed in the scheme's declared current reference
 basis. This pass does not create that basis, perform CT conversion or prove
 that independent CT channels are normalised to it. Scenario-derived CT phasor
 generation and ProtectionStudy integration remain separate outstanding work.
+
+
+## 20. Detached CT fault-scenario measurement adapter — Phase D4
+
+The first scenario-to-measurement adapter increment converts an explicitly
+configured Branch FROM/TO CT binding from a complete short-circuit branch
+contribution into an immutable `ProtectionScenarioMeasurementSample`.
+It consumes the existing complex `phase_currents.<phase>` or
+`sequence_currents.<sequence>` contribution, the persisted binding, the
+authoritative CT object, its MeasurementChannel and a CT association resolved
+against the same topology revision.
+
+The adapter validates scenario/result completeness, contribution completeness,
+Branch identity and terminal side, CT association membership, channel/instrument
+identity, physical CT ratio, and the exact phase/sequence member declaration.
+It applies the existing per-unit-to-primary-A, branch orientation, CT polarity
+and CT-ratio conversion path. The output is detached and carries scenario,
+project, activation, topology, Branch, Bus, CT, base and ratio provenance.
+It never calls `MeasurementChannel.update` and cannot overwrite live values.
+
+**Strict boundary:** this is a CT-secondary sample in amperes
+(`A_secondary`), not a common primary-current reference basis. Each sample
+declares an instrument/channel-specific basis identity so samples from
+different CT ratios cannot accidentally satisfy the differential kernel's
+common-basis guard. Differential protection still requires an explicit,
+engineering-valid CT normalisation/compensation stage before its samples can
+be evaluated. Bus-attached and equipment-terminal CT contribution adapters,
+PT/CVT fault-voltage conversion, RelayInput snapshot assembly and
+ProtectionSystem scenario evaluation remain pending. No scenario relay
+decision or breaker action is claimed.
