@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
 from .measurement_channel_service import MeasurementChannelService
+from .ct_measurement_association_service import CTMeasurementAssociationService
 from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
 from .junction_service import JunctionCommandHandlers, JunctionService
 from .electrical_insertion_service import ElectricalInsertionCommandHandlers, ElectricalInsertionService
@@ -22,6 +23,7 @@ __all__ = [
     "ElectricalConnectionCommandHandlers",
     "ElectricalConnectionService",
     "MeasurementChannelService",
+    "CTMeasurementAssociationService",
     "SimpleWireConnectionCommandHandlers",
     "SimpleWireConnectionService",
     "JunctionCommandHandlers",
