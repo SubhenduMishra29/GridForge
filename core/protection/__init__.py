@@ -15,7 +15,7 @@ from .project_configuration import (
     DifferentialProtectionSchemeConfiguration,
     ProtectionProjectConfiguration,
 )
-from .function_catalog import (
+from .differential import (\n    DifferentialRestraintMethod,\n    DifferentialProtectionSettings,\n    DifferentialCurrentSample,\n    DifferentialPhaseResult,\n    DifferentialProtectionResult,\n    evaluate_differential_scheme,\n)\nfrom .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
     get_protection_function,
@@ -29,6 +29,6 @@ __all__ = [
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
     "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
     "ProtectionProjectConfiguration",
-    "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
+    "DifferentialRestraintMethod", "DifferentialProtectionSettings",\n    "DifferentialCurrentSample", "DifferentialPhaseResult",\n    "DifferentialProtectionResult", "evaluate_differential_scheme",\n    "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
     "get_protection_function", "list_protection_functions",
 ]
