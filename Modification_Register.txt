@@ -14771,3 +14771,39 @@ Integrated regression verification additions:
       alignment correction discovered while tracing the remaining study failure.
     - These changes remain strict at the canonical persistence, project dirty
       authority, and study provenance boundaries.
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-C — Typed presentation activation and study revision binding
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    ProjectLifecycleService candidate validation and transient-stability
+    regression fixture provenance.
+
+Findings:
+    - ProjectLifecycleService deserialized a persisted presentation collection
+      into ProjectPresentationCollection, but candidate validation then read
+      LoadedProject.presentation_collection (the raw persistence mapping)
+      instead of the typed collection. This bypassed the deserialization
+      boundary and rejected valid saved projects.
+    - The transient-stability regression fixture supplied project, activation,
+      and topology identity but omitted PreparedPowerFlow.source_revision.
+      StudyPreparationService correctly rejects unversioned operating points.
+
+Corrections:
+    - Pass the typed presentation_collection candidate into
+      _validate_candidate() and validate that object before activation. Raw
+      persistence mappings remain owned by the deserializer boundary.
+    - Bind both PreparedPowerFlow fixture constructions to the exact
+      Application ProjectRevision tuple. No StudyPreparationService provenance
+      validation was relaxed.
+
+Verification boundary:
+    Source and fixture corrections committed for focused workflow verification.
+    PR #864 remains ineligible for merge until all required checks pass.
+
+======================================================================
