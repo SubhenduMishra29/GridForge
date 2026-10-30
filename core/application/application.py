@@ -1309,6 +1309,12 @@ class Application:
         revision_before = self.revision
         active_network = lifecycle.network
         network_snapshot = deserialize_network(serialize_network(active_network))
+        # Canonical Network persistence intentionally excludes runtime topology
+        # revision counters. A detached study snapshot must nevertheless retain
+        # the exact revision of the active Network it represents; reconstruction
+        # may replay attachment mutations and produce a different local counter.
+        network_snapshot.state.topology_revision = active_network.state.topology_revision
+        network_snapshot.rebuild_topology()
         dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
         revision_after = self.revision
         current_context = lifecycle.context
