@@ -87,8 +87,10 @@ class CTMeasurementAssociationResolver:
 
         monitored_element_id is an optional engineer-authored SLD association.
         It is not trusted until the CT P1/P2 Bus pair matches the selected
-        branch's FROM/TO Bus pair. Without it, an exact pair must identify one
-        and only one active Line, Cable, or Transformer.
+        branch's FROM/TO Bus pair and switch-connected terminal zones.
+        Without it, exactly one active Line, Cable, or Transformer must bridge
+        the two zones. Closed switching equipment is traversed; open switching
+        equipment is not.
         """
         if not isinstance(ct_id, str) or not ct_id.strip():
             raise ValueError("ct_id must be a non-empty string.")
@@ -124,7 +126,16 @@ class CTMeasurementAssociationResolver:
                 f"CT {ct_id!r} primary terminals P1 and P2 resolve to the same Bus {p1_bus!r}."
             )
 
-        branches: dict[str, tuple[Any, str, str]] = {}
+        switch_component = self._switch_components(snapshot)
+        p1_component = switch_component.get(p1_bus, frozenset({p1_bus}))
+        p2_component = switch_component.get(p2_bus, frozenset({p2_bus}))
+        if p1_component == p2_component:
+            raise CTMeasurementAssociationError(
+                f"CT {ct_id!r} P1/P2 are connected through the current conductive switching state; "
+                "the CT is bypassed or its monitored path is not separable."
+            )
+
+        branches: dict[str, tuple[Any, str, str, bool]] = {}
         for collection_name in ("lines", "cables", "transformers"):
             for branch in getattr(self._network, collection_name, ()) or ():
                 if not isinstance(branch, self._BRANCH_TYPES) or not bool(getattr(branch, "in_service", True)):
@@ -138,8 +149,14 @@ class CTMeasurementAssociationResolver:
                     continue
                 from_bus = self._single_attachment(attachments, branch_id, from_role, required=False)
                 to_bus = self._single_attachment(attachments, branch_id, to_role, required=False)
-                if from_bus is not None and to_bus is not None and from_bus != to_bus:
-                    branches[branch_id] = (branch, from_bus, to_bus)
+                if from_bus is None or to_bus is None or from_bus == to_bus:
+                    continue
+                from_component = switch_component.get(from_bus, frozenset({from_bus}))
+                to_component = switch_component.get(to_bus, frozenset({to_bus}))
+                if from_component == p1_component and to_component == p2_component:
+                    branches[branch_id] = (branch, from_bus, to_bus, True)
+                elif from_component == p2_component and to_component == p1_component:
+                    branches[branch_id] = (branch, from_bus, to_bus, False)
 
         if monitored_element_id is not None:
             selected = branches.get(monitored_element_id)
@@ -149,17 +166,10 @@ class CTMeasurementAssociationResolver:
                     "fully connected Line, Cable, or Transformer in the current topology."
                 )
             candidates = [(monitored_element_id, *selected)]
-            if not self._matches_pair(p1_bus, p2_bus, selected[1], selected[2]):
-                raise CTMeasurementAssociationError(
-                    f"CT {ct_id!r} primary Bus pair ({p1_bus!r}, {p2_bus!r}) does not match "
-                    f"SLD-selected element {monitored_element_id!r} terminal Bus pair "
-                    f"({selected[1]!r}, {selected[2]!r})."
-                )
         else:
             candidates = [
-                (branch_id, branch, from_bus, to_bus)
-                for branch_id, (branch, from_bus, to_bus) in branches.items()
-                if self._matches_pair(p1_bus, p2_bus, from_bus, to_bus)
+                (branch_id, branch, from_bus, to_bus, p1_is_from)
+                for branch_id, (branch, from_bus, to_bus, p1_is_from) in branches.items()
             ]
             if not candidates:
                 raise CTMeasurementAssociationError(
@@ -173,8 +183,7 @@ class CTMeasurementAssociationResolver:
                     "select the monitored element on the CT's SLD node."
                 )
 
-        branch_id, branch, from_bus, to_bus = candidates[0]
-        p1_is_from = p1_bus == from_bus and p2_bus == to_bus
+        branch_id, branch, from_bus, to_bus, p1_is_from = candidates[0]
         return CTMeasurementAssociation(
             ct_id=ct_id,
             monitored_element_id=branch_id,
@@ -212,10 +221,42 @@ class CTMeasurementAssociationResolver:
         return matches[0]
 
     @staticmethod
-    def _matches_pair(p1_bus: str, p2_bus: str, from_bus: str, to_bus: str) -> bool:
-        return (p1_bus == from_bus and p2_bus == to_bus) or (
-            p1_bus == to_bus and p2_bus == from_bus
-        )
+    def _switch_components(snapshot: Any) -> dict[str, frozenset[str]]:
+        """Return Bus components formed only by currently conductive switches.
+
+        TopologySnapshot.conductive_edges deliberately contains switching
+        boundaries, not numerical Line/Cable/Transformer branches. Using only
+        these edges allows CT placement on either side of closed switching
+        equipment without accidentally traversing another protected branch.
+        """
+        adjacency: dict[str, set[str]] = {
+            str(bus_id): set() for bus_id in snapshot.bus_ids
+        }
+        for edge in snapshot.conductive_edges:
+            first = str(edge.from_bus_id)
+            second = str(edge.to_bus_id)
+            if first in adjacency and second in adjacency and first != second:
+                adjacency[first].add(second)
+                adjacency[second].add(first)
+
+        components: dict[str, frozenset[str]] = {}
+        unseen = set(adjacency)
+        while unseen:
+            start = min(unseen)
+            component = {start}
+            queue = [start]
+            unseen.remove(start)
+            while queue:
+                current = queue.pop(0)
+                for neighbour in sorted(adjacency[current]):
+                    if neighbour in unseen:
+                        unseen.remove(neighbour)
+                        component.add(neighbour)
+                        queue.append(neighbour)
+            frozen = frozenset(component)
+            for bus_id in component:
+                components[bus_id] = frozen
+        return components
 
 
 __all__ = [
