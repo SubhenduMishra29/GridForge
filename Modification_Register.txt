@@ -15658,3 +15658,36 @@ Disposition:
     - TCC data is not retained visually after its owning project is closed
       or its current Application read snapshot becomes unavailable.
 
+
+
+======================================================================
+
+2026-10-30 — Expose CTI deficit and relay non-operation in TCC results
+---------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination result rows show primary and backup operating times
+      with explicit NO OPERATION / UNDEFINED labels instead of ambiguous
+      raw infinity values.
+    - Each row displays measured margin, required CTI, and the engine's
+      required additional backup delay.
+    - An infinite additional delay is explicitly identified as a backup
+      non-operation condition; it is not presented as a finite timer
+      adjustment.
+    - Added aggregate counts for coordinated, CTI-violating, backup
+      non-operation, backup-only operation, and not-applicable points.
+
+Engineering boundary:
+    - Delay values remain calculated by Core RelayCoordination; UI only
+      formats the immutable result.
+    - No timer settings are modified automatically.
+
+Verification:
+    - Source block replacement and register update confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime display and Qt behavior remain unverified.
+
