@@ -14720,3 +14720,34 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-B — Detached study snapshot topology provenance
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Application.capture_project_snapshot() detached Network reconstruction.
+
+Finding:
+    Canonical network persistence correctly omits runtime topology revision
+    counters. Reconstructing a detached Network replays membership/attachment
+    mutations and can therefore produce a different local topology revision
+    from the active Network, even though the electrical model is equivalent.
+    Study execution correctly rejects that mismatch against StudyRequest.
+
+Correction:
+    After canonical reconstruction, Application aligns the detached Network's
+    runtime topology revision with the active Network revision and rebuilds its
+    derived topology snapshot. No persisted project field or validation gate is
+    weakened; the detached snapshot now carries the provenance of the exact
+    active state it represents.
+
+Verification boundary:
+    Source correction committed for workflow verification. No claim of study
+    regression resolution until the relevant repository checks complete.
+
+======================================================================
