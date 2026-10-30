@@ -15259,11 +15259,14 @@ Existing canonical contracts to reuse:
 Implementation phases:
     A. Audit and reconcile existing contracts and function status.
     B. Integrate Protection Study into the existing Study lifecycle.
-    C. Complete instrument and measurement association.
-    D. Complete protection scheme, output mapping and breaker-failure path.
-    E. Complete protection algorithms, IDMT/TCC and coordination.
-    F. Complete typed results, reporting and UI projections.
-    G. Static acceptance, register update and scoped freeze.
+    C. Prepare and calculate explicit fault scenarios using the existing
+       Short-Circuit solver and detached project/topology snapshots.
+    D. Complete instrument and measurement association, including
+       scenario-derived secondary measurement inputs.
+    E. Complete protection scheme, output mapping and breaker-failure path.
+    F. Complete protection algorithms, IDMT/TCC and coordination.
+    G. Complete typed results, reporting and UI projections.
+    H. Static acceptance, register update and scoped freeze.
 
 Research references:
     IEC 60255-1:2022; IEC 60255-151:2009; IEC 60255-121:2014;
