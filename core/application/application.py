@@ -78,6 +78,7 @@ from core.analysis.coordination_study import (
     CoordinationStudyResult,
     execute_coordination_study,
 )
+from core.solver.short_circuit.result import ShortCircuitResult
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
@@ -2648,10 +2649,9 @@ class Application:
                 study_id = str(study_result.study_id)
                 if (
                     study_id in short_circuit_ids
-                    and study_result.study_type == "short_circuit"
                     and study_result.status == "completed"
                     and study_result.current
-                    and study_result.value is not None
+                    and isinstance(study_result.value, ShortCircuitResult)
                 ):
                     short_circuit_results[study_id] = study_result.value
             missing_short_circuit = sorted(short_circuit_ids.difference(short_circuit_results))
