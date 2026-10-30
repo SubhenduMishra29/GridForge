@@ -15728,3 +15728,33 @@ Verification:
     - No tests or CI run, per repository rules.
     - Runtime save/load round-trip remains to be verified.
 
+
+
+======================================================================
+
+2026-10-30 — Reject invalid coordination source mappings at Study Case creation
+-------------------------------------------------------------------------------
+
+Files:
+    - core/application/application.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination Study Case creation now validates explicit primary and
+      backup branch IDs against the active authoritative Network.
+    - Short-Circuit sourced scenarios must match the fault Bus configured
+      by their referenced Short-Circuit Study Case.
+    - These checks occur before Study Case registration and before the
+      completed/current Short-Circuit result requirement is accepted.
+    - Persistence retains the corresponding save/load checks as a second
+      integrity boundary.
+
+Engineering boundary:
+    - Application validates user-supplied study references; it does not
+      infer branch endpoints, relay mappings or engineering conversions.
+
+Verification:
+    - Application and persistence source anchors confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime Study Case creation and reload behavior remain unverified.
+
