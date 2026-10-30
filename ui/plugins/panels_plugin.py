@@ -106,6 +106,12 @@ class PanelsPlugin(QObject):
                 getattr(context.tool_manager, "creation_context", None),
                 context.controller,
             )
+
+            tcc_panel = self._panels.get("idmt_tcc")
+            bind_idmt_application = getattr(tcc_panel, "bind_application", None)
+            if not callable(bind_idmt_application):
+                raise RuntimeError("IDMT TCC workspace does not expose bind_application().")
+            bind_idmt_application(context.application)
         except BaseException as exc:
             failures: list[BaseException] = []
             for panel_id in reversed(created_ids):
