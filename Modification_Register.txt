@@ -14760,3 +14760,14 @@ Persistence fixture follow-up:
       the persisted collection contract. The failure-path fixture now raises
       from the collection serializer, preserving the intended assertion that a
       failed presentation serialization must not mark the project clean.
+
+
+Integrated regression verification additions:
+    - Included the separately scoped DraftConnection nested route canonicalizer
+      and SLD local-view dirty-state correction so the relevant workflow can
+      evaluate all four draft-commit failures and both SLD dirty-state failures
+      together with the lifecycle/study fixture corrections.
+    - Included the Application detached-study snapshot topology-revision
+      alignment correction discovered while tracing the remaining study failure.
+    - These changes remain strict at the canonical persistence, project dirty
+      authority, and study provenance boundaries.
