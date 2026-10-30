@@ -16,6 +16,12 @@ from core.solver.power_flow.result import PowerFlowResult
 
 
 def test_application_executes_transient_stability_from_detached_pf_snapshot():
+    network = Network()
+    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))
+    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
+    network.add_synchronous_machine(SynchronousMachine("G1", name="G1", endpoint=network.get_by_id("bus", "B1")))
+    application = create_application(network)
+
     bus_ids = ("B1", "B2")
     power_flow_input = PowerFlowInput(
         bus_ids=bus_ids,
@@ -35,6 +41,9 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         base_mva=100.0,
         bus_voltage_bases={"B1": 11.0, "B2": 11.0},
         branches=(branch,),
+        project_id=application.project_lifecycle.context.project_id,
+        activation_generation=application.project_lifecycle.activation_generation,
+        topology_revision=application.revision.topology_revision,
     )
     snapshot = PreparedPowerFlow(
         input=snapshot.input,
@@ -42,6 +51,9 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         base_mva=snapshot.base_mva,
         bus_voltage_bases=snapshot.bus_voltage_bases,
         branches=snapshot.branches,
+        project_id=snapshot.project_id,
+        activation_generation=snapshot.activation_generation,
+        topology_revision=snapshot.topology_revision,
     )
     power_flow_result = PowerFlowResult(
         success=True,
@@ -52,13 +64,10 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         message="converged",
         voltage_magnitudes=(1.0, 0.98),
         voltage_angles=(0.1, -0.02),
+        bus_ids=power_flow_input.bus_ids,
+        snapshot_id=power_flow_input.snapshot_id,
     )
 
-    network = Network()
-    network.add_bus(Bus("B1", name="Bus 1", nominal_voltage_kv=11.0))
-    network.add_bus(Bus("B2", name="Bus 2", nominal_voltage_kv=11.0))
-    network.add_synchronous_machine(SynchronousMachine("G1", name="G1", endpoint=network.get_by_id("bus", "B1")))
-    application = create_application(network)
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
         bus_id="B1",
