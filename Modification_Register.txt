@@ -15000,3 +15000,13 @@ Verification:
 - MeasurementChannel.update always installs a new raw value. When the caller omits timestamp, the channel now clears the previous timestamp, timestamp_domain, and sample_sequence rather than retaining provenance from an earlier sample.
 - This prevents a new untimestamped value from inheriting an old sample's freshness or clock-domain declaration. A sample can satisfy ANSI 25 only when its own timestamp and explicit domain are supplied together; an omitted sequence remains unknown.
 - The correction is at the channel boundary. Live producer inventory, actual clock-source verification, and production breaker-close composition remain outstanding; ANSI 25 remains NOT_IMPLEMENTED. No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — ANSI 25 runtime hardening and measurement ingestion boundary]
+- Branch: fix/ansi25-candidate-runtime-context
+- ANSI 25 policy now requires an explicit max_measurement_skew_seconds value and persists it as project policy schema 2. Legacy schema-1 policies are rejected for explicit migration; no unsafe skew tolerance is silently inferred.
+- The six voltage/phase/frequency samples must fit within the configured timestamp-skew window in addition to each sample independently meeting freshness, quality, type, unit and timestamp-domain requirements.
+- Bypass authorization is now scoped to one breaker, project ID and activation generation; it has an explicit issue/expiry interval capped at five minutes and is single-use within the active guard. Its scope and time provenance are included in the audit record. The default composition has no bypass provider, so bypass remains disabled unless an explicitly injected trusted provider supplies a scoped token.
+- MeasurementChannelService.publish_sample is the supported serialized live-ingestion boundary. It requires source timestamp, configured timestamp domain, quality and monotonically increasing sample sequence, rejects backwards timestamps, and shares Application's execution lock so compliant sample publication cannot interleave with breaker command authorization and mutation.
+- Live device/SCADA/PMU producer integrations have not yet been found or verified to use publish_sample. Direct mutation of exposed MeasurementChannel objects remains a bypass of the ingestion lock; production status is therefore NOT_IMPLEMENTED until producers are migrated and direct mutation is contained.
+- No tests or CI were run, per repository audit rules.
