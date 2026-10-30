@@ -15,7 +15,7 @@ from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
 from core.model import Branch, CurrentTransformer, EndpointReference, EquipmentType
-from core.network.electrical_boundary import ElectricalBoundaryResolver
+from core.network.connectivity import ConnectivityResolver
 from core.network.network import Network
 from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
@@ -375,53 +375,50 @@ class ProtectionConfigurationService:
                     message="Current measurement binding requires an authoritative CurrentTransformer.",
                     details={"instrument_id": binding.instrument_id},
                 )
-            boundary = ElectricalBoundaryResolver(network)
+            resolver = ConnectivityResolver(network)
             try:
-                branch_bus_id = boundary.resolve(binding.source_terminal_reference).attached_bus_id
-                primary_bus_ids = {
-                    role: boundary.resolve(
-                        EndpointReference.terminal(
-                            equipment_type=EquipmentType("ct"),
-                            equipment_id=instrument.id,
-                            terminal_role=role,
-                        )
-                    ).attached_bus_id
+                branch_component = set(
+                    resolver.terminal_component(binding.source_terminal_reference)
+                )
+                primary_references = {
+                    role: EndpointReference.terminal(
+                        equipment_type=EquipmentType("ct"),
+                        equipment_id=instrument.id,
+                        terminal_role=role,
+                    )
                     for role in ("P1", "P2")
+                }
+                primary_components = {
+                    role: set(resolver.terminal_component(reference))
+                    for role, reference in primary_references.items()
                 }
             except (TypeError, ValueError, KeyError) as exc:
                 raise DomainError(
                     code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
-                    message="The selected Branch terminal and CT primary terminals must resolve through canonical Network connectivity.",
+                    message="The selected Branch terminal and CT primary terminals must resolve through canonical SimpleWire connectivity.",
                     details={
                         "branch_id": binding.source_equipment_id,
                         "instrument_id": binding.instrument_id,
                         "reason": str(exc),
                     },
                 ) from exc
-            if branch_bus_id is None or any(bus_id is None for bus_id in primary_bus_ids.values()):
-                raise DomainError(
-                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_UNRESOLVED",
-                    message="The selected Branch terminal and both CT primary terminals must resolve to canonical Buses.",
-                    details={
-                        "branch_id": binding.source_equipment_id,
-                        "instrument_id": binding.instrument_id,
-                        "branch_bus_id": branch_bus_id,
-                        "ct_primary_bus_ids": primary_bus_ids,
-                    },
-                )
             matching_ct_roles = tuple(
-                role for role, bus_id in primary_bus_ids.items() if bus_id == branch_bus_id
+                role
+                for role, component in primary_components.items()
+                if primary_references[role] in branch_component
             )
-            if len(matching_ct_roles) != 1 or primary_bus_ids["P1"] == primary_bus_ids["P2"]:
+            if (
+                len(matching_ct_roles) != 1
+                or primary_components["P1"] == primary_components["P2"]
+            ):
                 raise DomainError(
                     code="PROTECTION_CT_BRANCH_ASSOCIATION_AMBIGUOUS",
-                    message="Exactly one CT primary terminal must share the explicitly selected Branch terminal Bus; the other CT primary terminal must be on the opposite side.",
+                    message="The selected Branch terminal must share exactly one CT primary SimpleWire component; CT P1 and P2 must remain on separate components so the CT is inserted in series.",
                     details={
                         "branch_id": binding.source_equipment_id,
                         "instrument_id": binding.instrument_id,
                         "branch_terminal_role": expected_terminal_role,
-                        "branch_bus_id": branch_bus_id,
-                        "ct_primary_bus_ids": primary_bus_ids,
+                        "matching_ct_primary_roles": matching_ct_roles,
                     },
                 )
             expected_types = {"CT"}
