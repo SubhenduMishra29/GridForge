@@ -181,42 +181,9 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Invalid persisted Study Case definition: {exc}") from exc
         if len({case.study_id for case in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
-        study_cases_by_id = {str(case.study_id): case for case in study_cases}
-        protection_functions = {
-            item.element_id: item
-            for item in (protection_configuration.elements if protection_configuration is not None else ())
-        }
-        for case in study_cases:
-            typed_configuration = case.configuration.get("configuration")
-            if not isinstance(typed_configuration, CoordinationStudyConfiguration):
-                continue
-            referenced_functions = {
-                element_id
-                for pair in typed_configuration.pairs
-                for element_id in (pair.primary_element_id, pair.backup_element_id)
-            }
-            for element_id in sorted(referenced_functions):
-                function = protection_functions.get(element_id)
-                if function is None:
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references protection function "
-                        f"{element_id!r}, which is absent from the project's protection configuration."
-                    )
-                if str(function.function_code).strip().upper() not in {"51", "51N"}:
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references {function.function_code!r} "
-                        f"function {element_id!r}; only ANSI 51/51N functions are valid."
-                    )
-            for scenario in typed_configuration.scenarios:
-                source_id = scenario.short_circuit_study_id
-                if source_id is None:
-                    continue
-                source_case = study_cases_by_id.get(source_id)
-                if source_case is None or source_case.study_type != "short_circuit":
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references missing or non-Short-Circuit "
-                        f"Study Case {source_id!r}."
-                    )
+        self._validate_coordination_study_case_references(
+            study_cases, protection_configuration, network
+        )
 
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
@@ -307,45 +274,9 @@ class ProjectPersistenceService:
         # Keep save/load validation symmetric: never write a package whose
         # coordination definitions cannot pass the same reference checks on
         # the next project activation.
-        study_cases_by_id = {str(item.study_id): item for item in study_cases}
-        protection_functions = {
-            item.element_id: item
-            for item in (
-                protection_configuration.elements
-                if protection_configuration is not None else ()
-            )
-        }
-        for case in study_cases:
-            typed_configuration = case.configuration.get("configuration")
-            if not isinstance(typed_configuration, CoordinationStudyConfiguration):
-                continue
-            referenced_functions = {
-                element_id
-                for pair in typed_configuration.pairs
-                for element_id in (pair.primary_element_id, pair.backup_element_id)
-            }
-            for element_id in sorted(referenced_functions):
-                function = protection_functions.get(element_id)
-                if function is None:
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references protection function "
-                        f"{element_id!r}, which is absent from the project's protection configuration."
-                    )
-                if str(function.function_code).strip().upper() not in {"51", "51N"}:
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references {function.function_code!r} "
-                        f"function {element_id!r}; only ANSI 51/51N functions are valid."
-                    )
-            for scenario in typed_configuration.scenarios:
-                source_id = scenario.short_circuit_study_id
-                if source_id is None:
-                    continue
-                source_case = study_cases_by_id.get(source_id)
-                if source_case is None or source_case.study_type != "short_circuit":
-                    raise ProjectPersistenceError(
-                        f"Coordination Study Case {case.study_id} references missing or non-Short-Circuit "
-                        f"Study Case {source_id!r}."
-                    )
+        self._validate_coordination_study_case_references(
+            study_cases, protection_configuration, network
+        )
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -439,6 +370,76 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(
                 f"Unable to save GridForge project to {target}: {exc}"
             ) from exc
+
+    @staticmethod
+    def _validate_coordination_study_case_references(
+        study_cases: Sequence[StudyCaseDefinition],
+        protection_configuration: ProtectionProjectConfiguration | None,
+        network: Network,
+    ) -> None:
+        """Validate coordination references symmetrically before save and after load."""
+        study_cases_by_id = {str(case.study_id): case for case in study_cases}
+        protection_functions = {
+            item.element_id: item
+            for item in (
+                protection_configuration.elements
+                if protection_configuration is not None else ()
+            )
+        }
+        branch_ids = {
+            str(getattr(branch, "id", "")).strip()
+            for branch in getattr(network, "branches", ())
+            if str(getattr(branch, "id", "")).strip()
+        }
+
+        for case in study_cases:
+            configuration = case.configuration.get("configuration")
+            if not isinstance(configuration, CoordinationStudyConfiguration):
+                continue
+
+            for pair in configuration.pairs:
+                for element_id in (pair.primary_element_id, pair.backup_element_id):
+                    function = protection_functions.get(element_id)
+                    if function is None:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references protection function "
+                            f"{element_id!r}, which is absent from the project's protection configuration."
+                        )
+                    if str(function.function_code).strip().upper() not in {"51", "51N"}:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references {function.function_code!r} "
+                            f"function {element_id!r}; only ANSI 51/51N functions are valid."
+                        )
+
+                for branch_id in (pair.primary_branch_id, pair.backup_branch_id):
+                    if branch_id is not None and branch_id not in branch_ids:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references branch "
+                            f"{branch_id!r}, which is absent from the persisted Network."
+                        )
+
+            for scenario in configuration.scenarios:
+                source_id = scenario.short_circuit_study_id
+                if source_id is None:
+                    continue
+                source_case = study_cases_by_id.get(source_id)
+                if source_case is None or source_case.study_type != "short_circuit":
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references missing or non-Short-Circuit "
+                        f"Study Case {source_id!r}."
+                    )
+                source_configuration = source_case.configuration.get("configuration")
+                if not isinstance(source_configuration, ShortCircuitStudyConfiguration):
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references Short-Circuit Study Case "
+                        f"{source_id!r} without a valid typed configuration."
+                    )
+                if scenario.fault_location_id != source_configuration.fault_bus_id:
+                    raise ProjectPersistenceError(
+                        f"Coordination scenario {scenario.scenario_id!r} fault location "
+                        f"{scenario.fault_location_id!r} does not match source Short-Circuit "
+                        f"Study Case {source_id!r} fault Bus {source_configuration.fault_bus_id!r}."
+                    )
 
     @staticmethod
     def _normalize_presentation_collection(data: Mapping[str, Any], project_id: str) -> dict[str, Any]:
