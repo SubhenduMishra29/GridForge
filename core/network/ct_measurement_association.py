@@ -4,16 +4,19 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Resolve CT primary placement against authoritative Core connectivity.
+"""Resolve configured CT primary and secondary terminal references.
 
-The resolver consumes committed Network membership and terminal connectivity.
-It never reads SLD graphics, canvas geometry, or UI state.
+P1/P2 identify the primary electrical measurement location through committed
+Core connectivity. S1/S2 identify the physical secondary circuit terminals
+available to measurement-channel provisioning.
+
+This resolver does not infer a protected feeder, protection zone, relay input,
+or trip target. Those are explicit engineering configuration contracts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any
 
 from core.model import CurrentTransformer, EndpointReference, EquipmentType
@@ -21,67 +24,54 @@ from .connectivity import ConnectivityError, ConnectivityResolver
 from .network import Network
 
 
-class CTMeasurementAssociationError(ValueError):
-    """Raised when a CT primary measurement location cannot be resolved safely."""
-
-
-class CTMeasurementAssociationStatus(str, Enum):
-    """Strength of the CT-to-network equipment correlation."""
-
-    RESOLVED = "RESOLVED"
-    LOCATION_ONLY = "LOCATION_ONLY"
-    AMBIGUOUS = "AMBIGUOUS"
-
-
 @dataclass(frozen=True, slots=True)
 class CTMeasurementAssociation:
-    """Immutable result of resolving one CT's primary measurement location."""
+    """Immutable CT terminal association derived from canonical connectivity."""
 
     ct_id: str
-    in_service: bool
+    p1_terminal_reference: EndpointReference
     p1_bus_id: str
+    p2_terminal_reference: EndpointReference
     p2_bus_id: str
+    s1_terminal_reference: EndpointReference
+    s2_terminal_reference: EndpointReference
     positive_current_direction: str
-    monitored_equipment_id: str | None
-    candidate_equipment_ids: tuple[str, ...]
-    status: CTMeasurementAssociationStatus
+    in_service: bool
     topology_revision: int
 
     def __post_init__(self) -> None:
-        for name in ("ct_id", "p1_bus_id", "p2_bus_id", "positive_current_direction"):
+        if not isinstance(self.ct_id, str) or not self.ct_id.strip():
+            raise ValueError("ct_id must be a non-empty string.")
+        object.__setattr__(self, "ct_id", self.ct_id.strip())
+        for name in ("p1_bus_id", "p2_bus_id", "positive_current_direction"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
             object.__setattr__(self, name, value.strip())
+        if self.p1_bus_id == self.p2_bus_id:
+            raise ValueError("CT primary terminals must resolve to distinct Bus locations.")
+        expected_roles = {
+            "p1_terminal_reference": "P1",
+            "p2_terminal_reference": "P2",
+            "s1_terminal_reference": "S1",
+            "s2_terminal_reference": "S2",
+        }
+        for name, role in expected_roles.items():
+            reference = getattr(self, name)
+            if not isinstance(reference, EndpointReference) or not reference.is_terminal:
+                raise TypeError(f"{name} must be a terminal EndpointReference.")
+            if reference.equipment_id != self.ct_id or reference.terminal_role != role:
+                raise ValueError(f"{name} must identify CT {self.ct_id!r} terminal {role}.")
+        if self.positive_current_direction not in {"P1_TO_P2", "P2_TO_P1"}:
+            raise ValueError("positive_current_direction must be P1_TO_P2 or P2_TO_P1.")
         if not isinstance(self.in_service, bool):
             raise TypeError("in_service must be a boolean.")
-        if self.p1_bus_id == self.p2_bus_id:
-            raise ValueError("A CT primary measurement location must span two distinct Buses.")
-        candidates = tuple(self.candidate_equipment_ids)
-        if any(not isinstance(value, str) or not value.strip() for value in candidates):
-            raise ValueError("candidate_equipment_ids must contain non-empty identities.")
-        if candidates != tuple(sorted(set(candidates))):
-            raise ValueError("candidate_equipment_ids must be unique and deterministically ordered.")
-        object.__setattr__(self, "candidate_equipment_ids", candidates)
-        if not isinstance(self.status, CTMeasurementAssociationStatus):
-            raise TypeError("status must be a CTMeasurementAssociationStatus.")
-        if self.status is CTMeasurementAssociationStatus.RESOLVED:
-            if self.monitored_equipment_id is None or candidates != (self.monitored_equipment_id,):
-                raise ValueError("RESOLVED association requires exactly one monitored equipment candidate.")
-        elif self.monitored_equipment_id is not None:
-            raise ValueError("Only a RESOLVED association may identify monitored_equipment_id.")
         if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
             raise ValueError("topology_revision must be a non-negative integer.")
 
 
 class CTMeasurementAssociationResolver:
-    """Resolve a CurrentTransformer's P1/P2 terminals to network measurement location.
-
-    A unique two-terminal line, cable, or transformer spanning the same pair
-    of primary-side Buses is returned as monitored equipment. No candidate
-    produces LOCATION_ONLY; multiple candidates produce AMBIGUOUS. The
-    resolver never picks an arbitrary candidate.
-    """
+    """Resolve CT terminal locations without guessing protection ownership."""
 
     def __init__(self, network: Network) -> None:
         if not isinstance(network, Network):
@@ -90,56 +80,50 @@ class CTMeasurementAssociationResolver:
         self._connectivity = ConnectivityResolver(network)
 
     def resolve(self, ct: CurrentTransformer | str) -> CTMeasurementAssociation:
-        """Resolve one registered CT using its authoritative P1/P2 connectivity."""
+        """Resolve one registered CT from authoritative primary connectivity."""
         if isinstance(ct, str):
             if not ct.strip():
                 raise ValueError("ct_id must be a non-empty string.")
             try:
                 ct = self._network.get_by_identity(ct.strip())
             except KeyError as exc:
-                raise CTMeasurementAssociationError(
-                    f"CurrentTransformer '{ct}' is not registered in the Network."
-                ) from exc
+                raise ValueError(f"CurrentTransformer {ct!r} is not registered in the Network.") from exc
         if not isinstance(ct, CurrentTransformer):
             raise TypeError("ct must be a CurrentTransformer or registered CT identity.")
         try:
             registered = self._network.get_by_identity(ct.id)
         except KeyError as exc:
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' is not registered in the Network."
-            ) from exc
+            raise ValueError(f"CurrentTransformer {ct.id!r} is not registered in the Network.") from exc
         if registered is not ct:
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' does not resolve to the supplied canonical Network object."
-            )
-        p1_bus_id = self._resolve_primary_bus(ct, "P1", ct.p1_terminal)
-        p2_bus_id = self._resolve_primary_bus(ct, "P2", ct.p2_terminal)
-        if p1_bus_id == p2_bus_id:
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' primary terminals resolve to the same Bus '{p1_bus_id}'."
+            raise ValueError(
+                f"CurrentTransformer {ct.id!r} is not the canonical object registered in the Network."
             )
 
-        candidates = self._find_monitored_equipment(p1_bus_id, p2_bus_id)
-        if len(candidates) == 1:
-            status = CTMeasurementAssociationStatus.RESOLVED
-            monitored_id = candidates[0]
-        elif candidates:
-            status = CTMeasurementAssociationStatus.AMBIGUOUS
-            monitored_id = None
-        else:
-            status = CTMeasurementAssociationStatus.LOCATION_ONLY
-            monitored_id = None
+        p1 = self._terminal_reference(ct, "P1")
+        p2 = self._terminal_reference(ct, "P2")
+        s1 = self._terminal_reference(ct, "S1")
+        s2 = self._terminal_reference(ct, "S2")
+        p1_bus = self._resolve_primary_bus(ct, p1)
+        p2_bus = self._resolve_primary_bus(ct, p2)
+        if p1_bus == p2_bus:
+            raise ValueError(
+                f"CT {ct.id!r} P1 and P2 resolve to the same Bus {p1_bus!r}; "
+                "the primary measurement location is not distinguishable."
+            )
 
-        direction = "P1_TO_P2" if ct.polarity.value == "P1_P2" else "P2_TO_P1"
+        polarity = getattr(ct.polarity, "value", ct.polarity)
+        if polarity not in {"P1_P2", "P2_P1"}:
+            raise ValueError(f"CT {ct.id!r} has unsupported polarity {polarity!r}.")
         return CTMeasurementAssociation(
             ct_id=ct.id,
-            in_service=ct.in_service,
-            p1_bus_id=p1_bus_id,
-            p2_bus_id=p2_bus_id,
-            positive_current_direction=direction,
-            monitored_equipment_id=monitored_id,
-            candidate_equipment_ids=candidates,
-            status=status,
+            p1_terminal_reference=p1,
+            p1_bus_id=p1_bus,
+            p2_terminal_reference=p2,
+            p2_bus_id=p2_bus,
+            s1_terminal_reference=s1,
+            s2_terminal_reference=s2,
+            positive_current_direction="P1_TO_P2" if polarity == "P1_P2" else "P2_TO_P1",
+            in_service=bool(ct.in_service),
             topology_revision=self._network.state.topology_revision,
         )
 
@@ -150,70 +134,31 @@ class CTMeasurementAssociationResolver:
             for ct in sorted(self._network.current_transformers, key=lambda item: item.id)
         )
 
-    def _resolve_primary_bus(self, ct: CurrentTransformer, role: str, terminal: Any) -> str:
-        if terminal.owner is not ct or terminal.role != role:
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' has an invalid authoritative {role} terminal."
-            )
-        reference = self._terminal_reference(ct, role)
+    def _resolve_primary_bus(self, ct: CurrentTransformer, reference: EndpointReference) -> str:
         try:
             bus_ids = self._connectivity.bus_ids_for_terminal(reference)
         except (ConnectivityError, KeyError, TypeError, ValueError) as exc:
-            raise CTMeasurementAssociationError(
-                f"Could not resolve CurrentTransformer '{ct.id}' {role} connectivity: {exc}"
+            raise ValueError(
+                f"Could not resolve CT {ct.id!r} {reference.terminal_role} connectivity: {exc}"
             ) from exc
         if len(bus_ids) != 1:
             detail = "unconnected" if not bus_ids else f"connected to multiple Buses {bus_ids!r}"
-            raise CTMeasurementAssociationError(
-                f"CurrentTransformer '{ct.id}' primary terminal {role} is {detail}."
-            )
+            raise ValueError(f"CT {ct.id!r} primary terminal {reference.terminal_role} is {detail}.")
         return bus_ids[0]
 
-    def _find_monitored_equipment(self, p1_bus_id: str, p2_bus_id: str) -> tuple[str, ...]:
-        """Find supported two-terminal network elements spanning the CT Bus pair."""
-        matches: set[str] = set()
-        for group in (self._network.lines, self._network.cables, self._network.transformers):
-            for equipment in group:
-                terminals = tuple(getattr(equipment, "terminals", ()))
-                if len(terminals) != 2:
-                    continue
-                terminal_buses: list[str] = []
-                for terminal in terminals:
-                    if terminal.owner is not equipment:
-                        break
-                    reference = self._terminal_reference(equipment, terminal.role)
-                    try:
-                        buses = self._connectivity.bus_ids_for_terminal(reference)
-                    except (ConnectivityError, KeyError, TypeError, ValueError):
-                        break
-                    if len(buses) != 1:
-                        break
-                    terminal_buses.append(buses[0])
-                if len(terminal_buses) == 2 and set(terminal_buses) == {p1_bus_id, p2_bus_id}:
-                    matches.add(equipment.id)
-        return tuple(sorted(matches))
-
     @staticmethod
-    def _terminal_reference(equipment: Any, role: str) -> EndpointReference:
-        raw_type = str(getattr(equipment, "element_type", "")).strip().lower()
-        if raw_type == "electrical_object":
-            raw_type = type(equipment).__name__.strip().lower()
-        try:
-            equipment_type = EquipmentType(raw_type)
-        except (TypeError, ValueError) as exc:
-            raise CTMeasurementAssociationError(
-                f"Equipment '{getattr(equipment, 'id', '<unknown>')}' has no supported terminal EquipmentType."
-            ) from exc
+    def _terminal_reference(ct: CurrentTransformer, role: str) -> EndpointReference:
+        terminal = getattr(ct, f"{role.lower()}_terminal")
+        if terminal.owner is not ct or terminal.role != role:
+            raise ValueError(f"CT {ct.id!r} has an invalid authoritative {role} terminal.")
         return EndpointReference.terminal(
-            equipment_type=equipment_type,
-            equipment_id=equipment.id,
+            equipment_type=EquipmentType.CURRENTTRANSFORMER,
+            equipment_id=ct.id,
             terminal_role=role,
         )
 
 
 __all__ = [
     "CTMeasurementAssociation",
-    "CTMeasurementAssociationError",
     "CTMeasurementAssociationResolver",
-    "CTMeasurementAssociationStatus",
 ]
