@@ -33,6 +33,7 @@ class ShortCircuitInput:
     project_id: str | None = None
     activation_generation: int | None = None
     topology_revision: int | None = None
+    model_revision: int | None = None
     base_mva: float | None = None
     bus_base_voltage_kv: tuple[float | None, ...] = ()
 
@@ -67,6 +68,8 @@ class ShortCircuitInput:
             raise ValueError("Short Circuit activation_generation must be positive when supplied.")
         if self.topology_revision is not None and (isinstance(self.topology_revision, bool) or int(self.topology_revision) < 0):
             raise ValueError("Short Circuit topology_revision must be non-negative when supplied.")
+        if self.model_revision is not None and (isinstance(self.model_revision, bool) or int(self.model_revision) < 0):
+            raise ValueError("Short Circuit model_revision must be non-negative when supplied.")
         if self.base_mva is not None:
             if isinstance(self.base_mva, bool):
                 raise TypeError("Short Circuit base_mva must be numeric, not boolean.")
