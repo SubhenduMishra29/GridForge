@@ -122,6 +122,9 @@ class ShortCircuitBranchCurrent:
     angle_deg: float
     sequence_currents: Mapping[str, complex] = field(default_factory=dict)
     phase_currents: Mapping[str, complex] = field(default_factory=dict)
+    current_unit: str = "pu"
+    current_base_a_from: float | None = None
+    current_base_a_to: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "branch_id", _validate_identity(self.branch_id, "branch_id"))
@@ -136,6 +139,18 @@ class ShortCircuitBranchCurrent:
         object.__setattr__(self, "angle_deg", angle)
         object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
         object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
+        if self.current_unit != "pu":
+            raise ValueError("Short-circuit branch contribution current_unit must be 'pu'.")
+        for name in ("current_base_a_from", "current_base_a_to"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not boolean.")
+            base = float(value)
+            if not math.isfinite(base) or base <= 0.0:
+                raise ValueError(f"{name} must be finite and positive.")
+            object.__setattr__(self, name, base)
 
 
 @dataclass(frozen=True, slots=True)
