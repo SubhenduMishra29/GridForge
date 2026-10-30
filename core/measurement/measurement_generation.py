@@ -241,6 +241,16 @@ class MeasurementGeneration:
             raise ValueError("Resolved CT association identity does not match the configured measurement source.")
         if not ct_association.in_service:
             raise UnsupportedMeasurementQuantity("CT association is out of service.")
+        terminal_role = context.source_terminal.terminal_role
+        expected_ct_bus = {
+            "P1": ct_association.p1_bus_id,
+            "P2": ct_association.p2_bus_id,
+        }.get(terminal_role)
+        if expected_ct_bus is None or context.bus_id != expected_ct_bus:
+            raise UnsupportedMeasurementQuantity(
+                f"CT source terminal {terminal_role!r} does not resolve to configured "
+                f"measurement Bus {context.bus_id!r}."
+            )
         result = context.quantity
         if not result.success or result.status.value != "COMPLETE":
             raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
