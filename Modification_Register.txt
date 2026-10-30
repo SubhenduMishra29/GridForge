@@ -14801,6 +14801,21 @@ Scope:
       protection functions are evaluated at their independently supplied
       relay-input currents. The existing common-current check_pair() API
       delegates to this method and retains its prior call contract.
+    - ShortCircuitInput now carries optional explicit base_mva and per-bus
+      nominal voltage bases. ShortCircuitBranchCurrent retains its per-unit
+      current and carries from/to side ampere bases when the required source
+      data is available. ShortCircuitAnalysis propagates configured base_mva.
+    - CoordinationFaultScenario can consume a completed Short-Circuit Study
+      result by study ID. The Application resolves only current, completed
+      same-project StudyResultReadModel values; the Core verifies result
+      project/generation/topology provenance and complete branch coverage.
+    - CoordinationStudyPair requires explicit primary/backup branch IDs,
+      from/to sides, and per-relay scale factors for Short-Circuit sourced
+      scenarios. Each branch pu magnitude is converted to side-specific
+      primary amperes, then scaled into the relay's declared input unit.
+    - TCC workspace can select a completed Short-Circuit Study, map the
+      primary/backup branches and sides, provide conversion scales, run the
+      coordination Study Case, and display the source Study ID with CTI rows.
     - Corrected required_additional_delay for a backup non-operation result:
       negative-infinite margin now yields infinite required delay rather
       than incorrectly returning zero.
