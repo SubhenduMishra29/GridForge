@@ -427,7 +427,7 @@ scenario-derived relay evaluation.
 1. **Implemented:** each binding identifies its
    protection element and RelayInput name, and the binding collection is
    serialized with the project protection configuration.
-2. <text color="success">Implemented:</text> Application service mutation
+2. **Implemented:** Application service mutation
    validates element/input/channel correlation, active RelayInput identity,
    physical source equipment terminal identity, instrument family, and
    configured ratio against the physical CT/PT/CVT.
