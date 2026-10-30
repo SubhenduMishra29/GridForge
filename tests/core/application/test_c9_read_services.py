@@ -76,7 +76,7 @@ def test_protection_read_uses_authoritative_relay_without_network_registration()
     assert read_relay.settings["pickup"] == pytest.approx(1.2)
     assert read_relay.picked_up is False
     assert read_relay.tripped is False
-    assert not hasattr(read_relay, "decision")
+    assert read_relay.decision is None
 
 
 def test_relay_read_model_is_immutable():

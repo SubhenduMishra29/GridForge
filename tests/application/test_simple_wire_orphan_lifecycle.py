@@ -34,17 +34,19 @@ def _connection(document: SLDDocument, *, owner: str = "engineer", core_id: str 
             "kind": "equipment",
             "node_id": "node-a",
             "equipment_id": "eq-a",
-            "equipment_type": "bus",
             "terminal_role": "HV",
+            "bus_id": None,
+            "attachment_id": None,
         },
         target_endpoint={
             "kind": "equipment",
             "node_id": "node-b",
             "equipment_id": "eq-b",
-            "equipment_type": "bus",
             "terminal_role": "HV",
+            "bus_id": None,
+            "attachment_id": None,
         },
-        route={"ownership": "engineer", "routing_mode": "manual", "points": [[1, 2]]},
+        route={"ownership": "engineer" if owner == "engineer" else "auto", "routing_mode": "manual" if owner == "engineer" else "orthogonal", "points": [[1, 2]] if owner == "engineer" else []},
         properties=properties,
     )
 

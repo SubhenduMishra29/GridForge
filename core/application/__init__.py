@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from .application import Application
+from .bootstrap import create_application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
     ControlCommandDispatcher,
@@ -56,6 +57,7 @@ from .services.validation_service import ValidationService
 
 __all__ = [
     "Application",
+    "create_application",
     "ControlDiagnostic",
     "ControlCycleResult",
     "ControlCycleService",

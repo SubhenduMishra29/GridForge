@@ -197,7 +197,7 @@ def test_selection_projection_resolves_draft_from_authoritative_draft_network():
         "draft_id": "transformer-draft-1",
         "equipment_type": "transformer",
         "display_name": "Transformer",
-        "terminal_contract": ("HV", "LV"),
+        "terminal_contract": ("FROM", "TO"),
         "engineering_data": {"r": 0.01, "x": 0.05},
         "endpoints": {},
         "placement": [120.0, 80.0],
