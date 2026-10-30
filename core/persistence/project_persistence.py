@@ -37,6 +37,8 @@ from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.factory import ProtectionFactory
+from core.protection.function_catalog import get_protection_function
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
@@ -992,6 +994,22 @@ class ProjectPersistenceService:
             if protection_configuration.project_id != context.project_id:
                 raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
             for item in protection_configuration.elements:
+                if item.function_code in {"51", "51N"}:
+                    try:
+                        spec = get_protection_function(item.function_code)
+                        if spec.implementation is None:
+                            raise ValueError(
+                                f"Protection function {item.function_code} has no implementation."
+                            )
+                        ProtectionFactory.build_settings(
+                            spec.implementation,
+                            item.settings,
+                        )
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise ProjectPersistenceError(
+                            f"Protection configuration '{item.element_id}' has invalid "
+                            f"{item.function_code} settings: {exc}"
+                        ) from exc
                 try:
                     protected_element = network.get_by_identity(item.element_id)
                     relay = network.get_by_identity(item.relay_id)
