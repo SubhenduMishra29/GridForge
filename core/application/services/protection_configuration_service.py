@@ -308,8 +308,18 @@ class ProtectionConfigurationService:
         network = self._network_provider() if self._network_provider is not None else None
         if network is None:
             raise RuntimeError("No active Network is available for protection measurement binding.")
-        source_equipment = network.get_by_identity(binding.source_equipment_id)
-        instrument = network.get_by_identity(binding.instrument_id)
+        try:
+            source_equipment = network.get_by_identity(binding.source_equipment_id)
+            instrument = network.get_by_identity(binding.instrument_id)
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_MEASUREMENT_SOURCE_NOT_FOUND",
+                message="Protection measurement source equipment or physical instrument is not in the active Network.",
+                details={
+                    "source_equipment_id": binding.source_equipment_id,
+                    "instrument_id": binding.instrument_id,
+                },
+            ) from exc
         if source_equipment is None or instrument is None:
             raise ResourceError(
                 code="PROTECTION_MEASUREMENT_SOURCE_NOT_FOUND",
@@ -360,7 +370,14 @@ class ProtectionConfigurationService:
                     "measurement_type": measurement_type,
                 },
             )
-        actual_ratio = float(getattr(instrument, ratio_attribute))
+        try:
+            actual_ratio = float(getattr(instrument, ratio_attribute))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_RATIO_UNAVAILABLE",
+                message="Physical instrument does not expose the required authoritative ratio.",
+                details={"instrument_id": binding.instrument_id, "ratio_attribute": ratio_attribute},
+            ) from exc
         if not isfinite(actual_ratio) or abs(actual_ratio - binding.instrument_ratio) > max(1e-9, actual_ratio * 1e-9):
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_RATIO_MISMATCH",
@@ -369,6 +386,17 @@ class ProtectionConfigurationService:
                     "instrument_id": binding.instrument_id,
                     "configured_ratio": binding.instrument_ratio,
                     "physical_ratio": actual_ratio,
+                },
+            )
+        channel_signal = getattr(getattr(channel, "signal_type", None), "value", None)
+        if channel_signal != measurement_type:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_CHANNEL_TYPE_MISMATCH",
+                message="MeasurementChannel signal type does not match the declared physical measurement type.",
+                details={
+                    "channel_id": binding.channel_id,
+                    "channel_signal_type": channel_signal,
+                    "measurement_type": measurement_type,
                 },
             )
         relay = network.get_by_id("relay", element.relay_id)
