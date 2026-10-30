@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from .fault_types import FaultType
 from .sequence_snapshot import SequenceNetworkSnapshot
@@ -32,6 +33,8 @@ class ShortCircuitInput:
     project_id: str | None = None
     activation_generation: int | None = None
     topology_revision: int | None = None
+    base_mva: float | None = None
+    bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
@@ -64,3 +67,23 @@ class ShortCircuitInput:
             raise ValueError("Short Circuit activation_generation must be positive when supplied.")
         if self.topology_revision is not None and (isinstance(self.topology_revision, bool) or int(self.topology_revision) < 0):
             raise ValueError("Short Circuit topology_revision must be non-negative when supplied.")
+        if self.base_mva is not None:
+            import math
+            base_mva = float(self.base_mva)
+            if not math.isfinite(base_mva) or base_mva <= 0.0:
+                raise ValueError("Short Circuit base_mva must be finite and positive when supplied.")
+            object.__setattr__(self, "base_mva", base_mva)
+        if not isinstance(self.bus_voltage_bases_kv, Mapping):
+            raise TypeError("bus_voltage_bases_kv must be a mapping.")
+        voltage_bases: dict[str, float] = {}
+        for bus_id, value in self.bus_voltage_bases_kv.items():
+            if not isinstance(bus_id, str) or not bus_id.strip():
+                raise ValueError("bus_voltage_bases_kv keys must be non-empty Bus IDs.")
+            voltage = float(value)
+            import math
+            if not math.isfinite(voltage) or voltage <= 0.0:
+                raise ValueError(f"Voltage base for Bus {bus_id!r} must be finite and positive.")
+            voltage_bases[bus_id.strip()] = voltage
+        if not set(voltage_bases).issubset(set(self.bus_ids)):
+            raise ValueError("bus_voltage_bases_kv contains a Bus outside bus_ids.")
+        object.__setattr__(self, "bus_voltage_bases_kv", MappingProxyType(voltage_bases))
