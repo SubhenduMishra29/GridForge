@@ -14807,3 +14807,38 @@ Verification boundary:
     PR #864 remains ineligible for merge until all required checks pass.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-D — Full-suite import and workspace fixture alignment
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Public Application composition export and workspace manager regression
+    fixtures.
+
+Findings:
+    - The canonical create_application() composition factory is implemented
+      in core.application.bootstrap but was not exported from the
+      core.application package, while a test and public package consumer
+      import it from the package boundary.
+    - The workspace manager tests still imported the retired
+      WorkspacePlacement/placements API from workspace_definition. The
+      canonical workspace model is now WorkspaceDefinition.areas containing
+      AreaDefinition objects, with WorkspaceLayout.from_areas().
+
+Corrections:
+    - Export create_application from core.application and include it in
+      __all__, preserving the composition-root implementation in bootstrap.
+    - Migrate workspace manager fixtures to EditorDefinition,
+      AreaDefinition, WorkspaceDefinition.areas, and WorkspaceLayout.from_areas.
+      No legacy placement type was reintroduced into canonical workspace policy.
+
+Verification boundary:
+    Changes committed for full-suite import and startup verification. No claim
+    of full-suite success until the updated workflow completes.
+
+======================================================================
