@@ -137,6 +137,7 @@ class MeasurementChannelService:
             quality=quality,
             available=available,
             sample_sequence=sample_sequence,
+            _authority=self._sample_update_authority,
         )
 
     @_serialized_measurement_mutation
