@@ -15120,3 +15120,38 @@ Verification boundary:
     run locally during the source-edit pass.
 
 ======================================================================
+
+======================================================================
+GF-REGRESSION-BASELINE-2026-10-30-A — Follow-up SLD rollback and identity findings
+======================================================================
+
+Verification:
+    GitHub Actions run 41013860416 reduced the initial 35 failures to 6:
+        1,137 passed
+        6 failed
+        32 skipped
+
+Additional findings and corrections:
+    - Canonical SLDEndpoint snapshots require the complete endpoint field
+      contract, including explicit null bus_id and attachment_id fields.
+    - SLDService rollback now restores SLDEndpoint values through the
+      presentation model type rather than failing with an unresolved name.
+    - Projection-owned Simple Wire companions use automatic route ownership
+      in the regression fixture; engineer-owned manual routes remain
+      preserved as orphaned presentation state on Core deletion.
+    - Detached Power Flow fixture now includes both buses and its connected
+      branch before preparation.
+    - SLD layout fixture now supplies a valid project identity and the
+      Application read facade required by SLDReadSynchronizer.
+    - Renderer rejects missing committed equipment identity before factory
+      fallback and classifies read-model identity mismatch as unresolved.
+      Structured diagnostics survive stale-item cleanup.
+    - Study-result fixture now supplies the complete metadata/value summary
+      contract; equipment-type assertion follows canonical lowercase IDs.
+
+Verification boundary:
+    Latest correction set is committed on
+    fix/main-regression-baseline-2026-10-30. Fresh full regression run is
+    pending; no freeze or merge is authorized until it passes.
+
+======================================================================
