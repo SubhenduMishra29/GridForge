@@ -1188,14 +1188,26 @@ class Application:
                 if requirement is None:
                     diagnostics.append(f"{prefix}: no supported canonical protection input contract is available.")
                     continue
-                rejected = validate_sample_representation(sample.value, requirement)
+                try:
+                    channel_scale = float(getattr(channel, "scale"))
+                    channel_polarity = float(getattr(channel, "polarity"))
+                    if not isfinite(channel_scale) or not isfinite(channel_polarity):
+                        raise ValueError("channel scale/polarity must be finite.")
+                    engineering_value = sample.value * channel_scale * channel_polarity
+                except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                    diagnostics.append(f"{prefix}: channel engineering scale/polarity is invalid: {exc}")
+                    continue
+                rejected = validate_sample_representation(engineering_value, requirement)
                 if rejected is not None:
-                    diagnostics.append(f"{prefix}: scenario value violates the protection input contract: {rejected}")
+                    diagnostics.append(f"{prefix}: scenario engineering value violates the protection input contract: {rejected}")
                     continue
                 element_snapshots[input_name] = MappingProxyType({
                     "channel_id": channel_id,
                     "channel_identity": id(channel),
-                    "value": sample.value,
+                    "value": engineering_value,
+                    "source_value": sample.value,
+                    "channel_scale": channel_scale,
+                    "channel_polarity": channel_polarity,
                     "timestamp": None,
                     # UNKNOWN is intentional: this is a calculated study
                     # quantity, not a GOOD-quality field measurement.
