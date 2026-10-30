@@ -326,8 +326,16 @@ class Application:
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
             return ()
         generation = lifecycle.activation_generation
+        current_revision = self.revision
         return tuple(
-            case for case in self._study_cases.values()
+            replace(
+                case,
+                is_stale=(
+                    case.is_stale
+                    or not case.source_revision.matches_study_state(current_revision)
+                ),
+            )
+            for case in self._study_cases.values()
             if case.project_id == context.project_id
             and case.activation_generation == generation
         )
@@ -430,8 +438,10 @@ class Application:
             raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
         if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
             raise ValueError("Study Case project scope does not match the active project generation.")
-        # Do not silently bless a configuration after electrical inputs change.
-        if not case.source_revision.matches_study_state(self.revision):
+        # Persisted stale state survives project activation/revision-counter reset.
+        # Also compare live revisions so unsaved electrical edits stale the case
+        # immediately, without waiting for the next project save.
+        if case.is_stale or not case.source_revision.matches_study_state(self.revision):
             raise ValueError(
                 "Study Case configuration is stale for the active electrical model/topology. "
                 "Reconfigure or recreate the Study Case before execution."
