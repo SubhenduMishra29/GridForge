@@ -16,6 +16,7 @@ from ..command import Command
 from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
+from ui.sld.sld_model import SLDEndpoint
 
 
 @dataclass(frozen=True, slots=True)
