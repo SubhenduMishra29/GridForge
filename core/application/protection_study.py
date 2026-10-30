@@ -25,7 +25,7 @@ from core.analysis.short_circuit import ShortCircuitAnalysis
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult, ShortCircuitStatus
-from core.network import CTMeasurementAssociationResolver
+from core.application.services.ct_measurement_association_service import CTMeasurementAssociationService
 from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementAdapter
 
 from core.application.protection_execution import ProtectionExecutionResult
@@ -395,6 +395,7 @@ class ProtectionStudyHandler:
 
             sample_adapter = ProtectionScenarioMeasurementAdapter()
             ct_associations: dict[str, Any] = {}
+            association_service = CTMeasurementAssociationService()
             scenario_samples = []
             conversion_diagnostics: list[str] = []
             measurement_service = application.measurement_channel_service
@@ -418,9 +419,10 @@ class ProtectionStudyHandler:
                     channel = measurement_service.require(binding.channel_id)
                     instrument = detached_network.get_by_identity(binding.instrument_id)
                     if binding.instrument_id not in ct_associations:
-                        ct_associations[binding.instrument_id] = CTMeasurementAssociationResolver(
-                            detached_network
-                        ).resolve(instrument)
+                        ct_associations[binding.instrument_id] = association_service.resolve(
+                            execution_context.project_snapshot,
+                            binding.instrument_id,
+                        )
                     scenario_samples.append(sample_adapter.convert_branch_ct_sample(
                         scenario_id=scenario.scenario_id,
                         binding=binding,
