@@ -315,7 +315,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         editor_type = str(getattr(editor, "editor_type", "sld"))
         active_tool = workspace_surface_host.active_tool_id_for(editor_type)
         definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
-        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+        # The shared SelectionManager is the SLD selection authority only.
+        # Other editor disciplines must not inherit hidden/late SLD selection.
+        selected_ids = (
+            tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+            if editor_type == "sld"
+            else ()
+        )
         engineering = engineering_context.current.with_updates(
             project_id=getattr(getattr(gridforge_application.project_lifecycle, "context", None), "project_id", None),
             document_id=project_workspace_lifecycle.documents.active_document_id,
