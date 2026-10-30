@@ -15780,3 +15780,52 @@ Verification:
 - The primary-side PreparedMeasurementContext remains distinct from the secondary-side MeasurementChannel source terminal.
 - This correction does not infer CT measurement location, protected equipment, protection zone, or scheme membership.
 - No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+======================================================================
+GF-AUD-136 — Distinguish draft Simple Wires from committed topology
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    DraftNetwork SLD projection and visible Simple Wire lifecycle state
+
+Files:
+    ui/canvas/sld_canvas_render_system.py
+    Modification_Register.txt
+
+Finding:
+    Draft equipment nodes are rendered through SymbolPreviewItem with
+    VisualState.PREVIEW. Draft connections were separately projected with
+    projection_source="draft_network" and core_connection_id=None, but the
+    draft connection render loop forced VisualState.NORMAL. That reused the
+    same normal connection pen as committed SLD connections and made an
+    uncommitted wire visually indistinguishable from committed topology.
+
+Correction:
+    Render DraftNetwork connections with VisualState.PREVIEW. The existing
+    visual_pen contract renders PREVIEW connections with the canonical
+    symbol_preview token and a dashed pen. The distinction is presentation
+    only: it does not create Core connectivity, mutate DraftNetwork, alter
+    canonical endpoint identity, or bypass CommitNetworkCommand.
+
+Architecture:
+    DraftNetwork remains Application-owned. DraftSLDProjection and the SLD
+    renderer only project authoring state. Core electrical topology changes
+    only through the canonical Application commit command after validation.
+
+Verification:
+    - Focused source and diff review only.
+    - No tests or CI were run, per repository rules.
+    - GUI preview appearance, cancellation cleanup, and transition after a
+      successful commit remain unverified.
+    - ui/core/qt.py is unchanged; no new Qt symbol or package export is needed.
+
+Disposition:
+    Issue #872 remains open pending GUI verification. Related issue #874
+    alleges coordinate-based endpoint resolution; the inspected endpoint
+    resolvers match canonical node/equipment/terminal/attachment identities,
+    not pixel proximity. Keep #874 open pending a reproducible runtime trace.
+
+======================================================================
