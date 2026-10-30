@@ -6,10 +6,11 @@
 
 """Typed Protection Study configuration, result, and StudyService handler.
 
-This first lifecycle slice evaluates the configured protection system against
-one coherent, validated measurement snapshot. It deliberately does not dispatch
-trip commands and does not claim fault-scenario, coordination, or settings-study
-coverage; those are subsequent Protection Study work packages.
+The handler supports either one coherent live measurement-snapshot evaluation
+or explicit short-circuit fault-scenario calculations from a detached project
+snapshot. Fault scenarios are not yet converted into scenario-specific CT/PT/CVT
+measurement samples for relay evaluation. The Study never dispatches trip
+commands or mutates breaker state.
 """
 
 from __future__ import annotations
