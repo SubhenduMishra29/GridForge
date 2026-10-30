@@ -2687,7 +2687,7 @@ class Application:
         """Return completed coordination Study Case result projections for the active project."""
         return tuple(
             result for result in self.read_study_results()
-            if result.study_type == "protection_coordination"
+            if result.study_type == "protection_coordination" and result.current
         )
 
     def read_control(self):
