@@ -84,4 +84,19 @@ __all__ = [
     "ContingencyResult",
     "ContingencyCaseResult",
     "ContingencyViolation",
+    "CoordinationStudyPair",
+    "CoordinationFaultScenario",
+    "CoordinationStudyConfiguration",
+    "CoordinationStudyPointResult",
+    "CoordinationStudyResult",
+    "execute_coordination_study",
 ]
+
+from .coordination_study import (
+    CoordinationStudyPair,
+    CoordinationFaultScenario,
+    CoordinationStudyConfiguration,
+    CoordinationStudyPointResult,
+    CoordinationStudyResult,
+    execute_coordination_study,
+)
