@@ -95,6 +95,7 @@ _SPECS = (
     ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.IMPLEMENTED, ThermalOverloadRelay, CONTRACT_49),
     ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay, CONTRACT_67),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
+    ProtectionFunctionSpecification("50BF", "Breaker failure protection / backup clearing", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay, CONTRACT_21),
 )
 

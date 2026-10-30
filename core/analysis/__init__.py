@@ -44,6 +44,7 @@ from core.analysis.transient_stability import (
     TransientStabilityAnalysis,
 )
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
+from core.analysis.transient_events import schedule_breaker_failure_backup
 from core.analysis.contingency import (
     ContingencyAnalysis,
     ContingencyResult,
@@ -79,6 +80,7 @@ __all__ = [
     "TransientStabilityStudyResult",
     "TransientStabilityAnalysis",
     "SequenceNetworkPreparation",
+    "schedule_breaker_failure_backup",
     "FaultType",
     "ContingencyAnalysis",
     "ContingencyResult",
