@@ -32,6 +32,8 @@ class ShortCircuitInput:
     project_id: str | None = None
     activation_generation: int | None = None
     topology_revision: int | None = None
+    base_mva: float | None = None
+    bus_base_voltage_kv: tuple[float | None, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
@@ -64,3 +66,25 @@ class ShortCircuitInput:
             raise ValueError("Short Circuit activation_generation must be positive when supplied.")
         if self.topology_revision is not None and (isinstance(self.topology_revision, bool) or int(self.topology_revision) < 0):
             raise ValueError("Short Circuit topology_revision must be non-negative when supplied.")
+        if self.base_mva is not None:
+            if isinstance(self.base_mva, bool):
+                raise TypeError("Short Circuit base_mva must be numeric, not boolean.")
+            base_mva = float(self.base_mva)
+            if not math.isfinite(base_mva) or base_mva <= 0.0:
+                raise ValueError("Short Circuit base_mva must be finite and positive.")
+            object.__setattr__(self, "base_mva", base_mva)
+        voltage_bases = tuple(self.bus_base_voltage_kv)
+        if voltage_bases and len(voltage_bases) != len(self.bus_ids):
+            raise ValueError("bus_base_voltage_kv length must match bus_ids.")
+        normalized_bases: list[float | None] = []
+        for index, value in enumerate(voltage_bases):
+            if value is None:
+                normalized_bases.append(None)
+                continue
+            if isinstance(value, bool):
+                raise TypeError(f"bus_base_voltage_kv[{index}] must be numeric, not boolean.")
+            voltage = float(value)
+            if not math.isfinite(voltage) or voltage <= 0.0:
+                raise ValueError(f"bus_base_voltage_kv[{index}] must be finite and positive.")
+            normalized_bases.append(voltage)
+        object.__setattr__(self, "bus_base_voltage_kv", tuple(normalized_bases))
