@@ -15669,3 +15669,13 @@ Verification:
 - Branch-reference direction and physical CT polarity remain separate: the association determines branch orientation; the physical CT polarity is applied once by the existing CT polarity conversion.
 - This integrates the resolver contract into the conversion boundary. The ProtectionStudyHandler still does not construct detached scenario RelayInput snapshots or evaluate fault-scenario ProtectionDecisions; that remains the next phase.
 - No tests or CI were run. No syntax/import execution was performed.
+
+[2026-10-30] Protection Study Phase D2 topology correction — inline CT placement
+- Reconciled the initial D2 Bus-pair assumption against the frozen inline CT placement contract. CT P1/P2 do not need to resolve to Bus IDs; they resolve to separate canonical SimpleWire topology components.
+- CTMeasurementAssociation now retains immutable P1/P2 topology components, validates each component contains its canonical CT terminal, rejects overlapping components and Junction traversal, and requires committed SimpleWire connectivity.
+- The configured Branch FROM/TO terminal is explicitly supplied from ProtectionMeasurementBinding. Branch-current sign is derived from whether that exact terminal belongs to the CT P1 or P2 component and whether the CT is on the Branch FROM or TO side.
+- The conversion still validates the scenario's selected-side Bus base using ShortCircuitBranchCurrent.from_bus_id/to_bus_id. This Bus is used for per-unit scaling only; it is not used to infer CT placement.
+- CT polarity remains a separate physical conversion and is cross-checked against the resolved association snapshot before being applied once.
+- Updated PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md to remove the obsolete requirement that CT P1/P2 each resolve to distinct Bus IDs.
+- Scenario-specific detached RelayInput samples and ProtectionSystem evaluation remain outstanding.
+- No tests or CI were run. No syntax/import execution was performed.
