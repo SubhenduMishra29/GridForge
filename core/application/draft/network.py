@@ -244,8 +244,24 @@ class DraftConnection:
     def target_terminal(self) -> str | None: return self.target.terminal_role
 
     def to_dict(self) -> dict[str, Any]:
-        return {"connection_id": self.connection_id, "source": self.source.to_dict(), "target": self.target.to_dict(),
-                "connection_kind": self.connection_kind, "route": deepcopy(dict(self.route)), "validation_state": deepcopy(dict(self.validation_state))}
+        def canonical_value(value: Any) -> Any:
+            # Command payloads thaw immutable tuples into lists. Keep the
+            # persisted DraftNetwork representation JSON-canonical so a
+            # round-trip does not reject an otherwise identical authored route.
+            if isinstance(value, Mapping):
+                return {str(key): canonical_value(item) for key, item in value.items()}
+            if isinstance(value, (tuple, list)):
+                return [canonical_value(item) for item in value]
+            return deepcopy(value)
+
+        return {
+            "connection_id": self.connection_id,
+            "source": self.source.to_dict(),
+            "target": self.target.to_dict(),
+            "connection_kind": self.connection_kind,
+            "route": canonical_value(self.route),
+            "validation_state": canonical_value(self.validation_state),
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftConnection":
