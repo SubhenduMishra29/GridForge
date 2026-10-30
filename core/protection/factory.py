@@ -28,7 +28,10 @@ class ProtectionFactory:
         return candidate if isinstance(candidate, type) else None
 
     @classmethod
-    def _build_settings(cls, implementation: type[RelayBase], settings: Any) -> Any:
+    def build_settings(cls, implementation: type[RelayBase], settings: Any) -> Any:
+        """Build and validate the typed settings contract for a catalog implementation."""
+        if not isinstance(implementation, type) or not issubclass(implementation, RelayBase):
+            raise TypeError("implementation must be a RelayBase subclass.")
         if settings is None:
             raise ValueError(f"Protection function {implementation.__name__} requires settings.")
         if not isinstance(settings, Mapping):
@@ -38,10 +41,15 @@ class ProtectionFactory:
             return dict(settings)
         try:
             return settings_type(**dict(settings))
-        except TypeError as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"Invalid settings for {implementation.__name__}: {exc}"
             ) from exc
+
+    @classmethod
+    def _build_settings(cls, implementation: type[RelayBase], settings: Any) -> Any:
+        """Compatibility alias for existing internal callers."""
+        return cls.build_settings(implementation, settings)
 
     @classmethod
     def create_element(
@@ -64,7 +72,7 @@ class ProtectionFactory:
         implementation = spec.implementation
         if not issubclass(implementation, RelayBase):
             raise TypeError(f"Catalog implementation for {spec.code} is not a RelayBase.")
-        function_settings = cls._build_settings(implementation, settings)
+        function_settings = cls.build_settings(implementation, settings)
         function = implementation(
             relay,
             element_id=element_id,
