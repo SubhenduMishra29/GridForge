@@ -281,6 +281,8 @@ __all__ = [
 
     # Base-layer service
     "PerUnitSystem",
+    "CTMeasurementAssociation",
+    "CTMeasurementAssociationResolver",
 ]
 
 
@@ -292,3 +294,8 @@ __version__ = "2.0.0"
 
 from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
 from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot
+
+from .ct_measurement_association import (
+    CTMeasurementAssociation,
+    CTMeasurementAssociationResolver,
+)

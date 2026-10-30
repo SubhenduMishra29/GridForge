@@ -268,6 +268,11 @@ class ShortCircuitSolver:
             "project_id": self.input.project_id,
             "activation_generation": self.input.activation_generation,
             "topology_revision": self.input.topology_revision,
+            # Preserve the exact bases used by this numerical scenario so
+            # downstream instrument conversion never guesses a system base.
+            "base_mva": self.input.base_mva,
+            "bus_voltage_bases_kv": dict(self.input.bus_voltage_bases_kv),
+            "current_units": "per_unit",
         }
         values = dict(values)
         values.update({

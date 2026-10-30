@@ -9,17 +9,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from math import isfinite
 
 from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
+from core.model import Branch, Bus, CurrentTransformer, EndpointReference, EquipmentType
+from core.network.connectivity import ConnectivityResolver
+from core.network.topology_endpoint_reference import TopologyEndpointReference
 from core.network.network import Network
 from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
 from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
 from core.protection.input_contracts import validate_protection_input_contracts
+from core.protection.protection_measurement_binding import ProtectionMeasurementBinding
 from core.protection.project_configuration import (
     ProtectionFunctionConfiguration,
+    DifferentialProtectionSchemeConfiguration,
     ProtectionProjectConfiguration,
 )
 
@@ -271,6 +277,432 @@ class ProtectionConfigurationService:
         return self._success(
             next_configuration,
             f"Protection measurement unbound: {configuration.element_id}:{normalized_input}",
+        )
+
+    def create_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Persist one element/input-scoped source binding transactionally."""
+        self._require_transaction(transaction)
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        active = self._require_configuration()
+        element = active.get(binding.protection_element_id)
+        if element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_BINDING_INPUT_MISMATCH",
+                message="Measurement binding does not match the configured element input channel.",
+                details={
+                    "element_id": binding.protection_element_id,
+                    "input_name": binding.relay_input_id,
+                    "channel_id": binding.channel_id,
+                },
+            )
+        channels = self._measurement_channel_provider() if self._measurement_channel_provider is not None else {}
+        channel = channels.get(binding.channel_id)
+        if channel is None:
+            raise ResourceError(
+                code="PROTECTION_CHANNEL_NOT_FOUND",
+                message=f"Measurement channel not found: {binding.channel_id}",
+                details={"channel_id": binding.channel_id},
+            )
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is None:
+            raise RuntimeError("No active Network is available for protection measurement binding.")
+        try:
+            source_equipment = network.get_by_identity(binding.source_equipment_id)
+            instrument = network.get_by_identity(binding.instrument_id)
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_MEASUREMENT_SOURCE_NOT_FOUND",
+                message="Protection measurement source equipment or physical instrument is not in the active Network.",
+                details={
+                    "source_equipment_id": binding.source_equipment_id,
+                    "instrument_id": binding.instrument_id,
+                },
+            ) from exc
+        if source_equipment is None or instrument is None:
+            raise ResourceError(
+                code="PROTECTION_MEASUREMENT_SOURCE_NOT_FOUND",
+                message="Protection measurement source equipment or physical instrument is not in the active Network.",
+                details={
+                    "source_equipment_id": binding.source_equipment_id,
+                    "instrument_id": binding.instrument_id,
+                },
+            )
+        source_reference = binding.source_endpoint_reference
+        if source_reference.is_terminal:
+            source_type = str(getattr(source_equipment, "TYPE", "")).strip().lower()
+            if source_reference.equipment_type.value != source_type:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_TERMINAL_TYPE_MISMATCH",
+                    message="Source terminal reference equipment type does not match the active source equipment.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
+            source_roles = {getattr(item, "role", None) for item in getattr(source_equipment, "terminals", ())}
+            if source_reference.terminal_role not in source_roles:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_TERMINAL_NOT_FOUND",
+                    message="Source terminal reference is not a terminal of the active source equipment.",
+                    details={
+                        "source_equipment_id": binding.source_equipment_id,
+                        "terminal_role": source_reference.terminal_role,
+                    },
+                )
+        elif source_reference.is_bus:
+            if not isinstance(source_equipment, Bus):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_BUS_SOURCE_INVALID",
+                    message="A Bus attachment measurement source must identify an authoritative Core Bus.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
+            if source_reference.attachment_id not in {
+                f"attachment-{index}" for index in range(9)
+            }:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_BUS_ATTACHMENT_INVALID",
+                    message="Bus measurement source must use a canonical Bus attachment slot.",
+                    details={
+                        "bus_id": source_equipment.id,
+                        "attachment_id": source_reference.attachment_id,
+                    },
+                )
+        instrument_type = str(getattr(instrument, "TYPE", "")).strip().upper()
+        measurement_type = binding.measurement_type.strip().lower()
+        if measurement_type == "current":
+            if not isinstance(instrument, CurrentTransformer):
+                raise DomainError(
+                    code="PROTECTION_CURRENT_INSTRUMENT_INVALID",
+                    message="Current measurement binding requires an authoritative CurrentTransformer.",
+                    details={"instrument_id": binding.instrument_id},
+                )
+            resolver = ConnectivityResolver(network)
+            if source_reference.is_bus:
+                selected_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                if binding.electrical_side.strip().lower() != "bus":
+                    raise DomainError(
+                        code="PROTECTION_CURRENT_BUS_SIDE_REQUIRED",
+                        message="A Bus-side CT current association must explicitly declare electrical_side='bus'.",
+                        details={"bus_id": source_equipment.id, "electrical_side": binding.electrical_side},
+                    )
+            else:
+                selected_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                if isinstance(source_equipment, Branch):
+                    side = binding.electrical_side.strip().lower()
+                    expected_role = {"from": "FROM", "to": "TO"}.get(side)
+                    if expected_role is None or source_reference.terminal_role != expected_role:
+                        raise DomainError(
+                            code="PROTECTION_CURRENT_BRANCH_SIDE_MISMATCH",
+                            message="Branch current association must explicitly identify the matching FROM or TO terminal.",
+                            details={
+                                "branch_id": binding.source_equipment_id,
+                                "electrical_side": binding.electrical_side,
+                                "terminal_role": source_reference.terminal_role,
+                            },
+                        )
+                elif binding.electrical_side.strip().lower() != "equipment":
+                    raise DomainError(
+                        code="PROTECTION_CURRENT_EQUIPMENT_SIDE_REQUIRED",
+                        message="An equipment-terminal CT association must explicitly declare electrical_side='equipment'; the exact terminal role remains part of the endpoint reference.",
+                        details={
+                            "equipment_id": source_equipment.id,
+                            "terminal_role": source_reference.terminal_role,
+                            "electrical_side": binding.electrical_side,
+                        },
+                    )
+            try:
+                primary_references = {
+                    role: EndpointReference.terminal(
+                        equipment_type=EquipmentType("ct"),
+                        equipment_id=instrument.id,
+                        terminal_role=role,
+                    )
+                    for role in ("P1", "P2")
+                }
+                primary_components = {
+                    role: set(
+                        resolver.topology_component(
+                            TopologyEndpointReference.from_terminal(reference)
+                        )
+                    )
+                    for role, reference in primary_references.items()
+                }
+            except (TypeError, ValueError, KeyError) as exc:
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
+                    message="CT P1/P2 and the selected measurement endpoint must resolve through canonical SimpleWire connectivity.",
+                    details={
+                        "source_equipment_id": binding.source_equipment_id,
+                        "instrument_id": binding.instrument_id,
+                        "reason": str(exc),
+                    },
+                ) from exc
+            if primary_components["P1"] == primary_components["P2"]:
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_NOT_SERIES",
+                    message="CT P1 and P2 must resolve to separate SimpleWire topology components; a CT must be inserted in series.",
+                    details={"instrument_id": binding.instrument_id},
+                )
+            matching_ct_roles = tuple(
+                role for role, component in primary_components.items()
+                if selected_endpoint in component
+            )
+            if len(matching_ct_roles) != 1:
+                raise DomainError(
+                    code="PROTECTION_CT_MEASUREMENT_ASSOCIATION_AMBIGUOUS",
+                    message="The explicitly selected Branch, equipment terminal or Bus attachment must belong to exactly one CT primary SimpleWire component.",
+                    details={
+                        "source_equipment_id": binding.source_equipment_id,
+                        "instrument_id": binding.instrument_id,
+                        "source_endpoint": str(source_reference),
+                        "matching_ct_primary_roles": matching_ct_roles,
+                    },
+                )
+            expected_types = {"CT"}
+            ratio_attribute = "ratio"
+        elif measurement_type == "voltage":
+            expected_types = {"PT", "CVT"}
+            ratio_attribute = "voltage_ratio"
+            if instrument_type in expected_types:
+                primary_roles = {
+                    "PT": ("primary_a", "primary_b"),
+                    "CVT": ("H1", "H2"),
+                }[instrument_type]
+                resolver = ConnectivityResolver(network)
+                if source_reference.is_bus:
+                    selected_topology_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                else:
+                    selected_topology_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                try:
+                    primary_components = {
+                        role: set(
+                            resolver.topology_component(
+                                TopologyEndpointReference.from_terminal(
+                                    EndpointReference.terminal(
+                                        equipment_type=EquipmentType(instrument_type.lower()),
+                                        equipment_id=instrument.id,
+                                        terminal_role=role,
+                                    )
+                                )
+                            )
+                        )
+                        for role in primary_roles
+                    }
+                except (TypeError, ValueError, KeyError) as exc:
+                    raise DomainError(
+                        code="PROTECTION_VOLTAGE_PRIMARY_TOPOLOGY_INVALID",
+                        message="PT/CVT primary terminals and the selected voltage source must resolve through canonical Core connectivity.",
+                        details={
+                            "instrument_id": binding.instrument_id,
+                            "source_endpoint": str(source_reference),
+                            "reason": str(exc),
+                        },
+                    ) from exc
+                matching_primary_roles = tuple(
+                    role for role, component in primary_components.items()
+                    if selected_topology_endpoint in component
+                )
+                if (
+                    len(matching_primary_roles) != 1
+                    or primary_components[primary_roles[0]] == primary_components[primary_roles[1]]
+                ):
+                    raise DomainError(
+                        code="PROTECTION_VOLTAGE_PRIMARY_ASSOCIATION_INVALID",
+                        message="The selected Bus/line endpoint must connect to exactly one PT/CVT primary terminal; the two primary terminals must remain on distinct topology components.",
+                        details={
+                            "instrument_id": binding.instrument_id,
+                            "source_endpoint": str(source_reference),
+                            "matching_primary_roles": matching_primary_roles,
+                        },
+                    )
+        else:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_TYPE_UNSUPPORTED",
+                message=f"Unsupported physical measurement type: {binding.measurement_type!r}",
+                details={"measurement_type": binding.measurement_type},
+            )
+        if instrument_type not in expected_types:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_INSTRUMENT_TYPE_MISMATCH",
+                message="Physical instrument type does not match the measurement quantity.",
+                details={
+                    "instrument_id": binding.instrument_id,
+                    "instrument_type": instrument_type,
+                    "measurement_type": measurement_type,
+                },
+            )
+        try:
+            actual_ratio = float(getattr(instrument, ratio_attribute))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_RATIO_UNAVAILABLE",
+                message="Physical instrument does not expose the required authoritative ratio.",
+                details={"instrument_id": binding.instrument_id, "ratio_attribute": ratio_attribute},
+            ) from exc
+        if not isfinite(actual_ratio) or abs(actual_ratio - binding.instrument_ratio) > max(1e-9, actual_ratio * 1e-9):
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_RATIO_MISMATCH",
+                message="Persisted instrument ratio does not match the authoritative physical instrument ratio.",
+                details={
+                    "instrument_id": binding.instrument_id,
+                    "configured_ratio": binding.instrument_ratio,
+                    "physical_ratio": actual_ratio,
+                },
+            )
+        secondary_terminal = getattr(channel, "source_terminal", None)
+        secondary_roles = {
+            "CT": {"S1", "S2"},
+            "PT": {"secondary_a", "secondary_b"},
+            "CVT": {"X1", "X2"},
+        }[instrument_type]
+        if (
+            secondary_terminal is None
+            or not getattr(secondary_terminal, "is_terminal", False)
+            or secondary_terminal.equipment_id != binding.instrument_id
+            or secondary_terminal.terminal_role not in secondary_roles
+            or secondary_terminal.terminal_role not in {
+                getattr(item, "role", None) for item in getattr(instrument, "terminals", ())
+            }
+        ):
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_SECONDARY_TERMINAL_MISMATCH",
+                message="MeasurementChannel must reference a secondary terminal belonging to the configured physical instrument.",
+                details={
+                    "channel_id": binding.channel_id,
+                    "instrument_id": binding.instrument_id,
+                    "secondary_terminal": str(secondary_terminal) if secondary_terminal is not None else None,
+                },
+            )
+        channel_signal = str(getattr(getattr(channel, "signal_type", None), "value", "")).strip().lower()
+        if channel_signal != measurement_type:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_CHANNEL_TYPE_MISMATCH",
+                message="MeasurementChannel signal type does not match the declared physical measurement type.",
+                details={
+                    "channel_id": binding.channel_id,
+                    "channel_signal_type": channel_signal,
+                    "measurement_type": measurement_type,
+                },
+            )
+        relay = network.get_by_id("relay", element.relay_id)
+        relay_input = relay.get_input(binding.relay_input_id)
+        if relay_input.channel_id != binding.channel_id or relay_input.channel is not channel:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_BINDING_RUNTIME_MISMATCH",
+                message="Persisted measurement binding does not match the active RelayInput channel reference.",
+                details={
+                    "element_id": element.element_id,
+                    "input_name": binding.relay_input_id,
+                    "channel_id": binding.channel_id,
+                },
+            )
+        active.add_measurement_binding(binding)
+        transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Protection source binding created: {binding.binding_id}",
+            metadata={
+                "object_type": "protection_measurement_binding",
+                "object_id": binding.binding_id,
+                "element_id": binding.protection_element_id,
+                "input_name": binding.relay_input_id,
+            },
+        )
+
+    def create_differential_scheme(
+        self,
+        *,
+        scheme: DifferentialProtectionSchemeConfiguration,
+        transaction: Transaction,
+    ) -> ApplicationResult[DifferentialProtectionSchemeConfiguration]:
+        """Persist explicit CT measurement membership for a differential scheme."""
+        self._require_transaction(transaction)
+        if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+            raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
+        active = self._require_configuration()
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is not None:
+            try:
+                protected_object = network.get_by_id(scheme.protected_object_type, scheme.protected_object_id)
+            except (KeyError, LookupError) as exc:
+                raise ResourceError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_NOT_FOUND",
+                    message="Differential scheme protected object is not present in the active Core Network.",
+                    details={"object_type": scheme.protected_object_type, "object_id": scheme.protected_object_id},
+                ) from exc
+            actual_type = str(getattr(protected_object, "TYPE", scheme.protected_object_type)).strip().lower()
+            expected_type = scheme.protected_object_type
+            if actual_type != expected_type:
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_TYPE_MISMATCH",
+                    message="Differential scheme protected-object type does not match the authoritative Core object.",
+                    details={"expected_type": expected_type, "actual_type": actual_type, "object_id": scheme.protected_object_id},
+                )
+        active.add_differential_scheme(scheme)
+        transaction.record_undo(lambda: active.remove_differential_scheme(scheme.scheme_id))
+        return ApplicationResult.success_result(
+            value=scheme,
+            message=f"Differential protection scheme created: {scheme.scheme_id}",
+            metadata={
+                "object_type": "differential_protection_scheme",
+                "object_id": scheme.scheme_id,
+                "protected_object_type": scheme.protected_object_type,
+                "protected_object_id": scheme.protected_object_id,
+                "measurement_binding_ids": scheme.measurement_binding_ids,
+            },
+        )
+
+    def delete_differential_scheme(
+        self,
+        *,
+        scheme_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[DifferentialProtectionSchemeConfiguration]:
+        """Remove one differential scheme without altering its CT bindings."""
+        self._require_transaction(transaction)
+        if not isinstance(scheme_id, str) or not scheme_id.strip():
+            raise ValueError("scheme_id must be a non-empty string.")
+        active = self._require_configuration()
+        try:
+            scheme = active.remove_differential_scheme(scheme_id.strip())
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_DIFFERENTIAL_SCHEME_NOT_FOUND",
+                message=f"Differential protection scheme not found: {scheme_id}",
+                details={"scheme_id": scheme_id},
+            ) from exc
+        transaction.record_undo(lambda: active.add_differential_scheme(scheme))
+        return ApplicationResult.success_result(
+            value=scheme,
+            message=f"Differential protection scheme removed: {scheme.scheme_id}",
+            metadata={"object_type": "differential_protection_scheme", "object_id": scheme.scheme_id},
+        )
+
+    def delete_measurement_binding(
+        self,
+        *,
+        binding_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Remove one source binding transactionally without changing channels."""
+        self._require_transaction(transaction)
+        if not isinstance(binding_id, str) or not binding_id.strip():
+            raise ValueError("binding_id must be a non-empty string.")
+        active = self._require_configuration()
+        binding = active.remove_measurement_binding(binding_id.strip())
+        transaction.record_undo(lambda: active.add_measurement_binding(binding))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Protection source binding removed: {binding.binding_id}",
+            metadata={
+                "object_type": "protection_measurement_binding",
+                "object_id": binding.binding_id,
+                "element_id": binding.protection_element_id,
+                "input_name": binding.relay_input_id,
+            },
         )
 
     def delete_configuration(self, *, element_id: str, transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:

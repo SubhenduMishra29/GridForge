@@ -49,6 +49,12 @@ from .read_models import (
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
 from .revision import ProjectRevision
 from .study import StudyCaseDefinition, StudyRequest, StudyResult
+from .protection_study import (
+    ProtectionFaultScenario,
+    ProtectionFaultScenarioResult,
+    ProtectionStudyConfiguration,
+    ProtectionStudyResult,
+)
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
@@ -91,6 +97,10 @@ __all__ = [
     "StudyCaseDefinition",
     "StudyRequest",
     "StudyResult",
+    "ProtectionFaultScenario",
+    "ProtectionFaultScenarioResult",
+    "ProtectionStudyConfiguration",
+    "ProtectionStudyResult",
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",

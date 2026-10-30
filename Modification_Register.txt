@@ -15204,3 +15204,570 @@ Disposition:
     update this register; do not revive superseded architecture paths.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Unified Protection Study and complete Protection System Engineering
+    architecture for GridForge V2.
+
+Status:
+    ARCHITECTURE BASELINE ESTABLISHED — PHASED IMPLEMENTATION REQUIRED.
+    NOT A PRODUCTION-READINESS DECLARATION.
+
+Decision:
+    One Application-owned Protection Study workflow shall configure,
+    validate, calculate, coordinate, evaluate, report and preserve
+    provenance for the complete project protection system.
+
+    Protection Study is the engineering workflow and result lifecycle.
+    Protection System is the configured protection arrangement and
+    runtime orchestration. They are related but are not interchangeable.
+
+    Protection remains a distinct subsystem integrated through explicit
+    contracts with Core model/network, measurement, switching/control,
+    Application study lifecycle, persistence and UI projections.
+
+Frozen boundaries:
+    - Core owns electrical/protection domain truth and calculations.
+    - Application owns Study lifecycle, configuration orchestration,
+      transactions, commands, provenance, events and result assembly.
+    - UI/SLD owns authoring interaction and read-only projection.
+    - Measurement channels and protection trip/signalling outputs are
+      separate paths.
+    - ProtectionElement does not own a universal ProtectionZone.
+    - Differential coverage is derived from configured CT boundaries;
+      other function coverage remains function-specific.
+    - Protection decisions do not directly mutate breaker state.
+    - No inferred feeder, relay, zone, input or trip target from SLD
+      geometry, proximity, ordering or arbitrary Bus-pair matching.
+
+Existing canonical contracts to reuse:
+    RelayBase, RelayInput, ProtectionElement, ProtectionDecision,
+    ProtectionSystem, ProtectionMeasurementBinding,
+    ProtectionProjectConfiguration, ProtectionConfigurationService,
+    ProtectionExecution, ProtectionOutputService, MeasurementChannel,
+    MeasurementProvisioning, StudyRequest, StudyCaseDefinition,
+    StudyExecutionContext and StudyPreparationService.
+
+Implementation phases:
+    A. Audit and reconcile existing contracts and function status.
+    B. Integrate Protection Study into the existing Study lifecycle.
+    C. Prepare and calculate explicit fault scenarios using the existing
+       Short-Circuit solver and detached project/topology snapshots.
+    D. Complete instrument and measurement association, including
+       scenario-derived secondary measurement inputs.
+    E. Complete protection scheme, output mapping and breaker-failure path.
+    F. Complete protection algorithms, IDMT/TCC and coordination.
+    G. Complete typed results, reporting and UI projections.
+    H. Static acceptance, register update and scoped freeze.
+
+Research references:
+    IEC 60255-1:2022; IEC 60255-151:2009; IEC 60255-121:2014;
+    IEC 60255-187-1:2021; IEC 61869-1:2023; IEC TS 60255-216-1:2025;
+    IEC 61850-7-4; IEC 62271-100:2021+AMD1:2024; IEEE C37.112-2018;
+    applicable IEEE C37 protection application guides.
+
+Verification:
+    Architecture and repository source inspection only.
+    No tests or CI run or required in this phase.
+    Protection functions and complete Study workflow remain unverified
+    until their implementation phases and engineering reviews are complete.
+
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE B IMPLEMENTATION UPDATE
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Initial Protection Study integration into the existing Application
+    StudyService lifecycle.
+
+Implemented:
+    - Added immutable ProtectionStudyConfiguration with a by-value
+      snapshot of ProtectionProjectConfiguration and explicit evaluation
+      time, timestep, event, scenario correlation, supervision and metadata.
+    - Added ProtectionStudyResult with project, activation, model/topology
+      revision provenance, configuration fingerprint, decisions and
+      diagnostics.
+    - Registered the "protection" StudyService handler in Application.
+    - Integrated typed ProtectionStudyConfiguration validation into
+      StudyCaseDefinition; no parallel Study lifecycle was introduced.
+    - The handler validates active project, protection configuration,
+      measurement registry and source revision before and after evaluation.
+    - Protection Study evaluates the existing ProtectionRuntime using
+      Application's coherent measurement-snapshot validation.
+    - Protection Study explicitly supplies a no-action resolver. It cannot
+      dispatch breaker trip/close or other equipment commands.
+    - Added event/timestep/supervision and canonical TopologySnapshot
+      context propagation to Application protection evaluation.
+    - Corrected Application's registered_study_types access to use the
+      StudyService property contract (not a function call).
+    - Preserved the frozen Core model/network baseline; this phase changes
+      only Application contracts, study lifecycle and architecture records.
+
+Explicit limitation:
+    This is the first measurement-snapshot evaluation mode. It does not
+    yet implement short-circuit fault-scenario sweeps, settings studies,
+    relay coordination, TCC read models, differential protection,
+    breaker-failure schemes, instrument adequacy, or engineering reports.
+    Those remain subsequent Protection Study work packages.
+
+Verification:
+    Static source inspection only. No tests or CI run.
+    No production-readiness claim is made.
+
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE C IMPLEMENTATION UPDATE
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Integrate explicit short-circuit fault scenarios into the existing
+    Protection Study configuration and result workflow.
+
+Implemented:
+    - Added immutable ProtectionFaultScenario and
+      ProtectionFaultScenarioResult contracts using the existing
+      ShortCircuitStudyConfiguration and ShortCircuitResult types.
+    - ProtectionStudyConfiguration accepts an ordered immutable collection
+      of uniquely identified fault scenarios.
+    - The Protection Study handler validates each fault Bus against the
+      captured canonical TopologySnapshot.
+    - Each scenario is prepared and calculated against the detached
+      ProjectSnapshot network through the existing ShortCircuitPreparation
+      and ShortCircuitAnalysis contracts.
+    - The resulting project identity, activation generation and topology
+      revision are checked against StudyRequest provenance before result
+      registration.
+    - Cancellation and active-project provenance are checked between
+      scenario calculations.
+    - Fault-scenario mode does not run the live measurement-snapshot path
+      or represent live channel samples as simulated fault inputs.
+    - Added public Application exports and architecture documentation.
+    - Preserved the existing StudyService lifecycle and frozen Core
+      model/network contracts.
+
+Explicit limitation:
+    Fault-current results are not yet converted through configured CT/PT/CVT
+    physical instrument models and secondary measurement paths into detached
+    scenario-specific RelayInput samples. No scenario-derived relay pickup,
+    operating time, ProtectionDecision, output target, breaker operation,
+    coordination or selectivity result is claimed. The live measurement
+    registry is not mutated.
+
+Changed files:
+    core/application/protection_study.py
+    core/application/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source and contract inspection only.
+    No tests or CI run.
+    Python syntax/import execution was not available through the repository
+    connector in this pass. No production-readiness claim is made.
+
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE C CONTRIBUTION-COMPLETENESS CORRECTION
+======================================================================
+
+Date:
+    2026-10-30
+
+Finding:
+    ShortCircuitResult.success / ShortCircuitStatus.COMPLETE describe the
+    fault calculation itself. They do not guarantee that source and branch
+    current contribution records are complete. Treating the solver status
+    alone as measurement-ready could overstate Protection Study readiness.
+
+Correction:
+    - ProtectionFaultScenarioResult now exposes the solver's typed
+      ContributionStatus, contribution-completeness predicate and diagnostics.
+    - ProtectionStudyResult reports partial status when any scenario has
+      unsuccessful/partial fault calculation or incomplete contribution
+      coverage.
+    - This does not synthesize missing branch currents or permit relay
+      evaluation from incomplete contribution data.
+
+Changed files:
+    core/application/protection_study.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Static source review only. No tests or CI run. Python syntax/import
+    execution remains outstanding.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE D CONTRACT AUDIT
+======================================================================
+
+Date:
+    2026-10-30
+
+Finding:
+    The existing MeasurementGeneration short-circuit path rejects arbitrary
+    branch current mapping and only accepts fault-Bus quantities. The
+    ProtectionMeasurementBinding contract is not integrated into
+    ProtectionProjectConfiguration persistence and identifies RelayInput
+    only by its local input name, not by the consuming protection element.
+    The open CT association work resolves primary Bus locations but does not
+    establish a branch/protection-zone inference, as required by architecture.
+
+Required correction order:
+    1. Scope each measurement binding to a protection element and input.
+    2. Persist the binding collection in the existing project protection
+       configuration contract.
+    3. Validate explicit source branch terminal, CT P1/P2 association,
+       secondary channel, and protection input mapping.
+    4. Implement branch-current per-unit to primary-A to CT-secondary-A
+       conversion using the selected branch side's Bus voltage base.
+    5. Feed detached scenario samples through Application's sealed
+       per-element/input snapshot path; never mutate live channels.
+    6. Evaluate protection decisions as non-actuating study outputs.
+
+No branch-current conversion or scenario-derived relay evaluation is
+claimed. The audit is recorded as a blocking Phase D implementation scope.
+
+Changed files:
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source/contract inspection only. No tests or CI run.
+    Python syntax/import execution remains outstanding.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE D ELEMENT-SCOPED MEASUREMENT BINDINGS
+======================================================================
+
+Date:
+    2026-10-30
+
+Implemented:
+    - ProtectionMeasurementBinding now identifies the consuming
+      protection_element_id as well as the protection-local relay_input_id.
+    - Binding serialization stores the canonical source EndpointReference,
+      source equipment, physical instrument and ratio, channel, element and
+      RelayInput identity, and declared quantity mapping.
+    - ProtectionProjectConfiguration owns and persists the measurement
+      binding collection through to_dict/from_dict.
+    - Aggregate invariants reject duplicate binding IDs, duplicate
+      element/input associations, unknown protection elements, and bindings
+      whose channel differs from the configured element input.
+    - Element configuration replacement cannot silently invalidate an
+      existing binding; element removal is blocked while bindings remain.
+    - ProtectionConfigurationService adds transactional create/remove
+      operations and validates active element/input/channel references,
+      physical source equipment/terminal, instrument family and actual
+      physical instrument ratio.
+    - Live MeasurementChannel values and physical network state are not
+      changed by binding registration/removal.
+
+Still pending:
+    Branch-current source selection and conversion, CT P1/P2 direction
+    validation against the explicitly selected branch side, detached
+    scenario-specific measurement snapshots, and relay evaluation.
+
+Changed files:
+    core/protection/protection_measurement_binding.py
+    core/protection/project_configuration.py
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source inspection and static contract review only.
+    No tests or CI run. Python syntax/import execution not available through
+    the repository connector in this pass.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — SECONDARY TERMINAL CORRELATION GUARD
+======================================================================
+
+Date:
+    2026-10-30
+
+Correction:
+    ProtectionConfigurationService now validates that a configured
+    MeasurementChannel source_terminal belongs to the referenced physical
+    instrument and is a declared secondary terminal:
+        CT:  S1 / S2
+        PT:  secondary_a / secondary_b
+        CVT: X1 / X2
+
+    This closes the gap where a channel could be associated with a valid
+    instrument ID but actually reference a different instrument or a
+    primary-side terminal. The service also validates the channel signal
+    family and authoritative instrument ratio.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Static source/contract review only. No tests or CI run.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — EXPLICIT CT-TO-BRANCH PRIMARY TOPOLOGY VALIDATION
+======================================================================
+
+Date:
+    2026-10-30
+
+Correction:
+    ProtectionConfigurationService now requires current measurement
+    bindings to identify an explicit Branch and its canonical FROM/TO
+    terminal. It resolves the selected Branch terminal and the CT P1/P2
+    primary terminals through ElectricalBoundaryResolver and rejects
+    unresolved, same-Bus, or ambiguous associations. Exactly one CT primary
+    terminal must share the selected Branch terminal Bus; the other must
+    resolve to a distinct Bus. No branch is inferred from CT location.
+
+Still pending:
+    Signed branch-current conversion, per-unit to primary-ampere scaling,
+    CT ratio/polarity application, detached scenario sample snapshots, and
+    non-actuating scenario relay evaluation.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source inspection and static contract review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — CT INLINE SIMPLEWIRE ASSOCIATION AND PT/CVT PRIMARY PLACEMENT
+======================================================================
+
+Date:
+    2026-10-30
+
+Architecture clarification:
+    - CT is placed inline on a SimpleWire connection. P1 and P2 are on
+      separate primary SimpleWire topology components; S1/S2 remain isolated
+      measurement-secondary terminals.
+    - The engineer explicitly associates the CT with the monitored Branch
+      and FROM/TO terminal side. A SimpleWire segment is not itself treated
+      as an analysis Branch.
+    - PT/CVT primary terminals connect at the intended voltage measurement
+      point, using the applicable SimpleLine/line connection or direct Bus
+      attachment. The graphical SimpleLine is not electrical truth; canonical
+      Core endpoint connectivity remains authoritative.
+    - PT/CVT secondary terminals remain measurement interfaces, not primary
+      power-network Bus attachments.
+
+Implementation correction:
+    ProtectionConfigurationService now validates CT insertion using
+    ConnectivityResolver.terminal_component rather than requiring both CT
+    primary terminals to resolve to Bus IDs. Exactly one CT primary terminal
+    must share the explicitly selected Branch terminal's SimpleWire
+    component, and the CT P1/P2 components must remain distinct. This
+    supports inline CT placement on split SimpleWire segments and avoids
+    confusing a wire segment with the monitored Branch.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source/contract inspection and static review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — BUS-CAPABLE PT/CVT VOLTAGE SOURCE ASSOCIATION
+======================================================================
+
+Date:
+    2026-10-30
+
+Implementation:
+    ProtectionMeasurementBinding now uses the canonical
+    source_endpoint_reference and accepts either:
+      - a physical terminal EndpointReference; or
+      - a canonical Bus attachment EndpointReference.
+    Deserialization remains backward-compatible with persisted
+    source_terminal_reference mappings. New persistence writes
+    source_endpoint_reference.
+
+    ProtectionConfigurationService validates voltage measurement sources
+    against PT primary_a/primary_b or CVT H1/H2 topology components.
+    Exactly one primary terminal must share the selected source endpoint's
+    topology component, while the two primary terminals must remain on
+    distinct components. This supports direct Bus attachment and explicit
+    canonical line-terminal associations.
+
+    CT current measurement remains terminal-only and Branch-specific.
+    Bus references cannot be substituted for the explicit monitored Branch
+    terminal. The SLD SimpleLine projection must resolve to a canonical Core
+    line terminal; graphics are not accepted as electrical truth.
+
+Changed files:
+    core/protection/protection_measurement_binding.py
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source and contract inspection plus static review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
+
+[2026-10-30] Protection Study Phase D1 — explicit CT branch-current conversion
+- Extended ShortCircuitInput with immutable study MVA base and per-Bus nominal-voltage-base metadata.
+- ShortCircuitPreparation captures available positive nominal voltage bases from the detached study network; missing bases remain unavailable rather than being guessed.
+- ShortCircuitSolver preserves the per-unit current-unit declaration and exact base metadata in ShortCircuitResult provenance.
+- MeasurementGeneration now exposes a pure branch-current-to-CT-secondary conversion. It requires a complete short-circuit contribution set, an explicit branch ID, an explicit from/to measurement side, a phase/sequence quantity, and an explicit +1/-1 CT-reference direction supplied by the committed CT association resolver.
+- The conversion applies the selected-side current base, explicit CT direction, CT polarity, and CT ratio once. It does not mutate MeasurementChannel.
+- Boundary: scenario-specific RelayInput snapshot construction and ProtectionSystem evaluation remain unimplemented. No trip/action dispatch is introduced.
+- Verification: source-level review only; no tests or CI run, per repository workflow.
+
+[2026-10-30] D1 refinement — phase identity and direction contract
+- Tightened CT branch conversion to require an explicit phase or sequence member; the aggregate branch.current alias is not accepted because it is phase-A-only in the current solver result contract.
+- Tightened branch_current_direction to an actual integer +1/-1. The value must come from the committed CT association's explicit P1/P2 orientation; conversion does not derive it.
+
+[2026-10-30] Protection Study Phase D2 — CT association-to-branch orientation
+- Integrated the canonical Core CTMeasurementAssociation and Application CTMeasurementAssociationService into the Protection Study branch, including package exports.
+- Added CTMeasurementAssociation.branch_current_direction(from_bus_id, to_bus_id). It returns +1 only for the exact P1-Bus -> P2-Bus branch orientation, -1 only for the exact reverse orientation, and rejects any branch that does not match the configured primary measurement boundary.
+- MeasurementGeneration.convert_short_circuit_branch_current now requires the resolved CTMeasurementAssociation rather than a caller-supplied sign. It verifies CT identity, in-service state, topology revision, configured P1/P2 terminal-to-Bus identity, and exact branch endpoint pairing before conversion.
+- Branch-reference direction and physical CT polarity remain separate: the association determines branch orientation; the physical CT polarity is applied once by the existing CT polarity conversion.
+- This integrates the resolver contract into the conversion boundary. The ProtectionStudyHandler still does not construct detached scenario RelayInput snapshots or evaluate fault-scenario ProtectionDecisions; that remains the next phase.
+- No tests or CI were run. No syntax/import execution was performed.
+
+[2026-10-30] Protection Study Phase D2 topology correction — inline CT placement
+- Reconciled the initial D2 Bus-pair assumption against the frozen inline CT placement contract. CT P1/P2 do not need to resolve to Bus IDs; they resolve to separate canonical SimpleWire topology components.
+- CTMeasurementAssociation now retains immutable P1/P2 topology components, validates each component contains its canonical CT terminal, rejects overlapping components and Junction traversal, and requires committed SimpleWire connectivity.
+- The configured Branch FROM/TO terminal is explicitly supplied from ProtectionMeasurementBinding. Branch-current sign is derived from whether that exact terminal belongs to the CT P1 or P2 component and whether the CT is on the Branch FROM or TO side.
+- The conversion still validates the scenario's selected-side Bus base using ShortCircuitBranchCurrent.from_bus_id/to_bus_id. This Bus is used for per-unit scaling only; it is not used to infer CT placement.
+- CT polarity remains a separate physical conversion and is cross-checked against the resolved association snapshot before being applied once.
+- Updated PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md to remove the obsolete requirement that CT P1/P2 each resolve to distinct Bus IDs.
+- Scenario-specific detached RelayInput samples and ProtectionSystem evaluation remain outstanding.
+- No tests or CI were run. No syntax/import execution was performed.
+
+[2026-10-30] D2 secondary-channel provenance guard
+- CT branch-current scenario conversion now verifies that the MeasurementChannel's physical source identity matches the configured CT and that its source_terminal is exactly the resolved CT S1 or S2 terminal.
+- This keeps the primary P1/P2 SimpleWire orientation contract separate from the secondary S1/S2 measurement circuit contract.
+- No MeasurementChannel values or live sample metadata are modified.
+
+[2026-10-30] Protection Study Phase D2 — topology-independent CT measurement endpoint
+- Extended CTMeasurementAssociation with locate_measurement_endpoint(EndpointReference), returning P1_SIDE or P2_SIDE for an explicitly selected canonical equipment terminal or Bus attachment. This is physical measurement-location information only; it does not infer a protected feeder, zone, or differential scheme.
+- Extended ProtectionConfigurationService current-binding validation to accept three explicit placement patterns: Branch FROM/TO terminal, non-Branch equipment terminal (including transformer, motor and load terminals), and Bus attachment. Each selected endpoint must belong to exactly one CT P1/P2 SimpleWire topology component; P1 and P2 must remain on distinct components.
+- Branch current bindings retain explicit FROM/TO validation. Equipment terminal bindings declare electrical_side='equipment' and preserve the exact terminal role in EndpointReference. Bus-side bindings declare electrical_side='bus' and preserve the canonical Bus attachment identity.
+- The existing numerical short-circuit conversion remains Branch-contribution-specific. Equipment-terminal and Bus-side scenario-current source adapters, differential scheme membership, detached RelayInput snapshots and non-actuating ProtectionSystem evaluation remain pending.
+- Updated the Protection Study architecture document to distinguish CT physical placement, selected measurement endpoint and protection scheme membership.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+[2026-10-30] Protection Study — explicit differential scheme membership configuration
+- Added immutable DifferentialProtectionSchemeConfiguration as a project-scoped engineering configuration separate from CT placement and ProtectionElement identity.
+- Scheme configuration identifies the protected Core object type/ID and at least two distinct explicitly selected current-measurement binding IDs. Optional per-binding phase-compensation degrees are persisted as declared configuration only; no numerical compensation is claimed.
+- ProtectionProjectConfiguration now owns, validates, serializes and restores differential scheme configurations. It rejects missing/non-current member bindings and prevents removal or conversion of a referenced member binding to a non-current measurement.
+- Added transactional Application create/delete operations. If a Core Network provider is available, scheme creation verifies the protected object exists and its Core type matches the declared target.
+- Exported DifferentialProtectionSchemeConfiguration from core.protection.
+- No CT placement pattern automatically creates a scheme; Bus-to-Bus CT placement alone does not declare Bus differential protection.
+- Differential current/restraint calculations, transformer vector-group and ratio compensation, phase/zero-sequence compensation execution, restraint/stability logic, decisions and trip mapping remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+[2026-10-30] Differential scheme boundary direction contract
+- Strengthened DifferentialProtectionSchemeConfiguration so every member CT measurement binding must declare exactly one current direction: INTO_ZONE or OUT_OF_ZONE.
+- Direction is scheme-specific engineering configuration and is never inferred from CT P1/P2 physical orientation, Bus attachment, or SimpleWire topology.
+- The explicit direction mapping is immutable and included in project persistence. Differential phasor calculation remains pending.
+
+
+[2026-10-30] Protection Study Phase E2 — pure differential current kernel
+- Added headless Core differential numerical contracts: explicit settings,
+  detached three-phase complex RMS current samples, per-phase results and
+  immutable aggregate result.
+- The kernel uses the scheme's persisted INTO_ZONE/OUT_OF_ZONE directions
+  for signed phasor summation. It requires all member CT samples, exact
+  binding identity, a shared explicit reference-basis ID, finite A/B/C
+  phasors and a configured restraint definition.
+- Added selectable half-sum, sum and maximum-magnitude restraint methods;
+  continuous piecewise-linear multi-slope bias characteristic; and optional
+  independent high-set pickup.
+- Non-zero phase compensation is rejected until an equipment-specific
+  compensation adapter exists. The kernel does not silently ignore stored
+  compensation settings.
+- Results are immutable and non-actuating. No ProtectionDecision, trip/action
+  mapping or breaker operation is performed.
+- Transformer vector-group/ratio compensation, CT conversion/normalisation,
+  zero-sequence treatment, inrush and CT-saturation supervision, timing and
+  end-to-end ProtectionStudy sample integration remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
+
+
+[2026-10-30] Protection Study Phase E3 — persisted differential characteristics
+- Extended DifferentialProtectionSchemeConfiguration with optional immutable,
+  validated differential_settings persisted in project configuration.
+- Persisted settings include pickup current, explicit restraint method,
+  piecewise bias slopes and restraint breakpoints, plus optional independent
+  high-set pickup. Invalid keys, non-finite/negative values, invalid slope
+  counts and unordered breakpoints are rejected at configuration creation/load.
+- DifferentialProtectionSettings now serializes/deserializes the typed engine
+  settings. The pure Core kernel can consume an explicitly supplied settings
+  object or reconstruct it from the scheme's persisted settings.
+- Existing scheme constructor positional field order is preserved.
+- Settings persistence does not imply scenario integration: Protection Study
+  still does not generate detached CT phasors from short-circuit contributions.
+  No relay operation, ProtectionDecision, trip mapping or breaker action is
+  claimed.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
+
+
+[2026-10-30] Protection Study Phase D4 — detached Branch CT scenario samples
+- Added ProtectionScenarioMeasurementAdapter and immutable
+  ProtectionScenarioMeasurementSample for explicitly configured Branch
+  FROM/TO CT bindings.
+- The adapter consumes complete complex short-circuit phase/sequence branch
+  contributions, validates exact Branch terminal side, CT primary topology
+  association, instrument/channel identity, physical CT ratio and sample
+  member identity, then reuses the canonical per-unit/base/orientation/
+  polarity/ratio conversion path.
+- Emits detached CT-secondary ampere samples with scenario and source
+  provenance. It never mutates or refreshes live MeasurementChannel values.
+- Each sample carries an instrument/channel-specific current basis identity.
+  These CT-secondary samples are intentionally not accepted as a shared
+  differential primary-current basis; explicit CT normalisation and
+  equipment-specific compensation remain required.
+- Bus/equipment-terminal current adapters, PT/CVT fault-voltage conversion,
+  RelayInput snapshot assembly, ProtectionSystem scenario evaluation and
+  result aggregation remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.

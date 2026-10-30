@@ -21,6 +21,7 @@ from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
 from core.network import TopologyEndpointReference
+from core.network.topology_snapshot import TopologySnapshot
 
 from .command import Command
 from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
@@ -83,6 +84,7 @@ from pathlib import Path
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
+from .protection_study import ProtectionStudyHandler
 from .validation import ValidationResult
 
 
@@ -155,6 +157,7 @@ class Application:
         self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
+        self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
@@ -345,7 +348,7 @@ class Application:
             study_type=study_type,
             configuration=configuration,
         )
-        registered_types = self._study_service.registered_study_types()
+        registered_types = self._study_service.registered_study_types
         if request.study_type not in registered_types:
             raise ValueError(
                 f"No study handler is registered for {request.study_type!r}; "
@@ -498,6 +501,11 @@ class Application:
         *,
         action_resolver: Any | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -837,7 +845,17 @@ class Application:
                     )
         if directional_snapshots:
             context_metadata["directional_measurement_snapshots_by_element"] = directional_snapshots
-        context = ProtectionContext(time=evaluation_time, metadata=context_metadata)
+        if network_state is not None and not isinstance(network_state, TopologySnapshot):
+            raise TypeError("network_state must be a canonical TopologySnapshot or None.")
+        context = ProtectionContext(
+            time=evaluation_time,
+            timestep=evaluation_timestep,
+            event_id=event_id,
+            event_type=event_type,
+            network_state=network_state,
+            supervision=supervision if supervision is not None else {},
+            metadata=context_metadata,
+        )
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
             def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
