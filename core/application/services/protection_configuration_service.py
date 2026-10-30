@@ -464,16 +464,15 @@ class ProtectionConfigurationService:
                 else:
                     selected_topology_endpoint = TopologyEndpointReference.from_terminal(source_reference)
                 try:
-                    selected_component = set(
-                        resolver.topology_component(selected_topology_endpoint)
-                    )
                     primary_components = {
                         role: set(
-                            resolver.terminal_component(
-                                EndpointReference.terminal(
-                                    equipment_type=EquipmentType(instrument_type.lower()),
-                                    equipment_id=instrument.id,
-                                    terminal_role=role,
+                            resolver.topology_component(
+                                TopologyEndpointReference.from_terminal(
+                                    EndpointReference.terminal(
+                                        equipment_type=EquipmentType(instrument_type.lower()),
+                                        equipment_id=instrument.id,
+                                        terminal_role=role,
+                                    )
                                 )
                             )
                         )
