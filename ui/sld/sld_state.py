@@ -104,7 +104,7 @@ class SLDState:
         manager = self.document_manager
         if manager is not None:
             return bool(manager.is_dirty(self.active_document_id))
-        return False
+        return self.local_view_dirty
 
     @property
     def has_selection(self) -> bool:
@@ -114,7 +114,8 @@ class SLDState:
         manager = self.document_manager
         if manager is not None and self.active_document_id is not None:
             manager.mark_dirty(self.active_document_id)
-        self.local_view_dirty = False
+        # Local SLD view dirtiness is independent of Application project dirtiness.
+        self.local_view_dirty = True
 
     def mark_clean(self) -> None:
         manager = self.document_manager
