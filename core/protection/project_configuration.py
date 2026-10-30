@@ -159,6 +159,81 @@ class ProtectionFunctionConfiguration:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DifferentialProtectionSchemeConfiguration:
+    """Explicit differential-scheme membership, independent of CT placement."""
+
+    scheme_id: str
+    protected_object_type: str
+    protected_object_id: str
+    measurement_binding_ids: tuple[str, ...]
+    phase_compensation_degrees: Mapping[str, float] = field(default_factory=dict)
+    enabled: bool = True
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("scheme_id", "protected_object_type", "protected_object_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        object.__setattr__(self, "protected_object_type", self.protected_object_type.lower())
+        if self.protected_object_type not in {"bus", "transformer", "line", "generator", "motor", "reactor"}:
+            raise ValueError("Differential scheme protected_object_type is unsupported.")
+        if not isinstance(self.measurement_binding_ids, (tuple, list)):
+            raise TypeError("measurement_binding_ids must be a tuple or list.")
+        binding_ids = tuple(self.measurement_binding_ids)
+        if len(binding_ids) < 2:
+            raise ValueError("A differential scheme requires at least two explicitly configured CT measurement bindings.")
+        if any(not isinstance(item, str) or not item.strip() for item in binding_ids):
+            raise ValueError("Every differential measurement binding ID must be non-empty.")
+        binding_ids = tuple(item.strip() for item in binding_ids)
+        if len(set(binding_ids)) != len(binding_ids):
+            raise ValueError("Differential scheme measurement binding IDs must be unique.")
+        object.__setattr__(self, "measurement_binding_ids", binding_ids)
+        if not isinstance(self.enabled, bool):
+            raise TypeError("enabled must be a boolean.")
+        if not isinstance(self.phase_compensation_degrees, Mapping):
+            raise TypeError("phase_compensation_degrees must be a mapping.")
+        compensation = {}
+        for binding_id, degrees in self.phase_compensation_degrees.items():
+            if binding_id not in binding_ids:
+                raise ValueError("Phase compensation may reference only a member measurement binding.")
+            value = float(degrees)
+            if not math.isfinite(value):
+                raise ValueError("Phase compensation degrees must be finite.")
+            compensation[binding_id] = value
+        object.__setattr__(self, "phase_compensation_degrees", MappingProxyType(compensation))
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        object.__setattr__(self, "metadata", _freeze_value(self.metadata))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scheme_id": self.scheme_id,
+            "protected_object_type": self.protected_object_type,
+            "protected_object_id": self.protected_object_id,
+            "measurement_binding_ids": list(self.measurement_binding_ids),
+            "phase_compensation_degrees": dict(self.phase_compensation_degrees),
+            "enabled": self.enabled,
+            "metadata": _thaw_value(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "DifferentialProtectionSchemeConfiguration":
+        if not isinstance(data, Mapping):
+            raise TypeError("differential protection scheme configuration must be a mapping.")
+        return cls(
+            scheme_id=data["scheme_id"],
+            protected_object_type=data["protected_object_type"],
+            protected_object_id=data["protected_object_id"],
+            measurement_binding_ids=tuple(data["measurement_binding_ids"]),
+            phase_compensation_degrees=dict(data.get("phase_compensation_degrees") or {}),
+            enabled=data.get("enabled", True),
+            metadata=dict(data.get("metadata") or {}),
+        )
+
+
 class ProtectionProjectConfiguration:
     """Project-owned configuration aggregate; it owns no physical equipment."""
 
@@ -168,6 +243,7 @@ class ProtectionProjectConfiguration:
         self._project_id = project_id.strip()
         self._elements: dict[str, ProtectionFunctionConfiguration] = {}
         self._bindings: dict[str, ProtectionMeasurementBinding] = {}
+        self._differential_schemes: dict[str, DifferentialProtectionSchemeConfiguration] = {}
 
     @property
     def project_id(self) -> str:
@@ -180,6 +256,10 @@ class ProtectionProjectConfiguration:
     @property
     def measurement_bindings(self) -> tuple[ProtectionMeasurementBinding, ...]:
         return tuple(self._bindings.values())
+
+    @property
+    def differential_schemes(self) -> tuple[DifferentialProtectionSchemeConfiguration, ...]:
+        return tuple(self._differential_schemes.values())
 
     def add(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
@@ -260,7 +340,43 @@ class ProtectionProjectConfiguration:
         except KeyError as exc:
             raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
 
+    def add_differential_scheme(self, scheme: DifferentialProtectionSchemeConfiguration) -> None:
+        if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+            raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
+        if scheme.scheme_id in self._differential_schemes:
+            raise ValueError(f"Differential scheme already exists: {scheme.scheme_id}")
+        for binding_id in scheme.measurement_binding_ids:
+            binding = self.get_measurement_binding(binding_id)
+            if binding.measurement_type.strip().lower() != "current":
+                raise ValueError(f"Differential scheme member {binding_id!r} must be a current measurement binding.")
+        self._differential_schemes[scheme.scheme_id] = scheme
+
+    def replace_differential_scheme(self, scheme: DifferentialProtectionSchemeConfiguration) -> None:
+        if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+            raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
+        if scheme.scheme_id not in self._differential_schemes:
+            raise KeyError(scheme.scheme_id)
+        for binding_id in scheme.measurement_binding_ids:
+            binding = self.get_measurement_binding(binding_id)
+            if binding.measurement_type.strip().lower() != "current":
+                raise ValueError("Differential scheme members must be current measurement bindings.")
+        self._differential_schemes[scheme.scheme_id] = scheme
+
+    def get_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
+        try:
+            return self._differential_schemes[scheme_id]
+        except KeyError as exc:
+            raise KeyError(f"Differential protection scheme not found: {scheme_id}") from exc
+
+    def remove_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
+        try:
+            return self._differential_schemes.pop(scheme_id)
+        except KeyError as exc:
+            raise KeyError(f"Differential protection scheme not found: {scheme_id}") from exc
+
     def remove_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
+        if any(binding_id in scheme.measurement_binding_ids for scheme in self._differential_schemes.values()):
+            raise ValueError(f"Cannot remove measurement binding {binding_id!r} while a differential scheme references it.")
         try:
             return self._bindings.pop(binding_id)
         except KeyError as exc:
@@ -271,6 +387,7 @@ class ProtectionProjectConfiguration:
             "project_id": self.project_id,
             "elements": [item.to_dict() for item in self.elements],
             "measurement_bindings": [item.to_dict() for item in self.measurement_bindings],
+            "differential_schemes": [item.to_dict() for item in self.differential_schemes],
         }
 
     @classmethod
@@ -289,7 +406,12 @@ class ProtectionProjectConfiguration:
             raise TypeError("protection measurement bindings must be a list or tuple.")
         for item in bindings:
             result.add_measurement_binding(ProtectionMeasurementBinding.from_dict(item))
+        schemes = data.get("differential_schemes", ())
+        if not isinstance(schemes, (list, tuple)):
+            raise TypeError("differential_schemes must be a list or tuple.")
+        for item in schemes:
+            result.add_differential_scheme(DifferentialProtectionSchemeConfiguration.from_dict(item))
         return result
 
 
-__all__ = ["ProtectionFunctionConfiguration", "ProtectionProjectConfiguration"]
+__all__ = ["ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration", "ProtectionProjectConfiguration"]
