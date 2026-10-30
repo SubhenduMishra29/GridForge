@@ -33,7 +33,10 @@ def _freeze_mapping(value: Any, field_name: str) -> Any:
         for key, item in value.items():
             if not isinstance(key, str) or not key.strip():
                 raise ValueError(f"{field_name} keys must be non-empty strings.")
-            normalized[key.strip()] = _freeze_mapping(item, field_name)
+            normalized_key = key.strip()
+            if normalized_key in normalized:
+                raise ValueError(f"{field_name} contains duplicate normalized key {normalized_key!r}.")
+            normalized[normalized_key] = _freeze_mapping(item, field_name)
         return MappingProxyType(normalized)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_mapping(item, field_name) for item in value)
@@ -122,8 +125,8 @@ class ProtectionStudyConfiguration:
             event_type=event_type,
             scenario_id=scenario_id,
             protection_configuration=configuration.to_dict(),
-            supervision=supervision or {},
-            metadata=metadata or {},
+            supervision={} if supervision is None else supervision,
+            metadata={} if metadata is None else metadata,
         )
 
     @property
