@@ -247,6 +247,29 @@ class IDMTCurveReadModel:
         points = tuple(self.points)
         if len(points) < 2 or not all(isinstance(p, IDMTCurvePointReadModel) for p in points):
             raise ValueError("points must contain at least two IDMTCurvePointReadModel values.")
+        for index, point in enumerate(points):
+            expected_current = pickup * point.multiple
+            if not math.isclose(
+                point.current,
+                expected_current,
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            ):
+                raise ValueError(
+                    "Each TCC point current must equal pickup multiplied "
+                    "by its declared current multiple."
+                )
+            if index:
+                previous = points[index - 1]
+                if point.multiple <= previous.multiple:
+                    raise ValueError("TCC current multiples must be strictly increasing.")
+                if point.current <= previous.current:
+                    raise ValueError("TCC currents must be strictly increasing.")
+                if point.operating_time_s >= previous.operating_time_s:
+                    raise ValueError(
+                        "IEC inverse-time operating times must strictly decrease "
+                        "as current increases."
+                    )
         object.__setattr__(self, "points", points)
 
     @classmethod
