@@ -424,7 +424,7 @@ scenario-derived relay evaluation.
 
 ### Phase D implementation order and status
 
-1. <text color="success">Implemented:</text> each binding identifies its
+1. **Implemented:** each binding identifies its
    protection element and RelayInput name, and the binding collection is
    serialized with the project protection configuration.
 2. <text color="success">Implemented:</text> Application service mutation
