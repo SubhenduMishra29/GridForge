@@ -81,6 +81,8 @@ def schedule_breaker_failure_backup(
     if not isinstance(state, TransientEventState):
         raise TypeError("state must be a TransientEventState.")
 
+    if isinstance(trip_time, bool) or isinstance(delay, bool):
+        raise TypeError("trip_time and delay must be numeric values, not booleans.")
     try:
         start = float(trip_time)
         timer = float(delay)
@@ -94,10 +96,17 @@ def schedule_breaker_failure_backup(
     if not math.isfinite(expiry):
         raise ValueError("breaker-failure timer expiry must be finite.")
 
-    primary_id = str(failed_breaker_id).strip()
+    if not isinstance(failed_breaker_id, str):
+        raise TypeError("failed_breaker_id must be a string.")
+    if isinstance(backup_breaker_ids, (str, bytes)):
+        raise TypeError("backup_breaker_ids must be an iterable of breaker ID strings.")
+    primary_id = failed_breaker_id.strip()
     if not primary_id:
         raise ValueError("failed_breaker_id must be a non-empty string.")
-    targets = tuple(str(item).strip() for item in backup_breaker_ids)
+    targets = tuple(backup_breaker_ids)
+    if any(not isinstance(item, str) for item in targets):
+        raise TypeError("Backup breaker IDs must be strings.")
+    targets = tuple(item.strip() for item in targets)
     if not targets or any(not item for item in targets):
         raise ValueError("At least one non-empty backup breaker ID is required.")
     if len(set(targets)) != len(targets):
