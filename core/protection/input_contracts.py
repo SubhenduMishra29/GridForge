@@ -227,6 +227,22 @@ def validate_protection_input_contracts(
                     f"{detail}: unit {unit!r} is incompatible; accepted canonical units are "
                     f"{sorted(requirement.compatible_units)!r}; no implicit conversion is performed."
                 )
+            # ANSI 51's pickup is expressed in the same engineering basis
+            # as its RelayInput. current_unit is a declaration, not a
+            # conversion request; reject any declared mismatch.
+            if code == "51" and name == "current":
+                settings = getattr(element, "settings", None)
+                declared_unit = (
+                    settings.get("current_unit", settings.get("pickup_unit"))
+                    if isinstance(settings, Mapping)
+                    else None
+                )
+                if declared_unit is not None and declared_unit != unit:
+                    diagnostics.append(
+                        f"{detail}: configured pickup unit {declared_unit!r} "
+                        f"does not match the authoritative channel unit {unit!r}; "
+                        "CT ratio conversion must be performed by measurement generation."
+                    )
     return tuple(diagnostics)
 
 
