@@ -473,6 +473,21 @@ class MeasurementChannel:
             stale_after
         )
 
+    _SAMPLE_STATE_FIELDS = frozenset({
+        "raw_value", "timestamp", "timestamp_domain",
+        "sample_sequence", "quality", "available",
+    })
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in self._SAMPLE_STATE_FIELDS:
+            authority = getattr(self, "_sample_update_authority", None)
+            write_authority = getattr(self, "_sample_write_authority", None)
+            if authority is not None and write_authority is not authority:
+                raise PermissionError(
+                    "Project-managed measurement sample state is writable only through its owning service."
+                )
+        object.__setattr__(self, name, value)
+
     # =================================================================
     # VALIDATION
     # =================================================================
@@ -909,17 +924,21 @@ class MeasurementChannel:
             else None
         )
 
-        self.raw_value = validated_value
-        # update() always installs a new value. If its producer supplies no
-        # timestamp, invalidate all prior sample provenance rather than
-        # attaching an old timestamp/domain/sequence to the new value.
-        self.timestamp = validated_timestamp
-        self.timestamp_domain = validated_domain
-        self.sample_sequence = validated_sequence
-        if quality is not None:
-            self.quality = quality
-        if available is not None:
-            self.available = bool(available)
+        self._sample_write_authority = self._sample_update_authority
+        try:
+            self.raw_value = validated_value
+            # update() always installs a new value. If its producer supplies no
+            # timestamp, invalidate all prior sample provenance rather than
+            # attaching an old timestamp/domain/sequence to the new value.
+            self.timestamp = validated_timestamp
+            self.timestamp_domain = validated_domain
+            self.sample_sequence = validated_sequence
+            if quality is not None:
+                self.quality = quality
+            if available is not None:
+                self.available = bool(available)
+        finally:
+            self._sample_write_authority = None
 
     # =================================================================
     # SIGNAL QUALITY / VALIDITY
@@ -1141,13 +1160,17 @@ class MeasurementChannel:
         validated_timestamp = self._validate_timestamp(timestamp)
         validated_sequence = self._validate_sample_sequence(sample_sequence)
 
-        self.raw_value = validated_value
-        self.quality = quality
-        self.available = bool(available)
-        self.timestamp = validated_timestamp
-        # Reset cannot inherit a clock-domain declaration from an old sample.
-        self.timestamp_domain = None
-        self.sample_sequence = validated_sequence
+        self._sample_write_authority = self._sample_update_authority
+        try:
+            self.raw_value = validated_value
+            self.quality = quality
+            self.available = bool(available)
+            self.timestamp = validated_timestamp
+            # Reset cannot inherit a clock-domain declaration from an old sample.
+            self.timestamp_domain = None
+            self.sample_sequence = validated_sequence
+        finally:
+            self._sample_write_authority = None
 
     # =================================================================
     # DIAGNOSTICS
