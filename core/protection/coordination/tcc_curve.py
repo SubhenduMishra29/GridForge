@@ -69,14 +69,16 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from typing import Iterable
 import math
+from typing import Iterable
+from types import MappingProxyType
 
 from core.protection.relay_functions import (
     iec_curve_definition,
     iec_time,
     normalize_iec_curve,
     pickup_exceeded,
+    IEC_CURVES as CANONICAL_IEC_CURVES,
 )
 
 
@@ -110,6 +112,20 @@ class TCCCurve:
         "VI": "VERY_INVERSE",
         "EI": "EXTREMELY_INVERSE",
     }
+    IEC_CURVES = MappingProxyType({
+        "NORMAL_INVERSE": MappingProxyType({
+            "k": CANONICAL_IEC_CURVES["SI"].k,
+            "alpha": CANONICAL_IEC_CURVES["SI"].alpha,
+        }),
+        "VERY_INVERSE": MappingProxyType({
+            "k": CANONICAL_IEC_CURVES["VI"].k,
+            "alpha": CANONICAL_IEC_CURVES["VI"].alpha,
+        }),
+        "EXTREMELY_INVERSE": MappingProxyType({
+            "k": CANONICAL_IEC_CURVES["EI"].k,
+            "alpha": CANONICAL_IEC_CURVES["EI"].alpha,
+        }),
+    })
 
     def __init__(self, curve_type: str = "NORMAL_INVERSE") -> None:
         """Initialize a compatibility adapter over the canonical IEC engine."""
@@ -162,6 +178,14 @@ class TCCCurve:
         multiplier_range: Iterable[float] | None = None,
     ) -> list[dict]:
         """Generate numerical TCC points using the canonical time equation."""
+        if isinstance(pickup_current, bool):
+            raise TypeError("pickup_current must be numeric, not boolean.")
+        try:
+            pickup = float(pickup_current)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("pickup_current must be numeric.") from exc
+        if not math.isfinite(pickup) or pickup <= 0.0:
+            raise ValueError("pickup_current must be finite and positive.")
         if multiplier_range is None:
             multiplier_range = range(1, 21)
         result: list[dict[str, float]] = []
@@ -172,12 +196,12 @@ class TCCCurve:
                 multiplier = float(raw_multiplier)
             except (TypeError, ValueError) as exc:
                 raise ValueError("Current multiplier must be numeric.") from exc
-            if not __import__("math").isfinite(multiplier) or multiplier <= 0.0:
+            if not math.isfinite(multiplier) or multiplier <= 0.0:
                 raise ValueError("Current multiplier must be finite and positive.")
-            current = float(pickup_current) * multiplier
+            current = pickup * multiplier
             operating_time = self.calculate_time(
                 fault_current=current,
-                pickup_current=pickup_current,
+                pickup_current=pickup,
                 TMS=TMS,
             )
             result.append({
