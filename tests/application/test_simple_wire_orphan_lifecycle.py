@@ -34,7 +34,6 @@ def _connection(document: SLDDocument, *, owner: str = "engineer", core_id: str 
             "kind": "equipment",
             "node_id": "node-a",
             "equipment_id": "eq-a",
-            "equipment_type": "bus",
             "terminal_role": "HV",
         },
         target_endpoint={
