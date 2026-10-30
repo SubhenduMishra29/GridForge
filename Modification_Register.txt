@@ -15018,3 +15018,10 @@ Verification:
 - MeasurementChannelService.publish_sample is the supported live-ingestion boundary and is serialized with Application breaker commands through the shared execution lock. Application exposes publish_measurement_sample as the facade.
 - This contains ordinary in-process direct mutation paths; it is not a security boundary against hostile Python code that can introspect private object state. Actual device/SCADA/PMU producer integration and independent source-clock attestation remain outstanding. ANSI 25 remains NOT_IMPLEMENTED pending that integration and final close-path review.
 - No tests or CI were run.
+
+
+[2026-10-30 — GF-ISSUE-845 — validate ANSI 25 measurement side provenance]
+- Branch: fix/ansi25-candidate-runtime-context
+- Candidate project validation now requires every ANSI 25 voltage/phase/frequency channel to originate from a PT or CVT secondary terminal. It resolves the PT/CVT primary terminals and both breaker terminals through ElectricalBoundaryResolver, then requires left-side channels to be physically associated with the breaker FROM bus and right-side channels with the TO bus; channels associated with the opposite bus are rejected.
+- MeasurementChannelService provisioning now rejects a source_terminal reference whose equipment identity/type does not match the declared measurement source.
+- This is topology-level provenance validation; it does not replace commissioning verification of instrument wiring, polarity, ratio, phase assignment or actual source clock. No tests or CI were run.
