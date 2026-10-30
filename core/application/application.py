@@ -2770,10 +2770,13 @@ class Application:
         )
 
     def read_protection_coordination_results(self) -> tuple[Any, ...]:
-        """Return completed coordination Study Case result projections for the active project."""
+        """Return completed, current coordination results for the active project."""
         return tuple(
             result for result in self.read_study_results()
-            if result.study_type == "protection_coordination" and result.current
+            if result.study_type == "protection_coordination"
+            and result.status == "completed"
+            and result.current
+            and isinstance(result.value, CoordinationStudyResult)
         )
 
     def read_control(self):
