@@ -15326,3 +15326,11 @@ Correction:
 - Added explicit Branch terminal/side orientation mapping. The configured Branch terminal must belong to exactly one CT primary component; sign is derived from FROM/TO side and whether P1 or P2 faces the Branch terminal.
 - This resolves CT placement as an inline instrument on a split SimpleWire without treating the wire segment as an analysis Branch or inferring a protection zone.
 - No tests or CI were run.
+
+
+[2026-10-30] CT measurement-channel secondary-terminal enforcement — PR #905 correction
+- MeasurementProvisioning now accepts CT/PT/CVT measurement channels only from their physical secondary terminals: CT S1/S2, PT secondary_a/secondary_b, and CVT X1/X2.
+- MeasurementGeneration now verifies that the supplied MeasurementChannel belongs to the same physical instrument and identifies one of its configured secondary terminals before applying primary-to-secondary conversion.
+- Applied the validation to Power Flow current/voltage generation, short-circuit current generation, and the detached Branch CT scenario conversion path.
+- The primary-side PreparedMeasurementContext remains distinct from the secondary-side MeasurementChannel source terminal; this preserves the physical measurement conversion boundary.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
