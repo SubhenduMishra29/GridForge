@@ -492,3 +492,48 @@ distinct Bus. This is an explicit association check, not a branch inference.
 **Still pending:** branch-current per-unit conversion and signed CT secondary
 phasors, detached scenario measurement sample creation, and non-actuating
 scenario relay evaluation.
+
+
+## 17. SLD instrument placement and primary connectivity contract
+
+Instrument placement is governed by the physical electrical role of each
+instrument, not by a generic "measurement device" connection rule.
+
+### Current Transformer (CT)
+
+- A CT is inserted inline on an SLD SimpleWire connection. The wire is
+  represented as two terminal-to-terminal SimpleWire segments around the CT:
+  one segment reaches P1 and the other reaches P2.
+- P1/P2 are primary power-path terminals. They must remain in distinct
+  SimpleWire topology components; joining them into one component bypasses
+  or shorts the CT and is invalid for a series CT insertion.
+- The engineer explicitly associates the CT with the monitored Branch and
+  its FROM/TO terminal side. This association is not inferred from the CT's
+  screen position, nearest Bus, or matching graphical coordinates.
+- The association validator uses ConnectivityResolver terminal components
+  to confirm that the selected Branch terminal shares exactly one primary
+  CT terminal's SimpleWire component. It does not require the CT itself to
+  be a Branch or mistake the SimpleWire segment for an analysis Branch.
+- S1/S2 are isolated measurement-secondary terminals. They are not part of
+  the primary power path and are not ordinary Bus attachments.
+
+### Potential Transformer (PT) and Capacitive Voltage Transformer (CVT)
+
+- PT/CVT primary terminals are connected at the intended voltage
+  measurement point: to the relevant SimpleLine/line connection or directly
+  to the selected Bus, as appropriate to the SLD arrangement.
+- The primary connection must resolve to the intended canonical electrical
+  endpoint. A graphical SimpleLine alone is not electrical truth; its
+  endpoint references must resolve through the existing Core topology.
+- PT/CVT secondary terminals remain measurement interfaces. They do not
+  become primary network Buses or power-path conductors.
+
+### Layer boundary
+
+The SLD expresses placement and the engineer's explicit associations.
+Core ConnectivityResolver validates terminal-to-terminal SimpleWire
+components and Bus attachments. The analysis Branch identity remains the
+source of branch-current results. Measurement conversion consumes that
+explicit Branch result only after the CT-to-Branch association has been
+validated. No SLD graphics, coordinates, or symbol anchors are used as
+electrical truth.
