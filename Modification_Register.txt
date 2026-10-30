@@ -14860,6 +14860,9 @@ Engineering boundaries:
       Study IDs are restored into typed immutable configuration objects.
     - Project load rejects coordination scenarios whose referenced
       Short-Circuit Study Case is missing or is not of short_circuit type.
+      It also rejects primary/backup function references absent from the
+      project's persisted protection configuration or not configured as
+      ANSI 51/51N.
     - Persistence reuses the existing Study Case collection and the existing
       transactional project save/load activation path; no parallel registry
       or sidecar file was introduced.
