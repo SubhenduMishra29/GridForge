@@ -1433,6 +1433,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 return
             rows = [
                 f"{point.scenario_id}: {point.status} | "
+                f"{point.primary_element_id} → {point.backup_element_id} | "
                 f"source={point.source_study_id or 'manual'} | "
                 f"Ip={point.primary_current:g} {point.primary_current_unit}, "
                 f"Ib={point.backup_current:g} {point.backup_current_unit}, "
