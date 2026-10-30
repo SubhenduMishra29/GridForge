@@ -148,6 +148,9 @@ class SynchronismDecision:
     mode: BusMode | None
     bypassed: bool = False
     authorization_id: str | None = None
+    bypass_authorized_by: str | None = None
+    bypass_reason: str | None = None
+    bypass_expires_at: float | None = None
 
 @dataclass(frozen=True, slots=True)
 class SynchronismCheckProjectConfiguration:
@@ -320,7 +323,11 @@ class SynchronismCheckGuard:
             except Exception:
                 auth=None
             if isinstance(auth,BypassAuthorization) and auth.valid(now):
-                decision=SynchronismDecision(True,breaker.id,tuple(reasons),mode,True,auth.authorization_id)
+                decision=SynchronismDecision(
+                    True, breaker.id, tuple(reasons), mode, True,
+                    auth.authorization_id, auth.authorized_by, auth.reason,
+                    auth.expires_at,
+                )
                 self._audit(decision); return decision
             reasons.append("ANSI25_BYPASS_UNAUTHORIZED_OR_EXPIRED")
         decision=SynchronismDecision(not reasons,breaker.id,tuple(reasons),mode)
@@ -395,6 +402,9 @@ class ProjectScopedSynchronismAuditSink:
             "mode": decision.mode.value if decision.mode is not None else None,
             "bypassed": decision.bypassed,
             "authorization_id": decision.authorization_id,
+            "bypass_authorized_by": decision.bypass_authorized_by,
+            "bypass_reason": decision.bypass_reason,
+            "bypass_expires_at": decision.bypass_expires_at,
         }
         payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
