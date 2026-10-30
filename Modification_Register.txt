@@ -15999,3 +15999,63 @@ Correction addendum (same audit pass):
       measurements. The current short-circuit CT generation path remains
       fail-closed until a typed branch-correlated residual-current quantity
       and binding identity are introduced.
+
+
+======================================================================
+
+2026-10-30 — Add SLD-derived, topology-validated CT measurement association
+----------------------------------------------------------------------------
+
+Files:
+    - core/measurement/ct_measurement_association.py
+    - core/application/services/sld_service.py
+    - core/application/application.py
+    - core/application/__init__.py
+    - Modification_Register.txt
+
+Design:
+    - Added an immutable Core CTMeasurementAssociation result carrying CT,
+      monitored branch, CT primary Bus endpoints, branch terminal Bus
+      endpoints, measurement side, current orientation sign, and project /
+      activation / topology provenance.
+    - Added CTMeasurementAssociationResolver. It reads the current canonical
+      TopologySnapshot and resolves CT P1/P2 terminal Bus attachments against
+      active Line, Cable, and Transformer FROM/TO terminal attachments.
+    - An unconfigured CT is accepted only when exactly one active branch has
+      the same ordered-or-reversed terminal Bus pair. Parallel-branch matches
+      fail with a diagnostic listing candidate IDs; no proximity or
+      graph-adjacency heuristic is used.
+    - The SLD Application service reads the engineer-authored
+      monitored_element_id property from the unique CT SLD node. When present,
+      Core verifies the selected element is active, fully connected, and has
+      the exact CT primary Bus pair. The SLD property is a selection hint;
+      Core topology remains authoritative.
+    - Application.resolve_ct_measurement_association(ct_id) exposes the
+      resolver against the active project's Network and SLD document.
+    - Exported the immutable association and controlled error types through
+      core.application.
+
+Electrical safeguards:
+    - CT P1/P2 must resolve to distinct Buses.
+    - A selected target must be a Line, Cable, or Transformer in service with
+      both terminal attachments resolved.
+    - A target whose terminal Bus pair does not match the CT primary pair is
+      rejected.
+    - The result reports whether CT P1 is on the branch FROM or TO side and
+      the sign required to orient branch FROM-current into the P1-to-P2
+      direction. CT physical polarity remains a separate instrument
+      conversion and must not be folded into this association sign.
+    - This resolver establishes branch identity only. It does not claim that
+      ShortCircuitBranchCurrent currently contains complete side-specific
+      transformer phasors, nor does it enable 50N/51N measurement generation
+      by itself.
+
+Verification:
+    - Source-level review confirms the resolver uses canonical topology
+      attachments, rejects missing / duplicate / ambiguous associations,
+      validates the SLD-selected branch, and exposes the result through
+      Application.
+    - No tests or CI run, per repository rules.
+    - The SLD property can be persisted through the existing node-properties
+      command contract; a dedicated inspector control and downstream
+      branch-side residual-current generation remain follow-up work.
