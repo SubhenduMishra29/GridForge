@@ -17,7 +17,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt,
     QChart, QChartView, QLineSeries, QLogValueAxis, QPainter,
 )
 from ui.plugins.panels_plugin import PanelSpec
