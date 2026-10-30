@@ -1145,6 +1145,125 @@ def _finite_or_positive_infinity(
     return result
 
 
+
+# =====================================================================
+# IDMT COORDINATION EVALUATION
+# =====================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class IDMTCoordinationPoint:
+    """One explicit primary/backup comparison at a common fault current."""
+
+    fault_current: float
+    primary_time: float
+    backup_time: float
+    grading_margin: float
+    coordinated: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class IDMTCoordinationResult:
+    """Immutable result of a primary/backup coordination sweep."""
+
+    points: tuple[IDMTCoordinationPoint, ...]
+    required_margin: float
+    status: str
+    worst_finite_margin: float | None
+
+    @property
+    def coordinated(self) -> bool:
+        return self.status == "COORDINATED"
+
+
+def evaluate_idmt_coordination(
+    *,
+    primary_pickup: float,
+    primary_curve: str,
+    primary_tms: float,
+    backup_pickup: float,
+    backup_curve: str,
+    backup_tms: float,
+    fault_currents: Iterable[float],
+    required_margin: float,
+) -> IDMTCoordinationResult:
+    """Evaluate explicit downstream-primary / upstream-backup IDMT pairs.
+
+    Each supplied current is applied to both curves. The grading margin is
+    backup operating time minus primary operating time. This is a numerical
+    comparison only: caller-supplied role assignments, fault scenarios,
+    current units, and acceptance margin are never inferred by Core.
+    """
+    def positive(value: float, name: str) -> float:
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be numeric, not boolean.")
+        try:
+            result = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be numeric.") from exc
+        if not isfinite(result) or result <= 0.0:
+            raise ValueError(f"{name} must be finite and positive.")
+        return result
+
+    primary_pickup = positive(primary_pickup, "primary_pickup")
+    backup_pickup = positive(backup_pickup, "backup_pickup")
+    primary_tms = positive(primary_tms, "primary_tms")
+    backup_tms = positive(backup_tms, "backup_tms")
+    if isinstance(required_margin, bool):
+        raise TypeError("required_margin must be numeric, not boolean.")
+    required_margin = _non_negative_float(required_margin, "required_margin")
+    primary_curve = normalize_iec_curve(primary_curve)
+    backup_curve = normalize_iec_curve(backup_curve)
+    if isinstance(fault_currents, (str, bytes)):
+        raise TypeError("fault_currents must be an iterable of numeric currents.")
+    try:
+        scenarios = tuple(fault_currents)
+    except TypeError as exc:
+        raise TypeError("fault_currents must be iterable.") from exc
+    if not scenarios:
+        raise ValueError("At least one explicit fault-current scenario is required.")
+
+    points: list[IDMTCoordinationPoint] = []
+    finite_margins: list[float] = []
+    violation = False
+    indeterminate = False
+    for index, raw_current in enumerate(scenarios):
+        current = positive(raw_current, f"fault_currents[{index}]")
+        primary_time = iec_time(current, primary_pickup, primary_curve, primary_tms)
+        backup_time = iec_time(current, backup_pickup, backup_curve, backup_tms)
+        if isinf(primary_time) and isinf(backup_time):
+            margin = float("nan")
+            coordinated = None
+            indeterminate = True
+        elif isinf(backup_time):
+            margin = inf
+            coordinated = True
+        elif isinf(primary_time):
+            margin = float("-inf")
+            coordinated = False
+            violation = True
+        else:
+            margin = backup_time - primary_time
+            coordinated = margin >= required_margin
+            finite_margins.append(margin)
+            violation = violation or not coordinated
+        points.append(IDMTCoordinationPoint(
+            fault_current=current,
+            primary_time=primary_time,
+            backup_time=backup_time,
+            grading_margin=margin,
+            coordinated=coordinated,
+        ))
+
+    status = "VIOLATION" if violation else ("INDETERMINATE" if indeterminate else "COORDINATED")
+    return IDMTCoordinationResult(
+        points=tuple(points),
+        required_margin=required_margin,
+        status=status,
+        worst_finite_margin=min(finite_margins) if finite_margins else None,
+    )
+
+
 # =====================================================================
 # PUBLIC API
 # =====================================================================
@@ -1172,4 +1291,7 @@ __all__ = [
     "current_multiple_for_time",
     "generate_tcc_points",
     "coordination_margin",
+    "IDMTCoordinationPoint",
+    "IDMTCoordinationResult",
+    "evaluate_idmt_coordination",
 ]
