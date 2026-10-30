@@ -15459,3 +15459,49 @@ Verification:
     Remote source/contract inspection only. No tests or CI run.
     Python syntax/import execution remains outstanding.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE D ELEMENT-SCOPED MEASUREMENT BINDINGS
+======================================================================
+
+Date:
+    2026-10-30
+
+Implemented:
+    - ProtectionMeasurementBinding now identifies the consuming
+      protection_element_id as well as the protection-local relay_input_id.
+    - Binding serialization stores the canonical source EndpointReference,
+      source equipment, physical instrument and ratio, channel, element and
+      RelayInput identity, and declared quantity mapping.
+    - ProtectionProjectConfiguration owns and persists the measurement
+      binding collection through to_dict/from_dict.
+    - Aggregate invariants reject duplicate binding IDs, duplicate
+      element/input associations, unknown protection elements, and bindings
+      whose channel differs from the configured element input.
+    - Element configuration replacement cannot silently invalidate an
+      existing binding; element removal is blocked while bindings remain.
+    - ProtectionConfigurationService adds transactional create/remove
+      operations and validates active element/input/channel references,
+      physical source equipment/terminal, instrument family and actual
+      physical instrument ratio.
+    - Live MeasurementChannel values and physical network state are not
+      changed by binding registration/removal.
+
+Still pending:
+    Branch-current source selection and conversion, CT P1/P2 direction
+    validation against the explicitly selected branch side, detached
+    scenario-specific measurement snapshots, and relay evaluation.
+
+Changed files:
+    core/protection/protection_measurement_binding.py
+    core/protection/project_configuration.py
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source inspection and static contract review only.
+    No tests or CI run. Python syntax/import execution not available through
+    the repository connector in this pass.
+======================================================================
