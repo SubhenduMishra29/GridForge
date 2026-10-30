@@ -1282,7 +1282,11 @@ class IDMTTCCWorkspaceWidget(QWidget):
 
         for model in snapshots:
             series = QLineSeries(self._chart)
-            series.setName(f"{model.display_name} [{model.function_code} {model.curve}, TMS={model.TMS:g}]")
+            unit_label = model.current_unit or "unit not declared"
+            series.setName(
+                f"{model.display_name} [{model.function_code} {model.curve}, "
+                f"TMS={model.TMS:g}, {unit_label}]"
+            )
             for point in model.points:
                 series.append(point.current, point.operating_time_s)
             self._chart.addSeries(series)
