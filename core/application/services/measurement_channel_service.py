@@ -233,9 +233,18 @@ class MeasurementChannelService:
         if not isinstance(terminal_data, Mapping):
             raise ValueError(f"MeasurementChannel '{channel_id}' requires a source_terminal EndpointReference mapping.")
         reference = self._endpoint_reference(terminal_data)
+        if reference.object_id != source_id:
+            raise ValueError(
+                f"MeasurementChannel '{channel_id}' source_terminal must belong to source '{source_id}'."
+            )
         source = network.get_by_identity(source_id)
         if getattr(source, "id", None) != source_id:
             raise ValueError(f"Measurement source '{source_id}' could not be resolved.")
+        source_type = str(getattr(source, "element_type", "")).strip().lower()
+        if reference.equipment_type.value != source_type:
+            raise ValueError(
+                f"MeasurementChannel '{channel_id}' source_terminal equipment type does not match source '{source_id}'."
+            )
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
         terminal = resolve_terminal_reference(context, reference)
