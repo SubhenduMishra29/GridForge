@@ -367,9 +367,9 @@ models, ratios, polarity and secondary measurement paths into detached
 scenario-specific MeasurementChannel/RelayInput samples. Therefore no relay
 pickup, operating time, trip decision, scheme target, or selectivity result is
 claimed for these fault scenarios. Live MeasurementChannel objects are never
-modified to inject simulated fault values. The next phase must implement and
-validate the instrument-to-measurement adapter and scenario-specific relay
-evaluation without weakening the Application measurement-snapshot authority.
+modified to inject simulated fault values. Phase D must implement and validate the instrument-to-measurement adapter
+and scenario-specific relay evaluation without weakening the Application
+measurement-snapshot authority.
 
 ### Phase C files
 
