@@ -9,6 +9,11 @@
 from __future__ import annotations
 
 from .application import Application
+from core.measurement.ct_measurement_association import (
+    CTMeasurementAssociation,
+    CTMeasurementAssociationAmbiguousError,
+    CTMeasurementAssociationError,
+)
 from .bootstrap import create_application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
@@ -57,6 +62,9 @@ from .services.validation_service import ValidationService
 
 __all__ = [
     "Application",
+    "CTMeasurementAssociation",
+    "CTMeasurementAssociationError",
+    "CTMeasurementAssociationAmbiguousError",
     "create_application",
     "ControlDiagnostic",
     "ControlCycleResult",
