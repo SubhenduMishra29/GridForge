@@ -143,8 +143,8 @@ class DifferentialProtectionResult:
 
 def evaluate_differential_scheme(
     scheme: DifferentialProtectionSchemeConfiguration,
-    settings: DifferentialProtectionSettings | None,
-    samples: Mapping[str, DifferentialCurrentSample],
+    settings: DifferentialProtectionSettings | None = None,
+    samples: Mapping[str, DifferentialCurrentSample] | None = None,
 ) -> DifferentialProtectionResult:
     """Evaluate a configured scheme without side effects or inferred topology."""
     if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
@@ -158,7 +158,7 @@ def evaluate_differential_scheme(
     if not scheme.enabled:
         raise ValueError("A disabled differential scheme cannot be evaluated.")
     if not isinstance(samples, Mapping):
-        raise TypeError("samples must be keyed by measurement binding ID.")
+        raise TypeError("samples must be a mapping keyed by measurement binding ID.")
 
     expected_ids = set(scheme.measurement_binding_ids)
     if set(samples) != expected_ids:
