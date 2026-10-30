@@ -326,6 +326,10 @@ class StudyService:
                 raise KeyError(f"No study handler registered for {request.study_type!r}.")
             if key in self._tokens:
                 raise ValueError(f"Study is already active: {request.study_id}")
+            # A rerun supersedes the prior result as soon as this execution is
+            # accepted. Never expose the previous completed value as though it
+            # belonged to the calculation now in progress.
+            self._results.pop(key, None)
             self._tokens[key] = token
             self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
 
