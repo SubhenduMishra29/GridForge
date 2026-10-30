@@ -70,6 +70,13 @@ class CoordinationStudyPair:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, _positive(value, name))
+        if (
+            self.primary_branch_id is not None
+            and self.primary_branch_id == self.backup_branch_id
+            and self.primary_branch_side is not None
+            and self.primary_branch_side == self.backup_branch_side
+        ):
+            raise ValueError("Primary and backup mappings cannot use the same branch side.")
 
 
 @dataclass(frozen=True, slots=True)
