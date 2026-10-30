@@ -217,10 +217,11 @@ class CoordinationResult:
         if self.coordinated:
             return 0.0
 
-        if math.isinf(
-            self.margin
-        ):
+        if self.margin == float("inf"):
             return 0.0
+
+        if self.margin == float("-inf"):
+            return float("inf")
 
         return max(
             0.0,
@@ -243,6 +244,8 @@ class CoordinationResult:
             "coordinated": self.coordinated,
             "primary_operates": self.primary_operates,
             "backup_operates": self.backup_operates,
+            "primary_fault_current": self.primary_fault_current,
+            "backup_fault_current": self.backup_fault_current,
             "required_additional_delay": (
                 self.required_additional_delay
             ),
