@@ -81,8 +81,9 @@ class SLDService:
         """Resolve a CT using its engineer-authored SLD monitored-element property.
 
         The SLD property is an explicit branch-selection hint, not electrical
-        authority. Core validates it against the CT primary terminal Bus pair
-        and the current authoritative TopologySnapshot.
+        authority. Core validates it against the CT primary terminal zones,
+        the currently conductive switching paths, and the authoritative
+        TopologySnapshot.
         """
         if not isinstance(ct_id, str) or not ct_id.strip():
             raise ValueError("ct_id must be a non-empty string.")
