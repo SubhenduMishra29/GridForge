@@ -15679,3 +15679,8 @@ Verification:
 - Updated PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md to remove the obsolete requirement that CT P1/P2 each resolve to distinct Bus IDs.
 - Scenario-specific detached RelayInput samples and ProtectionSystem evaluation remain outstanding.
 - No tests or CI were run. No syntax/import execution was performed.
+
+[2026-10-30] D2 secondary-channel provenance guard
+- CT branch-current scenario conversion now verifies that the MeasurementChannel's physical source identity matches the configured CT and that its source_terminal is exactly the resolved CT S1 or S2 terminal.
+- This keeps the primary P1/P2 SimpleWire orientation contract separate from the secondary S1/S2 measurement circuit contract.
+- No MeasurementChannel values or live sample metadata are modified.
