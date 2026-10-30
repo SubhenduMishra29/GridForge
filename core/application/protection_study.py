@@ -7,10 +7,10 @@
 """Typed Protection Study configuration, result, and StudyService handler.
 
 The handler supports either one coherent live measurement-snapshot evaluation
-or explicit short-circuit fault-scenario calculations from a detached project
-snapshot. Fault scenarios are not yet converted into scenario-specific CT/PT/CVT
-measurement samples for relay evaluation. The Study never dispatches trip
-commands or mutates breaker state.
+or explicit short-circuit fault scenarios converted through configured
+instrument/channel bindings into detached Application-authorized RelayInput
+snapshots. Unsupported instrument/result paths fail closed. The Study never
+dispatches trip commands or mutates breaker state.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ from core.analysis.short_circuit import ShortCircuitAnalysis
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult, ShortCircuitStatus
+from core.network import CTMeasurementAssociationResolver
+from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementAdapter
 
 from core.application.protection_execution import ProtectionExecutionResult
 from core.application.revision import ProjectRevision
@@ -73,6 +75,7 @@ class ProtectionFaultScenarioResult:
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
     short_circuit_result: ShortCircuitResult
+    execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -82,6 +85,8 @@ class ProtectionFaultScenarioResult:
             raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
         if not isinstance(self.short_circuit_result, ShortCircuitResult):
             raise TypeError("short_circuit_result must be a ShortCircuitResult.")
+        if not isinstance(self.execution, ProtectionExecutionResult):
+            raise TypeError("execution must be a ProtectionExecutionResult.")
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -269,11 +274,21 @@ class ProtectionStudyResult:
 
     @property
     def decisions(self) -> tuple[ProtectionDecision, ...]:
-        return self.execution.decisions
+        scenario_decisions = tuple(
+            decision
+            for scenario in self.fault_scenarios
+            for decision in scenario.execution.decisions
+        )
+        return self.execution.decisions + scenario_decisions
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return self.execution.diagnostics
+        scenario_diagnostics = tuple(
+            f"scenario={scenario.scenario_id!r}: {message}"
+            for scenario in self.fault_scenarios
+            for message in scenario.execution.diagnostics
+        )
+        return self.execution.diagnostics + scenario_diagnostics
 
     @property
     def status(self) -> str:
@@ -283,11 +298,16 @@ class ProtectionStudyResult:
             not item.success
             or item.status is not ShortCircuitStatus.COMPLETE
             or not item.measurement_contributions_complete
+            or bool(item.execution.diagnostics)
             for item in self.fault_scenarios
         ):
             return "partial"
         if self.fault_scenarios and not self.measurement_snapshot_evaluated:
-            return "fault_scenarios_calculated"
+            return (
+                "evaluated"
+                if any(item.execution.decisions for item in self.fault_scenarios)
+                else "fault_scenarios_calculated"
+            )
         return "evaluated" if self.measurement_snapshot_evaluated else "not_evaluated"
 
 
@@ -370,10 +390,80 @@ class ProtectionStudyHandler:
                         f"Protection fault scenario {scenario.scenario_id!r} returned mismatched "
                         f"short-circuit {provenance_key} provenance."
                     )
+            if cancellation.cancelled:
+                return None
+
+            sample_adapter = ProtectionScenarioMeasurementAdapter()
+            ct_associations: dict[str, Any] = {}
+            scenario_samples = []
+            conversion_diagnostics: list[str] = []
+            measurement_service = application.measurement_channel_service
+            configured_elements = {
+                item.element_id: item
+                for item in active_configuration.elements
+                if item.enabled
+            }
+            for binding in active_configuration.measurement_bindings:
+                if binding.protection_element_id not in configured_elements:
+                    continue
+                prefix = (
+                    f"element={binding.protection_element_id!r}, "
+                    f"input={binding.relay_input_id!r}, binding={binding.binding_id!r}"
+                )
+                try:
+                    if binding.measurement_type.strip().lower() != "current":
+                        raise ValueError(
+                            "Scenario voltage conversion is not implemented; PT/CVT samples are not inferred."
+                        )
+                    channel = measurement_service.require(binding.channel_id)
+                    instrument = detached_network.get_by_identity(binding.instrument_id)
+                    if binding.instrument_id not in ct_associations:
+                        ct_associations[binding.instrument_id] = CTMeasurementAssociationResolver(
+                            detached_network
+                        ).resolve(instrument)
+                    scenario_samples.append(sample_adapter.convert_branch_ct_sample(
+                        scenario_id=scenario.scenario_id,
+                        binding=binding,
+                        result=short_circuit_result,
+                        instrument=instrument,
+                        channel=channel,
+                        ct_association=ct_associations[binding.instrument_id],
+                    ))
+                except Exception as exc:
+                    conversion_diagnostics.append(
+                        f"{prefix}: scenario measurement conversion refused: {type(exc).__name__}: {exc}"
+                    )
+
+            if cancellation.cancelled:
+                return None
+            if conversion_diagnostics:
+                scenario_execution = ProtectionExecutionResult(
+                    diagnostics=tuple(conversion_diagnostics)
+                )
+            else:
+                scenario_execution = application.evaluate_protection_scenario(
+                    scenario_id=scenario.scenario_id,
+                    samples=tuple(scenario_samples),
+                    evaluation_time=configuration.evaluation_time,
+                    evaluation_timestep=configuration.timestep,
+                    event_id=configuration.event_id,
+                    event_type=configuration.event_type,
+                    supervision=configuration.supervision,
+                    evaluation_metadata={
+                        **dict(configuration.metadata),
+                        "study_id": str(request.study_id),
+                        "study_type": "protection",
+                        "scenario_id": scenario.scenario_id,
+                        "source_model_revision": request.source_revision.model_revision,
+                        "source_topology_revision": request.source_revision.topology_revision,
+                    },
+                    network_state=execution_context.topology_snapshot,
+                )
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
                 short_circuit_result=short_circuit_result,
+                execution=scenario_execution,
             ))
             if cancellation.cancelled:
                 return None
