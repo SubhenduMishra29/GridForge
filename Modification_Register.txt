@@ -15627,3 +15627,34 @@ Disposition:
     - TCC remains an Application read-only projection; event subscriptions
       do not mutate engineering state or calculate protection results.
 
+
+
+
+======================================================================
+
+2026-10-30 — Clear stale TCC projections on project deactivation/read failure
+----------------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - ProjectClosed now clears the chart, curve snapshots, Short-Circuit
+      result selector/cache, coordination pair list, branch selectors and
+      selected current-unit projections.
+    - A failed curve refresh clears the previous project projection instead
+      of leaving stale relay curves or operating points visible.
+    - ProjectLoaded and ProtectionChanged continue to refresh from the
+      Application read boundary.
+    - This is presentation invalidation only; no engineering state is changed.
+
+Verification:
+    - Source-level anchor and branch update verified.
+    - No tests or CI run, per repository rules.
+    - Qt runtime event delivery and project-switch behavior remain unverified.
+
+Disposition:
+    - TCC data is not retained visually after its owning project is closed
+      or its current Application read snapshot becomes unavailable.
+
