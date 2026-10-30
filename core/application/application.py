@@ -2609,6 +2609,17 @@ class Application:
         configuration = request.configuration.get("configuration")
         if not isinstance(configuration, CoordinationStudyConfiguration):
             raise TypeError("protection_coordination request requires CoordinationStudyConfiguration.")
+        runtime = getattr(self, "protection_runtime", None)
+        if (
+            runtime is None
+            or runtime.project_id != execution_context.project_id
+            or runtime.activation_generation != execution_context.activation_generation
+            or not runtime.configuration_matches_composition
+        ):
+            raise RuntimeError(
+                "Protection runtime is unavailable, stale, or belongs to another project activation; "
+                "coordination execution is refused."
+            )
         curves = self.read_idmt_curves()
         referenced_ids = {
             identity
