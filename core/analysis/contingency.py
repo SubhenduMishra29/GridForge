@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from math import isfinite
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Callable
 import copy
 
 from core.analysis.power_flow import PowerFlowAnalysis
@@ -80,21 +81,31 @@ class ContingencyAnalysis:
         voltage_min: float = 0.95,
         voltage_max: float = 1.05,
         thermal_limit: float = 100.0,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> ContingencyResult:
+        if should_cancel is not None and not callable(should_cancel):
+            raise TypeError("should_cancel must be callable or None.")
         self._validate_limits(voltage_min=voltage_min, voltage_max=voltage_max, thermal_limit=thermal_limit)
         if self.power_flow_configuration is None:
             raise ValueError("ContingencyAnalysis requires a PowerFlowStudyConfiguration to execute power-flow based contingency cases.")
         cases = self.prepare(elements=elements, contingency_type=contingency_type, element_types=element_types)
-        result = self.post_process([
-            self._run_case(
-                outages=outages,
-                power_flow_options=power_flow_options,
-                voltage_min=voltage_min,
-                voltage_max=voltage_max,
-                thermal_limit=thermal_limit,
+        case_results: list[ContingencyCaseResult] = []
+        for outages in cases:
+            if should_cancel is not None and should_cancel():
+                break
+            case_results.append(
+                self._run_case(
+                    outages=outages,
+                    power_flow_options=power_flow_options,
+                    voltage_min=voltage_min,
+                    voltage_max=voltage_max,
+                    thermal_limit=thermal_limit,
+                    should_cancel=should_cancel,
+                )
             )
-            for outages in cases
-        ])
+            if should_cancel is not None and should_cancel():
+                break
+        result = self.post_process(case_results)
         self._result = result
         return result
 
@@ -120,6 +131,7 @@ class ContingencyAnalysis:
         voltage_min: float,
         voltage_max: float,
         thermal_limit: float,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> ContingencyCaseResult:
         power_flow_result = None
         success = False
@@ -139,7 +151,7 @@ class ContingencyAnalysis:
                 topology_snapshot=case_snapshot,
             )
             power_flow = PowerFlowAnalysis(prepared.input, prepared.ybus, options=power_flow_options, prepared=prepared)
-            power_flow_result = power_flow.solve()
+            power_flow_result = power_flow.solve(should_cancel=should_cancel)
             success = bool(power_flow_result.success)
             converged = bool(power_flow_result.success)
             if not success:
