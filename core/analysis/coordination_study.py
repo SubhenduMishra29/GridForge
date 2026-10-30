@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from core.protection.coordination.relay_coordination import (
     CoordinationResult,
@@ -51,22 +52,38 @@ class CoordinationStudyPair:
 
 
 @dataclass(frozen=True, slots=True)
+class CoordinationRelayCurrent:
+    """One explicit relay-input current value and engineering unit."""
+
+    current: float
+    current_unit: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "current", _positive(self.current, "current"))
+        object.__setattr__(self, "current_unit", _identity(self.current_unit, "current_unit"))
+
+
+@dataclass(frozen=True, slots=True)
 class CoordinationFaultScenario:
-    """Explicit relay-input currents for one named fault scenario."""
+    """Explicit relay-input currents for each protection function in a scenario."""
 
     scenario_id: str
-    primary_current: float
-    backup_current: float
-    primary_current_unit: str
-    backup_current_unit: str
+    currents_by_element_id: Mapping[str, CoordinationRelayCurrent]
     fault_location_id: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scenario_id", _identity(self.scenario_id, "scenario_id"))
-        object.__setattr__(self, "primary_current", _positive(self.primary_current, "primary_current"))
-        object.__setattr__(self, "backup_current", _positive(self.backup_current, "backup_current"))
-        object.__setattr__(self, "primary_current_unit", _identity(self.primary_current_unit, "primary_current_unit"))
-        object.__setattr__(self, "backup_current_unit", _identity(self.backup_current_unit, "backup_current_unit"))
+        if not isinstance(self.currents_by_element_id, Mapping) or not self.currents_by_element_id:
+            raise ValueError("currents_by_element_id must be a non-empty mapping.")
+        currents: dict[str, CoordinationRelayCurrent] = {}
+        for element_id, value in self.currents_by_element_id.items():
+            identity = _identity(element_id, "currents_by_element_id key")
+            if not isinstance(value, CoordinationRelayCurrent):
+                raise TypeError("currents_by_element_id values must be CoordinationRelayCurrent.")
+            if identity in currents:
+                raise ValueError(f"Duplicate current record for protection function {identity!r}.")
+            currents[identity] = value
+        object.__setattr__(self, "currents_by_element_id", MappingProxyType(currents))
         if not isinstance(self.fault_location_id, str):
             raise TypeError("fault_location_id must be a string.")
         if self.fault_location_id:
@@ -95,6 +112,18 @@ class CoordinationStudyConfiguration:
         scenario_ids = [item.scenario_id for item in scenarios]
         if len(set(scenario_ids)) != len(scenario_ids):
             raise ValueError("Coordination scenario IDs must be unique.")
+        required_elements = {
+            identity
+            for pair in pairs
+            for identity in (pair.primary_element_id, pair.backup_element_id)
+        }
+        for scenario in scenarios:
+            missing_currents = sorted(required_elements.difference(scenario.currents_by_element_id))
+            if missing_currents:
+                raise ValueError(
+                    f"Scenario {scenario.scenario_id!r} lacks relay-input currents for: "
+                    + ", ".join(missing_currents)
+                )
         if isinstance(self.required_cti_s, bool):
             raise TypeError("required_cti_s must be numeric, not boolean.")
         cti = float(self.required_cti_s)
@@ -131,6 +160,8 @@ class CoordinationStudyPointResult:
         cls,
         result: CoordinationResult,
         scenario: CoordinationFaultScenario,
+        primary_input: CoordinationRelayCurrent,
+        backup_input: CoordinationRelayCurrent,
     ) -> "CoordinationStudyPointResult":
         if not result.primary_operates:
             status = "NOT_APPLICABLE"
@@ -145,10 +176,10 @@ class CoordinationStudyPointResult:
             backup_element_id=str(result.backup),
             scenario_id=scenario.scenario_id,
             fault_location_id=scenario.fault_location_id,
-            primary_current=scenario.primary_current,
-            backup_current=scenario.backup_current,
-            primary_current_unit=scenario.primary_current_unit,
-            backup_current_unit=scenario.backup_current_unit,
+            primary_current=primary_input.current,
+            backup_current=backup_input.current,
+            primary_current_unit=primary_input.current_unit,
+            backup_current_unit=backup_input.current_unit,
             primary_time_s=result.primary_time,
             backup_time_s=result.backup_time,
             margin_s=result.margin,
@@ -156,6 +187,7 @@ class CoordinationStudyPointResult:
             status=status,
             required_additional_backup_delay_s=result.required_additional_delay,
         )
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +309,8 @@ def execute_coordination_study(
         for scenario in configuration.scenarios:
             if cancellation_token is not None and cancellation_token.cancelled:
                 break
+            primary_input = scenario.currents_by_element_id[pair.primary_element_id]
+            backup_input = scenario.currents_by_element_id[pair.backup_element_id]
             primary_unit = curve_models[pair.primary_element_id].current_unit
             backup_unit = curve_models[pair.backup_element_id].current_unit
             if primary_unit is None or backup_unit is None:
@@ -284,25 +318,29 @@ def execute_coordination_study(
                     "Coordination requires explicit current_unit/pickup_unit on both "
                     f"relay settings: {pair.primary_element_id!r}, {pair.backup_element_id!r}."
                 )
-            if scenario.primary_current_unit != primary_unit:
+            if primary_input.current_unit != primary_unit:
                 raise ValueError(
-                    f"Scenario {scenario.scenario_id!r} primary current unit "
-                    f"{scenario.primary_current_unit!r} does not match configured "
+                    f"Scenario {scenario.scenario_id!r} current unit "
+                    f"{primary_input.current_unit!r} does not match configured "
                     f"unit {primary_unit!r} for {pair.primary_element_id!r}."
                 )
-            if scenario.backup_current_unit != backup_unit:
+            if backup_input.current_unit != backup_unit:
                 raise ValueError(
-                    f"Scenario {scenario.scenario_id!r} backup current unit "
-                    f"{scenario.backup_current_unit!r} does not match configured "
+                    f"Scenario {scenario.scenario_id!r} current unit "
+                    f"{backup_input.current_unit!r} does not match configured "
                     f"unit {backup_unit!r} for {pair.backup_element_id!r}."
                 )
             result = engine.check_pair_currents(
                 primary=primary,
                 backup=backup,
-                primary_fault_current=scenario.primary_current,
-                backup_fault_current=scenario.backup_current,
+                primary_fault_current=primary_input.current,
+                backup_fault_current=backup_input.current,
             )
-            points.append(CoordinationStudyPointResult.from_engine_result(result, scenario))
+            points.append(
+                CoordinationStudyPointResult.from_engine_result(
+                    result, scenario, primary_input, backup_input
+                )
+            )
         if cancellation_token is not None and cancellation_token.cancelled:
             break
     if cancellation_token is not None and cancellation_token.cancelled:
@@ -322,6 +360,7 @@ def execute_coordination_study(
 
 __all__ = [
     "CoordinationStudyPair",
+    "CoordinationRelayCurrent",
     "CoordinationFaultScenario",
     "CoordinationStudyConfiguration",
     "CoordinationStudyPointResult",
