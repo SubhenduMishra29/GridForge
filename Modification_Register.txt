@@ -14853,9 +14853,16 @@ Engineering boundaries:
       Short-Circuit sourced coordination fails closed. A caller-supplied
       prebuilt SequenceNetwork without matching base_mva provenance also
       disables per-unit to ampere conversion.
-    - Study Case definitions follow the existing Application StudyService
-      lifecycle; project-file persistence of Study Cases and durable
-      coordination-pair settings is not introduced in this increment.
+    - Coordination Study Case definitions now serialize into canonical
+      project.json using a typed protection_coordination payload. Pair
+      identities, branch IDs/sides, conversion scales, CTI, scenario IDs,
+      manual relay currents/units, fault locations, and Short-Circuit source
+      Study IDs are restored into typed immutable configuration objects.
+    - Project load rejects coordination scenarios whose referenced
+      Short-Circuit Study Case is missing or is not of short_circuit type.
+    - Persistence reuses the existing Study Case collection and the existing
+      transactional project save/load activation path; no parallel registry
+      or sidecar file was introduced.
     - The UI currently authors one pair per run; the Core/Application
       configuration supports multiple pairs and scenarios.
     - The TCC overlay refuses mixed or undeclared current units; curves are
@@ -14870,7 +14877,7 @@ Verification:
 Disposition:
     - Implemented manual and Short-Circuit sourced coordination Study Case
       execution with explicit relay/branch mapping and current conversion.
-    - Issue #868 remains open for project-file persistence of coordination
-      Study Cases/pairs and runtime verification. No production-ready claim.
+    - Issue #868 remains open for runtime verification, multi-pair UI authoring,
+      and end-to-end engineering validation. No production-ready claim.
 
 ======================================================================
