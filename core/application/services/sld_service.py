@@ -16,6 +16,7 @@ from ..command import Command
 from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
+from core.measurement.ct_measurement_association import CTMeasurementAssociation, CTMeasurementAssociationResolver
 from ui.sld.sld_model import SLDEndpoint
 
 
@@ -71,6 +72,42 @@ class SLDService:
     @property
     def is_bound(self) -> bool:
         return self._document is not None
+
+    def resolve_ct_measurement_association(
+        self,
+        network: Any,
+        ct_id: str,
+    ) -> CTMeasurementAssociation:
+        """Resolve a CT using its engineer-authored SLD monitored-element property.
+
+        The SLD property is an explicit branch-selection hint, not electrical
+        authority. Core validates it against the CT primary terminal Bus pair
+        and the current authoritative TopologySnapshot.
+        """
+        if not isinstance(ct_id, str) or not ct_id.strip():
+            raise ValueError("ct_id must be a non-empty string.")
+        matches = tuple(
+            node for node in self.document.model.nodes
+            if str(getattr(node, "equipment_id", "") or "") == ct_id.strip()
+        )
+        if not matches:
+            raise ValueError(f"No SLD node is bound to CT {ct_id!r}.")
+        if len(matches) != 1:
+            raise ValueError(
+                f"CT {ct_id!r} has {len(matches)} SLD nodes; measurement association requires one unambiguous node."
+            )
+        properties = getattr(matches[0], "properties", {})
+        monitored_element_id = properties.get("monitored_element_id")
+        if monitored_element_id is not None and (
+            not isinstance(monitored_element_id, str) or not monitored_element_id.strip()
+        ):
+            raise ValueError(
+                f"CT {ct_id!r} SLD property 'monitored_element_id' must be a non-empty string."
+            )
+        return CTMeasurementAssociationResolver(network).resolve(
+            ct_id.strip(),
+            monitored_element_id=monitored_element_id,
+        )
 
     def bind_document(self, document: Any) -> None:
         """Bind only the Application-authoritative active presentation document."""
