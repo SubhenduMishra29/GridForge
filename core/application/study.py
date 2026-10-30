@@ -230,10 +230,15 @@ StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationT
 class StudyService:
     """Single Application-owned study execution/orchestration boundary."""
 
-    def __init__(self, event_bus: ApplicationEventBus) -> None:
+    def __init__(self, event_bus: ApplicationEventBus, *, publication_lock: Any | None = None) -> None:
         if not isinstance(event_bus, ApplicationEventBus):
             raise TypeError("event_bus must be an ApplicationEventBus.")
+        if publication_lock is not None and not callable(getattr(publication_lock, "__enter__", None)):
+            raise TypeError("publication_lock must be a context manager or None.")
+        if publication_lock is not None and not callable(getattr(publication_lock, "__exit__", None)):
+            raise TypeError("publication_lock must be a context manager or None.")
         self._event_bus = event_bus
+        self._publication_lock = publication_lock
         self._handlers: dict[str, StudyHandler] = {}
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
@@ -296,7 +301,13 @@ class StudyService:
             del self._handlers[key]
             return True
 
-    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
+    def execute(
+        self,
+        request: StudyRequest,
+        execution_context: StudyExecutionContext,
+        *,
+        publication_guard: Callable[[], bool] | None = None,
+    ) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
         if not isinstance(execution_context, StudyExecutionContext):
@@ -305,6 +316,8 @@ class StudyService:
             raise ValueError("Study execution context does not match StudyRequest scope.")
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
+        if publication_guard is not None and not callable(publication_guard):
+            raise TypeError("publication_guard must be callable or None.")
         key = (request.project_id, request.activation_generation, request.study_id)
         token = StudyCancellationToken()
         with self._lock:
@@ -319,36 +332,71 @@ class StudyService:
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = handler(request, execution_context, token)
-            # Completion and cancellation compete under the same lock used by
-            # cancel(). Whichever obtains the lock first determines the
-            # terminal result; a late cancellation is rejected.
-            with self._lock:
-                cancelled = token.finish()
+            # Serialize the final freshness check, result registration, and
+            # terminal event against Application command mutations. Numerical
+            # work remains concurrent and never holds this lock.
+            publication_scope = self._publication_lock
+            if publication_scope is None:
+                from contextlib import nullcontext
+                publication_scope = nullcontext()
+            with publication_scope:
+                with self._lock:
+                    cancelled = token.finish()
+                    stale = (
+                        not cancelled
+                        and publication_guard is not None
+                        and not publication_guard()
+                    )
+                    if cancelled:
+                        result = StudyResult(
+                            study_id=request.study_id,
+                            project_id=request.project_id,
+                            activation_generation=request.activation_generation,
+                            source_revision=request.source_revision,
+                            study_type=request.study_type,
+                            status="cancelled",
+                            message="Study cancelled.",
+                        )
+                    elif stale:
+                        message = (
+                            "Study inputs changed before result publication; "
+                            "the calculated value was discarded."
+                        )
+                        result = StudyResult(
+                            study_id=request.study_id,
+                            project_id=request.project_id,
+                            activation_generation=request.activation_generation,
+                            source_revision=request.source_revision,
+                            study_type=request.study_type,
+                            status="failed",
+                            message=message,
+                            metadata={"failure_reason": "stale_source"},
+                        )
+                    else:
+                        result = StudyResult(
+                            study_id=request.study_id,
+                            project_id=request.project_id,
+                            activation_generation=request.activation_generation,
+                            source_revision=request.source_revision,
+                            study_type=request.study_type,
+                            status="completed",
+                            value=value,
+                        )
+                    self._results[key] = result
                 if cancelled:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="cancelled",
-                        message="Study cancelled.",
+                    self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+                elif stale:
+                    self._event_bus.publish(
+                        StudyFailed(
+                            metadata=self._event_metadata(
+                                request,
+                                status="failed",
+                                error=result.message,
+                            )
+                        )
                     )
                 else:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="completed",
-                        value=value,
-                    )
-                self._results[key] = result
-            if cancelled:
-                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
-            else:
-                self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
+                    self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
         except Exception as exc:
             # A cancellation request may race with a solver exception. Resolve
