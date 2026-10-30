@@ -51,6 +51,16 @@ from core.analysis.contingency import (
     ContingencyViolation,
 )
 
+from .coordination_study import (
+    CoordinationStudyPair,
+    CoordinationRelayCurrent,
+    CoordinationFaultScenario,
+    CoordinationStudyConfiguration,
+    CoordinationStudyPointResult,
+    CoordinationStudyResult,
+    execute_coordination_study,
+)
+
 __all__ = [
     "PowerFlowAnalysis",
     "PowerFlowStudyConfiguration",
@@ -84,4 +94,11 @@ __all__ = [
     "ContingencyResult",
     "ContingencyCaseResult",
     "ContingencyViolation",
+    "CoordinationStudyPair",
+    "CoordinationRelayCurrent",
+    "CoordinationFaultScenario",
+    "CoordinationStudyConfiguration",
+    "CoordinationStudyPointResult",
+    "CoordinationStudyResult",
+    "execute_coordination_study",
 ]

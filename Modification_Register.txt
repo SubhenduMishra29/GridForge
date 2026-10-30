@@ -15204,3 +15204,865 @@ Disposition:
     update this register; do not revive superseded architecture paths.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-IDMT-TCC-001 — IEC IDMT coordination and TCC workspace
+======================================================================
+
+Date:
+    2026-10-30
+
+Issue:
+    #868
+
+Scope:
+    - Existing IEC 60255 inverse-time equations and IEC SI/VI/EI curve
+      constants in core.protection.relay_functions were audited and retained.
+    - Existing generate_tcc_points() remains the canonical numerical TCC
+      point generator; no duplicate formula engine was introduced.
+    - Reused the existing core.protection.coordination.RelayCoordination
+      engine for primary/backup and multi-point CTI evaluation; no parallel
+      coordination engine or duplicate policy was retained.
+    - Reconciled legacy TCCCurve.calculate_time() to delegate to the shared
+      relay_functions IEC equation, retaining its legacy curve names and
+      zero-TMS compatibility behaviour.
+    - Added immutable IDMTCurvePointReadModel / IDMTCurveReadModel,
+      generated from persisted ANSI 51/51N settings.
+    - Added Application.read_idmt_curves() as the UI-neutral read boundary.
+    - Added the Protection TCC Coordination default panel with logarithmic
+      current/time axes and multi-curve overlays. Refresh reads snapshots
+      through Application; the chart does not calculate protection or
+      mutate settings/network state.
+
+Engineering boundaries:
+    - Current values retain the relay-input engineering convention; no
+      unsupported primary/secondary CT conversion or unit assumption is made.
+    - Primary/backup roles, fault-current scenarios, and required grading
+      margin must be explicitly supplied by the caller.
+    - Backup non-pickup is INDETERMINATE, not a false coordination pass.
+    - ANSI 51/51N catalog status is unchanged; chart availability does not
+      establish production protection coordination or scheme completeness.
+    - The issue's claim that all IDMT mathematics are absent is inaccurate:
+      IEC equations, inverse solution, TCC point generation, and primary/backup
+      CTI coordination pre-existed. This change consolidates the legacy TCC
+      adapter on the canonical equation and adds the missing Application
+      read-model and log-log workspace.
+
+Verification:
+    - Source changes committed on feature/issue-868-idmt-tcc-workspace.
+    - No tests or CI run, per repository rule.
+    - Python syntax/import, PySide6 runtime chart rendering, curve overlay
+      interaction, and relay-coordination engineering validation remain
+      unverified and are not claimed complete.
+
+Disposition:
+    - Keep issue #868 open pending source/runtime verification and review of
+      project-level primary/backup relationship configuration and scenario
+      provenance. No production-ready claim.
+
+======================================================================
+
+
+======================================================================
+GF-PROT-IDMT-WORKFLOW-002 — Application coordination Study Case workflow
+======================================================================
+
+Date:
+    2026-10-30
+
+Issue:
+    #868
+
+Scope:
+    - Added immutable CoordinationStudyPair, CoordinationRelayCurrent,
+      CoordinationFaultScenario, CoordinationStudyConfiguration,
+      CoordinationStudyPointResult, and CoordinationStudyResult contracts
+      in core/analysis. Each scenario maps current values and units by
+      protection-function identity, so multi-pair studies do not reuse one
+      pair's currents for another pair.
+    - Added RelayCoordination.check_pair_currents() so primary and backup
+      protection functions are evaluated at their independently supplied
+      relay-input currents. The existing common-current check_pair() API
+      delegates to this method and retains its prior call contract.
+    - ShortCircuitInput now carries optional explicit base_mva and per-bus
+      nominal voltage bases. ShortCircuitBranchCurrent retains its per-unit
+      current and carries from/to side ampere bases when the required source
+      data is available. ShortCircuitAnalysis propagates configured base_mva.
+    - CoordinationFaultScenario can consume a completed Short-Circuit Study
+      result by study ID. The Application resolves only current, completed
+      same-project StudyResultReadModel values; the Core verifies result
+      project/generation/topology provenance and complete branch coverage.
+    - CoordinationStudyPair requires explicit primary/backup branch IDs,
+      from/to sides, and per-relay scale factors for Short-Circuit sourced
+      scenarios. Each branch pu magnitude is converted to side-specific
+      primary amperes, then scaled into the relay's declared input unit.
+    - TCC workspace can select a completed Short-Circuit Study, map the
+      primary/backup branches and sides, provide conversion scales, run the
+      coordination Study Case, and display the source Study ID with CTI rows.
+    - Corrected required_additional_delay for a backup non-operation result:
+      negative-infinite margin now yields infinite required delay rather
+      than incorrectly returning zero.
+    - Registered protection_coordination with Application StudyService.
+      Coordination cases pass the existing project activation, source
+      revision, topology snapshot, project validation, cancellation, and
+      StudyCompleted/StudyFailed lifecycle.
+    - Added Application create_protection_coordination_study_case(),
+      read_protection_coordination_results(), and the project-scoped
+      execution handler.
+    - Execution uses immutable ANSI 51/51N curve read models and the
+      canonical RelayCoordination engine. Explicit pair identities and
+      per-scenario primary/backup relay-input currents are mandatory.
+    - Physical Relay in_service/enabled/blocked state and ProtectionFunction
+      enabled/blocked state are checked before calculation.
+    - Added current_unit to IECOvercurrentSettings and persisted relay
+      function settings. Coordination refuses to run unless each scenario
+      unit exactly matches the configured unit for the respective function.
+    - Added a UI workflow to select one primary and one backup ANSI 51/51N
+      function, choose manual relay currents or a completed Short-Circuit
+      Study, map primary/backup branches and sides, provide current scales,
+      set CTI, execute a Study Case, and display CTI margins and violations.
+    - Study results are read back through Application StudyResultReadModel
+      and are rejected for display if stale against active project revision.
+
+Engineering boundaries:
+    - Manual scenarios use explicit relay-input current values. Short-Circuit
+      sourced scenarios use the canonical per-unit branch-current records,
+      their explicit from/to side ampere bases, and engineer-supplied relay
+      current scales.
+    - Primary/backup relationships, branch mappings, branch sides, and CT
+      conversion scales are never inferred from SLD topology or adjacency.
+    - If ShortCircuitStudyConfiguration.base_mva or a branch-side nominal
+      bus voltage is unavailable, the result carries no ampere base and
+      Short-Circuit sourced coordination fails closed. A caller-supplied
+      prebuilt SequenceNetwork without matching base_mva provenance also
+      disables per-unit to ampere conversion.
+    - Coordination Study Case definitions now serialize into canonical
+      project.json using a typed protection_coordination payload. Pair
+      identities, branch IDs/sides, conversion scales, CTI, scenario IDs,
+      manual relay currents/units, fault locations, and Short-Circuit source
+      Study IDs are restored into typed immutable configuration objects.
+    - Project load rejects coordination scenarios whose referenced
+      Short-Circuit Study Case is missing or is not of short_circuit type.
+      It also rejects primary/backup function references absent from the
+      project's persisted protection configuration or not configured as
+      ANSI 51/51N.
+    - Persistence reuses the existing Study Case collection and the existing
+      transactional project save/load activation path; no parallel registry
+      or sidecar file was introduced.
+    - The TCC workspace now supports explicit multi-pair authoring: each
+      added pair snapshots its own primary/backup identities and either its
+      manual relay-input current series/units or Short-Circuit branch IDs,
+      sides, and conversion scales. Pairs can be removed before execution.
+    - Manual multi-pair scenarios are assembled by scenario index; all pairs
+      must provide the same scenario count and fault location. Shared relay
+      function identities must have identical current/unit inputs, otherwise
+      authoring fails closed. Short-Circuit pairs must reference one completed
+      source Study Case in a single coordination Study Case.
+    - The workspace refuses execution until at least one pair is explicitly
+      added; no implicit or inferred pair mapping is introduced. Result rows
+      identify the primary and backup protection-function IDs so multi-pair
+      scenario results remain attributable to their evaluated pair.
+    - Application Study Case creation now validates every Short-Circuit source
+      against a registered Short-Circuit Study Case and a current, completed
+      canonical ShortCircuitResult before registration. Manual relay-input
+      units are checked against each referenced protection function's declared
+      current unit before a runnable Study Case is created.
+    - Project persistence applies symmetric coordination-reference validation
+      on save and load. It rejects missing protection-function definitions,
+      non-ANSI-51/51N references, and missing/non-Short-Circuit source Study
+      Cases before writing or activating a project package.
+    - Coordination result reads now expose only completed, current typed
+      CoordinationStudyResult payloads; failed, cancelled, stale, or malformed
+      results are not presented as completed coordination results.
+    - The TCC overlay refuses mixed or undeclared current units; curves are
+      not placed on a common logarithmic axis unless their unit labels match.
+
+Verification:
+    - Source changes committed on feature/issue-868-idmt-tcc-workspace.
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and PySide6 runtime rendering were not
+      executed and are not claimed verified.
+
+Disposition:
+    - Implemented manual and Short-Circuit sourced coordination Study Case
+      execution with explicit relay/branch mapping and current conversion.
+    - Issue #868 remains open for runtime verification, multi-pair UI authoring,
+      and end-to-end engineering validation. No production-ready claim.
+
+======================================================================
+
+2026-10-30 — Protection coordination result classification and integrity
+-----------------------------------------------------------------------
+
+Files:
+    - core/analysis/coordination_study.py
+    - Modification_Register.txt
+
+Changes:
+    - Distinguish BACKUP_ONLY_OPERATION from NOT_APPLICABLE. A backup
+      protection function that operates while the configured primary does
+      not operate is now an explicit coordination violation, rather than
+      being silently classified as not applicable.
+    - Preserve NOT_APPLICABLE only when neither primary nor backup operates.
+    - Include BACKUP_ONLY_OPERATION in aggregate VIOLATION classification.
+    - Validate each immutable point result's identities, units, current and
+      time domains, CTI, additional-delay value, status, and status/time
+      consistency.
+    - Validate aggregate pair/scenario counts, unique pair/scenario
+      identities, non-empty project provenance, and non-negative integer
+      activation/model/topology revisions. Reject incomplete or duplicate
+      aggregate point sets before publication.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and UI runtime rendering not verified.
+
+
+======================================================================
+
+2026-10-30 — Persisted Study Case staleness across project activation
+---------------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - core/application/application.py
+    - core/application/bootstrap.py
+    - core/persistence/project_persistence.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an explicit immutable is_stale state to StudyCaseDefinition.
+    - Application.study_cases derives staleness from the current electrical
+      model/topology revision before persistence, so a case made stale by
+      later edits cannot be silently revalidated on reload.
+    - Project persistence writes the stale-state marker alongside the
+      original source revision. Legacy packages without the marker restore
+      Study Cases as stale because their saved project revision baseline
+      cannot be proven.
+    - Project activation rebases only non-stale Study Cases to the new
+      activation's clean revision baseline. Stale cases retain their stale
+      marker and cannot execute until reconfigured or recreated.
+    - execute_study_case rejects explicitly stale cases as well as cases
+      whose live source revision no longer matches the active project.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and project save/reopen runtime
+      verification remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Cooperative cancellation through Power Flow and Contingency
+------------------------------------------------------------------------
+
+Files:
+    - core/solver/power_flow/nr_solver.py
+    - core/analysis/power_flow.py
+    - core/analysis/contingency.py
+    - core/application/bootstrap.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an optional should_cancel callback to the Newton-Raphson
+      numerical solver. Cancellation is checked between iterations and
+      before accepting a converged result. A running dense linear solve is
+      not forcibly interrupted; its output is discarded at the next
+      cancellation checkpoint.
+    - Exposed the callback through PowerFlowAnalysis.solve() without
+      changing existing callers.
+    - Wired the Application StudyCancellationToken into the Power Flow
+      handler so cancellation during Newton-Raphson cannot be published as
+      a successful Power Flow result.
+    - Added cooperative cancellation to ContingencyAnalysis.run(). The
+      analysis checks between outage cases and passes the callback into
+      each case's Power Flow solver, stopping further outage cases once
+      cancellation is requested.
+    - Wired the Application token into the Contingency handler. StudyService
+      remains the sole owner of terminal cancelled/completed arbitration;
+      partial contingency output is discarded when cancellation wins.
+    - Short-Circuit already has cancellation checkpoints before preparation,
+      before solver invocation, and after solver completion in its
+      Application handler. Its dense numerical operation remains
+      non-preemptible; cancellation is finalized immediately after it
+      returns. Transient Stability retains its integration-level callback.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - No Python syntax/import checks or numerical runtime interruption
+      experiments were executed.
+    - Cancellation responsiveness inside NumPy's active dense linear
+      algebra operation remains bounded by that operation's completion.
+
+
+======================================================================
+
+2026-10-30 — Reject stale study results at terminal publication
+---------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - core/application/application.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an Application publication lock to StudyService terminal
+      arbitration. Numerical handlers remain concurrent and do not hold the
+      Application mutation lock while calculating.
+    - Added a final source-freshness guard after handler completion and
+      immediately before result registration and terminal event publication.
+      The guard verifies active project identity, activation generation, and
+      electrical model/topology revision.
+    - The terminal check, result-store update, and StudyCompleted/StudyFailed/
+      StudyCancelled event publication are serialized against Application
+      command mutations. A mutation that wins first causes the calculated
+      value to be discarded and a failed result with failure_reason
+      "stale_source" to be stored; StudyCompleted is not emitted.
+    - Cancellation retains precedence over stale-source rejection when the
+      cancellation token was requested before terminal arbitration.
+    - Distinct studies still calculate concurrently from detached immutable
+      snapshots; project transitions remain blocked while any study is active.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and concurrent mutation/publication
+      runtime behavior were not executed and remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Invalidate prior results when a Study Case rerun starts
+--------------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - Modification_Register.txt
+
+Changes:
+    - StudyService now removes the previously published result for the exact
+      project/activation/study identity atomically when a new execution is
+      accepted and its cancellation token is registered.
+    - A read-model request during a rerun therefore cannot return the prior
+      completed result as though it represented the in-progress execution.
+    - The new execution publishes its own completed, failed, or cancelled
+      terminal result. A rejected duplicate active execution does not clear
+      the active run's result state.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and rerun/read concurrency remain
+      unverified.
+
+
+
+======================================================================
+
+2026-10-30 — Plot coordination-study operating points on the TCC chart
+---------------------------------------------------------------------
+
+Files:
+    - ui/core/qt.py
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - Added QScatterSeries to the centralized Qt compatibility exports.
+    - TCC workspace overlays finite primary and backup operating points from
+      the published CoordinationStudyResult as separate named scatter series.
+    - Operating points are plotted only when their current unit exactly
+      matches the active logarithmic current axis. No CT/base conversion or
+      unit inference is performed in the UI.
+    - Non-operating results remain represented by their explicit result
+      status rows; infinite operating times are deliberately not plotted on
+      logarithmic axes.
+    - Re-running a coordination study replaces the previous operating-point
+      overlay instead of accumulating duplicate markers.
+    - Logarithmic axes expand to include finite plotted operating points.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and PySide6 runtime chart rendering
+      remain unverified.
+
+Disposition:
+    - UI remains a read-only projection of Application-published study
+      results. This does not establish production-ready coordination.
+
+
+
+
+======================================================================
+
+2026-10-30 — Refresh TCC projections from Application lifecycle events
+---------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - ui/plugins/panels_plugin.py
+    - Modification_Register.txt
+
+Changes:
+    - TCC workspace subscribes to Application ProtectionChanged,
+      ProjectLoaded, ProjectClosed, and study lifecycle events.
+    - Protection/project events refresh IDMT curve read models and selectors.
+      Short-Circuit Study start/completion/failure/cancellation refreshes the
+      available completed, current Short-Circuit result selector.
+    - Application event callbacks emit a Qt signal; widget updates are
+      marshalled to the widget's Qt thread rather than touching widgets from
+      an Application worker thread.
+    - Added explicit unbind_application() to release subscriptions.
+      PanelsPlugin shutdown and initialization rollback now unbind panel
+      subscriptions before dock teardown.
+    - Coordination Study completion does not clear or rebuild the TCC
+      overlay; the synchronous run path continues to plot its published
+      result after the Application execution returns.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Event-thread dispatch, project activation refresh, and PySide6 runtime
+      behavior remain unverified.
+
+Disposition:
+    - TCC remains an Application read-only projection; event subscriptions
+      do not mutate engineering state or calculate protection results.
+
+
+
+
+======================================================================
+
+2026-10-30 — Clear stale TCC projections on project deactivation/read failure
+----------------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - ProjectClosed now clears the chart, curve snapshots, Short-Circuit
+      result selector/cache, coordination pair list, branch selectors and
+      selected current-unit projections.
+    - A failed curve refresh clears the previous project projection instead
+      of leaving stale relay curves or operating points visible.
+    - ProjectLoaded and ProtectionChanged continue to refresh from the
+      Application read boundary.
+    - This is presentation invalidation only; no engineering state is changed.
+
+Verification:
+    - Source-level anchor and branch update verified.
+    - No tests or CI run, per repository rules.
+    - Qt runtime event delivery and project-switch behavior remain unverified.
+
+Disposition:
+    - TCC data is not retained visually after its owning project is closed
+      or its current Application read snapshot becomes unavailable.
+
+
+
+======================================================================
+
+2026-10-30 — Expose CTI deficit and relay non-operation in TCC results
+---------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination result rows show primary and backup operating times
+      with explicit NO OPERATION / UNDEFINED labels instead of ambiguous
+      raw infinity values.
+    - Each row displays measured margin, required CTI, and the engine's
+      required additional backup delay.
+    - An infinite additional delay is explicitly identified as a backup
+      non-operation condition; it is not presented as a finite timer
+      adjustment.
+    - Added aggregate counts for coordinated, CTI-violating, backup
+      non-operation, backup-only operation, and not-applicable points.
+    - Infinite coordination margins are distinguished as unbounded when the
+      primary does not operate and undefined when the backup does not operate.
+
+Engineering boundary:
+    - Delay values remain calculated by Core RelayCoordination; UI only
+      formats the immutable result.
+    - No timer settings are modified automatically.
+
+Verification:
+    - Source block replacement and register update confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime display and Qt behavior remain unverified.
+
+
+
+======================================================================
+
+2026-10-30 — Validate coordination Study Case source and branch references
+--------------------------------------------------------------------------
+
+Files:
+    - core/persistence/project_persistence.py
+    - Modification_Register.txt
+
+Changes:
+    - Consolidated coordination Study Case reference checks into one shared
+      persistence validator used symmetrically during save and load.
+    - Verifies each primary/backup protection function exists in the active
+      project's protection configuration and is ANSI 51/51N.
+    - Verifies explicitly mapped primary/backup branch IDs resolve to
+      branches in the persisted authoritative Network.
+    - Verifies every Short-Circuit source reference resolves to a typed
+      ShortCircuitStudyConfiguration.
+    - Verifies a coordination scenario's fault location matches the fault
+      Bus configured by its referenced Short-Circuit Study Case.
+    - Rejects inconsistent persisted references rather than allowing a
+      coordination case to load with silently changed study meaning.
+
+Engineering boundary:
+    - Validation is performed by Core persistence against typed Study Case
+      configuration and authoritative Network membership.
+    - It does not infer branch mappings, bus mappings, CT ratios or units.
+
+Verification:
+    - Shared save/load validation path and commit confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime save/load round-trip remains to be verified.
+
+
+
+======================================================================
+
+2026-10-30 — Reject invalid coordination source mappings at Study Case creation
+-------------------------------------------------------------------------------
+
+Files:
+    - core/application/application.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination Study Case creation now validates explicit primary and
+      backup branch IDs against the active authoritative Network.
+    - Short-Circuit sourced scenarios must match the fault Bus configured
+      by their referenced Short-Circuit Study Case.
+    - These checks occur before Study Case registration and before the
+      completed/current Short-Circuit result requirement is accepted.
+    - Persistence retains the corresponding save/load checks as a second
+      integrity boundary.
+
+Engineering boundary:
+    - Application validates user-supplied study references; it does not
+      infer branch endpoints, relay mappings or engineering conversions.
+
+Verification:
+    - Application and persistence source anchors confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime Study Case creation and reload behavior remain unverified.
+
+
+
+======================================================================
+
+2026-10-30 — Bind coordination inputs to exact Short-Circuit provenance
+------------------------------------------------------------------------
+
+Files:
+    - core/application/application.py
+    - core/analysis/coordination_study.py
+    - core/application/study_preparation.py
+    - core/analysis/short_circuit_preparation.py
+    - core/solver/short_circuit/input.py
+    - core/solver/short_circuit/short_circuit_solver.py
+    - Modification_Register.txt
+
+Changes:
+    - Coordination Study Case creation rejects stale source Study Cases and
+      requires each completed Short-Circuit result's project, activation,
+      model revision and topology revision to match its source Study Case.
+    - Coordination execution repeats source-case and result provenance
+      checks immediately before consuming the numerical result.
+    - ShortCircuitInput now carries optional model_revision provenance.
+    - Application StudyPreparationService supplies the exact model revision
+      to ShortCircuitPreparation; the solver preserves it in result provenance.
+    - Coordination engine now checks model_revision in addition to project,
+      activation generation and topology revision.
+    - Direct standalone Short-Circuit preparation remains compatible: when
+      no Application revision is supplied, provenance remains unavailable
+      rather than being fabricated.
+
+Engineering boundary:
+    - Application binds source result identity to its Study Case lifecycle.
+    - The Short-Circuit input/solver preserve supplied provenance unchanged.
+    - Coordination Analysis rejects incomplete or mismatched provenance;
+      no inference from a matching fault Bus or topology alone is allowed.
+
+Verification:
+    - Source-level propagation and validation anchors confirmed.
+    - No tests or CI run, per repository rules.
+    - Runtime provenance propagation and end-to-end study execution remain
+      unverified.
+
+
+
+======================================================================
+
+2026-10-30 — Enforce IDMT TCC read-model point integrity
+--------------------------------------------------------
+
+Files:
+    - core/application/read_models.py
+    - Modification_Register.txt
+
+Changes:
+    - IDMTCurveReadModel now verifies every point's current equals the
+      configured pickup multiplied by that point's declared current
+      multiple, within a tight floating-point tolerance.
+    - Requires current multiples and current values to be strictly
+      increasing across the immutable curve snapshot.
+    - Requires IEC inverse operating times to be strictly decreasing as
+      current increases; malformed or reordered curves are rejected before
+      they reach the TCC projection.
+    - Preserves the canonical IEC equation as the sole source of generated
+      curve values. This is read-contract validation, not a second formula.
+
+Engineering boundary:
+    - The Application read model validates the consistency of its detached
+      projection; it does not modify relay settings, CT ratios, current
+      bases, or protection calculations.
+    - No universal TMS maximum is imposed. Relay-specific setting limits
+      remain a manufacturer/configuration contract, not a generic IEC
+      equation constraint.
+
+Verification:
+    - Source-level insertion anchors and committed file content confirmed.
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and runtime chart rendering remain
+      unverified.
+
+
+======================================================================
+
+2026-10-30 — Validate persisted IEC 51/51N settings and align TMS defaults
+-------------------------------------------------------------------------
+
+Files:
+    - core/protection/factory.py
+    - core/application/services/protection_configuration_service.py
+    - core/persistence/project_persistence.py
+    - core/application/read_models.py
+    - Modification_Register.txt
+
+Changes:
+    - Exposed ProtectionFactory.build_settings() as the public canonical
+      typed-settings construction/validation boundary; existing internal
+      compatibility callers retain the private alias.
+    - Application protection configuration now uses that public boundary.
+    - Persistence save/load project-state validation now validates typed
+      settings for ANSI 51 and 51N against the catalog implementation,
+      rejecting malformed pickup, curve, TMS, current-unit and unknown
+      setting fields before accepting the project package.
+    - TCC read-model construction now applies IECOvercurrentSettings'
+      canonical TMS default (1.0) when TMS is omitted, while continuing to
+      reject an explicitly null TMS. This aligns plotted curves with the
+      runtime settings contract.
+
+Engineering boundary:
+    - ANSI 51N continues to use the shared IECOvercurrentRelay numerical
+      implementation through EarthIECOvercurrentRelay; no duplicate
+      equation or curve constants were introduced.
+    - Settings are preserved as configured. No CT ratio, primary/secondary
+      conversion, or current-unit inference is performed.
+    - A TCC overlay still requires a declared common current_unit; missing
+      or mixed units are not silently converted.
+
+Verification:
+    - Source-level validation anchors and committed content confirmed.
+    - No tests or CI run, per repository rules.
+    - Project package round-trip, invalid-package rejection, and runtime
+      51/51N chart parity remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Enforce ANSI 51 pickup/current-channel unit parity
+---------------------------------------------------------------
+
+Files:
+    - core/protection/input_contracts.py
+    - Modification_Register.txt
+
+Audit findings:
+    - MeasurementChannel exposes engineering_value as raw_value multiplied
+      by channel scale and polarity. Physical CT/PT/CVT transformation,
+      including ratio conversion, belongs to measurement generation.
+    - The ANSI 51 input contract requires a CURRENT signal in amperes (A).
+      RelayInput reads the channel engineering_value directly and performs
+      no unit or CT-ratio conversion.
+    - IEC 51 current_unit is descriptive pickup-basis metadata. Previously
+      a declared pickup unit could disagree with the bound channel unit
+      without being rejected, while the TCC read model displayed that
+      declaration as its axis unit.
+
+Correction:
+    - Protection input-contract validation now rejects a declared ANSI 51
+      current_unit/pickup_unit that differs from the authoritative bound
+      MeasurementChannel.unit.
+    - No conversion is attempted. CT ratio and any primary/secondary
+      conversion remain exclusively in measurement generation.
+    - An omitted pickup-unit declaration is not silently inferred by this
+      check; coordination Study Case creation continues to require an
+      explicit unit declaration.
+
+Limit:
+    - ANSI 51N's catalog input contract is explicitly marked unsupported
+      because the model cannot distinguish residual-current semantics
+      from ordinary/sequence current. Its TCC curve can be displayed from
+      settings, but production relay-input basis must not be represented
+      as verified until that residual-current contract is implemented.
+
+Verification:
+    - Source-level anchor and commit confirmed.
+    - No tests or CI run, per repository rules.
+    - End-to-end CT ratio transformation, runtime binding, and chart axis
+      parity remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Establish explicit ANSI 50N/51N residual-current measurement contract
+----------------------------------------------------------------------------------
+
+Files:
+    - core/measurement/measurement_channel.py
+    - core/protection/input_contracts.py
+    - core/measurement/measurement_generation.py
+    - Modification_Register.txt
+
+Audit findings:
+    - EarthIECOvercurrentRelay already consumes a named residual_current
+      RelayInput, but the catalog had no defensible residual-current channel
+      classification and therefore failed closed for both 50N and 51N.
+    - ShortCircuitSolver derives ground_current as the phasor sum
+      Ia + Ib + Ic. Under symmetrical-components convention this is 3I0,
+      not I0. The result separately retains sequence_currents["I0"].
+    - MeasurementGeneration already supports the typed ground_current
+      result field, but previously exposed all current measurements as
+      MeasurementSignalType.CURRENT and did not enforce residual semantics.
+    - MeasurementChannelService provisions signal and phase enum values by
+      canonical enum lookup and serializes their .value strings.
+
+Correction:
+    - Added MeasurementSignalType.RESIDUAL_CURRENT and
+      MeasurementPhase.RESIDUAL as distinct canonical classifications.
+    - Added explicit residual_current input contracts for ANSI 50N and 51N,
+      requiring RESIDUAL_CURRENT / RESIDUAL / A.
+    - Short-circuit measurement generation now maps the explicit
+      ground_current quantity only to RESIDUAL_CURRENT channels with
+      RESIDUAL phase. Ordinary CURRENT channels cannot consume ground_current;
+      residual channels cannot consume phase current, I0, or generic fault
+      current quantities.
+    - The measurement generator preserves the complex residual phasor and
+      continues to apply the explicit CT ratio and physical polarity path.
+    - ANSI 51N pickup-unit metadata is checked against its bound channel unit,
+      matching the ANSI 51 parity rule.
+
+Engineering boundary:
+    - The accepted result quantity is the solver's fault-bus ground current
+      Ia + Ib + Ic = 3I0. It is not the zero-sequence current I0 and is not
+      an inferred neutral CT current from an arbitrary branch.
+    - A branch-specific residual CT measurement remains unsupported until
+      branch/equipment contribution semantics explicitly provide that
+      residual current. The current fault-bus mapping does not claim it.
+    - Measurement channel persistence uses canonical enum values and the
+      existing provisioning enum resolver; no parallel serializer was added.
+
+Verification:
+    - Source-level review confirms the solver's ground-current derivation,
+      typed result field, channel provisioning enum resolution, explicit
+      input contract, and guarded measurement-generation mapping.
+    - No tests or CI run, per repository rules.
+    - Package round-trip with the new enum values and full 50N/51N runtime
+      evaluation against a prepared fault measurement remain unverified.
+
+
+Correction addendum (same audit pass):
+    - A follow-up provenance audit found that ShortCircuitResult.ground_current
+      is a fault-bus aggregate. PreparedMeasurementContext identifies the CT
+      and its terminal but does not identify the monitored branch. Mapping
+      that aggregate to an individual CT would therefore be electrically
+      unjustified.
+    - MeasurementGeneration now explicitly refuses residual-current
+      generation from the aggregate ground_current field. It does not infer
+      branch current from bus fault current, zero-sequence I0, or phase-current
+      collections.
+    - The RESIDUAL_CURRENT / RESIDUAL / A channel contract remains valid for
+      explicitly generated or externally supplied branch-correlated residual
+      measurements. The current short-circuit CT generation path remains
+      fail-closed until a typed branch-correlated residual-current quantity
+      and binding identity are introduced.
+
+
+======================================================================
+
+2026-10-30 — Add SLD-derived, topology-validated CT measurement association
+----------------------------------------------------------------------------
+
+Files:
+    - core/measurement/ct_measurement_association.py
+    - core/application/services/sld_service.py
+    - core/application/application.py
+    - core/application/__init__.py
+    - Modification_Register.txt
+
+Design:
+    - Added an immutable Core CTMeasurementAssociation result carrying CT,
+      monitored branch, CT primary Bus endpoints, branch terminal Bus
+      endpoints, measurement side, current orientation sign, and project /
+      activation / topology provenance.
+    - Added CTMeasurementAssociationResolver. It reads the current canonical
+      TopologySnapshot and resolves CT P1/P2 terminal Bus attachments against
+      active Line, Cable, and Transformer FROM/TO terminal attachments.
+    - The resolver builds switch-connected Bus zones from the
+      TopologySnapshot conductive_edges collection. Only currently conducting
+      Breaker, Switch, Disconnector, and Fuse paths are traversed; open
+      switching equipment is not traversed and numerical branches are never
+      collapsed into adjacency.
+    - An unconfigured CT is accepted only when exactly one active branch
+      bridges its two switch-connected primary-terminal zones. Parallel
+      branch matches fail with a diagnostic listing candidate IDs; no
+      graphical proximity or unrestricted graph-adjacency heuristic is used.
+    - The SLD Application service reads the engineer-authored
+      monitored_element_id property from the unique CT SLD node. When present,
+      Core verifies the selected element is active, fully connected, and
+      bridges those same CT primary-terminal zones. The SLD property is a
+      selection hint; Core topology remains authoritative.
+    - Application.resolve_ct_measurement_association(ct_id) exposes the
+      resolver against the active project's Network and SLD document.
+    - Exported the immutable association and controlled error types through
+      core.application.
+
+Electrical safeguards:
+    - CT P1/P2 must resolve to distinct Buses.
+    - A selected target must be a Line, Cable, or Transformer in service with
+      both terminal attachments resolved.
+    - A target that does not bridge the CT primary terminal zones through
+      the currently conductive switching state is rejected.
+    - The result reports whether CT P1 is on the branch FROM or TO side and
+      the sign required to orient branch FROM-current into the P1-to-P2
+      direction. CT physical polarity remains a separate instrument
+      conversion and must not be folded into this association sign.
+    - A CT whose P1/P2 terminals are in the same conductive switching
+      component is rejected as bypassed or non-separable.
+    - This resolver establishes branch identity only. It does not claim that
+      ShortCircuitBranchCurrent currently contains complete side-specific
+      transformer phasors, nor does it enable 50N/51N measurement generation
+      by itself.
+
+Verification:
+    - Source-level review confirms the resolver uses canonical topology
+      attachments, rejects missing / duplicate / ambiguous associations,
+      validates the SLD-selected branch, and exposes the result through
+      Application.
+    - No tests or CI run, per repository rules.
+    - The SLD property can be persisted through the existing node-properties
+      command contract; a dedicated inspector control and downstream
+      branch-side residual-current generation remain follow-up work.

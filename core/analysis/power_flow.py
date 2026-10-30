@@ -12,6 +12,7 @@ Author: Subhendu Mishra
 from __future__ import annotations
 
 from typing import Optional
+from collections.abc import Callable
 
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
@@ -87,9 +88,11 @@ class PowerFlowAnalysis:
             )
         return cls.from_prepared(prepared, options)
 
-    def solve(self) -> PowerFlowResult:
-        """Execute the numerical study and retain the numerical PU result."""
-        self._result = self.solver.solve()
+    def solve(self, *, should_cancel: Callable[[], bool] | None = None) -> PowerFlowResult:
+        """Execute the numerical study with optional cooperative cancellation."""
+        if should_cancel is not None and not callable(should_cancel):
+            raise TypeError("should_cancel must be callable or None.")
+        self._result = self.solver.solve(should_cancel=should_cancel)
         return self._result
 
     def to_engineering_result(self) -> EngineeringPowerFlowResult:

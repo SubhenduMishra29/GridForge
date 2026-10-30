@@ -136,6 +136,10 @@ class IECOvercurrentSettings:
     TMS:
         IEC Time Multiplier Setting.
 
+    current_unit:
+        Explicit engineering-unit label for the relay-input current. This is
+        descriptive metadata; no CT or base conversion is performed.
+
     Notes
     -----
     These settings belong exclusively to this protection function.
@@ -145,6 +149,7 @@ class IECOvercurrentSettings:
     pickup: float
     curve: str = DEFAULT_CURVE
     TMS: float = DEFAULT_TMS
+    current_unit: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.pickup, bool):
@@ -197,6 +202,10 @@ class IECOvercurrentSettings:
             "TMS",
             TMS,
         )
+        if self.current_unit is not None:
+            if not isinstance(self.current_unit, str) or not self.current_unit.strip():
+                raise ValueError("current_unit must be a non-empty string when supplied.")
+            object.__setattr__(self, "current_unit", self.current_unit.strip())
 
 
 # =====================================================================
@@ -266,6 +275,7 @@ class IECOvercurrentRelay(RelayBase):
                 "pickup": settings.pickup,
                 "curve": settings.curve,
                 "TMS": settings.TMS,
+                "current_unit": settings.current_unit,
             },
             enabled=enabled,
             blocked=blocked,
@@ -329,6 +339,12 @@ class IECOvercurrentRelay(RelayBase):
         """Return configured IEC Time Multiplier Setting."""
 
         return self._iec_settings.TMS
+
+    @property
+    def current_unit(self) -> str | None:
+        """Return the declared engineering unit of the assigned relay-input current."""
+
+        return self._iec_settings.current_unit
 
     # =================================================================
     # MEASUREMENT
@@ -1011,6 +1027,7 @@ class IECOvercurrentRelay(RelayBase):
                 "pickup": self.pickup,
                 "curve": self.curve,
                 "TMS": self.TMS,
+                "current_unit": self.current_unit,
                 "current": current,
                 "current_multiple": (
                     self.current_multiple(current)

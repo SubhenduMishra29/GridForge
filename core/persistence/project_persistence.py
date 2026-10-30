@@ -25,12 +25,20 @@ from core.application.study import StudyCaseDefinition
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
+from core.analysis.coordination_study import (
+    CoordinationFaultScenario,
+    CoordinationRelayCurrent,
+    CoordinationStudyConfiguration,
+    CoordinationStudyPair,
+)
 from core.solver.short_circuit.fault_types import FaultType
 from core.application.control_signal_mapping import ControlSignalMapping
 from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.factory import ProtectionFactory
+from core.protection.function_catalog import get_protection_function
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
@@ -175,6 +183,9 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Invalid persisted Study Case definition: {exc}") from exc
         if len({case.study_id for case in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
+        self._validate_coordination_study_case_references(
+            study_cases, protection_configuration, network
+        )
 
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
@@ -261,6 +272,13 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("study_cases contains a definition for a different project.")
         if len({item.study_id for item in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("study_cases contains duplicate study identities.")
+
+        # Keep save/load validation symmetric: never write a package whose
+        # coordination definitions cannot pass the same reference checks on
+        # the next project activation.
+        self._validate_coordination_study_case_references(
+            study_cases, protection_configuration, network
+        )
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -354,6 +372,76 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(
                 f"Unable to save GridForge project to {target}: {exc}"
             ) from exc
+
+    @staticmethod
+    def _validate_coordination_study_case_references(
+        study_cases: Sequence[StudyCaseDefinition],
+        protection_configuration: ProtectionProjectConfiguration | None,
+        network: Network,
+    ) -> None:
+        """Validate coordination references symmetrically before save and after load."""
+        study_cases_by_id = {str(case.study_id): case for case in study_cases}
+        protection_functions = {
+            item.element_id: item
+            for item in (
+                protection_configuration.elements
+                if protection_configuration is not None else ()
+            )
+        }
+        branch_ids = {
+            str(getattr(branch, "id", "")).strip()
+            for branch in getattr(network, "branches", ())
+            if str(getattr(branch, "id", "")).strip()
+        }
+
+        for case in study_cases:
+            configuration = case.configuration.get("configuration")
+            if not isinstance(configuration, CoordinationStudyConfiguration):
+                continue
+
+            for pair in configuration.pairs:
+                for element_id in (pair.primary_element_id, pair.backup_element_id):
+                    function = protection_functions.get(element_id)
+                    if function is None:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references protection function "
+                            f"{element_id!r}, which is absent from the project's protection configuration."
+                        )
+                    if str(function.function_code).strip().upper() not in {"51", "51N"}:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references {function.function_code!r} "
+                            f"function {element_id!r}; only ANSI 51/51N functions are valid."
+                        )
+
+                for branch_id in (pair.primary_branch_id, pair.backup_branch_id):
+                    if branch_id is not None and branch_id not in branch_ids:
+                        raise ProjectPersistenceError(
+                            f"Coordination Study Case {case.study_id} references branch "
+                            f"{branch_id!r}, which is absent from the persisted Network."
+                        )
+
+            for scenario in configuration.scenarios:
+                source_id = scenario.short_circuit_study_id
+                if source_id is None:
+                    continue
+                source_case = study_cases_by_id.get(source_id)
+                if source_case is None or source_case.study_type != "short_circuit":
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references missing or non-Short-Circuit "
+                        f"Study Case {source_id!r}."
+                    )
+                source_configuration = source_case.configuration.get("configuration")
+                if not isinstance(source_configuration, ShortCircuitStudyConfiguration):
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references Short-Circuit Study Case "
+                        f"{source_id!r} without a valid typed configuration."
+                    )
+                if scenario.fault_location_id != source_configuration.fault_bus_id:
+                    raise ProjectPersistenceError(
+                        f"Coordination scenario {scenario.scenario_id!r} fault location "
+                        f"{scenario.fault_location_id!r} does not match source Short-Circuit "
+                        f"Study Case {source_id!r} fault Bus {source_configuration.fault_bus_id!r}."
+                    )
 
     @staticmethod
     def _normalize_presentation_collection(data: Mapping[str, Any], project_id: str) -> dict[str, Any]:
@@ -511,6 +599,40 @@ class ProjectPersistenceService:
                     if configuration.power_flow_configuration is not None else None
                 ),
             }
+        elif isinstance(configuration, CoordinationStudyConfiguration):
+            typed = {
+                "kind": "protection_coordination",
+                "required_cti_s": configuration.required_cti_s,
+                "display_name": configuration.display_name,
+                "pairs": [
+                    {
+                        "primary_element_id": pair.primary_element_id,
+                        "backup_element_id": pair.backup_element_id,
+                        "primary_branch_id": pair.primary_branch_id,
+                        "backup_branch_id": pair.backup_branch_id,
+                        "primary_branch_side": pair.primary_branch_side,
+                        "backup_branch_side": pair.backup_branch_side,
+                        "primary_current_scale": pair.primary_current_scale,
+                        "backup_current_scale": pair.backup_current_scale,
+                    }
+                    for pair in configuration.pairs
+                ],
+                "scenarios": [
+                    {
+                        "scenario_id": scenario.scenario_id,
+                        "fault_location_id": scenario.fault_location_id,
+                        "short_circuit_study_id": scenario.short_circuit_study_id,
+                        "currents_by_element_id": {
+                            element_id: {
+                                "current": current.current,
+                                "current_unit": current.current_unit,
+                            }
+                            for element_id, current in scenario.currents_by_element_id.items()
+                        },
+                    }
+                    for scenario in configuration.scenarios
+                ],
+            }
         else:
             raise ProjectPersistenceError(
                 f"Unsupported typed Study Case configuration: {type(configuration).__name__}."
@@ -535,6 +657,7 @@ class ProjectPersistenceService:
             "study_id": str(case.study_id),
             "study_type": case.study_type,
             "display_name": case.display_name,
+            "is_stale": case.is_stale,
             "source_revision": {
                 "model_revision": revision.model_revision,
                 "topology_revision": revision.topology_revision,
@@ -573,6 +696,58 @@ class ProjectPersistenceService:
                     metadata=payload.get("metadata", {}),
                     base_mva=payload.get("base_mva"),
                 )
+            elif kind == "protection_coordination":
+                raw_pairs = payload.get("pairs")
+                raw_scenarios = payload.get("scenarios")
+                if not isinstance(raw_pairs, list) or not isinstance(raw_scenarios, list):
+                    raise TypeError("Coordination pairs and scenarios must be arrays.")
+                pairs = tuple(
+                    CoordinationStudyPair(
+                        primary_element_id=str(item["primary_element_id"]),
+                        backup_element_id=str(item["backup_element_id"]),
+                        primary_branch_id=item.get("primary_branch_id"),
+                        backup_branch_id=item.get("backup_branch_id"),
+                        primary_branch_side=item.get("primary_branch_side"),
+                        backup_branch_side=item.get("backup_branch_side"),
+                        primary_current_scale=item.get("primary_current_scale"),
+                        backup_current_scale=item.get("backup_current_scale"),
+                    )
+                    for item in raw_pairs
+                    if isinstance(item, Mapping)
+                )
+                if len(pairs) != len(raw_pairs):
+                    raise TypeError("Every coordination pair must be an object.")
+                scenarios_list = []
+                for item in raw_scenarios:
+                    if not isinstance(item, Mapping):
+                        raise TypeError("Every coordination scenario must be an object.")
+                    raw_currents = item.get("currents_by_element_id", {})
+                    if not isinstance(raw_currents, Mapping):
+                        raise TypeError("Scenario currents_by_element_id must be an object.")
+                    currents = {
+                        str(element_id): CoordinationRelayCurrent(
+                            current=value["current"],
+                            current_unit=str(value["current_unit"]),
+                        )
+                        for element_id, value in raw_currents.items()
+                        if isinstance(value, Mapping)
+                    }
+                    if len(currents) != len(raw_currents):
+                        raise TypeError("Every persisted relay current must be an object.")
+                    scenarios_list.append(
+                        CoordinationFaultScenario(
+                            scenario_id=str(item["scenario_id"]),
+                            fault_location_id=str(item.get("fault_location_id", "")),
+                            short_circuit_study_id=item.get("short_circuit_study_id"),
+                            currents_by_element_id=currents,
+                        )
+                    )
+                typed = CoordinationStudyConfiguration(
+                    pairs=pairs,
+                    scenarios=tuple(scenarios_list),
+                    required_cti_s=payload["required_cti_s"],
+                    display_name=str(payload.get("display_name", "Protection Coordination Study")),
+                )
             elif kind == "transient_stability":
                 initial_power_flow = payload.get("power_flow_configuration")
                 if initial_power_flow is not None and not isinstance(initial_power_flow, Mapping):
@@ -608,6 +783,14 @@ class ProjectPersistenceService:
                 study_type=study_type,
                 configuration=config,
                 display_name=str(data.get("display_name", "")),
+                # Packages written before explicit stale-state persistence do
+                # not carry enough project-revision provenance to safely
+                # revalidate their Study Cases after activation. Fail closed.
+                is_stale=(
+                    data.get("is_stale")
+                    if isinstance(data.get("is_stale"), bool)
+                    else True
+                ),
             )
         except ProjectPersistenceError:
             raise
@@ -811,6 +994,22 @@ class ProjectPersistenceService:
             if protection_configuration.project_id != context.project_id:
                 raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
             for item in protection_configuration.elements:
+                if item.function_code in {"51", "51N"}:
+                    try:
+                        spec = get_protection_function(item.function_code)
+                        if spec.implementation is None:
+                            raise ValueError(
+                                f"Protection function {item.function_code} has no implementation."
+                            )
+                        ProtectionFactory.build_settings(
+                            spec.implementation,
+                            item.settings,
+                        )
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise ProjectPersistenceError(
+                            f"Protection configuration '{item.element_id}' has invalid "
+                            f"{item.function_code} settings: {exc}"
+                        ) from exc
                 try:
                     protected_element = network.get_by_identity(item.element_id)
                     relay = network.get_by_identity(item.relay_id)

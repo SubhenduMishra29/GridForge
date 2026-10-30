@@ -36,6 +36,7 @@ from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
 from core.application.control_signal_mapping import ControlSignalMapping
+from core.application.revision import ProjectRevision
 from core.protection.runtime import ProtectionRuntime
 from core.solver.dynamics import DAESolver, EventManager, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
@@ -367,6 +368,12 @@ def create_application(network: Any) -> Application:
                         case,
                         project_id=context.project_id,
                         activation_generation=generation,
+                        # RevisionService starts a newly activated project at
+                        # its clean baseline. Rebase only cases proven current
+                        # at their last save; stale cases remain explicitly stale.
+                        source_revision=(
+                            ProjectRevision() if not case.is_stale else case.source_revision
+                        ),
                     )
                     for case in (getattr(loaded, "study_cases", ()) if loaded is not None else ())
                 }
@@ -522,7 +529,7 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
-        numerical_result = analysis.solve()
+        numerical_result = analysis.solve(should_cancel=lambda: token.cancelled)
         if token.cancelled:
             return None
         if not numerical_result.success:
@@ -547,6 +554,7 @@ def create_application(network: Any) -> Application:
             voltage_min=request_configuration.get("voltage_min", 0.95),
             voltage_max=request_configuration.get("voltage_max", 1.05),
             thermal_limit=request_configuration.get("thermal_limit", 100.0),
+            should_cancel=lambda: token.cancelled,
         )
         if token.cancelled:
             return None

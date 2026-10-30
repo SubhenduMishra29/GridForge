@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 from uuid import uuid4
 import logging
 from typing import Any
@@ -17,7 +18,8 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt,
+    QChart, QChartView, QLineSeries, QLogValueAxis, QScatterSeries, QPainter,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -1033,12 +1035,675 @@ class PropertiesPanelWidget(QWidget):
             self._validation_label.setText("Engineering update accepted.")
 
 
+
+class IDMTTCCWorkspaceWidget(QWidget):
+    """Read-only log-log overlay workspace for Application IDMT curve snapshots."""
+
+    _application_event_received = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("IDMTTCCWorkspace")
+        self._application: Any | None = None
+        self._event_subscriptions: list[tuple[Any, type, Any]] = []
+        self._application_event_received.connect(self._apply_application_event)
+        self._chart = QChart()
+        self._chart.setTitle("Time–Current Characteristic (TCC)")
+        self._chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
+        self._view = QChartView(self._chart, self)
+        self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._status = QLabel(
+            "No IDMT curves loaded. Configure ANSI 51/51N pickup, curve and TMS, then refresh.",
+            self,
+        )
+        self._status.setWordWrap(True)
+        self._refresh_button = QPushButton("Refresh Curves", self)
+        self._refresh_button.setObjectName("RefreshIDMTTCC")
+        self._primary_combo = QComboBox(self)
+        self._backup_combo = QComboBox(self)
+        self._scenario_source = QComboBox(self)
+        self._scenario_source.addItem("Manual relay-input currents", "manual")
+        self._scenario_source.addItem("Short-Circuit Study result", "short_circuit")
+        self._short_circuit_result_combo = QComboBox(self)
+        self._primary_branch_combo = QComboBox(self)
+        self._backup_branch_combo = QComboBox(self)
+        self._primary_branch_side = QComboBox(self)
+        self._primary_branch_side.addItem("From bus", "from")
+        self._primary_branch_side.addItem("To bus", "to")
+        self._backup_branch_side = QComboBox(self)
+        self._backup_branch_side.addItem("From bus", "from")
+        self._backup_branch_side.addItem("To bus", "to")
+        self._primary_current_scale = QLineEdit(self)
+        self._primary_current_scale.setPlaceholderText("Required scale")
+        self._backup_current_scale = QLineEdit(self)
+        self._backup_current_scale.setPlaceholderText("Required scale")
+        self._cti_input = QDoubleSpinBox(self)
+        self._cti_input.setRange(0.0, 60.0)
+        self._cti_input.setDecimals(4)
+        self._cti_input.setSingleStep(0.05)
+        self._cti_input.setValue(0.3)
+        self._primary_currents = QLineEdit(self)
+        self._primary_currents.setPlaceholderText("e.g. 800, 1200, 2500")
+        self._backup_currents = QLineEdit(self)
+        self._backup_currents.setPlaceholderText("e.g. 760, 1100, 2300")
+        self._primary_unit = QLineEdit(self)
+        self._primary_unit.setReadOnly(True)
+        self._backup_unit = QLineEdit(self)
+        self._backup_unit.setReadOnly(True)
+        self._fault_location = QLineEdit(self)
+        self._fault_location.setPlaceholderText("Optional fault bus / location ID")
+        self._run_button = QPushButton("Run Coordination Study", self)
+        self._run_button.setObjectName("RunIDMTCoordinationStudy")
+        self._add_pair_button = QPushButton("Add Current Pair", self)
+        self._remove_pair_button = QPushButton("Remove Selected Pair", self)
+        self._pair_list = QListWidget(self)
+        self._pair_list.setObjectName("CoordinationStudyPairs")
+        self._coordination_pairs: list[dict[str, Any]] = []
+        form = QFormLayout()
+        form.addRow("Primary function", self._primary_combo)
+        form.addRow("Backup function", self._backup_combo)
+        form.addRow("Scenario source", self._scenario_source)
+        form.addRow("Short-Circuit Study", self._short_circuit_result_combo)
+        form.addRow("Primary branch", self._primary_branch_combo)
+        form.addRow("Primary branch side", self._primary_branch_side)
+        form.addRow("Primary scale (A primary → relay unit)", self._primary_current_scale)
+        form.addRow("Backup branch", self._backup_branch_combo)
+        form.addRow("Backup branch side", self._backup_branch_side)
+        form.addRow("Backup scale (A primary → relay unit)", self._backup_current_scale)
+        form.addRow("Required CTI (s)", self._cti_input)
+        form.addRow("Primary relay-input currents (manual)", self._primary_currents)
+        form.addRow("Backup relay-input currents", self._backup_currents)
+        form.addRow("Primary unit (relay settings)", self._primary_unit)
+        form.addRow("Backup unit (relay settings)", self._backup_unit)
+        form.addRow("Fault location ID", self._fault_location)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(self._refresh_button)
+        layout.addLayout(form)
+        layout.addWidget(QLabel("Coordination pairs (each pair retains its own current/branch mapping)", self))
+        layout.addWidget(self._pair_list)
+        layout.addWidget(self._add_pair_button)
+        layout.addWidget(self._remove_pair_button)
+        layout.addWidget(self._run_button)
+        layout.addWidget(self._status)
+        layout.addWidget(self._view, 1)
+        self._current_axis: QLogValueAxis | None = None
+        self._time_axis: QLogValueAxis | None = None
+        self._series: list[QLineSeries] = []
+        self._operating_point_series: list[QScatterSeries] = []
+        self._curve_models: dict[str, Any] = {}
+        self._short_circuit_results: dict[str, Any] = {}
+        self._refresh_button.clicked.connect(self.refresh_curves)
+        self._run_button.clicked.connect(self.run_coordination_study)
+        self._add_pair_button.clicked.connect(self.add_coordination_pair)
+        self._remove_pair_button.clicked.connect(self.remove_coordination_pair)
+        self._primary_combo.currentIndexChanged.connect(self._sync_current_units)
+        self._backup_combo.currentIndexChanged.connect(self._sync_current_units)
+        self._short_circuit_result_combo.currentIndexChanged.connect(self._populate_branch_selectors)
+
+    def bind_application(self, application: Any) -> None:
+        """Bind Application read models and lifecycle notifications."""
+        if application is None or not callable(getattr(application, "read_idmt_curves", None)):
+            raise TypeError("Application must expose read_idmt_curves().")
+        self.unbind_application()
+        self._application = application
+        event_bus = getattr(application, "event_bus", None)
+        subscribe = getattr(event_bus, "subscribe", None)
+        if callable(subscribe):
+            from core.application.events import (
+                ProtectionChanged,
+                ProjectClosed,
+                ProjectLoaded,
+                StudyCancelled,
+                StudyCompleted,
+                StudyFailed,
+                StudyStarted,
+            )
+            for event_type in (
+                ProtectionChanged,
+                ProjectLoaded,
+                ProjectClosed,
+                StudyStarted,
+                StudyCompleted,
+                StudyFailed,
+                StudyCancelled,
+            ):
+                handler = self._queue_application_event
+                subscribe(event_type, handler)
+                self._event_subscriptions.append((event_bus, event_type, handler))
+        self.refresh_curves()
+
+    def unbind_application(self) -> None:
+        """Detach event subscriptions before the panel or Application is torn down."""
+        for event_bus, event_type, handler in self._event_subscriptions:
+            unsubscribe = getattr(event_bus, "unsubscribe", None)
+            if callable(unsubscribe):
+                unsubscribe(event_type, handler)
+        self._event_subscriptions.clear()
+        self._application = None
+
+    def _queue_application_event(self, event: Any) -> None:
+        """Marshal Application notifications onto the widget's Qt thread."""
+        self._application_event_received.emit(event)
+
+    def _apply_application_event(self, event: Any) -> None:
+        """Refresh only the projections invalidated by an Application event."""
+        event_type = getattr(event, "event_type", "")
+        if event_type == "project.closed":
+            self._clear_project_projection()
+            return
+        if event_type in {"protection.changed", "project.loaded"}:
+            self.refresh_curves()
+            return
+        if event_type in {
+            "study.started", "study.completed", "study.failed", "study.cancelled"
+        }:
+            metadata = getattr(event, "payload", {})
+            if metadata.get("study_type") == "short_circuit":
+                self._populate_short_circuit_results()
+
+    def _clear_project_projection(self) -> None:
+        """Remove all project-scoped TCC and coordination state on deactivation."""
+        self._curve_models.clear()
+        self._short_circuit_results.clear()
+        self._coordination_pairs.clear()
+        self._pair_list.clear()
+        self._primary_unit.clear()
+        self._backup_unit.clear()
+        for combo in (
+            self._primary_combo,
+            self._backup_combo,
+            self._short_circuit_result_combo,
+            self._primary_branch_combo,
+            self._backup_branch_combo,
+        ):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.blockSignals(False)
+        self.set_curve_read_models(())
+        self._status.setText(
+            "Project closed. TCC curves, Short-Circuit sources and coordination overlays were cleared."
+        )
+
+    def refresh_curves(self) -> None:
+        """Refresh from the current immutable Application read snapshots."""
+        if self._application is None:
+            self._status.setText("TCC workspace is not bound to the active Application.")
+            return
+        try:
+            models = self._application.read_idmt_curves()
+            self._curve_models = {model.element_id: model for model in models}
+            self.set_curve_read_models(models)
+            self._populate_function_selectors(models)
+            self._populate_short_circuit_results()
+            self._sync_current_units()
+        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+            self._clear_project_projection()
+            self._status.setText(f"Unable to load IDMT curves; stale projection cleared: {exc}")
+
+    def _populate_function_selectors(self, models: Any) -> None:
+        """Populate explicit primary/backup selectors from available ANSI 51 curves."""
+        selected_primary = self._primary_combo.currentData()
+        selected_backup = self._backup_combo.currentData()
+        for combo in (self._primary_combo, self._backup_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            for model in models:
+                combo.addItem(f"{model.display_name} [{model.function_code}] — {model.element_id}", model.element_id)
+            combo.blockSignals(False)
+        if selected_primary:
+            index = self._primary_combo.findData(selected_primary)
+            if index >= 0:
+                self._primary_combo.setCurrentIndex(index)
+        if selected_backup:
+            index = self._backup_combo.findData(selected_backup)
+            if index >= 0:
+                self._backup_combo.setCurrentIndex(index)
+        if self._backup_combo.count() > 1 and self._backup_combo.currentIndex() == 0:
+            self._backup_combo.setCurrentIndex(1)
+
+    def _populate_short_circuit_results(self) -> None:
+        """List only current, completed Short-Circuit Study results."""
+        from core.solver.short_circuit.result import ShortCircuitResult
+
+        self._short_circuit_results = {}
+        self._short_circuit_result_combo.blockSignals(True)
+        self._short_circuit_result_combo.clear()
+        for result in self._application.read_study_results():
+            if (
+                result.status != "completed"
+                or not result.current
+                or not isinstance(result.value, ShortCircuitResult)
+            ):
+                continue
+            study_id = str(result.study_id)
+            fault_bus_id = getattr(result.value, "fault_bus_id", "unknown bus")
+            self._short_circuit_results[study_id] = result
+            self._short_circuit_result_combo.addItem(
+                f"{fault_bus_id} — {study_id}", study_id
+            )
+        self._short_circuit_result_combo.blockSignals(False)
+        self._populate_branch_selectors()
+
+    def _populate_branch_selectors(self, *_args: Any) -> None:
+        """Populate explicit branch mappings from the selected Short-Circuit result."""
+        study_id = self._short_circuit_result_combo.currentData()
+        result_model = self._short_circuit_results.get(study_id)
+        branch_ids = tuple(getattr(result_model.value, "branch_currents", {}).keys()) if result_model else ()
+        for combo in (self._primary_branch_combo, self._backup_branch_combo):
+            previous = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for branch_id in branch_ids:
+                combo.addItem(str(branch_id), str(branch_id))
+            if previous:
+                index = combo.findData(previous)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+        if self._backup_branch_combo.count() > 1 and self._backup_branch_combo.currentIndex() == 0:
+            self._backup_branch_combo.setCurrentIndex(1)
+
+    def _sync_current_units(self, *_args: Any) -> None:
+        """Display authoritative current-unit contracts from each selected relay."""
+        primary = self._curve_models.get(self._primary_combo.currentData())
+        backup = self._curve_models.get(self._backup_combo.currentData())
+        self._primary_unit.setText(primary.current_unit or "" if primary is not None else "")
+        self._backup_unit.setText(backup.current_unit or "" if backup is not None else "")
+
+    @staticmethod
+    def _parse_current_values(raw: str, field_name: str) -> tuple[float, ...]:
+        values = []
+        for index, token in enumerate(raw.split(",")):
+            token = token.strip()
+            if not token:
+                raise ValueError(f"{field_name} contains an empty current at position {index + 1}.")
+            value = float(token)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{field_name} values must be finite and positive.")
+            values.append(value)
+        if not values:
+            raise ValueError(f"{field_name} must contain at least one current.")
+        return tuple(values)
+
+    def add_coordination_pair(self) -> None:
+        """Capture the editor state as one explicit, immutable study-pair definition."""
+        primary_id = self._primary_combo.currentData()
+        backup_id = self._backup_combo.currentData()
+        if not primary_id or not backup_id:
+            self._status.setText("Select both a primary and a backup ANSI 51/51N function.")
+            return
+        if str(primary_id) == str(backup_id):
+            self._status.setText("Primary and backup functions must be different.")
+            return
+        source = self._scenario_source.currentData()
+        pair: dict[str, Any] = {
+            "primary_id": str(primary_id),
+            "backup_id": str(backup_id),
+            "source": source,
+        }
+        try:
+            if source == "manual":
+                pair["primary_currents"] = self._parse_current_values(
+                    self._primary_currents.text(), "Primary relay-input currents"
+                )
+                pair["backup_currents"] = self._parse_current_values(
+                    self._backup_currents.text(), "Backup relay-input currents"
+                )
+                if len(pair["primary_currents"]) != len(pair["backup_currents"]):
+                    raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
+                pair["primary_unit"] = self._primary_unit.text().strip()
+                pair["backup_unit"] = self._backup_unit.text().strip()
+                if not pair["primary_unit"] or not pair["backup_unit"]:
+                    raise ValueError(
+                        "Both relay configurations must declare current_unit or pickup_unit. "
+                        "No CT or base conversion is inferred."
+                    )
+                pair["fault_location"] = self._fault_location.text().strip()
+            elif source == "short_circuit":
+                study_id = self._short_circuit_result_combo.currentData()
+                primary_branch = self._primary_branch_combo.currentData()
+                backup_branch = self._backup_branch_combo.currentData()
+                if not study_id or not primary_branch or not backup_branch:
+                    raise ValueError("Select a completed Short-Circuit Study and both relay branch mappings.")
+                primary_scale = float(self._primary_current_scale.text())
+                backup_scale = float(self._backup_current_scale.text())
+                if not math.isfinite(primary_scale) or primary_scale <= 0.0:
+                    raise ValueError("Primary current conversion scale must be finite and positive.")
+                if not math.isfinite(backup_scale) or backup_scale <= 0.0:
+                    raise ValueError("Backup current conversion scale must be finite and positive.")
+                pair.update({
+                    "study_id": str(study_id),
+                    "primary_branch": str(primary_branch),
+                    "backup_branch": str(backup_branch),
+                    "primary_side": str(self._primary_branch_side.currentData()),
+                    "backup_side": str(self._backup_branch_side.currentData()),
+                    "primary_scale": primary_scale,
+                    "backup_scale": backup_scale,
+                })
+            else:
+                raise ValueError(f"Unsupported coordination scenario source: {source!r}.")
+            key = (pair["primary_id"], pair["backup_id"])
+            if any((existing["primary_id"], existing["backup_id"]) == key for existing in self._coordination_pairs):
+                raise ValueError("This primary/backup pair is already in the coordination list.")
+            self._coordination_pairs.append(pair)
+            description = f'{pair["primary_id"]} → {pair["backup_id"]}'
+            if source == "short_circuit":
+                description += f' | {pair["primary_branch"]} ({pair["primary_side"]}) / {pair["backup_branch"]} ({pair["backup_side"]})'
+            else:
+                description += f' | {len(pair["primary_currents"])} manual scenario(s)'
+            self._pair_list.addItem(description)
+            self._status.setText(f"Added pair {len(self._coordination_pairs)}. Add more pairs or run the study.")
+        except (TypeError, ValueError) as exc:
+            self._status.setText(f"Pair not added: {exc}")
+
+    def remove_coordination_pair(self) -> None:
+        """Remove the selected pair from the pending study configuration."""
+        row = self._pair_list.currentRow()
+        if row < 0 or row >= len(self._coordination_pairs):
+            self._status.setText("Select a coordination pair to remove.")
+            return
+        self._pair_list.takeItem(row)
+        self._coordination_pairs.pop(row)
+        self._status.setText(f"Removed pair. {len(self._coordination_pairs)} pair(s) remain.")
+
+    def run_coordination_study(self) -> None:
+        """Create and execute one project-scoped multi-pair coordination Study Case."""
+        if self._application is None:
+            self._status.setText("TCC workspace is not bound to the active Application.")
+            return
+        if not self._coordination_pairs:
+            self._status.setText("Add at least one coordination pair before running the study.")
+            return
+        try:
+            from core.analysis.coordination_study import (
+                CoordinationFaultScenario,
+                CoordinationRelayCurrent,
+                CoordinationStudyConfiguration,
+                CoordinationStudyPair,
+            )
+            sources = {pair["source"] for pair in self._coordination_pairs}
+            if len(sources) != 1:
+                raise ValueError("All pairs in one Study Case must use the same scenario source.")
+            source = next(iter(sources))
+            pairs = []
+            if source == "manual":
+                scenario_counts = {
+                    len(pair["primary_currents"])
+                    for pair in self._coordination_pairs
+                } | {
+                    len(pair["backup_currents"])
+                    for pair in self._coordination_pairs
+                }
+                if len(scenario_counts) != 1:
+                    raise ValueError("Every pair must define the same number of manual fault scenarios.")
+                scenario_count = next(iter(scenario_counts))
+                scenarios_list = []
+                location = self._coordination_pairs[0]["fault_location"]
+                for index in range(scenario_count):
+                    currents_by_element: dict[str, Any] = {}
+                    for pair in self._coordination_pairs:
+                        if pair["fault_location"] != location:
+                            raise ValueError("All manual pairs in one Study Case must use the same fault location.")
+                        entries = (
+                            (pair["primary_id"], pair["primary_currents"][index], pair["primary_unit"]),
+                            (pair["backup_id"], pair["backup_currents"][index], pair["backup_unit"]),
+                        )
+                        for element_id, current, unit in entries:
+                            value = CoordinationRelayCurrent(current, unit)
+                            previous = currents_by_element.get(element_id)
+                            if previous is not None and previous != value:
+                                raise ValueError(
+                                    f"Conflicting manual current inputs were supplied for relay function {element_id!r}."
+                                )
+                            currents_by_element[element_id] = value
+                    scenarios_list.append(
+                        CoordinationFaultScenario(
+                            scenario_id=f"SCENARIO-{index + 1:03d}",
+                            currents_by_element_id=currents_by_element,
+                            fault_location_id=location,
+                        )
+                    )
+                scenarios = tuple(scenarios_list)
+                pairs = [
+                    CoordinationStudyPair(pair["primary_id"], pair["backup_id"])
+                    for pair in self._coordination_pairs
+                ]
+            elif source == "short_circuit":
+                study_ids = {pair["study_id"] for pair in self._coordination_pairs}
+                if len(study_ids) != 1:
+                    raise ValueError("All Short-Circuit mapped pairs must use the same completed Study Case.")
+                study_id = next(iter(study_ids))
+                result_model = self._short_circuit_results.get(study_id)
+                if result_model is None:
+                    raise ValueError("The selected Short-Circuit result is no longer available; refresh curves and results.")
+                scenarios = (
+                    CoordinationFaultScenario(
+                        scenario_id=f"SC-{study_id[:8]}",
+                        fault_location_id=str(result_model.value.fault_bus_id),
+                        short_circuit_study_id=study_id,
+                    ),
+                )
+                pairs = [
+                    CoordinationStudyPair(
+                        pair["primary_id"],
+                        pair["backup_id"],
+                        primary_branch_id=pair["primary_branch"],
+                        backup_branch_id=pair["backup_branch"],
+                        primary_branch_side=pair["primary_side"],
+                        backup_branch_side=pair["backup_side"],
+                        primary_current_scale=pair["primary_scale"],
+                        backup_current_scale=pair["backup_scale"],
+                    )
+                    for pair in self._coordination_pairs
+                ]
+            else:
+                raise ValueError(f"Unsupported coordination scenario source: {source!r}.")
+            configuration = CoordinationStudyConfiguration(
+                pairs=tuple(pairs),
+                scenarios=scenarios,
+                required_cti_s=self._cti_input.value(),
+            )
+            case = self._application.create_protection_coordination_study_case(configuration)
+            execution = self._application.execute_study_case(case.study_id)
+            result_model = self._application.read_study_result(case.study_id)
+            if result_model is None or not result_model.current:
+                self._status.setText("Coordination result is unavailable or stale for the active project revision.")
+                return
+            result = result_model.value
+            if result is None:
+                self._status.setText(f"Coordination study {execution.status.upper()} without a result payload.")
+                return
+            self._plot_coordination_operating_points(result)
+            def _time_label(value: float) -> str:
+                if math.isinf(value):
+                    return "NO OPERATION" if value > 0.0 else "UNDEFINED"
+                return f"{value:.4g}s"
+
+            def _margin_label(value: float) -> str:
+                if value == float("inf"):
+                    return "UNBOUNDED — primary non-operation"
+                if value == float("-inf"):
+                    return "UNDEFINED — backup non-operation"
+                return f"{value:.4g}s"
+
+            def _delay_label(value: float) -> str:
+                if math.isinf(value):
+                    return "not finite — backup non-operation"
+                return f"{value:.4g}s"
+
+            rows = [
+                f"{point.scenario_id}: {point.status} | "
+                f"{point.primary_element_id} → {point.backup_element_id} | "
+                f"source={point.source_study_id or 'manual'} | "
+                f"Ip={point.primary_current:g} {point.primary_current_unit}, "
+                f"Ib={point.backup_current:g} {point.backup_current_unit} | "
+                f"tp={_time_label(point.primary_time_s)}, "
+                f"tb={_time_label(point.backup_time_s)} | "
+                f"margin={_margin_label(point.margin_s)}, "
+                f"required CTI={point.required_cti_s:.4g}s, "
+                f"additional backup delay={_delay_label(point.required_additional_backup_delay_s)}"
+                for point in result.points
+            ]
+            status_order = (
+                "COORDINATED",
+                "CTI_VIOLATION",
+                "BACKUP_DOES_NOT_OPERATE",
+                "BACKUP_ONLY_OPERATION",
+                "NOT_APPLICABLE",
+            )
+            status_counts = {
+                status: sum(point.status == status for point in result.points)
+                for status in status_order
+                if any(point.status == status for point in result.points)
+            }
+            status_summary = ", ".join(
+                f"{status}={count}" for status, count in status_counts.items()
+            )
+            self._status.setText(
+                f"Study {execution.status.upper()} — {result.status}; "
+                f"{result.pair_count} pair(s), {result.scenario_count} scenario(s).\n"
+                f"Point classifications: {status_summary}\n"
+                + "\n".join(rows)
+            )
+        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+            self._status.setText(f"Coordination study rejected: {exc}")
+
+
+    def _plot_coordination_operating_points(self, result: Any) -> None:
+        """Overlay finite primary/backup operating points from a published study result."""
+        for series in self._operating_point_series:
+            self._chart.removeSeries(series)
+        self._operating_point_series.clear()
+        if self._current_axis is None or self._time_axis is None:
+            return
+
+        units = {model.current_unit for model in self._curve_models.values()}
+        if len(units) != 1 or None in units:
+            return
+        axis_unit = next(iter(units))
+        primary_series = QScatterSeries(self._chart)
+        primary_series.setName("Primary operating points")
+        primary_series.setMarkerSize(12.0)
+        backup_series = QScatterSeries(self._chart)
+        backup_series.setName("Backup operating points")
+        backup_series.setMarkerSize(12.0)
+        plotted_currents: list[float] = []
+        plotted_times: list[float] = []
+
+        for point in getattr(result, "points", ()):
+            primary_time = float(point.primary_time_s)
+            if (
+                point.primary_current_unit == axis_unit
+                and math.isfinite(primary_time)
+                and primary_time > 0.0
+            ):
+                current = float(point.primary_current)
+                primary_series.append(current, primary_time)
+                plotted_currents.append(current)
+                plotted_times.append(primary_time)
+
+            backup_time = float(point.backup_time_s)
+            if (
+                point.backup_current_unit == axis_unit
+                and math.isfinite(backup_time)
+                and backup_time > 0.0
+            ):
+                current = float(point.backup_current)
+                backup_series.append(current, backup_time)
+                plotted_currents.append(current)
+                plotted_times.append(backup_time)
+
+        for series in (primary_series, backup_series):
+            if series.count() == 0:
+                continue
+            self._chart.addSeries(series)
+            series.attachAxis(self._current_axis)
+            series.attachAxis(self._time_axis)
+            self._operating_point_series.append(series)
+
+        if plotted_currents:
+            self._current_axis.setRange(
+                min(self._current_axis.min(), *plotted_currents),
+                max(self._current_axis.max(), *plotted_currents),
+            )
+            self._time_axis.setRange(
+                min(self._time_axis.min(), *plotted_times),
+                max(self._time_axis.max(), *plotted_times),
+            )
+
+    def set_curve_read_models(self, models: Any) -> None:
+        """Replace overlays from immutable IDMTCurveReadModel values only."""
+        from core.application.read_models import IDMTCurveReadModel
+
+        snapshots = tuple(models)
+        if not all(isinstance(model, IDMTCurveReadModel) for model in snapshots):
+            raise TypeError("TCC workspace accepts IDMTCurveReadModel values only.")
+        if any(not model.points for model in snapshots):
+            raise ValueError("Every displayed IDMT curve must contain plot points.")
+
+        self._operating_point_series.clear()
+        self._chart.removeAllSeries()
+        for axis in (self._current_axis, self._time_axis):
+            if axis is not None:
+                self._chart.removeAxis(axis)
+        self._series.clear()
+        self._current_axis = None
+        self._time_axis = None
+        if not snapshots:
+            self._status.setText("No ANSI 51/51N IDMT configurations are available.")
+            return
+        units = {model.current_unit for model in snapshots}
+        if None in units or len(units) != 1:
+            self._status.setText(
+                "TCC overlay refused: every relay curve must declare the same current_unit. "
+                "No CT/base conversion is inferred."
+            )
+            return
+        current_unit = next(iter(units))
+
+        currents = [point.current for model in snapshots for point in model.points]
+        times = [point.operating_time_s for model in snapshots for point in model.points]
+        if any(value <= 0.0 for value in currents + times):
+            raise ValueError("Logarithmic TCC axes require positive current and time values.")
+
+        current_axis = QLogValueAxis(self)
+        current_axis.setBase(10.0)
+        current_axis.setTitleText(f"Current ({current_unit})")
+        current_axis.setLabelFormat("%.3g")
+        current_axis.setRange(min(currents), max(currents))
+        time_axis = QLogValueAxis(self)
+        time_axis.setBase(10.0)
+        time_axis.setTitleText("Operating time (s)")
+        time_axis.setLabelFormat("%.3g")
+        time_axis.setRange(min(times), max(times))
+        self._chart.addAxis(current_axis, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(time_axis, Qt.AlignmentFlag.AlignLeft)
+        self._current_axis = current_axis
+        self._time_axis = time_axis
+
+        for model in snapshots:
+            series = QLineSeries(self._chart)
+            unit_label = model.current_unit or "unit not declared"
+            series.setName(
+                f"{model.display_name} [{model.function_code} {model.curve}, "
+                f"TMS={model.TMS:g}, {unit_label}]"
+            )
+            for point in model.points:
+                series.append(point.current, point.operating_time_s)
+            self._chart.addSeries(series)
+            series.attachAxis(current_axis)
+            series.attachAxis(time_axis)
+            self._series.append(series)
+        self._status.setText(f"Displaying {len(snapshots)} IDMT curve(s). Curves are read-only projections.")
+
 PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})
 EQUIPMENT_PANEL = PanelSpec(panel_id="equipment", title="Equipment Browser", metadata={"minimum_width": 230})
 PROPERTIES_PANEL = PanelSpec(panel_id="properties", title="Properties", metadata={"minimum_width": 300})
 ELEMENT_LIST_PANEL = PanelSpec(panel_id="element_list", title="Element List", metadata={"minimum_height": 180})
 MESSAGES_PANEL = PanelSpec(panel_id="messages", title="Messages / Events", metadata={"minimum_height": 150})
 STUDY_CASES_PANEL = PanelSpec(panel_id="study_cases", title="Study Cases", metadata={"minimum_height": 150})
+IDMT_TCC_PANEL = PanelSpec(panel_id="idmt_tcc", title="Protection TCC Coordination", metadata={"minimum_height": 260})
 
 DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     PROJECT_PANEL,
@@ -1047,6 +1712,7 @@ DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     ELEMENT_LIST_PANEL,
     MESSAGES_PANEL,
     STUDY_CASES_PANEL,
+    IDMT_TCC_PANEL,
 )
 
 _PANEL_WIDGET_FACTORIES: dict[str, Callable[[QWidget | None], QWidget]] = {
@@ -1056,6 +1722,7 @@ _PANEL_WIDGET_FACTORIES: dict[str, Callable[[QWidget | None], QWidget]] = {
     "element_list": ElementListPanelWidget,
     "messages": MessagesPanelWidget,
     "study_cases": StudyCasesPanelWidget,
+    "idmt_tcc": IDMTTCCWorkspaceWidget,
 }
 
 
@@ -1092,7 +1759,7 @@ def compose_default_panel_specs() -> tuple[PanelSpec, ...]:
 
 def validate_default_panel_ids() -> tuple[str, ...]:
     ids = default_panel_ids()
-    if len(ids) != 6 or len(set(ids)) != 6:
+    if len(ids) != 7 or len(set(ids)) != 7:
         raise RuntimeError("Default panel IDs must be unique and complete.")
     return ids
 
@@ -1104,12 +1771,14 @@ __all__ = [
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",
+    "IDMTTCCWorkspaceWidget",
     "PROJECT_PANEL",
     "EQUIPMENT_PANEL",
     "PROPERTIES_PANEL",
     "ELEMENT_LIST_PANEL",
     "MESSAGES_PANEL",
     "STUDY_CASES_PANEL",
+    "IDMT_TCC_PANEL",
     "DEFAULT_PANEL_SPECS",
     "create_panel_widget",
     "panel_spec_with_widget",

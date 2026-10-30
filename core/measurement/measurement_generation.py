@@ -156,7 +156,6 @@ class MeasurementGeneration:
         Applying a CT ratio directly to that value is therefore prohibited.
         """
         self._validate_source(context, source, expected_types=frozenset({'CT'}))
-        self._validate_channel(channel, MeasurementSignalType.CURRENT)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
@@ -169,15 +168,33 @@ class MeasurementGeneration:
                 "arbitrary branch current or calculated post-fault voltage is not established."
             )
         result = context.quantity
+        if channel.signal_type is MeasurementSignalType.RESIDUAL_CURRENT:
+            if channel.phase.value != "RESIDUAL":
+                raise ValueError("Residual-current measurement requires MeasurementPhase.RESIDUAL.")
+            raise UnsupportedMeasurementQuantity(
+                "ShortCircuitResult.ground_current is the aggregate fault-bus residual current "
+                "(Ia + Ib + Ic = 3I0), not the current through this CT's monitored branch. "
+                "Branch-correlated residual-current provenance is not available in "
+                "PreparedMeasurementContext; refusing to map a bus aggregate to a physical CT."
+            )
+        self._validate_channel(channel, MeasurementSignalType.CURRENT)
+        if channel.phase.value == "RESIDUAL":
+            raise ValueError("Residual-current channels cannot consume ordinary phase/sequence current quantities.")
         if context.bus_id != result.fault_bus_id:
             raise UnsupportedMeasurementQuantity(
                 f"Unsupported short-circuit mapping for source_id={context.source_id!r}, "
                 f"source_terminal={context.source_terminal!r}: physical measurement source bus "
                 f"{context.bus_id!r} does not correspond to fault location {result.fault_bus_id!r}."
             )
+        if root_key == "ground_current":
+            raise UnsupportedMeasurementQuantity(
+                "ground_current is an aggregate fault-bus residual quantity, not a branch-correlated CT current."
+            )
         raw = result.values.get(root_key)
         if raw is None:
-            if root_key == "phase_currents":
+            if root_key == "ground_current":
+                raw = result.ground_current
+            elif root_key == "phase_currents":
                 raw = result.phase_currents
             elif root_key == "sequence_currents":
                 raw = result.sequence_currents

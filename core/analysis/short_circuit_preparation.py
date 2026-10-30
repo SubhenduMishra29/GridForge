@@ -32,10 +32,14 @@ class ShortCircuitPreparation:
             raise ValueError("Short Circuit preparation requires at least one bus.")
         self._network = network
         self._sequence_network = sequence_network
+        if base_mva is not None:
+            if isinstance(base_mva, bool) or not math.isfinite(float(base_mva)) or float(base_mva) <= 0.0:
+                raise ValueError("base_mva must be finite and positive when supplied.")
+            base_mva = float(base_mva)
         self.base_mva = base_mva
         self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, model_revision: int | None = None) -> ShortCircuitInput:
         network = self._network
         if topology_snapshot is None:
             network.rebuild_topology()
@@ -57,8 +61,29 @@ class ShortCircuitPreparation:
                 self._prepare_prefault_voltage(network, bus_id)
                 for bus_id in bus_ids
             )
+            bus_base_voltage_kv = tuple(
+                self._bus_base_voltage_kv(network, bus_id)
+                for bus_id in bus_ids
+            )
             prefault_voltage = prefault_voltages[bus_index]
             snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
+            current_base_mva = self.base_mva
+            if self._sequence_network is not None:
+                supplied_sequence_base = getattr(self._sequence_network, "base_mva", None)
+                if (
+                    supplied_sequence_base is None
+                    or current_base_mva is None
+                    or not math.isclose(
+                        float(supplied_sequence_base),
+                        current_base_mva,
+                        rel_tol=1e-12,
+                        abs_tol=1e-12,
+                    )
+                ):
+                    # A detached prebuilt SequenceNetwork without matching
+                    # base provenance cannot support a trustworthy pu→A
+                    # conversion, even if a separate base was supplied.
+                    current_base_mva = None
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
@@ -90,6 +115,9 @@ class ShortCircuitPreparation:
                 project_id=topology_snapshot.project_id,
                 activation_generation=topology_snapshot.activation_generation,
                 topology_revision=topology_snapshot.topology_revision,
+                model_revision=model_revision,
+                base_mva=current_base_mva,
+                bus_base_voltage_kv=bus_base_voltage_kv,
             )
         finally:
             self._network = None
@@ -231,6 +259,16 @@ class ShortCircuitPreparation:
         role = getattr(getattr(element, 'terminal', None), 'role', '')
         bus_id = next((r.bus_id for r in self._topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
         return self._network.get_by_identity(bus_id) if bus_id else None
+
+    @staticmethod
+    def _bus_base_voltage_kv(network: Any, bus_id: str) -> float | None:
+        """Return an explicit positive Bus voltage base for current conversion."""
+        bus = network.get_by_identity(bus_id)
+        try:
+            voltage = float(bus.nominal_voltage_kv)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        return voltage if math.isfinite(voltage) and voltage > 0.0 else None
 
     @staticmethod
     def _prepare_prefault_voltage(network: Any, bus_id: str) -> complex:

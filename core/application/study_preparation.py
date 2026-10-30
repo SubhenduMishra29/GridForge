@@ -71,6 +71,7 @@ class StudyPreparationService:
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
             topology_snapshot=self.topology,
+            model_revision=self._execution_context.source_revision.model_revision,
         )
 
     def prepare_transient_stability(

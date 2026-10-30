@@ -53,6 +53,8 @@ class ShortCircuitStudyConfiguration:
             raise ValueError("element_ids must not contain duplicate identifiers.")
         object.__setattr__(self, "element_ids", ids)
         if self.base_mva is not None:
+            if isinstance(self.base_mva, bool):
+                raise TypeError("base_mva must be numeric, not boolean.")
             base_mva = float(self.base_mva)
             if not math.isfinite(base_mva) or base_mva <= 0.0:
                 raise ValueError("base_mva must be finite and greater than zero when supplied.")

@@ -230,6 +230,9 @@ def _finite_float(
     Convert a value to float and require finiteness.
     """
 
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be numeric, not boolean.")
+
     try:
         result = float(value)
     except (TypeError, ValueError) as exc:
@@ -1143,6 +1146,7 @@ def _finite_or_positive_infinity(
         )
 
     return result
+
 
 
 # =====================================================================

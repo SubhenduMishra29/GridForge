@@ -187,6 +187,7 @@ class MeasurementSignalType(Enum):
     """
 
     CURRENT = "CURRENT"
+    RESIDUAL_CURRENT = "RESIDUAL_CURRENT"
     VOLTAGE = "VOLTAGE"
     POWER = "POWER"
     FREQUENCY = "FREQUENCY"
@@ -222,6 +223,7 @@ class MeasurementPhase(Enum):
     POSITIVE_SEQUENCE = "POSITIVE_SEQUENCE"
     NEGATIVE_SEQUENCE = "NEGATIVE_SEQUENCE"
     ZERO_SEQUENCE = "ZERO_SEQUENCE"
+    RESIDUAL = "RESIDUAL"
 
 
 # =====================================================================

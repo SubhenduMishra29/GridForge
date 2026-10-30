@@ -70,7 +70,7 @@ class ProtectionConfigurationService:
         spec = get_protection_function(configuration.function_code)
         if spec.status is not ProtectionFunctionStatus.IMPLEMENTED or spec.implementation is None:
             raise DomainError(code="PROTECTION_FUNCTION_NOT_IMPLEMENTED", message=f"Protection function is not implemented: {configuration.function_code}", details={"function_code": configuration.function_code})
-        ProtectionFactory._build_settings(spec.implementation, configuration.settings)
+        ProtectionFactory.build_settings(spec.implementation, configuration.settings)
         for name, channel_id in configuration.input_channel_ids.items():
             if not isinstance(name, str) or not name.strip() or not isinstance(channel_id, str) or not channel_id.strip(): raise ValueError("Protection input channel names and IDs must be non-empty strings.")
         active_channels = channels

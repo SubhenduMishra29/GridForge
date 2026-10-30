@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import math
+
 from core.solver.short_circuit import FaultType, ShortCircuitSolver
 from core.solver.short_circuit.input import ShortCircuitInput
 from core.solver.short_circuit.result import ShortCircuitResult
@@ -39,7 +41,12 @@ class ShortCircuitAnalysis:
     ) -> "ShortCircuitAnalysis":
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
-        preparation = ShortCircuitPreparation(network, sequence_network, base_mva=base_mva)
+        configured_base = configuration.base_mva
+        if base_mva is not None and configured_base is not None:
+            if not math.isclose(float(base_mva), float(configured_base), rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError("Explicit base_mva conflicts with ShortCircuitStudyConfiguration.base_mva.")
+        effective_base_mva = configured_base if base_mva is None else base_mva
+        preparation = ShortCircuitPreparation(network, sequence_network, base_mva=effective_base_mva)
         input_data = preparation.prepare(
             configuration.fault_type,
             configuration.fault_bus_id,

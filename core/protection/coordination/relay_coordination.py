@@ -190,6 +190,8 @@ class CoordinationResult:
 
     primary_operates: bool
     backup_operates: bool
+    primary_fault_current: float | None = None
+    backup_fault_current: float | None = None
 
     @property
     def required_additional_delay(self) -> float:
@@ -215,10 +217,11 @@ class CoordinationResult:
         if self.coordinated:
             return 0.0
 
-        if math.isinf(
-            self.margin
-        ):
+        if self.margin == float("inf"):
             return 0.0
+
+        if self.margin == float("-inf"):
+            return float("inf")
 
         return max(
             0.0,
@@ -241,6 +244,8 @@ class CoordinationResult:
             "coordinated": self.coordinated,
             "primary_operates": self.primary_operates,
             "backup_operates": self.backup_operates,
+            "primary_fault_current": self.primary_fault_current,
+            "backup_fault_current": self.backup_fault_current,
             "required_additional_delay": (
                 self.required_additional_delay
             ),
@@ -308,6 +313,9 @@ class RelayCoordination:
         Validate a finite non-negative scalar.
         """
 
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be numeric, not boolean.")
+
         try:
             value = float(value)
 
@@ -340,6 +348,9 @@ class RelayCoordination:
         """
         Validate and normalize a fault-current study point.
         """
+
+        if isinstance(fault_current, bool):
+            raise TypeError("Fault current must be numeric, not boolean.")
 
         try:
             fault_current = abs(
@@ -711,95 +722,51 @@ class RelayCoordination:
         backup: Any,
         fault_current: float,
     ) -> CoordinationResult:
+        """Check both protection functions at one common fault current."""
+        current = self._validate_fault_current(fault_current)
+        return self.check_pair_currents(
+            primary=primary,
+            backup=backup,
+            primary_fault_current=current,
+            backup_fault_current=current,
+        )
+
+    def check_pair_currents(
+        self,
+        *,
+        primary: Any,
+        backup: Any,
+        primary_fault_current: float,
+        backup_fault_current: float,
+    ) -> CoordinationResult:
+        """Check a pair using independently measured relay-input currents.
+
+        Different branch currents are required where primary and backup
+        relays are installed at different electrical locations. Both values
+        must already be expressed in each function's configured input-current
+        engineering unit; this engine performs no CT/base conversion.
         """
-        Check coordination between primary and backup protection
-        functions at one fault-current study point.
-
-        Coordination criterion:
-
-            backup_time - primary_time >= CTI
-
-        If the primary does not operate, the study point is treated
-        as non-operating for the primary/backup pair.
-
-        If the backup does not operate while the primary does,
-        the pair cannot provide backup protection at this study point.
-        """
-
-        fault_current = self._validate_fault_current(
-            fault_current
-        )
-
-        primary_time = self._operating_time(
-            primary,
-            fault_current,
-        )
-
-        backup_time = self._operating_time(
-            backup,
-            fault_current,
-        )
-
-        primary_operates = math.isfinite(
-            primary_time
-        )
-
-        backup_operates = math.isfinite(
-            backup_time
-        )
-
-        # ------------------------------------------------------------
-        # Neither element operates.
-        #
-        # This is not a coordination failure; there is simply no
-        # protection operation at this study point.
-        # ------------------------------------------------------------
+        primary_current = self._validate_fault_current(primary_fault_current)
+        backup_current = self._validate_fault_current(backup_fault_current)
+        primary_time = self._operating_time(primary, primary_current)
+        backup_time = self._operating_time(backup, backup_current)
+        primary_operates = math.isfinite(primary_time)
+        backup_operates = math.isfinite(backup_time)
 
         if not primary_operates:
-
-            margin = float(
-                "inf"
-            )
-
+            margin = float("inf")
             coordinated = True
-
-        # ------------------------------------------------------------
-        # Primary operates, backup does not.
-        #
-        # The backup cannot fulfil its intended role at this point.
-        # ------------------------------------------------------------
-
         elif not backup_operates:
-
-            margin = float(
-                "-inf"
-            )
-
+            margin = float("-inf")
             coordinated = False
-
-        # ------------------------------------------------------------
-        # Both operate.
-        # ------------------------------------------------------------
-
         else:
-
-            margin = (
-                backup_time
-                - primary_time
-            )
-
-            coordinated = (
-                margin >= self.CTI
-            )
+            margin = backup_time - primary_time
+            coordinated = margin >= self.CTI
 
         return CoordinationResult(
-            primary=self._object_id(
-                primary
-            ),
-            backup=self._object_id(
-                backup
-            ),
-            fault_current=fault_current,
+            primary=self._object_id(primary),
+            backup=self._object_id(backup),
+            fault_current=primary_current,
             primary_time=primary_time,
             backup_time=backup_time,
             margin=margin,
@@ -807,6 +774,8 @@ class RelayCoordination:
             coordinated=coordinated,
             primary_operates=primary_operates,
             backup_operates=backup_operates,
+            primary_fault_current=primary_current,
+            backup_fault_current=backup_current,
         )
 
     # ================================================================

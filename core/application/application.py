@@ -56,7 +56,7 @@ from .events import (
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, IDMTCurveReadModel
 from .read_service import ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -73,11 +73,19 @@ from .protection_execution import (
     ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
 )
+from core.analysis.coordination_study import (
+    CoordinationStudyConfiguration,
+    CoordinationStudyResult,
+    execute_coordination_study,
+)
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
+from core.solver.short_circuit.result import ShortCircuitResult
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
+from core.measurement.ct_measurement_association import CTMeasurementAssociation
 from math import isfinite, atan2, degrees
 from pathlib import Path
 from .services.control_service import ControlApplicationService
@@ -154,7 +162,11 @@ class Application:
         # installed by another owner under a command type we originally owned.
         self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
-        self._study_service = StudyService(self._event_bus)
+        self._study_service = StudyService(
+            self._event_bus,
+            publication_lock=self._execution_lock,
+        )
+        self._study_service.register("protection_coordination", self._execute_protection_coordination_study)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
@@ -319,8 +331,16 @@ class Application:
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
             return ()
         generation = lifecycle.activation_generation
+        current_revision = self.revision
         return tuple(
-            case for case in self._study_cases.values()
+            replace(
+                case,
+                is_stale=(
+                    case.is_stale
+                    or not case.source_revision.matches_study_state(current_revision)
+                ),
+            )
+            for case in self._study_cases.values()
             if case.project_id == context.project_id
             and case.activation_generation == generation
         )
@@ -423,8 +443,10 @@ class Application:
             raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
         if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
             raise ValueError("Study Case project scope does not match the active project generation.")
-        # Do not silently bless a configuration after electrical inputs change.
-        if not case.source_revision.matches_study_state(self.revision):
+        # Persisted stale state survives project activation/revision-counter reset.
+        # Also compare live revisions so unsaved electrical edits stale the case
+        # immediately, without waiting for the next project save.
+        if case.is_stale or not case.source_revision.matches_study_state(self.revision):
             raise ValueError(
                 "Study Case configuration is stale for the active electrical model/topology. "
                 "Reconfigure or recreate the Study Case before execution."
@@ -491,6 +513,16 @@ class Application:
     def measurement_channel_service(self) -> MeasurementChannelService:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
+
+    def resolve_ct_measurement_association(self, ct_id: str) -> CTMeasurementAssociation:
+        """Resolve the active SLD-configured CT to its validated Core branch."""
+        lifecycle = self.project_lifecycle
+        if lifecycle.context is None:
+            raise RuntimeError("CT measurement association requires an active project.")
+        return self.sld_service.resolve_ct_measurement_association(
+            lifecycle.network,
+            ct_id,
+        )
 
     def evaluate_protection_cycle(
         self,
@@ -1394,7 +1426,24 @@ class Application:
         # Only register a runnable Study Case after the request has passed
         # project-generation, revision, validation, and topology provenance gates.
         self._remember_study_case(request)
-        return self._study_service.execute(request, execution_context)
+        return self._study_service.execute(
+            request,
+            execution_context,
+            publication_guard=lambda: self._study_request_is_current(request),
+        )
+
+    def _study_request_is_current(self, request: StudyRequest) -> bool:
+        """Check study provenance while Application mutations are excluded."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        return bool(
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+            and context.project_id == request.project_id
+            and lifecycle.activation_generation == request.activation_generation
+            and request.source_revision.matches_study_state(self.revision)
+        )
 
     def read_study_result(self, study_id) -> Any:
         """Return the current project-scoped study result read model."""
@@ -2603,6 +2652,252 @@ class Application:
         self._command_manager.clear_history()
         self._revision_service.clear_transitions()
 
+    def _execute_protection_coordination_study(self, request: StudyRequest, execution_context: StudyExecutionContext, cancellation_token: Any) -> CoordinationStudyResult:
+        """Execute coordination from a detached, revision-scoped relay curve snapshot."""
+        configuration = request.configuration.get("configuration")
+        if not isinstance(configuration, CoordinationStudyConfiguration):
+            raise TypeError("protection_coordination request requires CoordinationStudyConfiguration.")
+        runtime = getattr(self, "protection_runtime", None)
+        if (
+            runtime is None
+            or runtime.project_id != execution_context.project_id
+            or runtime.activation_generation != execution_context.activation_generation
+            or not runtime.configuration_matches_composition
+        ):
+            raise RuntimeError(
+                "Protection runtime is unavailable, stale, or belongs to another project activation; "
+                "coordination execution is refused."
+            )
+        curves = self.read_idmt_curves()
+        referenced_ids = {
+            identity
+            for pair in configuration.pairs
+            for identity in (pair.primary_element_id, pair.backup_element_id)
+        }
+        selected_curves = {item.element_id: item for item in curves if item.element_id in referenced_ids}
+        if len(selected_curves) != len(referenced_ids):
+            missing = sorted(referenced_ids.difference(selected_curves))
+            raise ValueError("Configured coordination functions are unavailable: " + ", ".join(missing))
+        for relay_id in sorted({selected_curves[item].relay_id for item in referenced_ids}):
+            relay = self.read_relay(relay_id)
+            if not relay.in_service or not relay.enabled or relay.blocked:
+                raise ValueError(
+                    f"Physical relay {relay_id!r} is out of service, disabled, or blocked; "
+                    "coordination execution is refused."
+                )
+        short_circuit_ids = {
+            scenario.short_circuit_study_id
+            for scenario in configuration.scenarios
+            if scenario.short_circuit_study_id is not None
+        }
+        short_circuit_results: dict[str, Any] = {}
+        if short_circuit_ids:
+            source_cases = {
+                str(case.study_id): case
+                for case in self.study_cases
+                if case.study_type == "short_circuit"
+            }
+            missing_cases = sorted(short_circuit_ids.difference(source_cases))
+            if missing_cases:
+                raise ValueError(
+                    "Coordination references missing Short-Circuit Study Cases: "
+                    + ", ".join(missing_cases)
+                )
+            for source_id in sorted(short_circuit_ids):
+                source_case = source_cases[source_id]
+                if source_case.is_stale or not source_case.source_revision.matches_study_state(
+                    execution_context.source_revision
+                ):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} is stale; "
+                        "re-execute it before coordination."
+                    )
+            for study_result in self.read_study_results():
+                study_id = str(study_result.study_id)
+                source_case = source_cases.get(study_id)
+                if (
+                    study_id in short_circuit_ids
+                    and source_case is not None
+                    and study_result.status == "completed"
+                    and study_result.current
+                    and isinstance(study_result.value, ShortCircuitResult)
+                    and study_result.project_id == source_case.project_id
+                    and study_result.activation_generation == source_case.activation_generation
+                    and study_result.source_revision.matches_study_state(source_case.source_revision)
+                ):
+                    short_circuit_results[study_id] = study_result.value
+            missing_short_circuit = sorted(short_circuit_ids.difference(short_circuit_results))
+            if missing_short_circuit:
+                raise ValueError(
+                    "Coordination requires current Short-Circuit results matching their "
+                    "Study Case provenance: " + ", ".join(missing_short_circuit)
+                )
+        result = execute_coordination_study(
+            configuration,
+            curves,
+            project_id=execution_context.project_id,
+            activation_generation=execution_context.activation_generation,
+            source_model_revision=execution_context.source_revision.model_revision,
+            source_topology_revision=execution_context.source_revision.topology_revision,
+            cancellation_token=cancellation_token,
+            short_circuit_results=short_circuit_results,
+        )
+        lifecycle = self.project_lifecycle
+        active_context = lifecycle.context
+        if (
+            active_context is None
+            or active_context.project_id != execution_context.project_id
+            or lifecycle.activation_generation != execution_context.activation_generation
+            or self.revision != execution_context.source_revision
+        ):
+            raise RuntimeError("Project or protection configuration changed during coordination evaluation; result rejected as stale.")
+        return result
+
+    def create_protection_coordination_study_case(
+        self,
+        configuration: CoordinationStudyConfiguration,
+        *,
+        display_name: str = "",
+    ) -> StudyCaseDefinition:
+        """Create an Application-owned, project/revision-scoped coordination Study Case."""
+        if not isinstance(configuration, CoordinationStudyConfiguration):
+            raise TypeError("configuration must be CoordinationStudyConfiguration.")
+        # Validate all configured function identities against the current
+        # project read model before registering a runnable Study Case.
+        curve_models = {curve.element_id: curve for curve in self.read_idmt_curves()}
+        referenced = {
+            identity
+            for pair in configuration.pairs
+            for identity in (pair.primary_element_id, pair.backup_element_id)
+        }
+        missing = sorted(referenced.difference(curve_models))
+        if missing:
+            raise ValueError("Coordination pair references unavailable ANSI 51/51N elements: " + ", ".join(missing))
+        branch_ids = {
+            str(getattr(branch, "id", "")).strip()
+            for branch in self.project_lifecycle.network.branches
+            if str(getattr(branch, "id", "")).strip()
+        }
+        for pair in configuration.pairs:
+            for branch_id in (pair.primary_branch_id, pair.backup_branch_id):
+                if branch_id is not None and branch_id not in branch_ids:
+                    raise ValueError(
+                        f"Coordination pair references branch {branch_id!r}, "
+                        "which is not present in the active Network."
+                    )
+        for element_id in sorted(referenced):
+            curve = curve_models[element_id]
+            if not curve.current_unit:
+                raise ValueError(
+                    f"Protection function {element_id!r} must declare current_unit "
+                    "in its persisted IEC settings before coordination can be configured."
+                )
+            if not curve.function_enabled or curve.function_blocked:
+                raise ValueError(
+                    f"Protection function {element_id!r} is disabled or blocked and cannot be selected."
+                )
+
+        # Reject invalid Short-Circuit provenance when the Study Case is
+        # authored, rather than allowing a configuration that can only fail
+        # later during execution or make the saved project unloadable.
+        source_study_ids = {
+            scenario.short_circuit_study_id
+            for scenario in configuration.scenarios
+            if scenario.short_circuit_study_id is not None
+        }
+        if source_study_ids:
+            registered_cases = {
+                str(case.study_id): case
+                for case in self.study_cases
+                if case.study_type == "short_circuit"
+            }
+            missing_cases = sorted(source_study_ids.difference(registered_cases))
+            if missing_cases:
+                raise ValueError(
+                    "Coordination references missing or non-Short-Circuit Study Cases: "
+                    + ", ".join(missing_cases)
+                )
+            for scenario in configuration.scenarios:
+                source_id = scenario.short_circuit_study_id
+                if source_id is None:
+                    continue
+                source_case = registered_cases[source_id]
+                source_configuration = source_case.configuration.get("configuration")
+                if not isinstance(source_configuration, ShortCircuitStudyConfiguration):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} has no valid typed configuration."
+                    )
+                if scenario.fault_location_id != source_configuration.fault_bus_id:
+                    raise ValueError(
+                        f"Coordination scenario {scenario.scenario_id!r} fault location "
+                        f"{scenario.fault_location_id!r} does not match source Study Case "
+                        f"{source_id!r} fault Bus {source_configuration.fault_bus_id!r}."
+                    )
+            for source_id in sorted(source_study_ids):
+                source_case = registered_cases[source_id]
+                if source_case.is_stale or not source_case.source_revision.matches_study_state(self.revision):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} was authored against "
+                        "a different model/topology revision and must be re-executed."
+                    )
+            completed_results = {
+                str(result.study_id): result
+                for result in self.read_study_results()
+                if result.study_type == "short_circuit"
+                and result.status == "completed"
+                and result.current
+                and isinstance(result.value, ShortCircuitResult)
+            }
+            missing_results = sorted(source_study_ids.difference(completed_results))
+            if missing_results:
+                raise ValueError(
+                    "Coordination requires current, completed Short-Circuit results before "
+                    "the Study Case can be created: " + ", ".join(missing_results)
+                )
+            for source_id in sorted(source_study_ids):
+                source_case = registered_cases[source_id]
+                source_result = completed_results[source_id]
+                if (
+                    source_result.project_id != source_case.project_id
+                    or source_result.activation_generation != source_case.activation_generation
+                    or not source_result.source_revision.matches_study_state(source_case.source_revision)
+                ):
+                    raise ValueError(
+                        f"Short-Circuit result {source_id!r} does not match its source Study Case "
+                        "project, activation, model, and topology provenance."
+                    )
+
+        # Manual relay currents are already explicit; verify their declared
+        # units against the selected protection-function settings at the
+        # Application boundary so invalid cases are not registered.
+        for scenario in configuration.scenarios:
+            if scenario.short_circuit_study_id is not None:
+                continue
+            for element_id in referenced:
+                supplied = scenario.currents_by_element_id[element_id]
+                expected_unit = curve_models[element_id].current_unit
+                if supplied.current_unit != expected_unit:
+                    raise ValueError(
+                        f"Scenario {scenario.scenario_id!r} current unit "
+                        f"{supplied.current_unit!r} does not match configured unit "
+                        f"{expected_unit!r} for {element_id!r}."
+                    )
+        return self.create_study_case(
+            study_type="protection_coordination",
+            configuration={"configuration": configuration},
+            display_name=display_name or configuration.display_name,
+        )
+
+    def read_protection_coordination_results(self) -> tuple[Any, ...]:
+        """Return completed, current coordination results for the active project."""
+        return tuple(
+            result for result in self.read_study_results()
+            if result.study_type == "protection_coordination"
+            and result.status == "completed"
+            and result.current
+            and isinstance(result.value, CoordinationStudyResult)
+        )
+
     def read_control(self):
         service = getattr(self, "control_service", None)
         if service is None:
@@ -2622,6 +2917,14 @@ class Application:
 
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
+    def read_idmt_curves(self) -> tuple[IDMTCurveReadModel, ...]:
+        """Return immutable TCC curve snapshots for configured ANSI 51/51N elements."""
+        configurations = self.read_protection_configuration()
+        return tuple(
+            IDMTCurveReadModel.from_configuration(item)
+            for item in configurations
+            if str(getattr(item, "function_code", "")).strip().upper() in {"51", "51N"}
+        )
     def read_protection_configuration(self) -> tuple[Any, ...]:
         """Return immutable project-scoped protection configuration read state."""
         service = getattr(self, "protection_configuration_service", None)
