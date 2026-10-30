@@ -102,14 +102,15 @@ _VOLTAGE_INPUT = ProtectionInputContract(
 # can be safely accepted.
 CONTRACT_50 = ProtectionFunctionInputContract("50", {"current": _CURRENT_INPUT})
 CONTRACT_51 = ProtectionFunctionInputContract("51", {"current": _CURRENT_INPUT})
-CONTRACT_50N = ProtectionFunctionInputContract(
-    "50N", {}, supported=False,
-    unsupported_reason="MeasurementSignalType has no residual-current classification; CURRENT/ZERO_SEQUENCE alone does not distinguish residual current from I0 semantics",
+_RESIDUAL_CURRENT_INPUT = ProtectionInputContract(
+    "residual_current",
+    frozenset({MeasurementSignalType.RESIDUAL_CURRENT}),
+    frozenset({MeasurementPhase.RESIDUAL}),
+    _SCALAR_OR_PHASOR,
+    frozenset({"A"}),
 )
-CONTRACT_51N = ProtectionFunctionInputContract(
-    "51N", {}, supported=False,
-    unsupported_reason="MeasurementSignalType has no residual-current classification; CURRENT/ZERO_SEQUENCE alone does not distinguish residual current from I0 semantics",
-)
+CONTRACT_50N = ProtectionFunctionInputContract("50N", {"residual_current": _RESIDUAL_CURRENT_INPUT})
+CONTRACT_51N = ProtectionFunctionInputContract("51N", {"residual_current": _RESIDUAL_CURRENT_INPUT})
 CONTRACT_27 = ProtectionFunctionInputContract("27", {"voltage": _VOLTAGE_INPUT})
 CONTRACT_59 = ProtectionFunctionInputContract("59", {"voltage": _VOLTAGE_INPUT})
 CONTRACT_46 = ProtectionFunctionInputContract("46", {"negative_sequence_current": _SEQUENCE_CURRENT})
@@ -230,7 +231,7 @@ def validate_protection_input_contracts(
             # ANSI 51's pickup is expressed in the same engineering basis
             # as its RelayInput. current_unit is a declaration, not a
             # conversion request; reject any declared mismatch.
-            if code == "51" and name == "current":
+            if code in {"51", "51N"} and name in {"current", "residual_current"}:
                 settings = getattr(element, "settings", None)
                 declared_unit = (
                     settings.get("current_unit", settings.get("pickup_unit"))
