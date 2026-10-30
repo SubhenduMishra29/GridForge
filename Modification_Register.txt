@@ -14907,3 +14907,29 @@ Disposition:
       and end-to-end engineering validation. No production-ready claim.
 
 ======================================================================
+
+2026-10-30 — Protection coordination result classification and integrity
+-----------------------------------------------------------------------
+
+Files:
+    - core/analysis/coordination_study.py
+    - Modification_Register.txt
+
+Changes:
+    - Distinguish BACKUP_ONLY_OPERATION from NOT_APPLICABLE. A backup
+      protection function that operates while the configured primary does
+      not operate is now an explicit coordination violation, rather than
+      being silently classified as not applicable.
+    - Preserve NOT_APPLICABLE only when neither primary nor backup operates.
+    - Include BACKUP_ONLY_OPERATION in aggregate VIOLATION classification.
+    - Validate each immutable point result's identities, units, current and
+      time domains, CTI, additional-delay value, status, and status/time
+      consistency.
+    - Validate aggregate pair/scenario counts, unique pair/scenario
+      identities, non-empty project provenance, and non-negative integer
+      activation/model/topology revisions. Reject incomplete or duplicate
+      aggregate point sets before publication.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and UI runtime rendering not verified.
