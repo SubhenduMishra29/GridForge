@@ -87,6 +87,7 @@ def test_line_engineering_values_are_converted_once_at_power_flow_preparation() 
 def test_analysis_from_prepared_uses_detached_ybus_without_rebuilding_from_live_network() -> None:
     network = Network()
     network.add_bus(Bus(id="B1", name="B1", nominal_voltage_kv=11.0, voltage_pu=1.0))
+    network.add_bus(Bus(id="B2", name="B2", nominal_voltage_kv=11.0, voltage_pu=1.0))
     bus_1 = network.buses[0]
     bus_2 = network.buses[1]
     network.add_line(Line(id="L1", name="L1", endpoint_from=bus_1, endpoint_to=bus_2, resistance_ohm=0.2, reactance_ohm=0.4, shunt_susceptance_siemens=0.0))
