@@ -242,6 +242,11 @@ def execute_coordination_study(
     if not isinstance(configuration, CoordinationStudyConfiguration):
         raise TypeError("configuration must be CoordinationStudyConfiguration.")
     curve_models = {item.element_id: item for item in tuple(curve_read_models)}
+    required_ids = {
+        identity
+        for pair in configuration.pairs
+        for identity in (pair.primary_element_id, pair.backup_element_id)
+    }
     unavailable = sorted(
         element_id for element_id, item in curve_models.items()
         if not item.function_enabled or item.function_blocked
@@ -255,11 +260,6 @@ def execute_coordination_study(
     curves = {
         element_id: _ConfiguredIDMTFunction(item)
         for element_id, item in curve_models.items()
-    }
-    required_ids = {
-        identity
-        for pair in configuration.pairs
-        for identity in (pair.primary_element_id, pair.backup_element_id)
     }
     missing = sorted(required_ids.difference(curves))
     if missing:
