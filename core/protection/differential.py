@@ -34,6 +34,27 @@ class DifferentialProtectionSettings:
     breakpoints_a: tuple[float, ...] = ()
     high_set_pickup_a: float | None = None
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "pickup_current_a": self.pickup_current_a,
+            "restraint_method": self.restraint_method.value,
+            "slopes": list(self.slopes),
+            "breakpoints_a": list(self.breakpoints_a),
+            "high_set_pickup_a": self.high_set_pickup_a,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "DifferentialProtectionSettings":
+        if not isinstance(data, Mapping):
+            raise TypeError("differential settings must be a mapping.")
+        return cls(
+            pickup_current_a=data["pickup_current_a"],
+            restraint_method=data["restraint_method"],
+            slopes=tuple(data["slopes"]),
+            breakpoints_a=tuple(data.get("breakpoints_a", ())),
+            high_set_pickup_a=data.get("high_set_pickup_a"),
+        )
+
     def __post_init__(self) -> None:
         pickup = _finite_nonnegative(self.pickup_current_a, "pickup_current_a")
         if pickup <= 0.0:
@@ -122,14 +143,18 @@ class DifferentialProtectionResult:
 
 def evaluate_differential_scheme(
     scheme: DifferentialProtectionSchemeConfiguration,
-    settings: DifferentialProtectionSettings,
+    settings: DifferentialProtectionSettings | None,
     samples: Mapping[str, DifferentialCurrentSample],
 ) -> DifferentialProtectionResult:
     """Evaluate a configured scheme without side effects or inferred topology."""
     if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
         raise TypeError("scheme must be a DifferentialProtectionSchemeConfiguration.")
+    if settings is None:
+        if not scheme.differential_settings:
+            raise ValueError("Differential settings must be supplied or persisted on the scheme.")
+        settings = DifferentialProtectionSettings.from_dict(scheme.differential_settings)
     if not isinstance(settings, DifferentialProtectionSettings):
-        raise TypeError("settings must be DifferentialProtectionSettings.")
+        raise TypeError("settings must be DifferentialProtectionSettings or None.")
     if not scheme.enabled:
         raise ValueError("A disabled differential scheme cannot be evaluated.")
     if not isinstance(samples, Mapping):
