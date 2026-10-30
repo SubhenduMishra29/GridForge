@@ -15320,3 +15320,9 @@ Correction:
     measurement/protection concern. resolve_all includes every registered
     CT and does not silently omit out-of-service instruments.
 
+[2026-10-30] CT association topology correction — inline SimpleWire placement
+- Corrected CTMeasurementAssociationResolver to retain separate canonical P1/P2 SimpleWire topology components instead of requiring each CT primary terminal to resolve to a Bus ID.
+- Resolver validates committed SimpleWire connectivity, canonical P1/P2 terminal membership, disjoint components, and rejects Junction traversal.
+- Added explicit Branch terminal/side orientation mapping. The configured Branch terminal must belong to exactly one CT primary component; sign is derived from FROM/TO side and whether P1 or P2 faces the Branch terminal.
+- This resolves CT placement as an inline instrument on a split SimpleWire without treating the wire segment as an analysis Branch or inferring a protection zone.
+- No tests or CI were run.
