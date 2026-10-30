@@ -15780,3 +15780,32 @@ Verification:
 - The primary-side PreparedMeasurementContext remains distinct from the secondary-side MeasurementChannel source terminal.
 - This correction does not infer CT measurement location, protected equipment, protection zone, or scheme membership.
 - No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+
+[2026-10-30] Protection Study Phase D5 — detached RelayInput scenario evaluation
+- Added Application.evaluate_protection_scenario() as the sole authority for
+  validating scenario samples and installing immutable RelayInput evaluation
+  snapshots. It validates active project/runtime/channel identities,
+  ProtectionMeasurementBinding correlation, CT identity/ratio/secondary
+  terminal, phase/sequence, canonical engineering units, input representation
+  and project/activation/topology provenance.
+- Scenario snapshots use no fabricated acquisition timestamp and do not
+  modify MeasurementChannel state. MeasurementQuality.UNKNOWN is retained
+  because calculated study quantities are not sensor-quality telemetry;
+  MeasurementValidity.VALID is assigned only after complete result and
+  provenance validation.
+- ProtectionStudyHandler now resolves CT associations through the
+  Application CTMeasurementAssociationService, converts explicitly bound
+  Branch FROM/TO CT phase/sequence contributions, and evaluates eligible
+  protection elements without dispatching output actions.
+- ProtectionFaultScenarioResult retains its own ProtectionExecutionResult;
+  ProtectionStudyResult exposes scenario-attributed decisions/diagnostics.
+- Scope remains Branch FROM/TO CT current bindings with supported input
+  contracts. Bus/equipment-terminal current adapters, PT/CVT voltage,
+  ANSI 67 scenario polarising snapshots, residual-current semantics,
+  differential CT normalisation/compensation and action dispatch remain
+  unsupported and fail closed.
+- CT scenario sample unit is canonical A; CT-secondary basis remains
+  instrument/channel-specific and is not a common differential basis.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
