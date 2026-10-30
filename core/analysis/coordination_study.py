@@ -221,10 +221,12 @@ class CoordinationStudyPointResult:
         primary_input: CoordinationRelayCurrent,
         backup_input: CoordinationRelayCurrent,
     ) -> "CoordinationStudyPointResult":
-        if not result.primary_operates:
-            status = "NOT_APPLICABLE"
-        elif not result.backup_operates:
+        if result.primary_operates and not result.backup_operates:
             status = "BACKUP_DOES_NOT_OPERATE"
+        elif not result.primary_operates and result.backup_operates:
+            status = "BACKUP_ONLY_OPERATION"
+        elif not result.primary_operates and not result.backup_operates:
+            status = "NOT_APPLICABLE"
         elif not result.coordinated:
             status = "CTI_VIOLATION"
         else:
@@ -270,6 +272,28 @@ class CoordinationStudyResult:
         allowed = {"COORDINATED", "VIOLATION", "INDETERMINATE"}
         if self.status not in allowed:
             raise ValueError(f"Unsupported coordination study status: {self.status!r}.")
+        if isinstance(self.pair_count, bool) or not isinstance(self.pair_count, int) or self.pair_count < 1:
+            raise ValueError("pair_count must be a positive integer.")
+        if isinstance(self.scenario_count, bool) or not isinstance(self.scenario_count, int) or self.scenario_count < 1:
+            raise ValueError("scenario_count must be a positive integer.")
+        if len(points) != self.pair_count * self.scenario_count:
+            raise ValueError("Coordination result point count does not match pair_count × scenario_count.")
+        identities = [
+            (item.primary_element_id, item.backup_element_id, item.scenario_id)
+            for item in points
+        ]
+        if len(set(identities)) != len(identities):
+            raise ValueError("Coordination result contains duplicate pair/scenario points.")
+        if len({(item.primary_element_id, item.backup_element_id) for item in points}) != self.pair_count:
+            raise ValueError("Coordination result pair identities do not match pair_count.")
+        if len({item.scenario_id for item in points}) != self.scenario_count:
+            raise ValueError("Coordination result scenario identities do not match scenario_count.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        for name in ("activation_generation", "source_model_revision", "source_topology_revision"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer.")
         object.__setattr__(self, "points", points)
 
     @classmethod
@@ -284,7 +308,7 @@ class CoordinationStudyResult:
         source_topology_revision: int,
     ) -> "CoordinationStudyResult":
         statuses = {point.status for point in points}
-        if statuses.intersection({"CTI_VIOLATION", "BACKUP_DOES_NOT_OPERATE"}):
+        if statuses.intersection({"CTI_VIOLATION", "BACKUP_DOES_NOT_OPERATE", "BACKUP_ONLY_OPERATION"}):
             status = "VIOLATION"
         elif statuses == {"COORDINATED"}:
             status = "COORDINATED"
