@@ -1056,6 +1056,22 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._refresh_button.setObjectName("RefreshIDMTTCC")
         self._primary_combo = QComboBox(self)
         self._backup_combo = QComboBox(self)
+        self._scenario_source = QComboBox(self)
+        self._scenario_source.addItem("Manual relay-input currents", "manual")
+        self._scenario_source.addItem("Short-Circuit Study result", "short_circuit")
+        self._short_circuit_result_combo = QComboBox(self)
+        self._primary_branch_combo = QComboBox(self)
+        self._backup_branch_combo = QComboBox(self)
+        self._primary_branch_side = QComboBox(self)
+        self._primary_branch_side.addItem("From bus", "from")
+        self._primary_branch_side.addItem("To bus", "to")
+        self._backup_branch_side = QComboBox(self)
+        self._backup_branch_side.addItem("From bus", "from")
+        self._backup_branch_side.addItem("To bus", "to")
+        self._primary_current_scale = QLineEdit(self)
+        self._primary_current_scale.setPlaceholderText("Required scale")
+        self._backup_current_scale = QLineEdit(self)
+        self._backup_current_scale.setPlaceholderText("Required scale")
         self._cti_input = QDoubleSpinBox(self)
         self._cti_input.setRange(0.0, 60.0)
         self._cti_input.setDecimals(4)
@@ -1076,8 +1092,16 @@ class IDMTTCCWorkspaceWidget(QWidget):
         form = QFormLayout()
         form.addRow("Primary function", self._primary_combo)
         form.addRow("Backup function", self._backup_combo)
+        form.addRow("Scenario source", self._scenario_source)
+        form.addRow("Short-Circuit Study", self._short_circuit_result_combo)
+        form.addRow("Primary branch", self._primary_branch_combo)
+        form.addRow("Primary branch side", self._primary_branch_side)
+        form.addRow("Primary scale (A primary → relay unit)", self._primary_current_scale)
+        form.addRow("Backup branch", self._backup_branch_combo)
+        form.addRow("Backup branch side", self._backup_branch_side)
+        form.addRow("Backup scale (A primary → relay unit)", self._backup_current_scale)
         form.addRow("Required CTI (s)", self._cti_input)
-        form.addRow("Primary relay-input currents", self._primary_currents)
+        form.addRow("Primary relay-input currents (manual)", self._primary_currents)
         form.addRow("Backup relay-input currents", self._backup_currents)
         form.addRow("Primary unit (relay settings)", self._primary_unit)
         form.addRow("Backup unit (relay settings)", self._backup_unit)
@@ -1093,10 +1117,12 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._time_axis: QLogValueAxis | None = None
         self._series: list[QLineSeries] = []
         self._curve_models: dict[str, Any] = {}
+        self._short_circuit_results: dict[str, Any] = {}
         self._refresh_button.clicked.connect(self.refresh_curves)
         self._run_button.clicked.connect(self.run_coordination_study)
         self._primary_combo.currentIndexChanged.connect(self._sync_current_units)
         self._backup_combo.currentIndexChanged.connect(self._sync_current_units)
+        self._short_circuit_result_combo.currentIndexChanged.connect(self._populate_branch_selectors)
 
     def bind_application(self, application: Any) -> None:
         """Bind the Application read boundary; no Core or Qt state crosses it."""
@@ -1115,6 +1141,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
             self._curve_models = {model.element_id: model for model in models}
             self.set_curve_read_models(models)
             self._populate_function_selectors(models)
+            self._populate_short_circuit_results()
             self._sync_current_units()
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
             self._status.setText(f"Unable to load IDMT curves: {exc}")
@@ -1139,6 +1166,47 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 self._backup_combo.setCurrentIndex(index)
         if self._backup_combo.count() > 1 and self._backup_combo.currentIndex() == 0:
             self._backup_combo.setCurrentIndex(1)
+
+    def _populate_short_circuit_results(self) -> None:
+        """List only current, completed Short-Circuit Study results."""
+        self._short_circuit_results = {}
+        self._short_circuit_result_combo.blockSignals(True)
+        self._short_circuit_result_combo.clear()
+        for result in self._application.read_study_results():
+            if (
+                result.study_type != "short_circuit"
+                or result.status != "completed"
+                or not result.current
+                or result.value is None
+            ):
+                continue
+            study_id = str(result.study_id)
+            fault_bus_id = getattr(result.value, "fault_bus_id", "unknown bus")
+            self._short_circuit_results[study_id] = result
+            self._short_circuit_result_combo.addItem(
+                f"{fault_bus_id} — {study_id}", study_id
+            )
+        self._short_circuit_result_combo.blockSignals(False)
+        self._populate_branch_selectors()
+
+    def _populate_branch_selectors(self, *_args: Any) -> None:
+        """Populate explicit branch mappings from the selected Short-Circuit result."""
+        study_id = self._short_circuit_result_combo.currentData()
+        result_model = self._short_circuit_results.get(study_id)
+        branch_ids = tuple(getattr(result_model.value, "branch_currents", {}).keys()) if result_model else ()
+        for combo in (self._primary_branch_combo, self._backup_branch_combo):
+            previous = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for branch_id in branch_ids:
+                combo.addItem(str(branch_id), str(branch_id))
+            if previous:
+                index = combo.findData(previous)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+        if self._backup_branch_combo.count() > 1 and self._backup_branch_combo.currentIndex() == 0:
+            self._backup_branch_combo.setCurrentIndex(1)
 
     def _sync_current_units(self, *_args: Any) -> None:
         """Display authoritative current-unit contracts from each selected relay."""
@@ -1182,35 +1250,74 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 CoordinationStudyConfiguration,
                 CoordinationStudyPair,
             )
-            primary_values = self._parse_current_values(
-                self._primary_currents.text(), "Primary relay-input currents"
-            )
-            backup_values = self._parse_current_values(
-                self._backup_currents.text(), "Backup relay-input currents"
-            )
-            if len(primary_values) != len(backup_values):
-                raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
-            primary_unit = self._primary_unit.text().strip()
-            backup_unit = self._backup_unit.text().strip()
-            if not primary_unit or not backup_unit:
-                raise ValueError(
-                    "Both relay configurations must declare current_unit or pickup_unit. "
-                    "No CT or base conversion is inferred."
+            source = self._scenario_source.currentData()
+            if source == "manual":
+                primary_values = self._parse_current_values(
+                    self._primary_currents.text(), "Primary relay-input currents"
                 )
-            location = self._fault_location.text().strip()
-            scenarios = tuple(
-                CoordinationFaultScenario(
-                    scenario_id=f"SCENARIO-{index + 1:03d}",
-                    currents_by_element_id={
-                        str(primary_id): CoordinationRelayCurrent(primary_current, primary_unit),
-                        str(backup_id): CoordinationRelayCurrent(backup_current, backup_unit),
-                    },
-                    fault_location_id=location,
+                backup_values = self._parse_current_values(
+                    self._backup_currents.text(), "Backup relay-input currents"
                 )
-                for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
-            )
+                if len(primary_values) != len(backup_values):
+                    raise ValueError("Primary and backup current lists must contain the same number of scenarios.")
+                primary_unit = self._primary_unit.text().strip()
+                backup_unit = self._backup_unit.text().strip()
+                if not primary_unit or not backup_unit:
+                    raise ValueError(
+                        "Both relay configurations must declare current_unit or pickup_unit. "
+                        "No CT or base conversion is inferred."
+                    )
+                location = self._fault_location.text().strip()
+                scenarios = tuple(
+                    CoordinationFaultScenario(
+                        scenario_id=f"SCENARIO-{index + 1:03d}",
+                        currents_by_element_id={
+                            str(primary_id): CoordinationRelayCurrent(primary_current, primary_unit),
+                            str(backup_id): CoordinationRelayCurrent(backup_current, backup_unit),
+                        },
+                        fault_location_id=location,
+                    )
+                    for index, (primary_current, backup_current) in enumerate(zip(primary_values, backup_values))
+                )
+                pair = CoordinationStudyPair(str(primary_id), str(backup_id))
+            elif source == "short_circuit":
+                study_id = self._short_circuit_result_combo.currentData()
+                result_model = self._short_circuit_results.get(study_id)
+                primary_branch = self._primary_branch_combo.currentData()
+                backup_branch = self._backup_branch_combo.currentData()
+                if result_model is None or not primary_branch or not backup_branch:
+                    raise ValueError("Select a completed Short-Circuit Study and both relay branch mappings.")
+                try:
+                    primary_scale = float(self._primary_current_scale.text())
+                    backup_scale = float(self._backup_current_scale.text())
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Both current conversion scales are required and must be numeric.") from exc
+                if not math.isfinite(primary_scale) or primary_scale <= 0.0:
+                    raise ValueError("Primary current conversion scale must be finite and positive.")
+                if not math.isfinite(backup_scale) or backup_scale <= 0.0:
+                    raise ValueError("Backup current conversion scale must be finite and positive.")
+                fault_location = str(result_model.value.fault_bus_id)
+                scenarios = (
+                    CoordinationFaultScenario(
+                        scenario_id=f"SC-{str(study_id)[:8]}",
+                        fault_location_id=fault_location,
+                        short_circuit_study_id=str(study_id),
+                    ),
+                )
+                pair = CoordinationStudyPair(
+                    str(primary_id),
+                    str(backup_id),
+                    primary_branch_id=str(primary_branch),
+                    backup_branch_id=str(backup_branch),
+                    primary_branch_side=str(self._primary_branch_side.currentData()),
+                    backup_branch_side=str(self._backup_branch_side.currentData()),
+                    primary_current_scale=primary_scale,
+                    backup_current_scale=backup_scale,
+                )
+            else:
+                raise ValueError(f"Unsupported coordination scenario source: {source!r}.")
             configuration = CoordinationStudyConfiguration(
-                pairs=(CoordinationStudyPair(str(primary_id), str(backup_id)),),
+                pairs=(pair,),
                 scenarios=scenarios,
                 required_cti_s=self._cti_input.value(),
             )
@@ -1222,7 +1329,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 return
             result = result_model.value
             if result is None:
-                self._status.setText("Coordination study completed without a result payload.")
+                self._status.setText(f"Coordination study {execution.status.upper()} without a result payload.")
                 return
             rows = [
                 f"{point.scenario_id}: {point.status} | "
@@ -1239,6 +1346,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
             )
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
             self._status.setText(f"Coordination study rejected: {exc}")
+
 
     def set_curve_read_models(self, models: Any) -> None:
         """Replace overlays from immutable IDMTCurveReadModel values only."""
