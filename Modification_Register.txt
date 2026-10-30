@@ -14908,3 +14908,38 @@ Verification boundary:
     No tests/CI, syntax/import checks, or GUI runtime were run.
 
 ======================================================================
+
+
+======================================================================
+2026-10-30 — WORKSPACE EDITOR-CONTEXT SELECTION ISOLATION CORRECTION
+======================================================================
+
+Scope:
+    main.py
+    _editor_context_factory()
+
+Finding:
+    Editor-context construction read selected IDs directly from the shared
+    SLD SelectionManager for every editor discipline. The event-routing
+    guards added to the workspace activation path did not protect this
+    independent read path. A Control, Protection, Study, Topology, or Map
+    editor context could therefore observe IDs belonging to a hidden SLD
+    canvas.
+
+Correction:
+    Read shared SelectionManager IDs only when editor_type is "sld".
+    Supply an empty selected_ids tuple to all non-SLD editor contexts.
+    The same discipline-scoped tuple is used by EngineeringContext and
+    EditorContext.selection_context, preventing divergent selection views.
+
+Architecture:
+    UI-only selection projection. The shared SelectionManager remains the
+    SLD selection authority; non-SLD contexts receive no SLD selection.
+    No Core/domain authority or mutation boundary changed.
+
+Verification:
+    Static source inspection confirms the read is guarded by editor_type.
+    Python syntax/import and workflow verification are pending after this
+    branch update. No tests or CI were run by this correction pass.
+
+======================================================================
