@@ -15010,3 +15010,37 @@ Verification:
       experiments were executed.
     - Cancellation responsiveness inside NumPy's active dense linear
       algebra operation remains bounded by that operation's completion.
+
+
+======================================================================
+
+2026-10-30 — Reject stale study results at terminal publication
+---------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - core/application/application.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an Application publication lock to StudyService terminal
+      arbitration. Numerical handlers remain concurrent and do not hold the
+      Application mutation lock while calculating.
+    - Added a final source-freshness guard after handler completion and
+      immediately before result registration and terminal event publication.
+      The guard verifies active project identity, activation generation, and
+      electrical model/topology revision.
+    - The terminal check, result-store update, and StudyCompleted/StudyFailed/
+      StudyCancelled event publication are serialized against Application
+      command mutations. A mutation that wins first causes the calculated
+      value to be discarded and a failed result with failure_reason
+      "stale_source" to be stored; StudyCompleted is not emitted.
+    - Cancellation retains precedence over stale-source rejection when the
+      cancellation token was requested before terminal arbitration.
+    - Distinct studies still calculate concurrently from detached immutable
+      snapshots; project transitions remain blocked while any study is active.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and concurrent mutation/publication
+      runtime behavior were not executed and remain unverified.
