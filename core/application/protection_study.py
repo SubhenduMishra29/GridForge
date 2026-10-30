@@ -266,7 +266,7 @@ class ProtectionStudyResult:
     def status(self) -> str:
         if self.measurement_snapshot_evaluated and self.execution.diagnostics:
             return "blocked"
-        if any(item.status is not ShortCircuitStatus.COMPLETE for item in self.fault_scenarios):
+        if any(not item.success or item.status is not ShortCircuitStatus.COMPLETE for item in self.fault_scenarios):
             return "partial"
         if self.fault_scenarios and not self.measurement_snapshot_evaluated:
             return "fault_scenarios_calculated"
