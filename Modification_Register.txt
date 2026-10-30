@@ -15535,3 +15535,35 @@ Changed files:
 Verification:
     Static source/contract review only. No tests or CI run.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — EXPLICIT CT-TO-BRANCH PRIMARY TOPOLOGY VALIDATION
+======================================================================
+
+Date:
+    2026-10-30
+
+Correction:
+    ProtectionConfigurationService now requires current measurement
+    bindings to identify an explicit Branch and its canonical FROM/TO
+    terminal. It resolves the selected Branch terminal and the CT P1/P2
+    primary terminals through ElectricalBoundaryResolver and rejects
+    unresolved, same-Bus, or ambiguous associations. Exactly one CT primary
+    terminal must share the selected Branch terminal Bus; the other must
+    resolve to a distinct Bus. No branch is inferred from CT location.
+
+Still pending:
+    Signed branch-current conversion, per-unit to primary-ampere scaling,
+    CT ratio/polarity application, detached scenario sample snapshots, and
+    non-actuating scenario relay evaluation.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Remote source inspection and static contract review only.
+    No tests or CI run. Python syntax/import execution remains outstanding.
+======================================================================
