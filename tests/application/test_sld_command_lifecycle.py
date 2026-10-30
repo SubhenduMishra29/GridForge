@@ -64,7 +64,7 @@ def test_successful_sld_mutation_publishes_semantic_presentation_event() -> None
     events: list[SLDPresentationChanged] = []
     application.event_bus.subscribe(SLDPresentationChanged, events.append)
 
-    application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", x=10, y=20))
+    application.execute(AddSLDNodeCommand(node_id="bus-1", equipment_id="bus-1", element_type="BUS", x=10, y=20))
 
     assert len(events) == 1
     assert events[0].event_type == "sld.presentation.changed"
