@@ -15837,3 +15837,45 @@ Verification:
     - No tests or CI run, per repository rules.
     - Python syntax/import integrity and runtime chart rendering remain
       unverified.
+
+
+======================================================================
+
+2026-10-30 — Validate persisted IEC 51/51N settings and align TMS defaults
+-------------------------------------------------------------------------
+
+Files:
+    - core/protection/factory.py
+    - core/application/services/protection_configuration_service.py
+    - core/persistence/project_persistence.py
+    - core/application/read_models.py
+    - Modification_Register.txt
+
+Changes:
+    - Exposed ProtectionFactory.build_settings() as the public canonical
+      typed-settings construction/validation boundary; existing internal
+      compatibility callers retain the private alias.
+    - Application protection configuration now uses that public boundary.
+    - Persistence save/load project-state validation now validates typed
+      settings for ANSI 51 and 51N against the catalog implementation,
+      rejecting malformed pickup, curve, TMS, current-unit and unknown
+      setting fields before accepting the project package.
+    - TCC read-model construction now applies IECOvercurrentSettings'
+      canonical TMS default (1.0) when TMS is omitted, while continuing to
+      reject an explicitly null TMS. This aligns plotted curves with the
+      runtime settings contract.
+
+Engineering boundary:
+    - ANSI 51N continues to use the shared IECOvercurrentRelay numerical
+      implementation through EarthIECOvercurrentRelay; no duplicate
+      equation or curve constants were introduced.
+    - Settings are preserved as configured. No CT ratio, primary/secondary
+      conversion, or current-unit inference is performed.
+    - A TCC overlay still requires a declared common current_unit; missing
+      or mixed units are not silently converted.
+
+Verification:
+    - Source-level validation anchors and committed content confirmed.
+    - No tests or CI run, per repository rules.
+    - Project package round-trip, invalid-package rejection, and runtime
+      51/51N chart parity remain unverified.
