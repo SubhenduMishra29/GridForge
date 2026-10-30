@@ -494,6 +494,28 @@ class Application:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
 
+    def publish_measurement_sample(
+        self,
+        channel_id: str,
+        value: float | complex,
+        *,
+        timestamp: float,
+        timestamp_domain: str,
+        quality: MeasurementQuality,
+        sample_sequence: int,
+        available: bool = True,
+    ) -> None:
+        """Publish a live sample through the lock shared with breaker commands."""
+        self.measurement_channel_service.publish_sample(
+            channel_id,
+            value,
+            timestamp=timestamp,
+            timestamp_domain=timestamp_domain,
+            quality=quality,
+            sample_sequence=sample_sequence,
+            available=available,
+        )
+
     def evaluate_protection_cycle(
         self,
         evaluation_time: float,
