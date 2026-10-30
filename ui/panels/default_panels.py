@@ -19,7 +19,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt,
-    QChart, QChartView, QLineSeries, QLogValueAxis, QPainter,
+    QChart, QChartView, QLineSeries, QLogValueAxis, QScatterSeries, QPainter,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -1126,6 +1126,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
         self._current_axis: QLogValueAxis | None = None
         self._time_axis: QLogValueAxis | None = None
         self._series: list[QLineSeries] = []
+        self._operating_point_series: list[QScatterSeries] = []
         self._curve_models: dict[str, Any] = {}
         self._short_circuit_results: dict[str, Any] = {}
         self._refresh_button.clicked.connect(self.refresh_curves)
@@ -1431,6 +1432,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
             if result is None:
                 self._status.setText(f"Coordination study {execution.status.upper()} without a result payload.")
                 return
+            self._plot_coordination_operating_points(result)
             rows = [
                 f"{point.scenario_id}: {point.status} | "
                 f"{point.primary_element_id} → {point.backup_element_id} | "
@@ -1449,6 +1451,68 @@ class IDMTTCCWorkspaceWidget(QWidget):
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
             self._status.setText(f"Coordination study rejected: {exc}")
 
+
+    def _plot_coordination_operating_points(self, result: Any) -> None:
+        """Overlay finite primary/backup operating points from a published study result."""
+        for series in self._operating_point_series:
+            self._chart.removeSeries(series)
+        self._operating_point_series.clear()
+        if self._current_axis is None or self._time_axis is None:
+            return
+
+        units = {model.current_unit for model in self._curve_models.values()}
+        if len(units) != 1 or None in units:
+            return
+        axis_unit = next(iter(units))
+        primary_series = QScatterSeries(self._chart)
+        primary_series.setName("Primary operating points")
+        primary_series.setMarkerSize(12.0)
+        backup_series = QScatterSeries(self._chart)
+        backup_series.setName("Backup operating points")
+        backup_series.setMarkerSize(12.0)
+        plotted_currents: list[float] = []
+        plotted_times: list[float] = []
+
+        for point in getattr(result, "points", ()):
+            primary_time = float(point.primary_time_s)
+            if (
+                point.primary_current_unit == axis_unit
+                and math.isfinite(primary_time)
+                and primary_time > 0.0
+            ):
+                current = float(point.primary_current)
+                primary_series.append(current, primary_time)
+                plotted_currents.append(current)
+                plotted_times.append(primary_time)
+
+            backup_time = float(point.backup_time_s)
+            if (
+                point.backup_current_unit == axis_unit
+                and math.isfinite(backup_time)
+                and backup_time > 0.0
+            ):
+                current = float(point.backup_current)
+                backup_series.append(current, backup_time)
+                plotted_currents.append(current)
+                plotted_times.append(backup_time)
+
+        for series in (primary_series, backup_series):
+            if series.count() == 0:
+                continue
+            self._chart.addSeries(series)
+            series.attachAxis(self._current_axis)
+            series.attachAxis(self._time_axis)
+            self._operating_point_series.append(series)
+
+        if plotted_currents:
+            self._current_axis.setRange(
+                min(self._current_axis.min(), *plotted_currents),
+                max(self._current_axis.max(), *plotted_currents),
+            )
+            self._time_axis.setRange(
+                min(self._time_axis.min(), *plotted_times),
+                max(self._time_axis.max(), *plotted_times),
+            )
 
     def set_curve_read_models(self, models: Any) -> None:
         """Replace overlays from immutable IDMTCurveReadModel values only."""
