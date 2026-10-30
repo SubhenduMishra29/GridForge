@@ -70,7 +70,7 @@ def test_asserted_action_is_blocked_by_interlock() -> None:
     result = engine.evaluate(
         simulation_time=9.0,
         external_inputs={"UV_TRIP": {"IN": True}},
-        interlock_inputs={"INT-101": {"SAFE": False}},
+        interlock_inputs={"INT-101": {"SAFE": {"value": False, "quality": "valid", "timestamp": 9.0}}},
     )
     assert result.decisions == ()
     assert len(result.blocked_actions) == 1
@@ -90,7 +90,7 @@ def test_asserted_action_passes_interlock() -> None:
     result = engine.evaluate(
         simulation_time=9.0,
         external_inputs={"UV_TRIP": {"IN": True}},
-        interlock_inputs={"INT-101": {"SAFE": True}},
+        interlock_inputs={"INT-101": {"SAFE": {"value": True, "quality": "valid", "timestamp": 9.0}}},
     )
     assert len(result.decisions) == 1
     assert result.blocked_actions == ()

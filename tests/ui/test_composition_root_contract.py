@@ -18,6 +18,9 @@ from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbo
 from ui.tools.default_tool_registry import create_default_tool_factories
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
+from ui.sld.sld_controller import SLDController
+from ui.sld.sld_state import SLDState
+from ui.sld.sld_projection_manager import SLDProjectionManager
 
 
 class _PropertiesPanelProbe:
@@ -99,8 +102,9 @@ def test_canvas_composition_uses_prepared_selection_and_snap_instances(qapp):
 
     factory = SLDGraphicsItemFactory(equipment_registry, symbol_registry, application)
     realization = SemanticPresentationRealization(equipment_registry, symbol_registry)
-    render_system = SLDCanvasRenderSystem(preparation.scene, factory, realization)
-    composition = composer.compose(controller=controller, tool_manager=tool_manager, preparation=preparation, parent=None, sld_canvas_projection=SLDCanvasProjection(), sld_canvas_render_system=render_system)
+    render_system = SLDCanvasRenderSystem(preparation.scene, factory, realization, snap_system=preparation.snap_system)
+    sld_controller = SLDController(state=SLDState(selection_manager=preparation.selection_manager, tool_manager=tool_manager), projection_manager=SLDProjectionManager(), application=application)
+    composition = composer.compose(controller=controller, sld_controller=sld_controller, tool_manager=tool_manager, preparation=preparation, parent=None, sld_canvas_projection=SLDCanvasProjection(), sld_canvas_render_system=render_system)
 
     assert composition.selection_manager is preparation.selection_manager
     assert composition.snap_system is preparation.snap_system

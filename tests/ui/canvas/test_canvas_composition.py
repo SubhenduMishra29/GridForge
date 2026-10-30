@@ -12,6 +12,9 @@ from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.tools.default_tool_registry import create_default_tool_factories
 from core.application.bootstrap import create_application
 from core.network.network import Network
+from ui.sld.sld_controller import SLDController
+from ui.sld.sld_state import SLDState
+from ui.sld.sld_projection_manager import SLDProjectionManager
 
 
 def test_canvas_composer_uses_one_shared_scene_and_service_instances(qapp):
@@ -25,7 +28,7 @@ def test_canvas_composer_uses_one_shared_scene_and_service_instances(qapp):
     register_builtin_symbols(symbol_registry)
     factory = SLDGraphicsItemFactory(equipment_registry, symbol_registry, application)
     realization = SemanticPresentationRealization(equipment_registry, symbol_registry)
-    render_system = SLDCanvasRenderSystem(preparation.scene, factory, realization)
+    render_system = SLDCanvasRenderSystem(preparation.scene, factory, realization, snap_system=preparation.snap_system)
     tool_registry = create_default_tool_factories(
         controller=controller,
         application=application,
@@ -43,8 +46,14 @@ def test_canvas_composer_uses_one_shared_scene_and_service_instances(qapp):
         preview_layer=preparation.preview_layer,
         equipment_registry=equipment_registry,
     )
+    sld_controller = SLDController(
+        state=SLDState(selection_manager=preparation.selection_manager, tool_manager=tool_manager),
+        projection_manager=SLDProjectionManager(),
+        application=application,
+    )
     composition = composer.compose(
         controller=controller,
+        sld_controller=sld_controller,
         tool_manager=tool_manager,
         preparation=preparation,
         sld_canvas_projection=SLDCanvasProjection(),

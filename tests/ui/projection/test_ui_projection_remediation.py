@@ -36,6 +36,9 @@ class _Panel:
     def set_messages(self, messages) -> None:
         self.messages = tuple(messages)
 
+    def set_validation_messages(self, messages) -> None:
+        self.messages = tuple(messages)
+
     def set_cases(self, cases) -> None:
         self.cases = tuple(cases)
 
@@ -183,6 +186,10 @@ def test_study_projection_tracks_started_and_completed_application_state():
         status="completed",
         current=True,
         message="",
+        project_id="p1",
+        source_revision=(0, 0, 0, 0),
+        metadata={},
+        value=None,
     )
     projection.refresh(StudyCompleted(metadata={"study_id": str(study_id), "study_type": "power_flow"}))
     assert panel.cases[0].status == "completed"

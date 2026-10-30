@@ -374,6 +374,8 @@ class SLDCanvasRenderSystem:
             previous_items = self._items.get(node.node_id, ())
             previous_item = previous_items[0] if previous_items else None
             try:
+                if node.equipment_id is None:
+                    raise ValueError("Committed SLD equipment requires an authoritative equipment identity.")
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
             except Exception as exc:
@@ -402,8 +404,28 @@ class SLDCanvasRenderSystem:
                     code=code,
                     realization_stage="SemanticPresentationRealization -> SLDGraphicsItemFactory.create_node",
                 )
+                # Missing/unresolved domain identity must not be represented
+                # by a fabricated generic equipment placeholder. Remove any
+                # stale realization before recording the new diagnostic.
+                if code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}:
+                    self._remove_realized(node.node_id)
+                    self._render_signatures.pop(node.node_id, None)
+                    self._degraded_node_ids.add(node.node_id)
+                    self._degraded_diagnostics[node.node_id] = diagnostic
+                    self._record_diagnostic(node.node_id, diagnostic)
+                    continue
                 self._record_diagnostic(node.node_id, diagnostic)
                 self._degraded_diagnostics[node.node_id] = diagnostic
+                # Missing or unresolved domain identity is not a presentation
+                # degradation: fabricating a generic equipment placeholder
+                # would imply an object the Application read model cannot
+                # establish. Remove any stale realization and expose only the
+                # structured diagnostic until authoritative identity returns.
+                if code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}:
+                    self._remove_realized(node.node_id)
+                    self._render_signatures.pop(node.node_id, None)
+                    self._degraded_node_ids.add(node.node_id)
+                    continue
                 degraded = previous_degraded
                 if degraded is None and previous_item is not None:
                     # Retain the last-good visible item, but leave its prior
@@ -885,7 +907,7 @@ class SLDCanvasRenderSystem:
         message = str(exc)
         if node.equipment_id is None:
             return "MISSING_EQUIPMENT_ID"
-        if "absent from Application read state" in message:
+        if "absent from Application read state" in message or "identity does not match" in message:
             return "EQUIPMENT_READ_MODEL_NOT_FOUND"
         return "PRESENTATION_REALIZATION_FAILED"
 
