@@ -670,3 +670,25 @@ because practical differential relays use differing restraint definitions
 and slope characteristics; the engineer must select settings consistent with
 the applicable relay/application. See the reviewed SEL percentage-restraint
 paper and PNNL technical report PNNL-36067.
+
+
+## 19. Persisted differential protection characteristics — Phase E3
+
+DifferentialProtectionSchemeConfiguration now optionally persists its own
+differential_settings as part of the project ProtectionProjectConfiguration.
+The stored characteristic contains pickup_current_a, restraint_method,
+slopes, breakpoints_a and optional high_set_pickup_a. The aggregate validates
+the supported keys, finite non-negative numeric values, positive pickup,
+slope/breakpoint cardinality and strictly increasing breakpoints before the
+scheme is accepted or reconstructed from persistence.
+
+DifferentialProtectionSettings provides typed to_dict/from_dict conversion.
+The Core differential kernel accepts an explicit settings object or can
+reconstruct the typed settings from the scheme's persisted characteristic.
+No default characteristic is silently assigned: a scheme without persisted
+settings still requires explicit settings at evaluation.
+
+The persisted values are expressed in the scheme's declared current reference
+basis. This pass does not create that basis, perform CT conversion or prove
+that independent CT channels are normalised to it. Scenario-derived CT phasor
+generation and ProtectionStudy integration remain separate outstanding work.
