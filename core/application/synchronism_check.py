@@ -297,13 +297,17 @@ def phasor_measurements_from_channels(
 
 class SynchronismCheckGuard:
     """Project providers supply explicit settings, both bus measurements, and optional bypass authorization."""
-    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time):
+    def __init__(self, *, configuration_provider: Callable, measurement_provider: Callable, bypass_provider: Callable | None = None, audit_sink: Callable, clock: Callable[[],float] = time.time, bypass_project_id: str | None = None, bypass_activation_generation: int | None = None):
         if not callable(configuration_provider) or not callable(measurement_provider): raise TypeError("Configuration and measurement providers are required")
         if bypass_provider is not None and not callable(bypass_provider): raise TypeError("bypass_provider must be callable")
         if not callable(audit_sink): raise TypeError("audit_sink is required and must be callable")
         if not callable(clock): raise TypeError("clock must be callable")
+        if bypass_provider is not None and (not isinstance(bypass_project_id, str) or not bypass_project_id.strip() or isinstance(bypass_activation_generation, bool) or not isinstance(bypass_activation_generation, int) or bypass_activation_generation < 1):
+            raise ValueError("A bypass provider requires explicit project and activation-generation scope.")
         self._configuration_provider=configuration_provider; self._measurement_provider=measurement_provider
         self._bypass_provider=bypass_provider; self._audit_sink=audit_sink; self._clock=clock
+        self._bypass_project_id=bypass_project_id; self._bypass_activation_generation=bypass_activation_generation
+        self._consumed_bypass_ids: set[str] = set(); self._bypass_lock = Lock()
 
     def authorize_close(self, breaker: Breaker) -> SynchronismDecision:
         if not isinstance(breaker,Breaker): raise TypeError("ANSI 25 guard requires a Breaker")
@@ -353,13 +357,24 @@ class SynchronismCheckGuard:
                 auth=self._bypass_provider(breaker)
             except Exception:
                 auth=None
-            if isinstance(auth,BypassAuthorization) and auth.valid(now):
-                decision=SynchronismDecision(
-                    True, breaker.id, tuple(reasons), mode, True,
-                    auth.authorization_id, auth.authorized_by, auth.reason,
-                    auth.expires_at,
-                )
-                self._audit(decision); return decision
+            if isinstance(auth, BypassAuthorization) and auth.valid_for(
+                now=now,
+                breaker_id=breaker.id,
+                project_id=self._bypass_project_id,
+                activation_generation=self._bypass_activation_generation,
+            ):
+                with self._bypass_lock:
+                    if auth.authorization_id in self._consumed_bypass_ids:
+                        auth = None
+                    else:
+                        self._consumed_bypass_ids.add(auth.authorization_id)
+                if auth is not None:
+                    decision=SynchronismDecision(
+                        True, breaker.id, tuple(reasons), mode, True,
+                        auth.authorization_id, auth.authorized_by, auth.reason,
+                        auth.expires_at,
+                    )
+                    self._audit(decision); return decision
             reasons.append("ANSI25_BYPASS_UNAUTHORIZED_OR_EXPIRED")
         decision=SynchronismDecision(not reasons,breaker.id,tuple(reasons),mode)
         self._audit(decision)
@@ -541,6 +556,8 @@ def create_project_synchronism_guard(
         bypass_provider=bypass_provider,
         audit_sink=audit_sink,
         clock=clock,
+        bypass_project_id=project_id if bypass_provider is not None else None,
+        bypass_activation_generation=activation_generation if bypass_provider is not None else None,
     )
 
 __all__=["BusMode","SynchronismCheckConfiguration","SynchronismCheckProjectConfiguration","PhasorMeasurement","BypassAuthorization","SynchronismDecision","SynchronismCheckGuard","phasor_measurements_from_channels","create_project_synchronism_guard","ProjectScopedSynchronismAuditSink"]
