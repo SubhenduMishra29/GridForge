@@ -1001,6 +1001,7 @@ class Application:
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
+        service.bind_execution_lock(self._execution_lock)
         self._project_lifecycle = service
         if self._measurement_lifecycle_service is not service and self._measurement_channel_service is not None:
             measurement_service = self._measurement_channel_service
