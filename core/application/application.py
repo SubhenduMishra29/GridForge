@@ -134,6 +134,8 @@ class Application:
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
         self._execution_lock = RLock()
+        if self._measurement_channel_service is not None:
+            self._measurement_channel_service.bind_execution_lock(self._execution_lock)
         self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
         self._commit_state_lock = RLock()
         self._commit_in_flight = False
