@@ -15801,3 +15801,39 @@ Verification:
     - Runtime provenance propagation and end-to-end study execution remain
       unverified.
 
+
+
+======================================================================
+
+2026-10-30 — Enforce IDMT TCC read-model point integrity
+--------------------------------------------------------
+
+Files:
+    - core/application/read_models.py
+    - Modification_Register.txt
+
+Changes:
+    - IDMTCurveReadModel now verifies every point's current equals the
+      configured pickup multiplied by that point's declared current
+      multiple, within a tight floating-point tolerance.
+    - Requires current multiples and current values to be strictly
+      increasing across the immutable curve snapshot.
+    - Requires IEC inverse operating times to be strictly decreasing as
+      current increases; malformed or reordered curves are rejected before
+      they reach the TCC projection.
+    - Preserves the canonical IEC equation as the sole source of generated
+      curve values. This is read-contract validation, not a second formula.
+
+Engineering boundary:
+    - The Application read model validates the consistency of its detached
+      projection; it does not modify relay settings, CT ratios, current
+      bases, or protection calculations.
+    - No universal TMS maximum is imposed. Relay-specific setting limits
+      remain a manufacturer/configuration contract, not a generic IEC
+      equation constraint.
+
+Verification:
+    - Source-level insertion anchors and committed file content confirmed.
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and runtime chart rendering remain
+      unverified.
