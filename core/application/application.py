@@ -56,7 +56,7 @@ from .events import (
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, IDMTCurveReadModel
 from .read_service import ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -2617,6 +2617,14 @@ class Application:
 
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
+    def read_idmt_curves(self) -> tuple[IDMTCurveReadModel, ...]:
+        """Return immutable TCC curve snapshots for configured ANSI 51/51N elements."""
+        configurations = self.read_protection_configuration()
+        return tuple(
+            IDMTCurveReadModel.from_configuration(item)
+            for item in configurations
+            if str(getattr(item, "function_code", "")).strip().upper() in {"51", "51N"}
+        )
     def read_protection_configuration(self) -> tuple[Any, ...]:
         """Return immutable project-scoped protection configuration read state."""
         service = getattr(self, "protection_configuration_service", None)
