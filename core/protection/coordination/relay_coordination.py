@@ -313,6 +313,9 @@ class RelayCoordination:
         Validate a finite non-negative scalar.
         """
 
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be numeric, not boolean.")
+
         try:
             value = float(value)
 
@@ -345,6 +348,9 @@ class RelayCoordination:
         """
         Validate and normalize a fault-current study point.
         """
+
+        if isinstance(fault_current, bool):
+            raise TypeError("Fault current must be numeric, not boolean.")
 
         try:
             fault_current = abs(
