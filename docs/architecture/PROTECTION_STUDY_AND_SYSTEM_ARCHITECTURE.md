@@ -414,10 +414,12 @@ scenario-derived relay evaluation.
    name. This has been corrected by making each binding explicitly
    element-scoped and persisting the collection in
    `ProtectionProjectConfiguration`.
-3. The CT association resolver in PR #905 identifies primary-side Bus
-   locations; it does not itself map the CT to a branch or protected zone.
-   That is correct and intentional. Branch selection must remain an explicit
-   engineering association, not a heuristic derived from CT position.
+3. Branch selection is carried explicitly by each binding's
+   `source_equipment_id` and `source_terminal_reference`; the Application
+   service now requires a current binding to identify a canonical Branch
+   FROM/TO terminal and validates that exactly one CT primary terminal
+   resolves to that selected terminal Bus while the other resolves to the
+   opposite Bus. It does not infer a branch from CT location.
 4. The current short-circuit contribution status is preserved by
    `ProtectionFaultScenarioResult`; incomplete branch/source contributions
    make the Protection Study partial and must not be used for relay evaluation.
@@ -431,16 +433,22 @@ scenario-derived relay evaluation.
    validates element/input/channel correlation, active RelayInput identity,
    physical source equipment terminal identity, instrument family, and
    configured ratio against the physical CT/PT/CVT.
-3. **Pending:** add a pure branch-current conversion path that selects an
-   explicitly configured branch and terminal side, verifies CT P1/P2
-   orientation against branch from/to Bus identities, converts per-unit
-   current using the configured study MVA base and the selected side's Bus
-   voltage base, and applies CT ratio and polarity exactly once.
-4. **Pending:** keep simulated values detached from live MeasurementChannel
+3. **Implemented — topology association guard:** current bindings must
+   explicitly select a Branch FROM/TO terminal. The service resolves that
+   terminal and CT P1/P2 through `ElectricalBoundaryResolver`, requires
+   exactly one CT primary terminal at the selected branch-terminal Bus, and
+   requires the other CT primary terminal to resolve to a distinct Bus.
+   This validates physical association; it does not calculate current.
+4. **Pending:** add a pure branch-current conversion path using the solver's
+   canonical FROM-to-TO current direction, the selected side's Bus voltage
+   base, CT terminal orientation, and CT polarity exactly once. Preserve
+   phase and sequence values, including the residual-current convention
+   required by 50N/51N.
+5. **Pending:** keep simulated values detached from live MeasurementChannel
    objects. Extend Application's sealed sample-snapshot path to accept
    validated scenario samples keyed by protection element/input; preserve
    freshness, quality, unit, project and topology guards.
-5. **Pending:** evaluate ProtectionSystem against scenario-specific samples
+6. **Pending:** evaluate ProtectionSystem against scenario-specific samples
    and retain decisions as simulated study results. The Study remains
    non-actuating.
 
@@ -474,9 +482,13 @@ removing an element is blocked until its bindings are explicitly removed.
 operations. Creation validates the active element/input/channel relationship,
 the live RelayInput channel reference, source equipment and terminal identity,
 physical instrument family, and the persisted ratio against the actual
-instrument ratio. These checks validate explicit engineering references;
-they do not infer a protected branch, CT polarity direction, or zone.
+instrument ratio. For current measurements it additionally requires the
+explicit source equipment to be a Branch, requires the selected FROM/TO side
+to match the canonical branch terminal role, and resolves both CT primary
+terminals through Core connectivity. Exactly one CT primary terminal must
+share the selected branch-terminal Bus and the other must resolve to a
+distinct Bus. This is an explicit association check, not a branch inference.
 
-**Still pending:** branch-current selection and conversion, CT P1/P2 orientation
-validation against the selected branch side, detached scenario measurement
-sample creation, and non-actuating scenario relay evaluation.
+**Still pending:** branch-current per-unit conversion and signed CT secondary
+phasors, detached scenario measurement sample creation, and non-actuating
+scenario relay evaluation.
