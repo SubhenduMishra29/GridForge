@@ -78,6 +78,7 @@ from core.analysis.coordination_study import (
     CoordinationStudyResult,
     execute_coordination_study,
 )
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.solver.short_circuit.result import ShortCircuitResult
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
@@ -2736,6 +2737,18 @@ class Application:
         missing = sorted(referenced.difference(curve_models))
         if missing:
             raise ValueError("Coordination pair references unavailable ANSI 51/51N elements: " + ", ".join(missing))
+        branch_ids = {
+            str(getattr(branch, "id", "")).strip()
+            for branch in self.project_lifecycle.network.branches
+            if str(getattr(branch, "id", "")).strip()
+        }
+        for pair in configuration.pairs:
+            for branch_id in (pair.primary_branch_id, pair.backup_branch_id):
+                if branch_id is not None and branch_id not in branch_ids:
+                    raise ValueError(
+                        f"Coordination pair references branch {branch_id!r}, "
+                        "which is not present in the active Network."
+                    )
         for element_id in sorted(referenced):
             curve = curve_models[element_id]
             if not curve.current_unit:
@@ -2768,6 +2781,22 @@ class Application:
                     "Coordination references missing or non-Short-Circuit Study Cases: "
                     + ", ".join(missing_cases)
                 )
+            for scenario in configuration.scenarios:
+                source_id = scenario.short_circuit_study_id
+                if source_id is None:
+                    continue
+                source_case = registered_cases[source_id]
+                source_configuration = source_case.configuration.get("configuration")
+                if not isinstance(source_configuration, ShortCircuitStudyConfiguration):
+                    raise ValueError(
+                        f"Short-Circuit source Study Case {source_id!r} has no valid typed configuration."
+                    )
+                if scenario.fault_location_id != source_configuration.fault_bus_id:
+                    raise ValueError(
+                        f"Coordination scenario {scenario.scenario_id!r} fault location "
+                        f"{scenario.fault_location_id!r} does not match source Study Case "
+                        f"{source_id!r} fault Bus {source_configuration.fault_bus_id!r}."
+                    )
             completed_results = {
                 str(result.study_id): result
                 for result in self.read_study_results()
