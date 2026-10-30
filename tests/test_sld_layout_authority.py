@@ -15,7 +15,6 @@ Author:
 
 from core.application.read_models import ElementReadModel, NetworkReadModel
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
-from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_layout import SLDLayout
 from ui.sld.sld_model import SLDNode
@@ -24,10 +23,8 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 
 
 def _registered_document() -> tuple[SLDController, SLDDocument]:
-    controller = SLDController()
     document = SLDDocument("sld-1")
-    controller.register_document(document)
-    return controller, document
+    return None, document
 
 
 def test_graphical_position_update_persists_in_sld_document() -> None:
