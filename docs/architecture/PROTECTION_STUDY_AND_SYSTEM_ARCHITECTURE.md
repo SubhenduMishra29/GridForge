@@ -622,3 +622,51 @@ or waveform restraint, CT saturation/stability supervision, operate/restraint
 decision logic, trip mapping, and differential study result reporting. The
 stored phase compensation is configuration only and must not be mistaken for
 an applied correction.
+
+
+## 18. Differential calculation kernel — Phase E2
+
+The Core differential kernel is a pure, non-actuating calculation boundary.
+It consumes one detached three-phase complex-current sample for every binding
+explicitly named by a DifferentialProtectionSchemeConfiguration. Each
+sample declares a common reference_basis_id and supplies fundamental RMS
+complex phasors in amperes. Scalar magnitudes are not accepted as substitutes
+for phasors because the operating quantity is a vector sum.
+
+For each phase, the configured INTO_ZONE direction contributes the sample
+phasor with positive sign and OUT_OF_ZONE contributes it with negative sign.
+The operating current is the magnitude of the signed phasor sum. The
+restraint current is selected explicitly from HALF_SUM_MAGNITUDES,
+SUM_MAGNITUDES, or MAX_MAGNITUDE; these are selectable mathematical
+definitions, not interchangeable universal conventions.
+
+DifferentialProtectionSettings requires an explicit positive pickup,
+restraint method, one or more non-negative bias slopes, and strictly
+increasing restraint-current breakpoints. The resulting piecewise-linear
+bias threshold is continuous at each breakpoint. An optional high-set pickup
+is evaluated independently of the biased stage. The result reports phase
+operate current, restraint current, threshold, margins and a non-actuating
+operate indication.
+
+The kernel rejects missing/extra member samples, mismatched sample identity,
+inconsistent current bases, non-finite phasors, incomplete A/B/C phase sets,
+and disabled schemes. It does not infer current direction from CT P1/P2,
+SimpleWire topology, Bus attachment, SLD geometry, or protected-object type.
+Non-zero configured phase compensation is explicitly rejected until an
+equipment-specific compensation adapter is implemented; it is never silently
+ignored.
+
+Scope limitations: input CT/relay current normalisation is an upstream
+responsibility and must be proven before connecting real ProtectionStudy
+samples. This kernel does not perform CT ratio/polarity conversion, transformer
+vector-group or winding compensation, phase permutation, zero-sequence
+treatment, inrush/overexcitation restraint, CT saturation supervision,
+waveform/transient analysis, differential element timing, ProtectionDecision
+integration, action mapping, or breaker operation. It is a numerical primitive,
+not a complete 87T/87B/87M/87G function or production-ready protection scheme.
+
+The selected restraint definition and piecewise characteristic are explicit
+because practical differential relays use differing restraint definitions
+and slope characteristics; the engineer must select settings consistent with
+the applicable relay/application. See the reviewed SEL percentage-restraint
+paper and PNNL technical report PNNL-36067.
