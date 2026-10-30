@@ -36,7 +36,7 @@ The universal mutation and publication path remains:
 
 **UI/SLD owns authoring interaction and projection:** equipment placement, explicit terminal selection, relay/function configuration, curve/coordination visualization, diagnostics, and result presentation. It does not infer electrical connectivity, protection coverage, or trip targets from graphics.
 
-Core must remain headless and must not import Qt, QGraphics, SLD, plugin, or UI types.
+Core must remain headless and must not import Qt, QGraphics, SLD, plugin, or UI types. The existing frozen `core/model/` and `core/network/` contracts are preserved; changes there require a separately demonstrated foundational gap and must not be used to bypass the established architecture.
 
 ## 3. Domain vocabulary and ownership
 

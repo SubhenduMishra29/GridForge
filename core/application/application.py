@@ -853,7 +853,7 @@ class Application:
             event_id=event_id,
             event_type=event_type,
             network_state=network_state,
-            supervision=supervision or {},
+            supervision=supervision if supervision is not None else {},
             metadata=context_metadata,
         )
         decisions = runtime.system.evaluate(context)

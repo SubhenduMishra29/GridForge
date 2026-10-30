@@ -15311,6 +15311,8 @@ Implemented:
       context propagation to Application protection evaluation.
     - Corrected Application's registered_study_types access to use the
       StudyService property contract (not a function call).
+    - Preserved the frozen Core model/network baseline; this phase changes
+      only Application contracts, study lifecycle and architecture records.
 
 Explicit limitation:
     This is the first measurement-snapshot evaluation mode. It does not
