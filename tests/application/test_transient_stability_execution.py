@@ -44,6 +44,12 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         project_id=application.project_lifecycle.context.project_id,
         activation_generation=application.project_lifecycle.activation_generation,
         topology_revision=application.revision.topology_revision,
+        source_revision=(
+            application.revision.model_revision,
+            application.revision.topology_revision,
+            application.revision.presentation_revision,
+            application.revision.persisted_revision,
+        ),
     )
     snapshot = PreparedPowerFlow(
         input=snapshot.input,
@@ -54,6 +60,7 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
         project_id=snapshot.project_id,
         activation_generation=snapshot.activation_generation,
         topology_revision=snapshot.topology_revision,
+        source_revision=snapshot.source_revision,
     )
     power_flow_result = PowerFlowResult(
         success=True,
