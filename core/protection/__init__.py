@@ -11,11 +11,6 @@ from .factory import ProtectionFactory
 from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
 from .project_configuration import ProtectionFunctionConfiguration, ProtectionProjectConfiguration
-from .relay_functions import (
-    IDMTCoordinationPoint,
-    IDMTCoordinationResult,
-    evaluate_idmt_coordination,
-)
 from .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
@@ -31,5 +26,4 @@ __all__ = [
     "ProtectionFunctionConfiguration", "ProtectionProjectConfiguration",
     "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
     "get_protection_function", "list_protection_functions",
-    "IDMTCoordinationPoint", "IDMTCoordinationResult", "evaluate_idmt_coordination",
 ]
