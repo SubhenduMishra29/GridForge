@@ -14966,3 +14966,47 @@ Verification:
     - No tests or CI run, per repository rules.
     - Python syntax/import integrity and project save/reopen runtime
       verification remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Cooperative cancellation through Power Flow and Contingency
+------------------------------------------------------------------------
+
+Files:
+    - core/solver/power_flow/nr_solver.py
+    - core/analysis/power_flow.py
+    - core/analysis/contingency.py
+    - core/application/bootstrap.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an optional should_cancel callback to the Newton-Raphson
+      numerical solver. Cancellation is checked between iterations and
+      before accepting a converged result. A running dense linear solve is
+      not forcibly interrupted; its output is discarded at the next
+      cancellation checkpoint.
+    - Exposed the callback through PowerFlowAnalysis.solve() without
+      changing existing callers.
+    - Wired the Application StudyCancellationToken into the Power Flow
+      handler so cancellation during Newton-Raphson cannot be published as
+      a successful Power Flow result.
+    - Added cooperative cancellation to ContingencyAnalysis.run(). The
+      analysis checks between outage cases and passes the callback into
+      each case's Power Flow solver, stopping further outage cases once
+      cancellation is requested.
+    - Wired the Application token into the Contingency handler. StudyService
+      remains the sole owner of terminal cancelled/completed arbitration;
+      partial contingency output is discarded when cancellation wins.
+    - Short-Circuit already has cancellation checkpoints before preparation,
+      before solver invocation, and after solver completion in its
+      Application handler. Its dense numerical operation remains
+      non-preemptible; cancellation is finalized immediately after it
+      returns. Transient Stability retains its integration-level callback.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - No Python syntax/import checks or numerical runtime interruption
+      experiments were executed.
+    - Cancellation responsiveness inside NumPy's active dense linear
+      algebra operation remains bounded by that operation's completion.
