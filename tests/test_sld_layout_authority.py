@@ -22,7 +22,7 @@ from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 
 
-def _registered_document() -> tuple[SLDController, SLDDocument]:
+def _registered_document() -> tuple[None, SLDDocument]:
     document = SLDDocument("sld-1")
     return None, document
 
