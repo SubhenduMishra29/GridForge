@@ -336,6 +336,12 @@ class IECOvercurrentRelay(RelayBase):
 
         return self._iec_settings.TMS
 
+    @property
+    def current_unit(self) -> str | None:
+        """Return the declared engineering unit of the assigned relay-input current."""
+
+        return self._iec_settings.current_unit
+
     # =================================================================
     # MEASUREMENT
     # =================================================================
