@@ -14868,9 +14868,9 @@ Verification:
       executed and are not claimed verified.
 
 Disposition:
-    - Implemented explicit-current coordination Study Case workflow.
-    - Issue #868 remains open for automatic short-circuit scenario provenance,
-      project-file persistence of coordination Study Cases/pairs, and
-      runtime verification. No production-ready claim.
+    - Implemented manual and Short-Circuit sourced coordination Study Case
+      execution with explicit relay/branch mapping and current conversion.
+    - Issue #868 remains open for project-file persistence of coordination
+      Study Cases/pairs and runtime verification. No production-ready claim.
 
 ======================================================================
