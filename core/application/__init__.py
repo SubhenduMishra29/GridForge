@@ -44,6 +44,8 @@ from .read_models import (
     RelayReadModel,
     SimpleWireReadModel,
     StudyResultReadModel,
+    IDMTCurvePointReadModel,
+    IDMTCurveReadModel,
 )
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
 from .revision import ProjectRevision
@@ -86,6 +88,8 @@ __all__ = [
     "RelayReadModel",
     "SimpleWireReadModel",
     "StudyResultReadModel",
+    "IDMTCurvePointReadModel",
+    "IDMTCurveReadModel",
     "StudyCaseDefinition",
     "StudyRequest",
     "StudyResult",
