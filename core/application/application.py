@@ -65,6 +65,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .synchronism_check import SynchronismCheckProjectConfiguration
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -489,6 +490,27 @@ class Application:
 
     @property
     def presentation(self) -> Any: return self.project_lifecycle.presentation
+    @property
+    def synchronism_check_configuration(self) -> dict[str, Any] | None:
+        """Return a detached ANSI 25 policy snapshot."""
+        with self._execution_lock:
+            configuration = getattr(self, "_synchronism_check_configuration", None)
+            return None if configuration is None else configuration.to_dict()
+
+    @synchronism_check_configuration.setter
+    def synchronism_check_configuration(self, value: Mapping[str, Any] | SynchronismCheckProjectConfiguration | None) -> None:
+        """Replace ANSI 25 policy atomically with command execution and sample ingestion."""
+        if value is None:
+            typed = None
+        elif isinstance(value, SynchronismCheckProjectConfiguration):
+            typed = value
+        elif isinstance(value, Mapping):
+            typed = SynchronismCheckProjectConfiguration.from_dict(value)
+        else:
+            raise TypeError("synchronism_check_configuration must be a schema-2 mapping, typed policy, or None.")
+        with self._execution_lock:
+            self._synchronism_check_configuration = typed
+
     @property
     def measurement_channel_service(self) -> MeasurementChannelService:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
