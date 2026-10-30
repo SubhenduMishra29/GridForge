@@ -15204,3 +15204,53 @@ Disposition:
     update this register; do not revive superseded architecture paths.
 
 ======================================================================
+
+
+======================================================================
+GF-MEAS-CT-ASSOCIATION-2026-10-30 — SLD-derived CT measurement association
+======================================================================
+
+Scope:
+    core/network/ct_measurement_association.py
+    core/application/services/ct_measurement_association_service.py
+    core/network/__init__.py
+    core/application/services/__init__.py
+
+Finding:
+    CurrentTransformer exposes authoritative P1/P2 terminals and the
+    Network owns canonical terminal connectivity, but there was no
+    dedicated read-only resolver correlating a placed CT with the
+    electrical measurement location and a uniquely identifiable monitored
+    two-terminal network element.
+
+Correction:
+    - Added a Core CTMeasurementAssociationResolver. It resolves the
+      registered CT's P1/P2 terminals through ConnectivityResolver and
+      requires each terminal to reach exactly one distinct canonical Bus.
+    - Correlates supported Line, Cable, Transformer, and Branch equipment
+      only when their two terminal Bus identities span the same CT Bus pair.
+    - Returns RESOLVED only for one candidate, LOCATION_ONLY for no
+      candidate, and AMBIGUOUS for multiple candidates. No arbitrary
+      equipment selection is permitted.
+    - Carries the CT identity, P1/P2 Bus identities, positive current
+      direction from CT polarity, candidate identities, and topology
+      revision in an immutable result.
+    - Added an Application service facade that requires an active project
+      context and delegates electrical interpretation to Core.
+    - Exported the new public contracts from the owning package boundaries.
+
+Architecture:
+    Committed SLD authoring produces canonical Core equipment and
+    connectivity through the existing Application mutation path. This
+    resolver reads that authoritative Network state; it does not inspect
+    SLD graphics, infer connectivity from geometry, or mutate equipment.
+    Protection/measurement consumers must not treat LOCATION_ONLY or
+    AMBIGUOUS results as a uniquely bound feeder.
+
+Verification boundary:
+    Static source reconciliation only. No tests or CI were run. Python
+    syntax/import verification and runtime integration remain pending.
+    This entry does not claim end-to-end 50N/51N measurement generation
+    or protection runtime integration.
+
+======================================================================
