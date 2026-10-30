@@ -722,3 +722,55 @@ be evaluated. Bus-attached and equipment-terminal CT contribution adapters,
 PT/CVT fault-voltage conversion, RelayInput snapshot assembly and
 ProtectionSystem scenario evaluation remain pending. No scenario relay
 decision or breaker action is claimed.
+
+
+## 21. Detached fault-scenario RelayInput evaluation — Phase D5
+
+Protection Study fault scenarios now have a bounded path from complete
+short-circuit branch contributions to non-actuating protection-function
+evaluation:
+
+`ShortCircuitResult
+→ explicit ProtectionMeasurementBinding
+→ CTMeasurementAssociationService
+→ Branch FROM/TO CT conversion
+→ immutable ProtectionScenarioMeasurementSample
+→ Application validation and snapshot assembly
+→ RelayInput evaluation snapshot
+→ ProtectionSystem
+→ per-scenario ProtectionExecutionResult`
+
+The Application validates the exact binding, element/input/channel identities,
+CT instrument identity and ratio, CT secondary terminal, phase/sequence,
+canonical engineering unit, scenario/project/activation/topology provenance,
+and the declared protection input representation before installing any
+evaluation snapshot. Missing, duplicate, extra, stale, or unsupported inputs
+block the complete scenario evaluation before a protection element executes.
+
+The snapshot is installed only for the duration of the ProtectionElement
+evaluation through the existing Application-authorized snapshot mechanism.
+The underlying MeasurementChannel object and its value, timestamp, quality,
+availability and sample sequence are not modified. Study-derived quantities
+carry no fabricated acquisition timestamp. Their snapshot uses
+`MeasurementQuality.UNKNOWN` to avoid claiming sensor quality and
+`MeasurementValidity.VALID` only after the complete solver result and
+correlation contract have passed.
+
+**Current supported scope:** explicitly bound Branch FROM/TO CT phase-current
+and sequence-current members whose channel units and phase/sequence contracts
+match the protection function. This supports eligible configured current
+functions such as 50/51 and 46 when their full input contracts are satisfied.
+
+**Not yet supported:** Bus-attached or non-Branch equipment-terminal current
+contributions; PT/CVT fault-voltage conversion; ANSI 67 scenario polarising
+voltage/angle snapshots; residual-current semantics for 50N/51N; transformer
+differential compensation and shared primary-current normalisation; and
+automatic output/action dispatch. Unsupported inputs fail closed. Differential
+protection remains outside this D5 relay-snapshot path until CT normalisation
+and function-specific compensation are implemented.
+
+Each `ProtectionFaultScenarioResult` now retains its own
+`ProtectionExecutionResult`, preserving scenario attribution when several
+fault cases are evaluated in one Study. The Study result exposes the combined
+decision/diagnostic views while retaining the per-scenario records. No
+breaker command is dispatched and no live measurement channel is injected.
