@@ -23,6 +23,7 @@ from typing import Any, Mapping, TypeAlias
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
 from core.model import EndpointReference
+from core.network import CTMeasurementAssociation
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.result import ShortCircuitResult
@@ -218,7 +219,7 @@ class MeasurementGeneration:
         *,
         branch_id: str,
         quantity_key: str,
-        branch_current_direction: int,
+        ct_association: CTMeasurementAssociation,
     ) -> float | complex:
         '''Convert one explicitly oriented branch-current result to CT secondary A.
 
@@ -234,8 +235,12 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit branch current")
             )
-        if isinstance(branch_current_direction, bool) or not isinstance(branch_current_direction, int) or branch_current_direction not in (-1, 1):
-            raise ValueError("branch_current_direction must be an integer explicitly supplied as +1 or -1.")
+        if not isinstance(ct_association, CTMeasurementAssociation):
+            raise TypeError("ct_association must be the canonical resolved CTMeasurementAssociation.")
+        if ct_association.ct_id != context.source_id:
+            raise ValueError("Resolved CT association identity does not match the configured measurement source.")
+        if not ct_association.in_service:
+            raise UnsupportedMeasurementQuantity("CT association is out of service.")
         result = context.quantity
         if not result.success or result.status.value != "COMPLETE":
             raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
@@ -247,12 +252,22 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 "Short-circuit result does not declare per-unit branch-current provenance."
             )
+        if ct_association.topology_revision != result.provenance.get("topology_revision"):
+            raise UnsupportedMeasurementQuantity(
+                "CT association topology revision does not match the short-circuit scenario snapshot."
+            )
         try:
             branch = result.branch_currents[branch_id]
         except KeyError as exc:
             raise UnsupportedMeasurementQuantity(
                 f"Short-circuit result has no branch-current contribution for {branch_id!r}."
             ) from exc
+        try:
+            branch_current_direction = ct_association.branch_current_direction(
+                branch.from_bus_id, branch.to_bus_id
+            )
+        except ValueError as exc:
+            raise UnsupportedMeasurementQuantity(str(exc)) from exc
 
         side = self._side(context)
         expected_bus = branch.from_bus_id if side == "from" else branch.to_bus_id
