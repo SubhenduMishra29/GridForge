@@ -1169,15 +1169,16 @@ class IDMTTCCWorkspaceWidget(QWidget):
 
     def _populate_short_circuit_results(self) -> None:
         """List only current, completed Short-Circuit Study results."""
+        from core.solver.short_circuit.result import ShortCircuitResult
+
         self._short_circuit_results = {}
         self._short_circuit_result_combo.blockSignals(True)
         self._short_circuit_result_combo.clear()
         for result in self._application.read_study_results():
             if (
-                result.study_type != "short_circuit"
-                or result.status != "completed"
+                result.status != "completed"
                 or not result.current
-                or result.value is None
+                or not isinstance(result.value, ShortCircuitResult)
             ):
                 continue
             study_id = str(result.study_id)
