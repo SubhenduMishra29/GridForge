@@ -2657,15 +2657,26 @@ class Application:
             raise TypeError("configuration must be CoordinationStudyConfiguration.")
         # Validate all configured function identities against the current
         # project read model before registering a runnable Study Case.
-        available = {curve.element_id for curve in self.read_idmt_curves()}
+        curve_models = {curve.element_id: curve for curve in self.read_idmt_curves()}
         referenced = {
             identity
             for pair in configuration.pairs
             for identity in (pair.primary_element_id, pair.backup_element_id)
         }
-        missing = sorted(referenced.difference(available))
+        missing = sorted(referenced.difference(curve_models))
         if missing:
             raise ValueError("Coordination pair references unavailable ANSI 51/51N elements: " + ", ".join(missing))
+        for element_id in sorted(referenced):
+            curve = curve_models[element_id]
+            if not curve.current_unit:
+                raise ValueError(
+                    f"Protection function {element_id!r} must declare current_unit "
+                    "in its persisted IEC settings before coordination can be configured."
+                )
+            if not curve.function_enabled or curve.function_blocked:
+                raise ValueError(
+                    f"Protection function {element_id!r} is disabled or blocked and cannot be selected."
+                )
         return self.create_study_case(
             study_type="protection_coordination",
             configuration={"configuration": configuration},
