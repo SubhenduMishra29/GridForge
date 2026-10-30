@@ -1515,19 +1515,48 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 self._status.setText(f"Coordination study {execution.status.upper()} without a result payload.")
                 return
             self._plot_coordination_operating_points(result)
+            def _time_label(value: float) -> str:
+                if math.isinf(value):
+                    return "NO OPERATION" if value > 0.0 else "UNDEFINED"
+                return f"{value:.4g}s"
+
+            def _delay_label(value: float) -> str:
+                if math.isinf(value):
+                    return "not finite — backup non-operation"
+                return f"{value:.4g}s"
+
             rows = [
                 f"{point.scenario_id}: {point.status} | "
                 f"{point.primary_element_id} → {point.backup_element_id} | "
                 f"source={point.source_study_id or 'manual'} | "
                 f"Ip={point.primary_current:g} {point.primary_current_unit}, "
-                f"Ib={point.backup_current:g} {point.backup_current_unit}, "
-                f"tp={point.primary_time_s:.4g}s, tb={point.backup_time_s:.4g}s, "
-                f"margin={point.margin_s:.4g}s, CTI={point.required_cti_s:.4g}s"
+                f"Ib={point.backup_current:g} {point.backup_current_unit} | "
+                f"tp={_time_label(point.primary_time_s)}, "
+                f"tb={_time_label(point.backup_time_s)} | "
+                f"margin={_time_label(point.margin_s)}, "
+                f"required CTI={point.required_cti_s:.4g}s, "
+                f"additional backup delay={_delay_label(point.required_additional_backup_delay_s)}"
                 for point in result.points
             ]
+            status_order = (
+                "COORDINATED",
+                "CTI_VIOLATION",
+                "BACKUP_DOES_NOT_OPERATE",
+                "BACKUP_ONLY_OPERATION",
+                "NOT_APPLICABLE",
+            )
+            status_counts = {
+                status: sum(point.status == status for point in result.points)
+                for status in status_order
+                if any(point.status == status for point in result.points)
+            }
+            status_summary = ", ".join(
+                f"{status}={count}" for status, count in status_counts.items()
+            )
             self._status.setText(
                 f"Study {execution.status.upper()} — {result.status}; "
                 f"{result.pair_count} pair(s), {result.scenario_count} scenario(s).\n"
+                f"Point classifications: {status_summary}\n"
                 + "\n".join(rows)
             )
         except (RuntimeError, TypeError, ValueError, KeyError) as exc:
