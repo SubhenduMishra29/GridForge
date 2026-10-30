@@ -210,6 +210,88 @@ class MeasurementGeneration:
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
 
+    def convert_short_circuit_branch_current(
+        self,
+        context: PreparedMeasurementContext,
+        source: Any,
+        channel: MeasurementChannel,
+        *,
+        branch_id: str,
+        quantity_key: str,
+        branch_current_direction: int,
+    ) -> float | complex:
+        '''Convert one explicitly oriented branch-current result to CT secondary A.
+
+        This is a pure conversion: it never updates the supplied
+        MeasurementChannel. branch_current_direction is supplied by the
+        committed CT association resolver (+1 when branch reference agrees
+        with CT P1->P2, -1 when opposite). No feeder, zone, or CT direction
+        is inferred from topology.
+        '''
+        self._validate_source(context, source, expected_types=frozenset({"CT"}))
+        self._validate_channel(channel, MeasurementSignalType.CURRENT)
+        if not isinstance(context.quantity, ShortCircuitResult):
+            raise UnsupportedMeasurementQuantity(
+                self._unsupported_message(context, "short-circuit branch current")
+            )
+        if isinstance(branch_current_direction, bool) or branch_current_direction not in (-1, 1):
+            raise ValueError("branch_current_direction must be explicitly supplied as +1 or -1.")
+        result = context.quantity
+        if not result.success or result.status.value != "COMPLETE":
+            raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
+        if result.contribution_status.value != "COMPLETE":
+            raise UnsupportedMeasurementQuantity(
+                "Short-circuit branch contributions are incomplete; CT conversion is blocked."
+            )
+        if result.provenance.get("current_units") != "per_unit":
+            raise UnsupportedMeasurementQuantity(
+                "Short-circuit result does not declare per-unit branch-current provenance."
+            )
+        try:
+            branch = result.branch_currents[branch_id]
+        except KeyError as exc:
+            raise UnsupportedMeasurementQuantity(
+                f"Short-circuit result has no branch-current contribution for {branch_id!r}."
+            ) from exc
+
+        side = self._side(context)
+        expected_bus = branch.from_bus_id if side == "from" else branch.to_bus_id
+        if context.bus_id != expected_bus:
+            raise UnsupportedMeasurementQuantity(
+                f"CT measurement Bus {context.bus_id!r} does not match branch {branch_id!r} "
+                f"{side}-side Bus {expected_bus!r}."
+            )
+        root_key, member_key = self._split_short_circuit_key(quantity_key)
+        if root_key == "current":
+            if member_key not in (None, "I"):
+                raise UnsupportedMeasurementQuantity("Scalar branch current accepts only the 'I' member.")
+            raw_pu = branch.current
+        elif root_key == "phase_currents":
+            if member_key is None or member_key not in branch.phase_currents:
+                raise UnsupportedMeasurementQuantity(f"Branch current quantity {quantity_key!r} is unavailable.")
+            raw_pu = branch.phase_currents[member_key]
+        elif root_key == "sequence_currents":
+            if member_key is None or member_key not in branch.sequence_currents:
+                raise UnsupportedMeasurementQuantity(f"Branch current quantity {quantity_key!r} is unavailable.")
+            raw_pu = branch.sequence_currents[member_key]
+        else:
+            raise UnsupportedMeasurementQuantity(
+                "Branch CT conversion supports current, phase_currents, or sequence_currents only."
+            )
+
+        try:
+            base_mva = float(result.provenance["base_mva"])
+            voltage_kv = float(result.provenance["bus_voltage_bases_kv"][context.bus_id])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise UnsupportedMeasurementQuantity(
+                f"Short-circuit result lacks a valid MVA/voltage base for Bus {context.bus_id!r}."
+            ) from exc
+        if not isfinite(base_mva) or base_mva <= 0.0 or not isfinite(voltage_kv) or voltage_kv <= 0.0:
+            raise UnsupportedMeasurementQuantity("Short-circuit study bases must be finite and positive.")
+        primary_current_a = raw_pu * (base_mva * 1000.0 / (sqrt(3.0) * voltage_kv))
+        oriented_primary_current_a = primary_current_a * branch_current_direction
+        return self._apply_ct_polarity(oriented_primary_current_a, source) / self._ratio(source, "current")
+
     @staticmethod
     def _current_base_a(prepared_power_flow: Any, bus_id: str) -> float:
         if prepared_power_flow is None:
