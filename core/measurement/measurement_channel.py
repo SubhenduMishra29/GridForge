@@ -382,6 +382,7 @@ class MeasurementChannel:
 
         self.id = id
         self.name = str(name)
+        self._sample_update_authority = None
 
         if not isinstance(
             signal_type,
@@ -826,8 +827,19 @@ class MeasurementChannel:
     # MEASUREMENT UPDATE
     # =================================================================
 
+    def _bind_sample_update_authority(self, authority: Any) -> None:
+        """Bind service ownership for a project-managed live channel."""
+        if authority is None:
+            raise ValueError("A non-null sample update authority is required.")
+        if self._sample_update_authority not in (None, authority):
+            raise RuntimeError("MeasurementChannel is already owned by another sample service.")
+        self._sample_update_authority = authority
+
     def update(
         self,
+        value: float | complex,
+        *,
+        _authority: Any = None,
         value: float | complex,
         *,
         timestamp: Optional[float] = None,
@@ -867,6 +879,11 @@ class MeasurementChannel:
         -----
         Physical CT/PT/CVT transformation is not performed here.
         """
+
+        if self._sample_update_authority is not None and _authority is not self._sample_update_authority:
+            raise PermissionError(
+                "Project-managed MeasurementChannels must be updated through MeasurementChannelService.publish_sample()."
+            )
 
         # Validate the complete incoming sample before mutating channel state.
         validated_value = self._validate_value(value)
@@ -1104,6 +1121,7 @@ class MeasurementChannel:
         self,
         value: float | complex = 0.0,
         *,
+        _authority: Any = None,
         quality: MeasurementQuality = (
             MeasurementQuality.UNKNOWN
         ),
@@ -1115,6 +1133,10 @@ class MeasurementChannel:
         Reset signal state while retaining channel configuration.
         """
 
+        if self._sample_update_authority is not None and _authority is not self._sample_update_authority:
+            raise PermissionError(
+                "Project-managed MeasurementChannels must be reset through their owning measurement service."
+            )
         validated_value = self._validate_value(value)
         if not isinstance(quality, MeasurementQuality):
             raise TypeError("quality must be a MeasurementQuality.")
