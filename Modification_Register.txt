@@ -14737,8 +14737,12 @@ Scope:
       constants in core.protection.relay_functions were audited and retained.
     - Existing generate_tcc_points() remains the canonical numerical TCC
       point generator; no duplicate formula engine was introduced.
-    - Added explicit primary/backup IDMT coordination sweep over caller-
-      supplied fault-current scenarios and required grading margin.
+    - Reused the existing core.protection.coordination.RelayCoordination
+      engine for primary/backup and multi-point CTI evaluation; no parallel
+      coordination engine or duplicate policy was retained.
+    - Reconciled legacy TCCCurve.calculate_time() to delegate to the shared
+      relay_functions IEC equation, retaining its legacy curve names and
+      zero-TMS compatibility behaviour.
     - Added immutable IDMTCurvePointReadModel / IDMTCurveReadModel,
       generated from persisted ANSI 51/51N settings.
     - Added Application.read_idmt_curves() as the UI-neutral read boundary.
@@ -14756,9 +14760,10 @@ Engineering boundaries:
     - ANSI 51/51N catalog status is unchanged; chart availability does not
       establish production protection coordination or scheme completeness.
     - The issue's claim that all IDMT mathematics are absent is inaccurate:
-      IEC equations, inverse solution, TCC point generation, and arithmetic
-      coordination margin pre-existed. This change adds the missing integrated
-      read-model, explicit grading sweep, and log-log workspace.
+      IEC equations, inverse solution, TCC point generation, and primary/backup
+      CTI coordination pre-existed. This change consolidates the legacy TCC
+      adapter on the canonical equation and adds the missing Application
+      read-model and log-log workspace.
 
 Verification:
     - Source changes committed on feature/issue-868-idmt-tcc-workspace.
