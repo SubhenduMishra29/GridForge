@@ -134,24 +134,45 @@ def create_application(
                 protection_configuration_service,
                 measurement_channel_service,
             )
-        elif candidate_context is not None and candidate_context.path is not None:
-            # Production default: saved projects receive a project/generation-
-            # scoped durable audit sink. Unsaved projects intentionally have
-            # no guard and therefore remain fail-closed at breaker close.
+        elif candidate_context is not None:
+            # The guard is composed for every project activation, including a
+            # new unsaved project. Its audit sink resolves the saved package
+            # path only when a close decision is made, so Save As can enable
+            # durable auditing without rebuilding the command runtime.
             ansi25_clock_domain = "unix_time"
-            audit_sink = ProjectScopedSynchronismAuditSink(
-                project_id=candidate_context.project_id,
-                activation_generation=candidate_generation,
-                project_path=candidate_context.path,
-                clock=time.time,
-                clock_domain=ansi25_clock_domain,
-            )
+
+            class CandidateProjectAuditSink:
+                clock_domain = ansi25_clock_domain
+
+                def __call__(self, decision):
+                    active_context = lifecycle.context if lifecycle is not None else None
+                    if (
+                        active_context is None
+                        or active_context.project_id != candidate_context.project_id
+                        or lifecycle.activation_generation != candidate_generation
+                    ):
+                        raise RuntimeError(
+                            "ANSI 25 audit refused: candidate project activation is no longer current."
+                        )
+                    if active_context.path is None:
+                        raise RuntimeError(
+                            "ANSI 25 audit refused: save the project before authorizing breaker close."
+                        )
+                    durable_sink = ProjectScopedSynchronismAuditSink(
+                        project_id=candidate_context.project_id,
+                        activation_generation=candidate_generation,
+                        project_path=active_context.path,
+                        clock=time.time,
+                        clock_domain=ansi25_clock_domain,
+                    )
+                    durable_sink(decision)
+
             synchronism_guard = create_project_synchronism_guard(
                 project_id=candidate_context.project_id,
                 activation_generation=candidate_generation,
                 project_configuration_provider=lambda: application.synchronism_check_configuration,
                 measurement_channel_service=measurement_channel_service,
-                audit_sink=audit_sink,
+                audit_sink=CandidateProjectAuditSink(),
                 clock=time.time,
                 clock_domain=ansi25_clock_domain,
             )
