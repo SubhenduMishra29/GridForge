@@ -16021,15 +16021,20 @@ Design:
     - Added CTMeasurementAssociationResolver. It reads the current canonical
       TopologySnapshot and resolves CT P1/P2 terminal Bus attachments against
       active Line, Cable, and Transformer FROM/TO terminal attachments.
-    - An unconfigured CT is accepted only when exactly one active branch has
-      the same ordered-or-reversed terminal Bus pair. Parallel-branch matches
-      fail with a diagnostic listing candidate IDs; no proximity or
-      graph-adjacency heuristic is used.
+    - The resolver builds switch-connected Bus zones from the
+      TopologySnapshot conductive_edges collection. Only currently conducting
+      Breaker, Switch, Disconnector, and Fuse paths are traversed; open
+      switching equipment is not traversed and numerical branches are never
+      collapsed into adjacency.
+    - An unconfigured CT is accepted only when exactly one active branch
+      bridges its two switch-connected primary-terminal zones. Parallel
+      branch matches fail with a diagnostic listing candidate IDs; no
+      graphical proximity or unrestricted graph-adjacency heuristic is used.
     - The SLD Application service reads the engineer-authored
       monitored_element_id property from the unique CT SLD node. When present,
-      Core verifies the selected element is active, fully connected, and has
-      the exact CT primary Bus pair. The SLD property is a selection hint;
-      Core topology remains authoritative.
+      Core verifies the selected element is active, fully connected, and
+      bridges those same CT primary-terminal zones. The SLD property is a
+      selection hint; Core topology remains authoritative.
     - Application.resolve_ct_measurement_association(ct_id) exposes the
       resolver against the active project's Network and SLD document.
     - Exported the immutable association and controlled error types through
