@@ -14,8 +14,9 @@ from math import isfinite
 from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
-from core.model import Branch, CurrentTransformer, EndpointReference, EquipmentType
+from core.model import Branch, Bus, CurrentTransformer, EndpointReference, EquipmentType
 from core.network.connectivity import ConnectivityResolver
+from core.network.topology_endpoint_reference import TopologyEndpointReference
 from core.network.network import Network
 from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
@@ -331,26 +332,52 @@ class ProtectionConfigurationService:
                     "instrument_id": binding.instrument_id,
                 },
             )
-        source_type = str(getattr(source_equipment, "TYPE", "")).strip().lower()
-        if binding.source_terminal_reference.equipment_type.value != source_type:
-            raise DomainError(
-                code="PROTECTION_MEASUREMENT_TERMINAL_TYPE_MISMATCH",
-                message="Source terminal reference equipment type does not match the active source equipment.",
-                details={"source_equipment_id": binding.source_equipment_id},
-            )
-        source_roles = {getattr(item, "role", None) for item in getattr(source_equipment, "terminals", ())}
-        if binding.source_terminal_reference.terminal_role not in source_roles:
-            raise DomainError(
-                code="PROTECTION_MEASUREMENT_TERMINAL_NOT_FOUND",
-                message="Source terminal reference is not a terminal of the active source equipment.",
-                details={
-                    "source_equipment_id": binding.source_equipment_id,
-                    "terminal_role": binding.source_terminal_reference.terminal_role,
-                },
-            )
+        source_reference = binding.source_endpoint_reference
+        if source_reference.is_terminal:
+            source_type = str(getattr(source_equipment, "TYPE", "")).strip().lower()
+            if source_reference.equipment_type.value != source_type:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_TERMINAL_TYPE_MISMATCH",
+                    message="Source terminal reference equipment type does not match the active source equipment.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
+            source_roles = {getattr(item, "role", None) for item in getattr(source_equipment, "terminals", ())}
+            if source_reference.terminal_role not in source_roles:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_TERMINAL_NOT_FOUND",
+                    message="Source terminal reference is not a terminal of the active source equipment.",
+                    details={
+                        "source_equipment_id": binding.source_equipment_id,
+                        "terminal_role": source_reference.terminal_role,
+                    },
+                )
+        elif source_reference.is_bus:
+            if not isinstance(source_equipment, Bus):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_BUS_SOURCE_INVALID",
+                    message="A Bus attachment measurement source must identify an authoritative Core Bus.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
+            if source_reference.attachment_id not in {
+                f"attachment-{index}" for index in range(9)
+            }:
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_BUS_ATTACHMENT_INVALID",
+                    message="Bus measurement source must use a canonical Bus attachment slot.",
+                    details={
+                        "bus_id": source_equipment.id,
+                        "attachment_id": source_reference.attachment_id,
+                    },
+                )
         instrument_type = str(getattr(instrument, "TYPE", "")).strip().upper()
         measurement_type = binding.measurement_type.strip().lower()
         if measurement_type == "current":
+            if not source_reference.is_terminal:
+                raise DomainError(
+                    code="PROTECTION_CURRENT_SOURCE_ENDPOINT_INVALID",
+                    message="CT branch-current binding must reference an explicit Branch terminal, not a Bus attachment.",
+                    details={"source_equipment_id": binding.source_equipment_id},
+                )
             if not isinstance(source_equipment, Branch):
                 raise DomainError(
                     code="PROTECTION_CURRENT_SOURCE_NOT_BRANCH",
@@ -359,7 +386,7 @@ class ProtectionConfigurationService:
                 )
             side = binding.electrical_side.strip().lower()
             expected_terminal_role = {"from": "FROM", "to": "TO"}.get(side)
-            if expected_terminal_role is None or binding.source_terminal_reference.terminal_role != expected_terminal_role:
+            if expected_terminal_role is None or source_reference.terminal_role != expected_terminal_role:
                 raise DomainError(
                     code="PROTECTION_CURRENT_BRANCH_SIDE_MISMATCH",
                     message="Current measurement electrical_side must explicitly match the selected Branch FROM/TO terminal.",
@@ -378,7 +405,7 @@ class ProtectionConfigurationService:
             resolver = ConnectivityResolver(network)
             try:
                 branch_component = set(
-                    resolver.terminal_component(binding.source_terminal_reference)
+                    resolver.terminal_component(source_reference)
                 )
                 primary_references = {
                     role: EndpointReference.terminal(
@@ -426,6 +453,59 @@ class ProtectionConfigurationService:
         elif measurement_type == "voltage":
             expected_types = {"PT", "CVT"}
             ratio_attribute = "voltage_ratio"
+            if instrument_type in expected_types:
+                primary_roles = {
+                    "PT": ("primary_a", "primary_b"),
+                    "CVT": ("H1", "H2"),
+                }[instrument_type]
+                resolver = ConnectivityResolver(network)
+                if source_reference.is_bus:
+                    selected_topology_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                else:
+                    selected_topology_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                try:
+                    selected_component = set(
+                        resolver.topology_component(selected_topology_endpoint)
+                    )
+                    primary_components = {
+                        role: set(
+                            resolver.terminal_component(
+                                EndpointReference.terminal(
+                                    equipment_type=EquipmentType(instrument_type.lower()),
+                                    equipment_id=instrument.id,
+                                    terminal_role=role,
+                                )
+                            )
+                        )
+                        for role in primary_roles
+                    }
+                except (TypeError, ValueError, KeyError) as exc:
+                    raise DomainError(
+                        code="PROTECTION_VOLTAGE_PRIMARY_TOPOLOGY_INVALID",
+                        message="PT/CVT primary terminals and the selected voltage source must resolve through canonical Core connectivity.",
+                        details={
+                            "instrument_id": binding.instrument_id,
+                            "source_endpoint": str(source_reference),
+                            "reason": str(exc),
+                        },
+                    ) from exc
+                matching_primary_roles = tuple(
+                    role for role, component in primary_components.items()
+                    if selected_topology_endpoint in component
+                )
+                if (
+                    len(matching_primary_roles) != 1
+                    or primary_components[primary_roles[0]] == primary_components[primary_roles[1]]
+                ):
+                    raise DomainError(
+                        code="PROTECTION_VOLTAGE_PRIMARY_ASSOCIATION_INVALID",
+                        message="The selected Bus/line endpoint must connect to exactly one PT/CVT primary terminal; the two primary terminals must remain on distinct topology components.",
+                        details={
+                            "instrument_id": binding.instrument_id,
+                            "source_endpoint": str(source_reference),
+                            "matching_primary_roles": matching_primary_roles,
+                        },
+                    )
         else:
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_TYPE_UNSUPPORTED",
