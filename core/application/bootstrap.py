@@ -529,7 +529,7 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
-        numerical_result = analysis.solve()
+        numerical_result = analysis.solve(should_cancel=lambda: token.cancelled)
         if token.cancelled:
             return None
         if not numerical_result.success:
@@ -554,6 +554,7 @@ def create_application(network: Any) -> Application:
             voltage_min=request_configuration.get("voltage_min", 0.95),
             voltage_max=request_configuration.get("voltage_max", 1.05),
             thermal_limit=request_configuration.get("thermal_limit", 100.0),
+            should_cancel=lambda: token.cancelled,
         )
         if token.cancelled:
             return None
