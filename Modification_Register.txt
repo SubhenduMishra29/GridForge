@@ -14791,9 +14791,12 @@ Issue:
     #868
 
 Scope:
-    - Added immutable CoordinationStudyPair, CoordinationFaultScenario,
-      CoordinationStudyConfiguration, CoordinationStudyPointResult, and
-      CoordinationStudyResult contracts in core/analysis.
+    - Added immutable CoordinationStudyPair, CoordinationRelayCurrent,
+      CoordinationFaultScenario, CoordinationStudyConfiguration,
+      CoordinationStudyPointResult, and CoordinationStudyResult contracts
+      in core/analysis. Each scenario maps current values and units by
+      protection-function identity, so multi-pair studies do not reuse one
+      pair's currents for another pair.
     - Added RelayCoordination.check_pair_currents() so primary and backup
       protection functions are evaluated at their independently supplied
       relay-input currents. The existing common-current check_pair() API
@@ -14840,6 +14843,8 @@ Engineering boundaries:
       coordination-pair settings is not introduced in this increment.
     - The UI currently authors one pair per run; the Core/Application
       configuration supports multiple pairs and scenarios.
+    - The TCC overlay refuses mixed or undeclared current units; curves are
+      not placed on a common logarithmic axis unless their unit labels match.
 
 Verification:
     - Source changes committed on feature/issue-868-idmt-tcc-workspace.
