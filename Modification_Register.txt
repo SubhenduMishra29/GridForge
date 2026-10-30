@@ -15385,3 +15385,36 @@ Verification:
     connector in this pass. No production-readiness claim is made.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE C CONTRIBUTION-COMPLETENESS CORRECTION
+======================================================================
+
+Date:
+    2026-10-30
+
+Finding:
+    ShortCircuitResult.success / ShortCircuitStatus.COMPLETE describe the
+    fault calculation itself. They do not guarantee that source and branch
+    current contribution records are complete. Treating the solver status
+    alone as measurement-ready could overstate Protection Study readiness.
+
+Correction:
+    - ProtectionFaultScenarioResult now exposes the solver's typed
+      ContributionStatus, contribution-completeness predicate and diagnostics.
+    - ProtectionStudyResult reports partial status when any scenario has
+      unsuccessful/partial fault calculation or incomplete contribution
+      coverage.
+    - This does not synthesize missing branch currents or permit relay
+      evaluation from incomplete contribution data.
+
+Changed files:
+    core/application/protection_study.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Static source review only. No tests or CI run. Python syntax/import
+    execution remains outstanding.
+======================================================================
