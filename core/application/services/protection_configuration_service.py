@@ -388,6 +388,27 @@ class ProtectionConfigurationService:
                     "physical_ratio": actual_ratio,
                 },
             )
+        secondary_terminal = getattr(channel, "source_terminal", None)
+        secondary_roles = {
+            "CT": {"S1", "S2"},
+            "PT": {"secondary_a", "secondary_b"},
+            "CVT": {"X1", "X2"},
+        }[instrument_type]
+        if (
+            secondary_terminal is None
+            or not getattr(secondary_terminal, "is_terminal", False)
+            or secondary_terminal.equipment_id != binding.instrument_id
+            or secondary_terminal.terminal_role not in secondary_roles
+        ):
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_SECONDARY_TERMINAL_MISMATCH",
+                message="MeasurementChannel must reference a secondary terminal belonging to the configured physical instrument.",
+                details={
+                    "channel_id": binding.channel_id,
+                    "instrument_id": binding.instrument_id,
+                    "secondary_terminal": str(secondary_terminal) if secondary_terminal is not None else None,
+                },
+            )
         channel_signal = str(getattr(getattr(channel, "signal_type", None), "value", "")).strip().lower()
         if channel_signal != measurement_type:
             raise DomainError(
