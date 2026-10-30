@@ -1012,6 +1012,253 @@ class Application:
         )
         return execution.execute(decisions)
 
+
+    def evaluate_protection_scenario(
+        self,
+        *,
+        scenario_id: str,
+        samples: tuple[Any, ...],
+        evaluation_time: float,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot,
+    ) -> ProtectionExecutionResult:
+        """Evaluate one detached study scenario through Application-authorized RelayInput snapshots.
+
+        Scenario values are calculated study quantities, not live sensor
+        telemetry. Their snapshot validity is established from complete
+        solver/result provenance and binding correlation; sensor quality and
+        acquisition timestamps are deliberately not fabricated.
+        """
+        from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementSample
+
+        if not isinstance(scenario_id, str) or not scenario_id.strip():
+            raise ValueError("scenario_id must be a non-empty string.")
+        if not isinstance(samples, (tuple, list)):
+            raise TypeError("samples must be a tuple or list of detached scenario measurement samples.")
+        if any(not isinstance(item, ProtectionScenarioMeasurementSample) for item in samples):
+            raise TypeError("samples must contain only ProtectionScenarioMeasurementSample values.")
+        if len({item.binding_id for item in samples}) != len(samples):
+            raise ValueError("A scenario may contain only one sample per measurement binding.")
+        if isinstance(evaluation_time, bool):
+            raise TypeError("evaluation_time must be a finite non-negative number.")
+        evaluation_time = float(evaluation_time)
+        if not isfinite(evaluation_time) or evaluation_time < 0.0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+        if not isinstance(network_state, TopologySnapshot):
+            raise TypeError("network_state must be the captured TopologySnapshot for this scenario.")
+        if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
+            raise TypeError("evaluation_metadata must be a mapping or None.")
+
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        service = self.measurement_channel_service
+        runtime = getattr(self, "protection_runtime", None)
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if (
+            project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE"
+            or runtime is None or configuration_service is None
+        ):
+            raise RuntimeError("Scenario protection evaluation requires an active project and composed protection runtime.")
+        configuration = configuration_service.configuration
+        if (
+            configuration is None or runtime.configuration is not configuration
+            or runtime.network is not lifecycle.network
+            or runtime.project_id != project.project_id
+            or runtime.activation_generation != lifecycle.activation_generation
+            or not runtime.configuration_matches_composition
+        ):
+            raise RuntimeError("Scenario protection runtime/configuration provenance is stale.")
+        if (
+            service.project_id != project.project_id
+            or service.activation_generation != lifecycle.activation_generation
+            or service.network is not lifecycle.network
+        ):
+            raise RuntimeError("Scenario measurement-channel authority is stale.")
+        if network_state.topology_revision != lifecycle.network.state.topology_revision:
+            raise RuntimeError("Scenario topology snapshot does not match the active network revision.")
+
+        channels = service.channels
+        runtime_channels = runtime.channels
+        if runtime_channels.keys() != channels.keys() or any(
+            runtime_channels[channel_id] is not channel for channel_id, channel in channels.items()
+        ):
+            raise RuntimeError("Protection runtime retains stale MeasurementChannel objects.")
+
+        diagnostics = list(validate_protection_input_contracts(configuration, channels))
+        samples_by_binding = {item.binding_id: item for item in samples}
+        bindings_by_input: dict[tuple[str, str], list[Any]] = {}
+        known_binding_ids: set[str] = set()
+        for binding in configuration.measurement_bindings:
+            known_binding_ids.add(binding.binding_id)
+            bindings_by_input.setdefault(
+                (binding.protection_element_id, binding.relay_input_id), []
+            ).append(binding)
+
+        expected_samples: set[str] = set()
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {
+            item.element_id: MappingProxyType({})
+            for item in configuration.elements if item.enabled
+        }
+        for element_configuration in configuration.elements:
+            if not element_configuration.enabled:
+                continue
+            element_snapshots: dict[str, Any] = {}
+            for input_name, channel_id in element_configuration.input_channel_ids.items():
+                key = (element_configuration.element_id, input_name)
+                matching_bindings = bindings_by_input.get(key, ())
+                prefix = (
+                    f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                    f"input={input_name!r}"
+                )
+                if len(matching_bindings) != 1:
+                    diagnostics.append(
+                        f"{prefix}: exactly one canonical ProtectionMeasurementBinding is required; "
+                        f"found {len(matching_bindings)}."
+                    )
+                    continue
+                binding = matching_bindings[0]
+                expected_samples.add(binding.binding_id)
+                sample = samples_by_binding.get(binding.binding_id)
+                if sample is None:
+                    diagnostics.append(f"{prefix}, binding={binding.binding_id!r}: scenario sample is missing.")
+                    continue
+                channel = channels.get(channel_id)
+                if channel is None or runtime_channels.get(channel_id) is not channel:
+                    diagnostics.append(f"{prefix}, channel={channel_id!r}: authoritative runtime channel is unavailable.")
+                    continue
+                if (
+                    sample.scenario_id != scenario_id
+                    or sample.protection_element_id != element_configuration.element_id
+                    or sample.relay_input_id != input_name
+                    or sample.binding_id != binding.binding_id
+                    or sample.channel_id != channel_id
+                    or binding.channel_id != channel_id
+                    or sample.instrument_id != binding.instrument_id
+                    or binding.measurement_type.strip().lower() != "current"
+                    or getattr(channel, "signal_type", None).value != "CURRENT"
+                    or getattr(channel, "source_id", None) != binding.instrument_id
+                ):
+                    diagnostics.append(f"{prefix}: sample, binding, channel or physical CT identity does not agree.")
+                    continue
+                source_terminal = getattr(channel, "source_terminal", None)
+                if (
+                    source_terminal is None
+                    or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                    or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                ):
+                    diagnostics.append(f"{prefix}: channel does not originate from the configured CT secondary terminal.")
+                    continue
+                channel_phase = getattr(getattr(channel, "phase", None), "value", None)
+                if (
+                    sample.phase_or_sequence != binding.phase_or_sequence
+                    or sample.phase_or_sequence != channel_phase
+                    or sample.quantity_key != binding.result_quantity
+                    or sample.unit != getattr(channel, "unit", None)
+                ):
+                    diagnostics.append(
+                        f"{prefix}: phase/sequence, result member or engineering unit does not match the binding/channel."
+                    )
+                    continue
+                provenance = sample.provenance
+                expected_provenance = {
+                    "project_id": project.project_id,
+                    "activation_generation": lifecycle.activation_generation,
+                    "topology_revision": network_state.topology_revision,
+                    "ct_topology_revision": network_state.topology_revision,
+                    "ct_id": binding.instrument_id,
+                    "branch_id": binding.source_equipment_id,
+                    "branch_side": binding.electrical_side.strip().lower(),
+                }
+                if any(provenance.get(name) != value for name, value in expected_provenance.items()):
+                    diagnostics.append(f"{prefix}: scenario sample provenance does not match the captured project/topology/binding.")
+                    continue
+                try:
+                    ratio = float(provenance.get("instrument_ratio"))
+                except (TypeError, ValueError, OverflowError):
+                    ratio = float("nan")
+                if (
+                    not isfinite(ratio) or ratio <= 0.0
+                    or abs(ratio - binding.instrument_ratio) > max(1e-9, ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: sample CT ratio does not match the persisted measurement binding.")
+                    continue
+                requirement = input_contract_for(configuration, element_configuration, input_name)
+                if requirement is None:
+                    diagnostics.append(f"{prefix}: no supported canonical protection input contract is available.")
+                    continue
+                rejected = validate_sample_representation(sample.value, requirement)
+                if rejected is not None:
+                    diagnostics.append(f"{prefix}: scenario value violates the protection input contract: {rejected}")
+                    continue
+                element_snapshots[input_name] = MappingProxyType({
+                    "channel_id": channel_id,
+                    "channel_identity": id(channel),
+                    "value": sample.value,
+                    "timestamp": None,
+                    # UNKNOWN is intentional: this is a calculated study
+                    # quantity, not a GOOD-quality field measurement.
+                    "quality": MeasurementQuality.UNKNOWN,
+                    "available": True,
+                    "usable": True,
+                    "validity": MeasurementValidity.VALID,
+                    "sample_sequence": None,
+                    "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                    "scenario_id": scenario_id,
+                    "binding_id": binding.binding_id,
+                    "reference_basis_id": sample.reference_basis_id,
+                    "provenance": provenance,
+                })
+            snapshots_by_element[element_configuration.element_id] = MappingProxyType(element_snapshots)
+
+        unexpected = set(samples_by_binding) - expected_samples
+        if unexpected:
+            diagnostics.append(
+                "Scenario supplied samples for bindings that are not required by enabled protection inputs: "
+                + ", ".join(sorted(unexpected))
+            )
+        if diagnostics:
+            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+
+        context_metadata = dict(evaluation_metadata or {})
+        context_metadata.update({
+            "project_id": project.project_id,
+            "activation_generation": lifecycle.activation_generation,
+            "study_type": "protection",
+            "scenario_id": scenario_id,
+            "scenario_measurement_snapshot_kind": "CALCULATED_FAULT_SCENARIO",
+            "validated_measurement_snapshots_by_element": MappingProxyType(snapshots_by_element),
+            "validated_measurement_snapshot_authority": APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY,
+        })
+        context = ProtectionContext(
+            time=evaluation_time,
+            timestep=evaluation_timestep,
+            event_id=event_id,
+            event_type=event_type,
+            network_state=network_state,
+            supervision=supervision if supervision is not None else {},
+            metadata=context_metadata,
+        )
+        decisions = runtime.system.evaluate(context)
+        current_lifecycle = self.project_lifecycle
+        if (
+            current_lifecycle.state != "ACTIVE"
+            or current_lifecycle.context is not project
+            or current_lifecycle.network is not lifecycle.network
+            or current_lifecycle.activation_generation != lifecycle.activation_generation
+            or getattr(self, "protection_runtime", None) is not runtime
+            or configuration_service.configuration is not configuration
+            or not runtime.configuration_matches_composition
+            or self.measurement_channel_service is not service
+        ):
+            raise StaleProtectionExecutionError(
+                "Project, topology, protection runtime/configuration or measurement authority changed during scenario evaluation."
+            )
+        return ProtectionExecutionResult(decisions=decisions)
+
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
             self._command_manager.register_handler(command_type, handler)
