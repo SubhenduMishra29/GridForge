@@ -14866,8 +14866,17 @@ Engineering boundaries:
     - Persistence reuses the existing Study Case collection and the existing
       transactional project save/load activation path; no parallel registry
       or sidecar file was introduced.
-    - The UI currently authors one pair per run; the Core/Application
-      configuration supports multiple pairs and scenarios.
+    - The TCC workspace now supports explicit multi-pair authoring: each
+      added pair snapshots its own primary/backup identities and either its
+      manual relay-input current series/units or Short-Circuit branch IDs,
+      sides, and conversion scales. Pairs can be removed before execution.
+    - Manual multi-pair scenarios are assembled by scenario index; all pairs
+      must provide the same scenario count and fault location. Shared relay
+      function identities must have identical current/unit inputs, otherwise
+      authoring fails closed. Short-Circuit pairs must reference one completed
+      source Study Case in a single coordination Study Case.
+    - The workspace refuses execution until at least one pair is explicitly
+      added; no implicit or inferred pair mapping is introduced.
     - The TCC overlay refuses mixed or undeclared current units; curves are
       not placed on a common logarithmic axis unless their unit labels match.
 
