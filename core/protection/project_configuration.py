@@ -7,6 +7,8 @@ import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from .protection_measurement_binding import ProtectionMeasurementBinding
+
 
 def _freeze_value(value: Any) -> Any:
     """Recursively detach and freeze JSON-like configuration containers."""
@@ -165,6 +167,7 @@ class ProtectionProjectConfiguration:
             raise ValueError("project_id must be a non-empty string.")
         self._project_id = project_id.strip()
         self._elements: dict[str, ProtectionFunctionConfiguration] = {}
+        self._bindings: dict[str, ProtectionMeasurementBinding] = {}
 
     @property
     def project_id(self) -> str:
@@ -173,6 +176,10 @@ class ProtectionProjectConfiguration:
     @property
     def elements(self) -> tuple[ProtectionFunctionConfiguration, ...]:
         return tuple(self._elements.values())
+
+    @property
+    def measurement_bindings(self) -> tuple[ProtectionMeasurementBinding, ...]:
+        return tuple(self._bindings.values())
 
     def add(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
@@ -196,8 +203,63 @@ class ProtectionProjectConfiguration:
         try: return self._elements[element_id]
         except KeyError as exc: raise KeyError(f"Protection element is not configured: {element_id}") from exc
 
+    def add_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        if binding.binding_id in self._bindings:
+            raise ValueError(f"Protection measurement binding already exists: {binding.binding_id}")
+        configuration = self.get(binding.protection_element_id)
+        if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+            raise ValueError(
+                "Protection measurement binding must match the configured element input channel."
+            )
+        if any(
+            existing.protection_element_id == binding.protection_element_id
+            and existing.relay_input_id == binding.relay_input_id
+            for existing in self._bindings.values()
+        ):
+            raise ValueError(
+                "A protection element input may have only one canonical measurement binding."
+            )
+        self._bindings[binding.binding_id] = binding
+
+    def replace_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        if binding.binding_id not in self._bindings:
+            raise KeyError(binding.binding_id)
+        configuration = self.get(binding.protection_element_id)
+        if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+            raise ValueError(
+                "Protection measurement binding must match the configured element input channel."
+            )
+        if any(
+            key != binding.binding_id
+            and existing.protection_element_id == binding.protection_element_id
+            and existing.relay_input_id == binding.relay_input_id
+            for key, existing in self._bindings.items()
+        ):
+            raise ValueError("A protection element input may have only one canonical measurement binding.")
+        self._bindings[binding.binding_id] = binding
+
+    def get_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
+        try:
+            return self._bindings[binding_id]
+        except KeyError as exc:
+            raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
+
+    def remove_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
+        try:
+            return self._bindings.pop(binding_id)
+        except KeyError as exc:
+            raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
+
     def to_dict(self) -> dict[str, Any]:
-        return {"project_id": self.project_id, "elements": [item.to_dict() for item in self.elements]}
+        return {
+            "project_id": self.project_id,
+            "elements": [item.to_dict() for item in self.elements],
+            "measurement_bindings": [item.to_dict() for item in self.measurement_bindings],
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionProjectConfiguration":
@@ -210,6 +272,11 @@ class ProtectionProjectConfiguration:
         result = cls(project_id)
         for item in elements:
             result.add(ProtectionFunctionConfiguration.from_dict(item))
+        bindings = data.get("measurement_bindings", ())
+        if not isinstance(bindings, (list, tuple)):
+            raise TypeError("protection measurement bindings must be a list or tuple.")
+        for item in bindings:
+            result.add_measurement_binding(ProtectionMeasurementBinding.from_dict(item))
         return result
 
 
