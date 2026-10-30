@@ -14720,3 +14720,34 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+
+======================================================================
+GF-RECONCILE-2026-10-30-A — Lifecycle, study provenance, and dynamics fixture contracts
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Regression fixtures for canonical SLD persistence, detached transient
+    stability snapshots, and Power Flow-to-Dynamics initialization.
+
+Corrections:
+    - Removed the synthetic "modified" field from the lifecycle test serializer.
+      Dirty/modified state is transient and is not part of the canonical SLD
+      document schema; the production persistence validator remains strict.
+    - Bound the detached PreparedPowerFlow fixture to the active Application
+      project ID, activation generation, and topology revision. This keeps the
+      study request and detached numerical snapshot on the same provenance
+      contract; no revision validation was relaxed.
+    - Supplied PowerFlowResult bus_ids and snapshot_id from the exact
+      PowerFlowInput used by Dynamics initialization. Result ordering and
+      snapshot identity remain explicit rather than inferred.
+
+Verification boundary:
+    Fixture corrections committed for workflow verification. No claim of
+    regression resolution or production readiness is made until the relevant
+    repository checks complete.
+
+======================================================================
