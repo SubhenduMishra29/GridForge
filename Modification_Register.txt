@@ -15783,7 +15783,7 @@ Verification:
 
 
 [2026-10-30] Protection Study Phase D5 — detached RelayInput scenario evaluation
-- Added Application.evaluate_protection_scenario() as the sole authority for
+- Added the internal Application._evaluate_protection_scenario() boundary as the sole authority for
   validating scenario samples and installing immutable RelayInput evaluation
   snapshots. It validates active project/runtime/channel identities,
   ProtectionMeasurementBinding correlation, CT identity/ratio/secondary
