@@ -286,7 +286,7 @@ class ProtectionStudyResult:
         scenario_diagnostics = tuple(
             f"scenario={scenario.scenario_id!r}: {message}"
             for scenario in self.fault_scenarios
-            for message in scenario.execution.diagnostics
+            for message in (*scenario.diagnostics, *scenario.execution.diagnostics)
         )
         return self.execution.diagnostics + scenario_diagnostics
 
@@ -505,9 +505,9 @@ class ProtectionStudyHandler:
                 network_state=execution_context.topology_snapshot,
             )
         else:
-            # Fault-current results are not yet converted through configured
-            # CT/PT/CVT paths into scenario-specific RelayInput samples.
-            # Never reuse live channel samples as if they represented a fault.
+            # Each fault scenario retains its own detached-sample execution.
+            # Keep the top-level execution empty so decisions remain correlated
+            # to their individual scenario result records.
             execution = ProtectionExecutionResult()
         if cancellation.cancelled:
             return None
