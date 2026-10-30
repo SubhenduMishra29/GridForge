@@ -14933,3 +14933,36 @@ Changes:
 Verification:
     - No tests or CI run, per repository rules.
     - Python syntax/import integrity and UI runtime rendering not verified.
+
+
+======================================================================
+
+2026-10-30 — Persisted Study Case staleness across project activation
+---------------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - core/application/application.py
+    - core/application/bootstrap.py
+    - core/persistence/project_persistence.py
+    - Modification_Register.txt
+
+Changes:
+    - Added an explicit immutable is_stale state to StudyCaseDefinition.
+    - Application.study_cases derives staleness from the current electrical
+      model/topology revision before persistence, so a case made stale by
+      later edits cannot be silently revalidated on reload.
+    - Project persistence writes the stale-state marker alongside the
+      original source revision. Legacy packages without the marker restore
+      Study Cases as stale because their saved project revision baseline
+      cannot be proven.
+    - Project activation rebases only non-stale Study Cases to the new
+      activation's clean revision baseline. Stale cases retain their stale
+      marker and cannot execute until reconfigured or recreated.
+    - execute_study_case rejects explicitly stale cases as well as cases
+      whose live source revision no longer matches the active project.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and project save/reopen runtime
+      verification remain unverified.
