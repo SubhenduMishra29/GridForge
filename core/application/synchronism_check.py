@@ -6,6 +6,7 @@ from types import MappingProxyType
 import math
 import time
 from typing import Callable, Mapping
+from threading import Lock
 from core.application.errors import DomainError
 from core.model.breaker import Breaker
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementQuality, MeasurementSignalType
@@ -22,17 +23,18 @@ class SynchronismCheckConfiguration:
     max_phase_angle_difference_deg: float
     max_frequency_difference_hz: float
     max_measurement_age_seconds: float
+    max_measurement_skew_seconds: float
     dead_bus_voltage_max_kv: float
     allowed_modes: Mapping[BusMode, bool]
     measurement_channel_ids: Mapping[str, str]
     bypass_allowed: bool
     def __post_init__(self):
-        for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","dead_bus_voltage_max_kv"):
+        for name in ("max_voltage_difference_kv","max_phase_angle_difference_deg","max_frequency_difference_hz","max_measurement_age_seconds","max_measurement_skew_seconds","dead_bus_voltage_max_kv"):
             value=getattr(self,name)
             if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:
                 raise ValueError(f"{name} must be finite and non-negative")
-        if self.max_measurement_age_seconds <= 0 or self.max_phase_angle_difference_deg > 180:
-            raise ValueError("Invalid ANSI 25 freshness or phase-angle limit")
+        if self.max_measurement_age_seconds <= 0 or self.max_measurement_skew_seconds <= 0 or self.max_measurement_skew_seconds > self.max_measurement_age_seconds or self.max_phase_angle_difference_deg > 180:
+            raise ValueError("Invalid ANSI 25 freshness, sample-skew, or phase-angle limit")
         if not isinstance(self.allowed_modes, Mapping):
             raise ValueError("Explicit boolean permission is required for every live/dead bus mode")
         supplied = {}
@@ -74,6 +76,7 @@ class SynchronismCheckConfiguration:
             "max_phase_angle_difference_deg": self.max_phase_angle_difference_deg,
             "max_frequency_difference_hz": self.max_frequency_difference_hz,
             "max_measurement_age_seconds": self.max_measurement_age_seconds,
+            "max_measurement_skew_seconds": self.max_measurement_skew_seconds,
             "dead_bus_voltage_max_kv": self.dead_bus_voltage_max_kv,
             "allowed_modes": {mode.value: self.allowed_modes[mode] for mode in BusMode},
             "measurement_channel_ids": dict(self.measurement_channel_ids),
@@ -88,7 +91,7 @@ class SynchronismCheckConfiguration:
         required = {
             "max_voltage_difference_kv", "max_phase_angle_difference_deg",
             "max_frequency_difference_hz", "max_measurement_age_seconds",
-            "dead_bus_voltage_max_kv", "allowed_modes", "measurement_channel_ids", "bypass_allowed",
+            "max_measurement_skew_seconds", "dead_bus_voltage_max_kv", "allowed_modes", "measurement_channel_ids", "bypass_allowed",
         }
         missing = required.difference(data)
         extra = set(data).difference(required)
@@ -102,6 +105,7 @@ class SynchronismCheckConfiguration:
             max_phase_angle_difference_deg=data["max_phase_angle_difference_deg"],
             max_frequency_difference_hz=data["max_frequency_difference_hz"],
             max_measurement_age_seconds=data["max_measurement_age_seconds"],
+            max_measurement_skew_seconds=data["max_measurement_skew_seconds"],
             dead_bus_voltage_max_kv=data["dead_bus_voltage_max_kv"],
             allowed_modes=data["allowed_modes"],
             measurement_channel_ids=data["measurement_channel_ids"],
@@ -126,19 +130,40 @@ class PhasorMeasurement:
 
 @dataclass(frozen=True, slots=True)
 class BypassAuthorization:
+    """Short-lived, single-use authorization scoped to one project breaker activation."""
+
     authorized_by: str
     reason: str
-    expires_at: float
     authorization_id: str
+    breaker_id: str
+    project_id: str
+    activation_generation: int
+    issued_at: float
+    expires_at: float
+
     def __post_init__(self):
-        for name in ("authorized_by", "reason", "authorization_id"):
+        for name in ("authorized_by", "reason", "authorization_id", "breaker_id", "project_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
-        if isinstance(self.expires_at, bool) or not isinstance(self.expires_at, (int, float)) or not math.isfinite(self.expires_at):
-            raise ValueError("expires_at must be a finite timestamp")
-    def valid(self, now: float) -> bool:
-        return now < self.expires_at
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer")
+        for name in ("issued_at", "expires_at"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite timestamp")
+        if self.expires_at <= self.issued_at:
+            raise ValueError("Bypass authorization expiry must follow its issue time")
+        if self.expires_at - self.issued_at > 300.0:
+            raise ValueError("ANSI 25 bypass authorization lifetime cannot exceed five minutes")
+
+    def valid_for(self, *, now: float, breaker_id: str, project_id: str, activation_generation: int) -> bool:
+        return (
+            self.issued_at <= now < self.expires_at
+            and self.breaker_id == breaker_id
+            and self.project_id == project_id
+            and self.activation_generation == activation_generation
+        )
 
 @dataclass(frozen=True, slots=True)
 class SynchronismDecision:
@@ -175,7 +200,7 @@ class SynchronismCheckProjectConfiguration:
 
     def to_dict(self) -> dict:
         return {
-            "schema": 1,
+            "schema": 2,
             "breakers": {
                 breaker_id: configuration.to_dict()
                 for breaker_id, configuration in self.breakers.items()
@@ -184,8 +209,8 @@ class SynchronismCheckProjectConfiguration:
 
     @classmethod
     def from_dict(cls, data: Mapping) -> "SynchronismCheckProjectConfiguration":
-        if not isinstance(data, Mapping) or set(data) != {"schema", "breakers"} or data.get("schema") != 1:
-            raise ValueError("ANSI 25 project configuration requires exactly schema=1 and breakers.")
+        if not isinstance(data, Mapping) or set(data) != {"schema", "breakers"} or data.get("schema") != 2:
+            raise ValueError("ANSI 25 project configuration requires exactly schema=2 and breakers; legacy policies require explicit migration.")
         raw_breakers = data["breakers"]
         if not isinstance(raw_breakers, Mapping):
             raise TypeError("ANSI 25 project configuration breakers must be an object.")
@@ -245,6 +270,12 @@ def phasor_measurements_from_channels(
             raise ValueError(f"ANSI 25 channel {channel_id!r} has a non-finite or non-scalar engineering value.")
         values[key] = (float(value), float(channel.timestamp), field_name)
 
+    sample_timestamps = tuple(timestamp for _, timestamp, _ in values.values())
+    sample_skew = max(sample_timestamps) - min(sample_timestamps)
+    if sample_skew > configuration.max_measurement_skew_seconds:
+        raise ValueError(
+            "ANSI 25 six-channel phasor snapshot exceeds max_measurement_skew_seconds."
+        )
     left_timestamp = min(values["left_voltage"][1], values["left_phase_angle"][1], values["left_frequency"][1])
     right_timestamp = min(values["right_voltage"][1], values["right_phase_angle"][1], values["right_frequency"][1])
     left = PhasorMeasurement(
