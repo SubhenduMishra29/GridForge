@@ -15044,3 +15044,28 @@ Verification:
     - No tests or CI run, per repository rules.
     - Python syntax/import integrity and concurrent mutation/publication
       runtime behavior were not executed and remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Invalidate prior results when a Study Case rerun starts
+--------------------------------------------------------------------
+
+Files:
+    - core/application/study.py
+    - Modification_Register.txt
+
+Changes:
+    - StudyService now removes the previously published result for the exact
+      project/activation/study identity atomically when a new execution is
+      accepted and its cancellation token is registered.
+    - A read-model request during a rerun therefore cannot return the prior
+      completed result as though it represented the in-progress execution.
+    - The new execution publishes its own completed, failed, or cancelled
+      terminal result. A rejected duplicate active execution does not clear
+      the active run's result state.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and rerun/read concurrency remain
+      unverified.
