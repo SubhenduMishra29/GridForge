@@ -282,3 +282,40 @@ Implementation phases, in dependency order:
 ## 12. Research basis
 
 This architecture was reconciled against the published scope and summaries of IEC 60255-1:2022, IEC 60255-151:2009, IEC 60255-121:2014, IEC 60255-187-1:2021, IEC 61869-1:2023, IEC TS 60255-216-1:2025, IEC 61850-7-4, IEC 62271-100:2021+AMD1:2024, IEEE C37.112-2018 and IEEE application guides for line and bus protection. These references inform requirement coverage; they do not imply GridForge compliance or replace access to the full standards and engineering review.
+
+
+## 13. Phase B implementation status — existing Study lifecycle
+
+The first Protection Study lifecycle slice is now implemented on the
+architecture branch. It adds an immutable `ProtectionStudyConfiguration`
+whose protection-system configuration is captured by value when the Study
+Case is defined. It carries explicit evaluation time/timestep, event and
+scenario correlation, supervision and non-authoritative metadata.
+
+The existing Application `StudyService` registers `protection` as a
+study type. `StudyCaseDefinition` validates the typed configuration.
+The handler uses the existing Application protection evaluation path, so
+measurement quality, availability, freshness, sample coherence, configured
+input contracts and directional phasor validation remain authoritative.
+The result carries project activation, source revision, topology revision,
+configuration fingerprint, decisions and diagnostics.
+
+**Safety boundary:** this is a non-operating study. The handler supplies an
+explicit action resolver that returns no target, so a Protection Study cannot
+trip or otherwise operate a breaker. Operational protection execution remains
+a separate Application runtime path.
+
+**Current scope:** one validated measurement-snapshot evaluation. It is not
+yet a fault-scenario sweep or a complete engineering assessment. Short-circuit
+scenario integration, sensitivity/selectivity, IDMT/TCC read models,
+coordination, differential protection, instrument adequacy, breaker-failure
+schemes and reports remain open implementation phases.
+
+### Phase B files
+
+- `core/application/protection_study.py` — typed configuration, result and handler.
+- `core/application/study.py` — typed Study Case validation.
+- `core/application/application.py` — handler registration, property-contract correction and explicit ProtectionContext inputs.
+- `core/application/__init__.py` — public exports.
+- `Modification_Register.txt` — implementation record.
+

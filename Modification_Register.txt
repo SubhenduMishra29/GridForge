@@ -15278,3 +15278,49 @@ Verification:
     until their implementation phases and engineering reviews are complete.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — PHASE B IMPLEMENTATION UPDATE
+======================================================================
+
+Date:
+    2026-10-30
+
+Scope:
+    Initial Protection Study integration into the existing Application
+    StudyService lifecycle.
+
+Implemented:
+    - Added immutable ProtectionStudyConfiguration with a by-value
+      snapshot of ProtectionProjectConfiguration and explicit evaluation
+      time, timestep, event, scenario correlation, supervision and metadata.
+    - Added ProtectionStudyResult with project, activation, model/topology
+      revision provenance, configuration fingerprint, decisions and
+      diagnostics.
+    - Registered the "protection" StudyService handler in Application.
+    - Integrated typed ProtectionStudyConfiguration validation into
+      StudyCaseDefinition; no parallel Study lifecycle was introduced.
+    - The handler validates active project, protection configuration,
+      measurement registry and source revision before and after evaluation.
+    - Protection Study evaluates the existing ProtectionRuntime using
+      Application's coherent measurement-snapshot validation.
+    - Protection Study explicitly supplies a no-action resolver. It cannot
+      dispatch breaker trip/close or other equipment commands.
+    - Added event/timestep/supervision and canonical TopologySnapshot
+      context propagation to Application protection evaluation.
+    - Corrected Application's registered_study_types access to use the
+      StudyService property contract (not a function call).
+
+Explicit limitation:
+    This is the first measurement-snapshot evaluation mode. It does not
+    yet implement short-circuit fault-scenario sweeps, settings studies,
+    relay coordination, TCC read models, differential protection,
+    breaker-failure schemes, instrument adequacy, or engineering reports.
+    Those remain subsequent Protection Study work packages.
+
+Verification:
+    Static source inspection only. No tests or CI run.
+    No production-readiness claim is made.
+
+======================================================================
