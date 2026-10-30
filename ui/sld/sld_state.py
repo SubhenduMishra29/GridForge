@@ -114,7 +114,9 @@ class SLDState:
         manager = self.document_manager
         if manager is not None and self.active_document_id is not None:
             manager.mark_dirty(self.active_document_id)
-        self.local_view_dirty = False
+        # Local SLD view dirtiness is independent of the Application's
+        # project-dirty authority and remains observable without a manager.
+        self.local_view_dirty = True
 
     def mark_clean(self) -> None:
         manager = self.document_manager
