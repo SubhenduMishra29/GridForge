@@ -176,7 +176,10 @@ class SwitchingModelService(ModelServiceSupport):
             for key, value in old.items():
                 setattr(breaker, key, value)
 
-        if closed is True and not breaker.closed:
+        if (
+            (closed is True and not breaker.closed)
+            or (in_service is True and not breaker.in_service and (breaker.closed if closed is None else closed))
+        ):
             self._authorize_breaker_close(breaker)
 
         try:
@@ -193,6 +196,13 @@ class SwitchingModelService(ModelServiceSupport):
             self._network.invalidate_topology()
 
         def restore() -> None:
+            # Undo must obtain fresh ANSI 25 authorization before restoring a
+            # previously closed or energized breaker state.
+            if (
+                (old["closed"] and not breaker.closed)
+                or (old["in_service"] and not breaker.in_service and old["closed"])
+            ):
+                self._authorize_breaker_close(breaker)
             restore_snapshot()
             breaker.validate_parameters()
             if topology_changed:
@@ -214,6 +224,8 @@ class SwitchingModelService(ModelServiceSupport):
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
+            if old and not breaker.closed:
+                self._authorize_breaker_close(breaker)
             breaker.close() if old else breaker.open()
             if topology_changed:
                 self._network.invalidate_topology()
@@ -227,16 +239,24 @@ class SwitchingModelService(ModelServiceSupport):
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
+            if old and not breaker.closed:
+                self._authorize_breaker_close(breaker)
             breaker.close() if old else breaker.open()
             if topology_changed:
                 self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker {'closed' if closed else 'opened'}: {breaker_id}")
 
     def _set_breaker_service(self, *, breaker_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.in_service; breaker.in_service = in_service; topology_changed = old != breaker.in_service
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.in_service
+        if in_service and not old and breaker.closed:
+            self._authorize_breaker_close(breaker)
+        breaker.in_service = in_service
+        topology_changed = old != breaker.in_service
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
+            if old and not breaker.in_service and breaker.closed:
+                self._authorize_breaker_close(breaker)
             breaker.in_service = old
             if topology_changed:
                 self._network.invalidate_topology()
