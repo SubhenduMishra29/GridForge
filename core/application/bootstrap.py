@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 import math
+import time
 from dataclasses import replace
 from uuid import uuid4
 
@@ -58,7 +59,12 @@ from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
-from .synchronism_check import SynchronismCheckProjectConfiguration, SynchronismCheckGuard
+from .synchronism_check import (
+    ProjectScopedSynchronismAuditSink,
+    SynchronismCheckProjectConfiguration,
+    SynchronismCheckGuard,
+    create_project_synchronism_guard,
+)
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
@@ -128,11 +134,32 @@ def create_application(
                 protection_configuration_service,
                 measurement_channel_service,
             )
-            if not isinstance(synchronism_guard, SynchronismCheckGuard):
-                raise TypeError(
-                    "synchronism_guard_factory must return a SynchronismCheckGuard "
-                    "bound to the candidate project runtime."
-                )
+        elif candidate_context is not None and candidate_context.path is not None:
+            # Production default: saved projects receive a project/generation-
+            # scoped durable audit sink. Unsaved projects intentionally have
+            # no guard and therefore remain fail-closed at breaker close.
+            ansi25_clock_domain = "unix_time"
+            audit_sink = ProjectScopedSynchronismAuditSink(
+                project_id=candidate_context.project_id,
+                activation_generation=candidate_generation,
+                project_path=candidate_context.path,
+                clock=time.time,
+                clock_domain=ansi25_clock_domain,
+            )
+            synchronism_guard = create_project_synchronism_guard(
+                project_id=candidate_context.project_id,
+                activation_generation=candidate_generation,
+                project_configuration_provider=lambda: application.synchronism_check_configuration,
+                measurement_channel_service=measurement_channel_service,
+                audit_sink=audit_sink,
+                clock=time.time,
+                clock_domain=ansi25_clock_domain,
+            )
+        if synchronism_guard is not None and not isinstance(synchronism_guard, SynchronismCheckGuard):
+            raise TypeError(
+                "synchronism_guard_factory must return a SynchronismCheckGuard "
+                "bound to the candidate project runtime."
+            )
         model_service = ModelService(
             network=active_network,
             synchronism_guard=synchronism_guard,
