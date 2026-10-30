@@ -1154,7 +1154,12 @@ class Application:
         raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
 
     def _run_project_transition(self, transition: Any) -> Any:
-        """Coordinate revision/validation state around one lifecycle activation transaction."""
+        """Serialize lifecycle activation and its reconciliation against all commands."""
+        with self._execution_lock:
+            return self._run_project_transition_locked(transition)
+
+    def _run_project_transition_locked(self, transition: Any) -> Any:
+        """Coordinate revision/validation state while the execution lock is held."""
         if not callable(transition):
             raise TypeError("transition must be callable.")
         revision_state = self._revision_service.snapshot_state()
