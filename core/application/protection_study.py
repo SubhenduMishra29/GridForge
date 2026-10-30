@@ -98,11 +98,11 @@ class ProtectionFaultScenarioResult:
 
 @dataclass(frozen=True, slots=True)
 class ProtectionStudyConfiguration:
-    """Immutable inputs for one Protection Study measurement-snapshot evaluation.
+    """Immutable inputs for one Protection Study evaluation mode.
 
     The project protection configuration is captured by value when the Study
-    Case is defined. Runtime MeasurementChannel samples are validated and
-    sealed by Application at execution time; they are not persisted here.
+    Case is defined. A Study Case selects either a validated live measurement
+    snapshot or explicit detached short-circuit fault scenarios.
     """
 
     evaluation_time: float
