@@ -14985,3 +14985,12 @@ Verification:
 - Branch: fix/ansi25-candidate-runtime-context
 - Canonical project-state validation now rejects a present-but-empty or non-string measurement `timestamp_domain` before the project is activated or saved. Missing/None remains permitted for legacy channels but cannot authorize ANSI 25.
 - Updated service serialization/provisioning and persistence validation have been fetched back from the branch. Producer semantics, runtime wiring and full repository syntax/import integrity remain outstanding; no tests/CI run.
+
+
+[2026-10-30 — GF-ISSUE-845 — atomic live sample timestamp-domain binding]
+- Branch: fix/ansi25-candidate-runtime-context
+- MeasurementChannel.update now validates the incoming sample metadata before mutating channel state. A new timestamp atomically replaces its domain declaration; if the producer omits the domain, the channel clears it to unknown rather than inheriting the prior sample's domain.
+- A timestamp_domain-only update is rejected because it could relabel an existing timestamp without a corresponding sample. Invalid value, timestamp, domain, quality, or sequence input is rejected before any channel fields are changed.
+- MeasurementChannel.reset now clears timestamp_domain along with timestamp state, preventing a reset sample from retaining stale clock provenance.
+- Producers must supply timestamp and timestamp_domain together for ANSI 25 eligibility. The channel enforces declaration pairing, not the truth of the producer's clock source. Live producer call sites and production breaker-close composition remain to be audited; ANSI 25 remains NOT_IMPLEMENTED.
+- Source changes fetched back from the branch. No tests or CI were run, per repository audit rules.
