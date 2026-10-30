@@ -15749,3 +15749,25 @@ Verification:
   claimed.
 - No tests or CI were run. Python syntax/import/runtime execution remains
   unverified through the remote repository connector.
+
+
+[2026-10-30] Protection Study Phase D4 — detached Branch CT scenario samples
+- Added ProtectionScenarioMeasurementAdapter and immutable
+  ProtectionScenarioMeasurementSample for explicitly configured Branch
+  FROM/TO CT bindings.
+- The adapter consumes complete complex short-circuit phase/sequence branch
+  contributions, validates exact Branch terminal side, CT primary topology
+  association, instrument/channel identity, physical CT ratio and sample
+  member identity, then reuses the canonical per-unit/base/orientation/
+  polarity/ratio conversion path.
+- Emits detached CT-secondary ampere samples with scenario and source
+  provenance. It never mutates or refreshes live MeasurementChannel values.
+- Each sample carries an instrument/channel-specific current basis identity.
+  These CT-secondary samples are intentionally not accepted as a shared
+  differential primary-current basis; explicit CT normalisation and
+  equipment-specific compensation remain required.
+- Bus/equipment-terminal current adapters, PT/CVT fault-voltage conversion,
+  RelayInput snapshot assembly, ProtectionSystem scenario evaluation and
+  result aggregation remain pending.
+- No tests or CI were run. Python syntax/import/runtime execution remains
+  unverified through the remote repository connector.
