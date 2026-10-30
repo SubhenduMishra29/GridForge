@@ -15105,3 +15105,41 @@ Disposition:
     - UI remains a read-only projection of Application-published study
       results. This does not establish production-ready coordination.
 
+
+
+
+======================================================================
+
+2026-10-30 — Refresh TCC projections from Application lifecycle events
+---------------------------------------------------------------------
+
+Files:
+    - ui/panels/default_panels.py
+    - ui/plugins/panels_plugin.py
+    - Modification_Register.txt
+
+Changes:
+    - TCC workspace subscribes to Application ProtectionChanged,
+      ProjectLoaded, ProjectClosed, and study lifecycle events.
+    - Protection/project events refresh IDMT curve read models and selectors.
+      Short-Circuit Study start/completion/failure/cancellation refreshes the
+      available completed, current Short-Circuit result selector.
+    - Application event callbacks emit a Qt signal; widget updates are
+      marshalled to the widget's Qt thread rather than touching widgets from
+      an Application worker thread.
+    - Added explicit unbind_application() to release subscriptions.
+      PanelsPlugin shutdown and initialization rollback now unbind panel
+      subscriptions before dock teardown.
+    - Coordination Study completion does not clear or rebuild the TCC
+      overlay; the synchronous run path continues to plot its published
+      result after the Application execution returns.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Event-thread dispatch, project activation refresh, and PySide6 runtime
+      behavior remain unverified.
+
+Disposition:
+    - TCC remains an Application read-only projection; event subscriptions
+      do not mutate engineering state or calculate protection results.
+
