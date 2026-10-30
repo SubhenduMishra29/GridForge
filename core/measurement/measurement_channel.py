@@ -840,8 +840,6 @@ class MeasurementChannel:
         value: float | complex,
         *,
         _authority: Any = None,
-        value: float | complex,
-        *,
         timestamp: Optional[float] = None,
         timestamp_domain: Optional[str] = None,
         quality: Optional[MeasurementQuality]  = None,
