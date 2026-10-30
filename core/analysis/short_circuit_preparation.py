@@ -75,6 +75,19 @@ class ShortCircuitPreparation:
                 if not sequence_elements:
                     raise ValueError("At least one sequence-network element is required for an unsymmetrical fault study.")
 
+            voltage_bases: dict[str, float] = {}
+            for bus_id in bus_ids:
+                bus = network.get_by_identity(bus_id)
+                nominal_kv = getattr(bus, "nominal_voltage_kv", None)
+                if nominal_kv is None:
+                    continue
+                try:
+                    nominal_kv = float(nominal_kv)
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(nominal_kv) and nominal_kv > 0.0:
+                    voltage_bases[bus_id] = nominal_kv
+
             return ShortCircuitInput(
                 fault_type=normalized_type,
                 fault_bus_index=bus_index,
@@ -90,6 +103,8 @@ class ShortCircuitPreparation:
                 project_id=topology_snapshot.project_id,
                 activation_generation=topology_snapshot.activation_generation,
                 topology_revision=topology_snapshot.topology_revision,
+                base_mva=self.base_mva,
+                bus_voltage_bases_kv=voltage_bases,
             )
         finally:
             self._network = None
