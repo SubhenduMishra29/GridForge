@@ -494,9 +494,13 @@ def execute_coordination_study(
                 if (
                     provenance.get("project_id") != project_id
                     or provenance.get("activation_generation") != activation_generation
+                    or provenance.get("model_revision") != source_model_revision
                     or provenance.get("topology_revision") != source_topology_revision
                 ):
-                    raise ValueError("Short-Circuit result provenance does not match the active coordination Study Case.")
+                    raise ValueError(
+                        "Short-Circuit result project, activation, model, or topology provenance "
+                        "does not match the active coordination Study Case."
+                    )
                 if scenario.fault_location_id and str(short_result.fault_bus_id) != scenario.fault_location_id:
                     raise ValueError(
                         f"Scenario fault location {scenario.fault_location_id!r} does not match "
