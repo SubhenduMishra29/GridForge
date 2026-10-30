@@ -73,6 +73,11 @@ from .protection_execution import (
     ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
 )
+from core.analysis.coordination_study import (
+    CoordinationStudyConfiguration,
+    CoordinationStudyResult,
+    execute_coordination_study,
+)
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
@@ -155,6 +160,7 @@ class Application:
         self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
+        self._study_service.register("protection_coordination", self._execute_protection_coordination_study)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
@@ -2597,6 +2603,65 @@ class Application:
         """Clear command and revision journals while preserving project revisions."""
         self._command_manager.clear_history()
         self._revision_service.clear_transitions()
+
+    def _execute_protection_coordination_study(self, request: StudyRequest, execution_context: StudyExecutionContext, cancellation_token: Any) -> CoordinationStudyResult:
+        """Execute coordination from a detached, revision-scoped relay curve snapshot."""
+        configuration = request.configuration.get("configuration")
+        if not isinstance(configuration, CoordinationStudyConfiguration):
+            raise TypeError("protection_coordination request requires CoordinationStudyConfiguration.")
+        curves = self.read_idmt_curves()
+        result = execute_coordination_study(
+            configuration,
+            curves,
+            project_id=execution_context.project_id,
+            activation_generation=execution_context.activation_generation,
+            source_model_revision=execution_context.source_revision.model_revision,
+            source_topology_revision=execution_context.source_revision.topology_revision,
+            cancellation_token=cancellation_token,
+        )
+        lifecycle = self.project_lifecycle
+        active_context = lifecycle.context
+        if (
+            active_context is None
+            or active_context.project_id != execution_context.project_id
+            or lifecycle.activation_generation != execution_context.activation_generation
+            or self.revision != execution_context.source_revision
+        ):
+            raise RuntimeError("Project or protection configuration changed during coordination evaluation; result rejected as stale.")
+        return result
+
+    def create_protection_coordination_study_case(
+        self,
+        configuration: CoordinationStudyConfiguration,
+        *,
+        display_name: str = "",
+    ) -> StudyCaseDefinition:
+        """Create an Application-owned, project/revision-scoped coordination Study Case."""
+        if not isinstance(configuration, CoordinationStudyConfiguration):
+            raise TypeError("configuration must be CoordinationStudyConfiguration.")
+        # Validate all configured function identities against the current
+        # project read model before registering a runnable Study Case.
+        available = {curve.element_id for curve in self.read_idmt_curves()}
+        referenced = {
+            identity
+            for pair in configuration.pairs
+            for identity in (pair.primary_element_id, pair.backup_element_id)
+        }
+        missing = sorted(referenced.difference(available))
+        if missing:
+            raise ValueError("Coordination pair references unavailable ANSI 51/51N elements: " + ", ".join(missing))
+        return self.create_study_case(
+            study_type="protection_coordination",
+            configuration={"configuration": configuration},
+            display_name=display_name or configuration.display_name,
+        )
+
+    def read_protection_coordination_results(self) -> tuple[Any, ...]:
+        """Return completed coordination Study Case result projections for the active project."""
+        return tuple(
+            result for result in self.read_study_results()
+            if result.study_type == "protection_coordination"
+        )
 
     def read_control(self):
         service = getattr(self, "control_service", None)
