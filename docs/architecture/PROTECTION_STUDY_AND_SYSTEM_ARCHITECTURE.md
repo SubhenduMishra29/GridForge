@@ -319,3 +319,52 @@ schemes and reports remain open implementation phases.
 - `core/application/__init__.py` — public exports.
 - `Modification_Register.txt` — implementation record.
 
+
+
+## 14. Phase C implementation status — detached fault scenarios
+
+The Protection Study configuration now accepts an immutable sequence of
+`ProtectionFaultScenario` values. Each scenario carries a stable scenario
+identity and the existing typed `ShortCircuitStudyConfiguration`; GridForge
+does not introduce a duplicate fault taxonomy or short-circuit configuration
+schema.
+
+For each scenario, the Application handler:
+
+1. Validates the configured fault Bus against the captured canonical
+   `TopologySnapshot`.
+2. Uses the detached `ProjectSnapshot.network`, not the live active Network,
+   with the execution's canonical topology snapshot.
+3. Reuses `ShortCircuitPreparation` to create the immutable numerical input
+   and `ShortCircuitAnalysis` to execute the existing solver.
+4. Verifies project identity, activation generation and topology revision in
+   the returned short-circuit provenance.
+5. Retains the typed `ShortCircuitResult` in a
+   `ProtectionFaultScenarioResult` correlated to the scenario ID.
+6. Checks cancellation and active project/revision provenance between scenario
+   calculations.
+
+A Protection Study containing fault scenarios is reported as
+`fault_scenarios_calculated` when those calculations complete. It does not
+also evaluate live measurement samples and present them as fault-derived relay
+inputs. The result explicitly records
+`measurement_snapshot_evaluated=False` for this mode. The existing
+measurement-snapshot mode remains unchanged when no fault scenarios are
+configured.
+
+**Engineering boundary not yet implemented:** short-circuit result quantities
+are not yet transformed through the configured CT/PT/CVT physical instrument
+models, ratios, polarity and secondary measurement paths into detached
+scenario-specific MeasurementChannel/RelayInput samples. Therefore no relay
+pickup, operating time, trip decision, scheme target, or selectivity result is
+claimed for these fault scenarios. Live MeasurementChannel objects are never
+modified to inject simulated fault values. The next phase must implement and
+validate the instrument-to-measurement adapter and scenario-specific relay
+evaluation without weakening the Application measurement-snapshot authority.
+
+### Phase C files
+
+- `core/application/protection_study.py` — immutable fault scenario/result
+  contracts, detached short-circuit preparation/execution and provenance checks.
+- `core/application/__init__.py` — public exports.
+- `Modification_Register.txt` — implementation record.
