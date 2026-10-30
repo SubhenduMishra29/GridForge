@@ -3,6 +3,7 @@
 import pytest
 
 from core.application.bootstrap import create_application
+from core.application.project_presentation import ProjectPresentationCollection
 from core.application.commands.sld_commands import SetSLDNodePositionCommand
 from core.application.services.sld_service import SLDService
 from core.model.bus import Bus
@@ -25,13 +26,40 @@ def _presentation(project_id: str = "PROJECT-001") -> SLDDocument:
 
 
 def _serializer(document: SLDDocument) -> dict:
-    payload = document.to_dict()
-    payload["modified"] = False
-    return payload
+    # Modified/dirty is transient lifecycle state, not canonical SLD data.
+    return document.to_dict()
 
 
 def _deserializer(data: dict) -> SLDDocument:
     return SLDDocument.from_dict(data)
+
+
+def _serialize_collection(collection: ProjectPresentationCollection) -> dict:
+    return {
+        "schema": 1,
+        "documents": [document.to_dict() for document in collection.documents],
+        "active_document_id": collection.active_document_id,
+    }
+
+
+def _deserialize_collection(data: dict) -> ProjectPresentationCollection:
+    documents = tuple(SLDDocument.from_dict(item) for item in data["documents"])
+    return ProjectPresentationCollection.ordered(
+        documents,
+        data["active_document_id"],
+    )
+
+
+def _configure_collection_persistence(application, presentation: SLDDocument) -> None:
+    lifecycle = application.project_lifecycle
+    lifecycle.configure_presentation_collection_contract(
+        serializer=_serialize_collection,
+        deserializer=_deserialize_collection,
+        activator=lambda _context, _collection: None,
+    )
+    lifecycle.configure_presentation_collection_snapshot_provider(
+        lambda: ProjectPresentationCollection.single(presentation)
+    )
 
 
 def test_save_open_restores_sld_and_reopens_clean(tmp_path):
@@ -43,6 +71,7 @@ def test_save_open_restores_sld_and_reopens_clean(tmp_path):
         serializer=_serializer,
         deserializer=_deserializer,
     )
+    _configure_collection_persistence(application, presentation)
 
     path = tmp_path / "lifecycle.gridforge"
     application.save_project_as(str(path))
@@ -74,6 +103,7 @@ def test_failed_presentation_serialization_does_not_mark_project_clean(tmp_path)
         serializer=_serializer,
         deserializer=_deserializer,
     )
+    _configure_collection_persistence(application, presentation)
     path = tmp_path / "lifecycle.gridforge"
     application.save_project_as(str(path))
 
@@ -84,10 +114,10 @@ def test_failed_presentation_serialization_does_not_mark_project_clean(tmp_path)
     def failing_serializer(_document: SLDDocument) -> dict:
         raise RuntimeError("serialization failure")
 
-    application.configure_project_presentation(
-        presentation=presentation,
-        serializer=failing_serializer,
-        deserializer=_deserializer,
+    application.project_lifecycle.configure_presentation_collection_contract(
+        serializer=lambda _collection: failing_serializer(_document=presentation),
+        deserializer=_deserialize_collection,
+        activator=lambda _context, _collection: None,
     )
     with pytest.raises(RuntimeError, match="serialization failure"):
         application.save_project()
