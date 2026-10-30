@@ -241,6 +241,18 @@ class MeasurementGeneration:
             raise ValueError("Resolved CT association identity does not match the configured measurement source.")
         if not ct_association.in_service:
             raise UnsupportedMeasurementQuantity("CT association is out of service.")
+        channel_source = getattr(channel, "source", None)
+        if getattr(channel_source, "id", None) != source.id:
+            raise UnsupportedMeasurementQuantity(
+                "MeasurementChannel physical source does not match the configured CT instrument."
+            )
+        if getattr(channel, "source_terminal", None) not in {
+            ct_association.s1_terminal_reference,
+            ct_association.s2_terminal_reference,
+        }:
+            raise UnsupportedMeasurementQuantity(
+                "MeasurementChannel must reference the configured CT S1 or S2 secondary terminal."
+            )
         terminal_role = context.source_terminal.terminal_role
         expected_ct_terminal = {
             "P1": ct_association.p1_terminal_reference,
