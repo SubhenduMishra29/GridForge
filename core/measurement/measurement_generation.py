@@ -225,10 +225,9 @@ class MeasurementGeneration:
         '''Convert one explicitly oriented branch-current result to CT secondary A.
 
         This is a pure conversion: it never updates the supplied
-        MeasurementChannel. branch_current_direction is supplied by the
-        committed CT association resolver (+1 when branch reference agrees
-        with CT P1->P2, -1 when opposite). No feeder, zone, or CT direction
-        is inferred from topology.
+        MeasurementChannel. The configured Branch terminal and FROM/TO side
+        are matched against the CT's separate P1/P2 SimpleWire components.
+        No feeder, zone, or CT association is inferred from graphical layout.
         '''
         self._validate_source(context, source, expected_types=frozenset({"CT"}))
         self._validate_channel(channel, MeasurementSignalType.CURRENT)
