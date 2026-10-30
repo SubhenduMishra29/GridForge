@@ -16039,12 +16039,14 @@ Electrical safeguards:
     - CT P1/P2 must resolve to distinct Buses.
     - A selected target must be a Line, Cable, or Transformer in service with
       both terminal attachments resolved.
-    - A target whose terminal Bus pair does not match the CT primary pair is
-      rejected.
+    - A target that does not bridge the CT primary terminal zones through
+      the currently conductive switching state is rejected.
     - The result reports whether CT P1 is on the branch FROM or TO side and
       the sign required to orient branch FROM-current into the P1-to-P2
       direction. CT physical polarity remains a separate instrument
       conversion and must not be folded into this association sign.
+    - A CT whose P1/P2 terminals are in the same conductive switching
+      component is rejected as bypassed or non-separable.
     - This resolver establishes branch identity only. It does not claim that
       ShortCircuitBranchCurrent currently contains complete side-specific
       transformer phasors, nor does it enable 50N/51N measurement generation
