@@ -14720,3 +14720,10 @@ Verification boundary:
     multi-process plugin exercise, playback runtime, or merge-conflict fixture was run.
 
 ======================================================================
+
+2026-10-30 — DRAFT ROUTE CANONICAL PAYLOAD CORRECTION
+Scope: core/application/draft/network.py
+Finding: CommitNetworkHandler thaws immutable command tuples into lists before reconstructing DraftNetwork. DraftConnection.to_dict() preserved route-coordinate tuples, so an otherwise equivalent authored route compared unequal during the canonical payload round-trip check.
+Correction: DraftConnection serialization now recursively emits JSON-canonical list values for route and validation metadata. This preserves authored route coordinates and keeps the strict round-trip canonicality check intact rather than weakening validation.
+Architecture: Application-owned DraftNetwork serialization only; no Core electrical topology or UI projection ownership changes.
+Verification: Source review and Python syntax/import verification pending CI.
