@@ -1013,7 +1013,7 @@ class Application:
         return execution.execute(decisions)
 
 
-    def evaluate_protection_scenario(
+    def _evaluate_protection_scenario(
         self,
         *,
         scenario_id: str,
