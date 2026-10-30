@@ -176,6 +176,9 @@ class SynchronismDecision:
     bypass_authorized_by: str | None = None
     bypass_reason: str | None = None
     bypass_expires_at: float | None = None
+    bypass_issued_at: float | None = None
+    bypass_project_id: str | None = None
+    bypass_activation_generation: int | None = None
 
 @dataclass(frozen=True, slots=True)
 class SynchronismCheckProjectConfiguration:
@@ -373,6 +376,9 @@ class SynchronismCheckGuard:
                         True, breaker.id, tuple(reasons), mode, True,
                         auth.authorization_id, auth.authorized_by, auth.reason,
                         auth.expires_at,
+                        auth.issued_at,
+                        auth.project_id,
+                        auth.activation_generation,
                     )
                     self._audit(decision); return decision
             reasons.append("ANSI25_BYPASS_UNAUTHORIZED_OR_EXPIRED")
@@ -451,6 +457,9 @@ class ProjectScopedSynchronismAuditSink:
             "bypass_authorized_by": decision.bypass_authorized_by,
             "bypass_reason": decision.bypass_reason,
             "bypass_expires_at": decision.bypass_expires_at,
+            "bypass_issued_at": decision.bypass_issued_at,
+            "bypass_project_id": decision.bypass_project_id,
+            "bypass_activation_generation": decision.bypass_activation_generation,
         }
         payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
