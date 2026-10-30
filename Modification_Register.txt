@@ -15702,3 +15702,8 @@ Verification:
 - No CT placement pattern automatically creates a scheme; Bus-to-Bus CT placement alone does not declare Bus differential protection.
 - Differential current/restraint calculations, transformer vector-group and ratio compensation, phase/zero-sequence compensation execution, restraint/stability logic, decisions and trip mapping remain pending.
 - No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+[2026-10-30] Differential scheme boundary direction contract
+- Strengthened DifferentialProtectionSchemeConfiguration so every member CT measurement binding must declare exactly one current direction: INTO_ZONE or OUT_OF_ZONE.
+- Direction is scheme-specific engineering configuration and is never inferred from CT P1/P2 physical orientation, Bus attachment, or SimpleWire topology.
+- The explicit direction mapping is immutable and included in project persistence. Differential phasor calculation remains pending.
