@@ -15771,3 +15771,12 @@ Verification:
   result aggregation remain pending.
 - No tests or CI were run. Python syntax/import/runtime execution remains
   unverified through the remote repository connector.
+
+
+[2026-10-30] CT/PT/CVT secondary measurement-channel enforcement — reconciled from PR #905
+- MeasurementProvisioning accepts CT/PT/CVT measurement channels only from their physical secondary terminals: CT S1/S2, PT secondary_a/secondary_b, and CVT X1/X2.
+- MeasurementGeneration verifies that the supplied MeasurementChannel belongs to the same physical instrument and identifies one of its configured secondary terminals before applying primary-to-secondary conversion.
+- Applied validation to Power Flow current/voltage generation, short-circuit current generation, and detached Branch CT scenario conversion.
+- The primary-side PreparedMeasurementContext remains distinct from the secondary-side MeasurementChannel source terminal.
+- This correction does not infer CT measurement location, protected equipment, protection zone, or scheme membership.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
