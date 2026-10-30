@@ -399,6 +399,9 @@ class ProtectionConfigurationService:
             or not getattr(secondary_terminal, "is_terminal", False)
             or secondary_terminal.equipment_id != binding.instrument_id
             or secondary_terminal.terminal_role not in secondary_roles
+            or secondary_terminal.terminal_role not in {
+                getattr(item, "role", None) for item in getattr(instrument, "terminals", ())
+            }
         ):
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_SECONDARY_TERMINAL_MISMATCH",
