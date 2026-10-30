@@ -1091,9 +1091,7 @@ class Application:
         diagnostics = list(validate_protection_input_contracts(configuration, channels))
         samples_by_binding = {item.binding_id: item for item in samples}
         bindings_by_input: dict[tuple[str, str], list[Any]] = {}
-        known_binding_ids: set[str] = set()
         for binding in configuration.measurement_bindings:
-            known_binding_ids.add(binding.binding_id)
             bindings_by_input.setdefault(
                 (binding.protection_element_id, binding.relay_input_id), []
             ).append(binding)
@@ -1139,7 +1137,7 @@ class Application:
                     or binding.channel_id != channel_id
                     or sample.instrument_id != binding.instrument_id
                     or binding.measurement_type.strip().lower() != "current"
-                    or getattr(channel, "signal_type", None).value != "CURRENT"
+                    or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
                     or getattr(channel, "source_id", None) != binding.instrument_id
                 ):
                     diagnostics.append(f"{prefix}: sample, binding, channel or physical CT identity does not agree.")
