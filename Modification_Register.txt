@@ -15648,3 +15648,12 @@ Verification:
     Remote source and contract inspection plus static review only.
     No tests or CI run. Python syntax/import execution remains outstanding.
 ======================================================================
+
+[2026-10-30] Protection Study Phase D1 — explicit CT branch-current conversion
+- Extended ShortCircuitInput with immutable study MVA base and per-Bus nominal-voltage-base metadata.
+- ShortCircuitPreparation captures available positive nominal voltage bases from the detached study network; missing bases remain unavailable rather than being guessed.
+- ShortCircuitSolver preserves the per-unit current-unit declaration and exact base metadata in ShortCircuitResult provenance.
+- MeasurementGeneration now exposes a pure branch-current-to-CT-secondary conversion. It requires a complete short-circuit contribution set, an explicit branch ID, an explicit from/to measurement side, a phase/sequence quantity, and an explicit +1/-1 CT-reference direction supplied by the committed CT association resolver.
+- The conversion applies the selected-side current base, explicit CT direction, CT polarity, and CT ratio once. It does not mutate MeasurementChannel.
+- Boundary: scenario-specific RelayInput snapshot construction and ProtectionSystem evaluation remain unimplemented. No trip/action dispatch is introduced.
+- Verification: source-level review only; no tests or CI run, per repository workflow.
