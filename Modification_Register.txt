@@ -15505,3 +15505,33 @@ Verification:
     No tests or CI run. Python syntax/import execution not available through
     the repository connector in this pass.
 ======================================================================
+
+
+======================================================================
+GF-PROT-ARCH-001 — SECONDARY TERMINAL CORRELATION GUARD
+======================================================================
+
+Date:
+    2026-10-30
+
+Correction:
+    ProtectionConfigurationService now validates that a configured
+    MeasurementChannel source_terminal belongs to the referenced physical
+    instrument and is a declared secondary terminal:
+        CT:  S1 / S2
+        PT:  secondary_a / secondary_b
+        CVT: X1 / X2
+
+    This closes the gap where a channel could be associated with a valid
+    instrument ID but actually reference a different instrument or a
+    primary-side terminal. The service also validates the channel signal
+    family and authoritative instrument ratio.
+
+Changed files:
+    core/application/services/protection_configuration_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Verification:
+    Static source/contract review only. No tests or CI run.
+======================================================================
