@@ -44,6 +44,7 @@ class MeasurementChannelService:
 
     def __init__(self, *, execution_lock: Any | None = None) -> None:
         self._execution_lock = execution_lock if execution_lock is not None else RLock()
+        self._sample_update_authority = object()
         if not callable(getattr(self._execution_lock, "__enter__", None)) or not callable(getattr(self._execution_lock, "__exit__", None)):
             raise TypeError("execution_lock must be a context-manager lock.")
         self._project_id: str | None = None
@@ -237,7 +238,7 @@ class MeasurementChannelService:
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
         terminal = resolve_terminal_reference(context, reference)
-        return MeasurementProvisioning.provision_channel(
+        channel = MeasurementProvisioning.provision_channel(
             source=source,
             source_terminal=terminal,
             source_terminal_reference=reference,
@@ -251,6 +252,8 @@ class MeasurementChannelService:
             polarity=float(definition.get("polarity", 1.0)),
             timestamp_domain=definition.get("timestamp_domain"),
         )
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
 
     @staticmethod
     def _endpoint_reference(data: Mapping[str, Any]) -> EndpointReference:
