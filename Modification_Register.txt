@@ -15069,3 +15069,39 @@ Verification:
     - No tests or CI run, per repository rules.
     - Python syntax/import integrity and rerun/read concurrency remain
       unverified.
+
+
+
+======================================================================
+
+2026-10-30 — Plot coordination-study operating points on the TCC chart
+---------------------------------------------------------------------
+
+Files:
+    - ui/core/qt.py
+    - ui/panels/default_panels.py
+    - Modification_Register.txt
+
+Changes:
+    - Added QScatterSeries to the centralized Qt compatibility exports.
+    - TCC workspace overlays finite primary and backup operating points from
+      the published CoordinationStudyResult as separate named scatter series.
+    - Operating points are plotted only when their current unit exactly
+      matches the active logarithmic current axis. No CT/base conversion or
+      unit inference is performed in the UI.
+    - Non-operating results remain represented by their explicit result
+      status rows; infinite operating times are deliberately not plotted on
+      logarithmic axes.
+    - Re-running a coordination study replaces the previous operating-point
+      overlay instead of accumulating duplicate markers.
+    - Logarithmic axes expand to include finite plotted operating points.
+
+Verification:
+    - No tests or CI run, per repository rules.
+    - Python syntax/import integrity and PySide6 runtime chart rendering
+      remain unverified.
+
+Disposition:
+    - UI remains a read-only projection of Application-published study
+      results. This does not establish production-ready coordination.
+
