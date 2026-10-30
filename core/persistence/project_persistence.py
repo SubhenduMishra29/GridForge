@@ -654,6 +654,7 @@ class ProjectPersistenceService:
             "study_id": str(case.study_id),
             "study_type": case.study_type,
             "display_name": case.display_name,
+            "is_stale": case.is_stale,
             "source_revision": {
                 "model_revision": revision.model_revision,
                 "topology_revision": revision.topology_revision,
@@ -779,6 +780,14 @@ class ProjectPersistenceService:
                 study_type=study_type,
                 configuration=config,
                 display_name=str(data.get("display_name", "")),
+                # Packages written before explicit stale-state persistence do
+                # not carry enough project-revision provenance to safely
+                # revalidate their Study Cases after activation. Fail closed.
+                is_stale=(
+                    data.get("is_stale")
+                    if isinstance(data.get("is_stale"), bool)
+                    else True
+                ),
             )
         except ProjectPersistenceError:
             raise
