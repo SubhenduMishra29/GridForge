@@ -34,6 +34,8 @@ from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.model.breaker import Breaker
+from core.model import CVT, PT, EndpointReference, EquipmentType
+from core.network.electrical_boundary import ElectricalBoundaryResolver
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -522,12 +524,35 @@ def create_application(
                     "right_phase_angle": ("PHASE_ANGLE", {"deg", "°"}),
                     "right_frequency": ("FREQUENCY", {"hz"}),
                 }
+                boundary = ElectricalBoundaryResolver(candidate_network)
                 for breaker_id, breaker_configuration in typed_synchronism.breakers.items():
                     breaker = candidate_network.get_by_identity(breaker_id)
                     if not isinstance(breaker, Breaker) or getattr(breaker, "id", None) != breaker_id:
                         raise ValueError(
                             f"ANSI 25 policy references missing or non-breaker equipment {breaker_id!r}."
                         )
+                    from_bus_id = boundary.resolve(
+                        EndpointReference.terminal(
+                            equipment_type=EquipmentType.BREAKER,
+                            equipment_id=breaker_id,
+                            terminal_role=breaker.from_terminal.role,
+                        )
+                    ).attached_bus_id
+                    to_bus_id = boundary.resolve(
+                        EndpointReference.terminal(
+                            equipment_type=EquipmentType.BREAKER,
+                            equipment_id=breaker_id,
+                            terminal_role=breaker.to_terminal.role,
+                        )
+                    ).attached_bus_id
+                    if from_bus_id is None or to_bus_id is None or str(from_bus_id) == str(to_bus_id):
+                        raise ValueError(
+                            f"ANSI 25 breaker {breaker_id!r} must have two distinct, resolvable bus-side terminals."
+                        )
+                    expected_side_buses = {
+                        "left": str(from_bus_id),
+                        "right": str(to_bus_id),
+                    }
                     for key, (expected_type, accepted_units) in expected_contracts.items():
                         channel_id = breaker_configuration.measurement_channel_ids[key]
                         definition = channel_definitions.get(channel_id)
@@ -543,6 +568,57 @@ def create_application(
                         if not isinstance(unit, str) or unit.strip().lower() not in accepted_units:
                             raise ValueError(
                                 f"ANSI 25 measurement channel {channel_id!r} has an unsupported engineering unit."
+                            )
+                        source_id = definition.get("source", definition.get("source_id"))
+                        source = candidate_network.get_by_identity(str(source_id))
+                        if not isinstance(source, (PT, CVT)):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} must originate from a PT or CVT source."
+                            )
+                        terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
+                        if not isinstance(terminal_data, Mapping):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} requires a canonical source terminal reference."
+                            )
+                        expected_equipment_type = EquipmentType.PT if isinstance(source, PT) else EquipmentType.CVT
+                        if (
+                            terminal_data.get("object_id") != source_id
+                            or terminal_data.get("equipment_type") != expected_equipment_type.value
+                        ):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} source terminal does not belong to its PT/CVT source."
+                            )
+                        secondary_terminals = source.secondary_terminals
+                        if callable(secondary_terminals):
+                            secondary_terminals = secondary_terminals()
+                        if not any(
+                            terminal.role == terminal_data.get("terminal_role")
+                            for terminal in secondary_terminals
+                        ):
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} must use a PT/CVT secondary measurement terminal."
+                            )
+                        primary_terminals = source.primary_terminals
+                        if callable(primary_terminals):
+                            primary_terminals = primary_terminals()
+                        primary_bus_ids = set()
+                        for primary_terminal in primary_terminals:
+                            resolved_primary = boundary.resolve(
+                                EndpointReference.terminal(
+                                    equipment_type=expected_equipment_type,
+                                    equipment_id=str(source_id),
+                                    terminal_role=primary_terminal.role,
+                                )
+                            )
+                            if resolved_primary.attached_bus_id is not None:
+                                primary_bus_ids.add(str(resolved_primary.attached_bus_id))
+                        side = "left" if key.startswith("left_") else "right"
+                        expected_bus_id = expected_side_buses[side]
+                        opposite_bus_id = expected_side_buses["right" if side == "left" else "left"]
+                        if expected_bus_id not in primary_bus_ids or opposite_bus_id in primary_bus_ids:
+                            raise ValueError(
+                                f"ANSI 25 channel {channel_id!r} is not physically associated with "
+                                f"the {side} bus side of breaker {breaker_id!r}."
                             )
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
