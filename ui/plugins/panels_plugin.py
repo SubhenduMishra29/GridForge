@@ -116,6 +116,13 @@ class PanelsPlugin(QObject):
         except BaseException as exc:
             failures: list[BaseException] = []
             for panel_id in reversed(created_ids):
+                widget = self._panels.get(panel_id)
+                unbind_application = getattr(widget, "unbind_application", None)
+                if callable(unbind_application):
+                    try:
+                        unbind_application()
+                    except BaseException as cleanup_exc:
+                        failures.append(cleanup_exc)
                 dock = self._dock_widgets.get(panel_id)
                 if dock is not None:
                     try:
@@ -136,6 +143,10 @@ class PanelsPlugin(QObject):
 
     def shutdown(self) -> None:
         if not self._initialized: return
+        for widget in tuple(self._panels.values()):
+            unbind_application = getattr(widget, "unbind_application", None)
+            if callable(unbind_application):
+                unbind_application()
         for dock in tuple(self._dock_widgets.values()): self._remove_dock(dock)
         self._dock_widgets.clear(); self._panels.clear(); self._panel_specs.clear(); self._context = None; self._initialized = False
 
