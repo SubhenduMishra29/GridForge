@@ -14835,24 +14835,24 @@ Scope:
       function settings. Coordination refuses to run unless each scenario
       unit exactly matches the configured unit for the respective function.
     - Added a UI workflow to select one primary and one backup ANSI 51/51N
-      function, enter matched primary/backup current scenarios, set CTI,
-      execute a Study Case, and display CTI margins and violations.
+      function, choose manual relay currents or a completed Short-Circuit
+      Study, map primary/backup branches and sides, provide current scales,
+      set CTI, execute a Study Case, and display CTI margins and violations.
     - Study results are read back through Application StudyResultReadModel
       and are rejected for display if stale against active project revision.
 
 Engineering boundaries:
-    - The workflow evaluates explicit relay-input current scenarios. It
-      does not infer primary/backup pairs from topology, infer current
-      directions, or calculate CT/VT ratios.
-    - Current values must already be expressed in each function's declared
-      relay-input engineering unit. No primary/secondary ampere assumption
-      or CT/base conversion is performed.
-    - The current ShortCircuitResult branch-current contract does not expose
-      a declared current base/unit sufficient to safely convert solver
-      branch currents into relay-input currents. Automatic Short-Circuit
-      result ingestion is therefore deliberately not enabled. A separate
-      unit/base provenance contract and explicit relay-to-branch measurement
-      mapping are required before that integration.
+    - Manual scenarios use explicit relay-input current values. Short-Circuit
+      sourced scenarios use the canonical per-unit branch-current records,
+      their explicit from/to side ampere bases, and engineer-supplied relay
+      current scales.
+    - Primary/backup relationships, branch mappings, branch sides, and CT
+      conversion scales are never inferred from SLD topology or adjacency.
+    - If ShortCircuitStudyConfiguration.base_mva or a branch-side nominal
+      bus voltage is unavailable, the result carries no ampere base and
+      Short-Circuit sourced coordination fails closed. A caller-supplied
+      prebuilt SequenceNetwork without matching base_mva provenance also
+      disables per-unit to ampere conversion.
     - Study Case definitions follow the existing Application StudyService
       lifecycle; project-file persistence of Study Cases and durable
       coordination-pair settings is not introduced in this increment.
