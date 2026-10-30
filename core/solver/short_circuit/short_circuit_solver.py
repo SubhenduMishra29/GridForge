@@ -145,6 +145,20 @@ class ShortCircuitSolver:
     def _polar(current: complex) -> tuple[float, float]:
         return float(abs(current)), float(math.degrees(cmath.phase(current)))
 
+    def _current_base_a(self, bus_id: str) -> float | None:
+        """Return three-phase current base in amperes for one bus side."""
+        data = self.input
+        if data.base_mva is None or not data.bus_base_voltage_kv:
+            return None
+        try:
+            index = data.bus_ids.index(bus_id)
+        except ValueError:
+            return None
+        voltage_kv = data.bus_base_voltage_kv[index]
+        if voltage_kv is None:
+            return None
+        return data.base_mva * 1000.0 / (math.sqrt(3.0) * voltage_kv)
+
     def _calculate_contributions(self, typed: dict[str, Any]) -> tuple[dict[str, ShortCircuitSourceContribution], dict[str, ShortCircuitEquipmentCurrent], dict[str, ShortCircuitBranchCurrent]]:
         snapshot = self.input.sequence_snapshot
         if snapshot is None or not snapshot.bus_ids or self.input.prefault_voltages is None:
@@ -201,6 +215,9 @@ class ShortCircuitSolver:
                 angle_deg=angle,
                 sequence_currents=sequence_currents,
                 phase_currents=phase,
+                current_unit="pu",
+                current_base_a_from=self._current_base_a(branch.from_bus_id),
+                current_base_a_to=self._current_base_a(branch.to_bus_id),
             )
             if branch.branch_id in equipment:
                 raise ValueError(f"Duplicate equipment identity '{branch.branch_id}' in short-circuit contribution data.")
@@ -268,6 +285,12 @@ class ShortCircuitSolver:
             "project_id": self.input.project_id,
             "activation_generation": self.input.activation_generation,
             "topology_revision": self.input.topology_revision,
+            "branch_current_unit": "pu",
+            "base_mva": self.input.base_mva,
+            "bus_base_voltage_kv": {
+                str(bus_id): voltage
+                for bus_id, voltage in zip(self.input.bus_ids, self.input.bus_base_voltage_kv)
+            },
         }
         values = dict(values)
         values.update({
