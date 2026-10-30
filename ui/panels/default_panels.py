@@ -1520,6 +1520,13 @@ class IDMTTCCWorkspaceWidget(QWidget):
                     return "NO OPERATION" if value > 0.0 else "UNDEFINED"
                 return f"{value:.4g}s"
 
+            def _margin_label(value: float) -> str:
+                if value == float("inf"):
+                    return "UNBOUNDED — primary non-operation"
+                if value == float("-inf"):
+                    return "UNDEFINED — backup non-operation"
+                return f"{value:.4g}s"
+
             def _delay_label(value: float) -> str:
                 if math.isinf(value):
                     return "not finite — backup non-operation"
@@ -1533,7 +1540,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
                 f"Ib={point.backup_current:g} {point.backup_current_unit} | "
                 f"tp={_time_label(point.primary_time_s)}, "
                 f"tb={_time_label(point.backup_time_s)} | "
-                f"margin={_time_label(point.margin_s)}, "
+                f"margin={_margin_label(point.margin_s)}, "
                 f"required CTI={point.required_cti_s:.4g}s, "
                 f"additional backup delay={_delay_label(point.required_additional_backup_delay_s)}"
                 for point in result.points
