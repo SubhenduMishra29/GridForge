@@ -15657,3 +15657,7 @@ Verification:
 - The conversion applies the selected-side current base, explicit CT direction, CT polarity, and CT ratio once. It does not mutate MeasurementChannel.
 - Boundary: scenario-specific RelayInput snapshot construction and ProtectionSystem evaluation remain unimplemented. No trip/action dispatch is introduced.
 - Verification: source-level review only; no tests or CI run, per repository workflow.
+
+[2026-10-30] D1 refinement — phase identity and direction contract
+- Tightened CT branch conversion to require an explicit phase or sequence member; the aggregate branch.current alias is not accepted because it is phase-A-only in the current solver result contract.
+- Tightened branch_current_direction to an actual integer +1/-1. The value must come from the committed CT association's explicit P1/P2 orientation; conversion does not derive it.
