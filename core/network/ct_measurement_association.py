@@ -96,6 +96,12 @@ class CTMeasurementAssociation:
         p2_set = set(self.p2_component)
         if p1_set & p2_set:
             raise ValueError("CT P1 and P2 must resolve to distinct SimpleWire topology components.")
+        if TopologyEndpointReference.from_terminal(self.p1_terminal_reference) not in p1_set:
+            raise ValueError("P1 topology component must contain the canonical CT P1 terminal.")
+        if TopologyEndpointReference.from_terminal(self.p2_terminal_reference) not in p2_set:
+            raise ValueError("P2 topology component must contain the canonical CT P2 terminal.")
+        if any(item.is_junction for item in self.p1_component + self.p2_component):
+            raise ValueError("CT primary SimpleWire components must not traverse a Junction.")
         expected_roles = {
             "p1_terminal_reference": "P1",
             "p2_terminal_reference": "P2",
