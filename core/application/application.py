@@ -160,7 +160,10 @@ class Application:
         # installed by another owner under a command type we originally owned.
         self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
-        self._study_service = StudyService(self._event_bus)
+        self._study_service = StudyService(
+            self._event_bus,
+            publication_lock=self._execution_lock,
+        )
         self._study_service.register("protection_coordination", self._execute_protection_coordination_study)
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_read_service = StudyReadService(self._study_service)
@@ -1406,7 +1409,24 @@ class Application:
         # Only register a runnable Study Case after the request has passed
         # project-generation, revision, validation, and topology provenance gates.
         self._remember_study_case(request)
-        return self._study_service.execute(request, execution_context)
+        return self._study_service.execute(
+            request,
+            execution_context,
+            publication_guard=lambda: self._study_request_is_current(request),
+        )
+
+    def _study_request_is_current(self, request: StudyRequest) -> bool:
+        """Check study provenance while Application mutations are excluded."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        return bool(
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+            and context.project_id == request.project_id
+            and lifecycle.activation_generation == request.activation_generation
+            and request.source_revision.matches_study_state(self.revision)
+        )
 
     def read_study_result(self, study_id) -> Any:
         """Return the current project-scoped study result read model."""
