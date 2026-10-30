@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
 from functools import wraps
 from threading import RLock
 from typing import Any
@@ -16,6 +17,7 @@ from core.application.endpoint_resolver import resolve_terminal_reference
 from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
+    MeasurementQuality,
     MeasurementPhase,
     MeasurementSignalType,
 )
@@ -86,6 +88,55 @@ class MeasurementChannelService:
     def validate_references(self, channel_ids: Sequence[str]) -> None:
         for channel_id in channel_ids:
             self.require(channel_id)
+
+    @_serialized_measurement_mutation
+    def publish_sample(
+        self,
+        channel_id: str,
+        value: float | complex,
+        *,
+        timestamp: float,
+        timestamp_domain: str,
+        quality: MeasurementQuality,
+        sample_sequence: int,
+        available: bool = True,
+    ) -> None:
+        """Publish one source-timestamped sample under the Application mutation lock.
+
+        Live measurement producers must use this boundary so sample publication
+        cannot interleave with a breaker-close command's ANSI 25 evaluation and
+        state mutation. Timestamp and sequence provenance are mandatory.
+        """
+        channel = self.require(channel_id)
+        if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+            raise ValueError("Measurement sample timestamp must be finite.")
+        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip():
+            raise ValueError("Measurement sample timestamp_domain is required.")
+        if channel.timestamp_domain != timestamp_domain:
+            raise ValueError(
+                f"Measurement channel {channel.id!r} is configured for timestamp domain "
+                f"{channel.timestamp_domain!r}, not {timestamp_domain!r}."
+            )
+        if not isinstance(quality, MeasurementQuality):
+            raise TypeError("Measurement sample quality must be MeasurementQuality.")
+        if isinstance(sample_sequence, bool) or not isinstance(sample_sequence, int) or sample_sequence < 0:
+            raise ValueError("Measurement sample_sequence must be a non-negative integer.")
+        if not isinstance(available, bool):
+            raise TypeError("Measurement sample availability must be bool.")
+        previous_sequence = channel.sample_sequence
+        previous_timestamp = channel.timestamp
+        if previous_sequence is not None and sample_sequence <= previous_sequence:
+            raise ValueError("Measurement sample_sequence must increase monotonically.")
+        if previous_timestamp is not None and timestamp < previous_timestamp:
+            raise ValueError("Measurement sample timestamp cannot move backwards.")
+        channel.update(
+            value,
+            timestamp=float(timestamp),
+            timestamp_domain=timestamp_domain,
+            quality=quality,
+            available=available,
+            sample_sequence=sample_sequence,
+        )
 
     @_serialized_measurement_mutation
     def activate(
