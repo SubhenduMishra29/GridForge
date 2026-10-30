@@ -1524,6 +1524,7 @@ class IDMTTCCWorkspaceWidget(QWidget):
         if any(not model.points for model in snapshots):
             raise ValueError("Every displayed IDMT curve must contain plot points.")
 
+        self._operating_point_series.clear()
         self._chart.removeAllSeries()
         for axis in (self._current_axis, self._time_axis):
             if axis is not None:
