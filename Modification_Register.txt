@@ -15684,3 +15684,11 @@ Verification:
 - CT branch-current scenario conversion now verifies that the MeasurementChannel's physical source identity matches the configured CT and that its source_terminal is exactly the resolved CT S1 or S2 terminal.
 - This keeps the primary P1/P2 SimpleWire orientation contract separate from the secondary S1/S2 measurement circuit contract.
 - No MeasurementChannel values or live sample metadata are modified.
+
+[2026-10-30] Protection Study Phase D2 — topology-independent CT measurement endpoint
+- Extended CTMeasurementAssociation with locate_measurement_endpoint(EndpointReference), returning P1_SIDE or P2_SIDE for an explicitly selected canonical equipment terminal or Bus attachment. This is physical measurement-location information only; it does not infer a protected feeder, zone, or differential scheme.
+- Extended ProtectionConfigurationService current-binding validation to accept three explicit placement patterns: Branch FROM/TO terminal, non-Branch equipment terminal (including transformer, motor and load terminals), and Bus attachment. Each selected endpoint must belong to exactly one CT P1/P2 SimpleWire topology component; P1 and P2 must remain on distinct components.
+- Branch current bindings retain explicit FROM/TO validation. Equipment terminal bindings declare electrical_side='equipment' and preserve the exact terminal role in EndpointReference. Bus-side bindings declare electrical_side='bus' and preserve the canonical Bus attachment identity.
+- The existing numerical short-circuit conversion remains Branch-contribution-specific. Equipment-terminal and Bus-side scenario-current source adapters, differential scheme membership, detached RelayInput snapshots and non-actuating ProtectionSystem evaluation remain pending.
+- Updated the Protection Study architecture document to distinguish CT physical placement, selected measurement endpoint and protection scheme membership.
+- No tests or CI were run. Python syntax/import/runtime execution remains unverified.
