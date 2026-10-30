@@ -15924,3 +15924,61 @@ Verification:
     - No tests or CI run, per repository rules.
     - End-to-end CT ratio transformation, runtime binding, and chart axis
       parity remain unverified.
+
+
+======================================================================
+
+2026-10-30 — Establish explicit ANSI 50N/51N residual-current measurement contract
+----------------------------------------------------------------------------------
+
+Files:
+    - core/measurement/measurement_channel.py
+    - core/protection/input_contracts.py
+    - core/measurement/measurement_generation.py
+    - Modification_Register.txt
+
+Audit findings:
+    - EarthIECOvercurrentRelay already consumes a named residual_current
+      RelayInput, but the catalog had no defensible residual-current channel
+      classification and therefore failed closed for both 50N and 51N.
+    - ShortCircuitSolver derives ground_current as the phasor sum
+      Ia + Ib + Ic. Under symmetrical-components convention this is 3I0,
+      not I0. The result separately retains sequence_currents["I0"].
+    - MeasurementGeneration already supports the typed ground_current
+      result field, but previously exposed all current measurements as
+      MeasurementSignalType.CURRENT and did not enforce residual semantics.
+    - MeasurementChannelService provisions signal and phase enum values by
+      canonical enum lookup and serializes their .value strings.
+
+Correction:
+    - Added MeasurementSignalType.RESIDUAL_CURRENT and
+      MeasurementPhase.RESIDUAL as distinct canonical classifications.
+    - Added explicit residual_current input contracts for ANSI 50N and 51N,
+      requiring RESIDUAL_CURRENT / RESIDUAL / A.
+    - Short-circuit measurement generation now maps the explicit
+      ground_current quantity only to RESIDUAL_CURRENT channels with
+      RESIDUAL phase. Ordinary CURRENT channels cannot consume ground_current;
+      residual channels cannot consume phase current, I0, or generic fault
+      current quantities.
+    - The measurement generator preserves the complex residual phasor and
+      continues to apply the explicit CT ratio and physical polarity path.
+    - ANSI 51N pickup-unit metadata is checked against its bound channel unit,
+      matching the ANSI 51 parity rule.
+
+Engineering boundary:
+    - The accepted result quantity is the solver's fault-bus ground current
+      Ia + Ib + Ic = 3I0. It is not the zero-sequence current I0 and is not
+      an inferred neutral CT current from an arbitrary branch.
+    - A branch-specific residual CT measurement remains unsupported until
+      branch/equipment contribution semantics explicitly provide that
+      residual current. The current fault-bus mapping does not claim it.
+    - Measurement channel persistence uses canonical enum values and the
+      existing provisioning enum resolver; no parallel serializer was added.
+
+Verification:
+    - Source-level review confirms the solver's ground-current derivation,
+      typed result field, channel provisioning enum resolution, explicit
+      input contract, and guarded measurement-generation mapping.
+    - No tests or CI run, per repository rules.
+    - Package round-trip with the new enum values and full 50N/51N runtime
+      evaluation against a prepared fault measurement remain unverified.
