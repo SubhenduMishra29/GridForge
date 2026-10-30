@@ -61,6 +61,7 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .synchronism_check import (
     ProjectScopedSynchronismAuditSink,
+    BypassAuthorization,
     SynchronismCheckProjectConfiguration,
     SynchronismCheckGuard,
     create_project_synchronism_guard,
@@ -80,6 +81,7 @@ def create_application(
     network: Any,
     *,
     synchronism_guard_factory: Callable[[ProjectContext | None, Any, int, ProtectionConfigurationService, MeasurementChannelService], SynchronismCheckGuard] | None = None,
+    synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> Application:
     """Construct the headless Application facade with optional project-bound ANSI 25 enforcement.
 
@@ -91,6 +93,8 @@ def create_application(
         raise ValueError("network is required.")
     if synchronism_guard_factory is not None and not callable(synchronism_guard_factory):
         raise TypeError("synchronism_guard_factory must be callable or None.")
+    if synchronism_bypass_provider is not None and not callable(synchronism_bypass_provider):
+        raise TypeError("synchronism_bypass_provider must be callable or None.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -175,6 +179,7 @@ def create_application(
                 audit_sink=CandidateProjectAuditSink(),
                 clock=time.time,
                 clock_domain=ansi25_clock_domain,
+                bypass_provider=synchronism_bypass_provider,
             )
         if synchronism_guard is not None and not isinstance(synchronism_guard, SynchronismCheckGuard):
             raise TypeError(
