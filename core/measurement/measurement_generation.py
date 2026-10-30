@@ -218,6 +218,7 @@ class MeasurementGeneration:
         channel: MeasurementChannel,
         *,
         branch_id: str,
+        branch_terminal_reference: EndpointReference,
         quantity_key: str,
         ct_association: CTMeasurementAssociation,
     ) -> float | complex:
@@ -242,15 +243,27 @@ class MeasurementGeneration:
         if not ct_association.in_service:
             raise UnsupportedMeasurementQuantity("CT association is out of service.")
         terminal_role = context.source_terminal.terminal_role
-        expected_ct_bus = {
-            "P1": ct_association.p1_bus_id,
-            "P2": ct_association.p2_bus_id,
+        expected_ct_terminal = {
+            "P1": ct_association.p1_terminal_reference,
+            "P2": ct_association.p2_terminal_reference,
         }.get(terminal_role)
-        if expected_ct_bus is None or context.bus_id != expected_ct_bus:
+        if expected_ct_terminal != context.source_terminal:
             raise UnsupportedMeasurementQuantity(
-                f"CT source terminal {terminal_role!r} does not resolve to configured "
-                f"measurement Bus {context.bus_id!r}."
+                f"CT source terminal {terminal_role!r} does not match the resolved CT association."
             )
+        polarity = getattr(getattr(source, "polarity", None), "value", getattr(source, "polarity", None))
+        expected_polarity_direction = {
+            "P1_P2": "P1_TO_P2",
+            "P2_P1": "P2_TO_P1",
+        }.get(polarity)
+        if expected_polarity_direction != ct_association.positive_current_direction:
+            raise UnsupportedMeasurementQuantity(
+                "Physical CT polarity does not match the resolved CT association snapshot."
+            )
+        if not isinstance(branch_terminal_reference, EndpointReference) or not branch_terminal_reference.is_terminal:
+            raise TypeError("branch_terminal_reference must be the explicitly configured Branch terminal.")
+        if branch_terminal_reference.object_id != branch_id:
+            raise ValueError("Branch terminal reference identity does not match branch_id.")
         result = context.quantity
         if not result.success or result.status.value != "COMPLETE":
             raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
@@ -272,14 +285,18 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 f"Short-circuit result has no branch-current contribution for {branch_id!r}."
             ) from exc
+        side = self._side(context)
+        if branch_terminal_reference.terminal_role != side.upper():
+            raise UnsupportedMeasurementQuantity(
+                "Configured Branch terminal reference must match the explicit FROM/TO measurement side."
+            )
         try:
             branch_current_direction = ct_association.branch_current_direction(
-                branch.from_bus_id, branch.to_bus_id
+                branch_terminal_reference, side
             )
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise UnsupportedMeasurementQuantity(str(exc)) from exc
 
-        side = self._side(context)
         expected_bus = branch.from_bus_id if side == "from" else branch.to_bus_id
         if context.bus_id != expected_bus:
             raise UnsupportedMeasurementQuantity(
