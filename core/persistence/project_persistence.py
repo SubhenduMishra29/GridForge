@@ -181,6 +181,21 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Invalid persisted Study Case definition: {exc}") from exc
         if len({case.study_id for case in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
+        study_cases_by_id = {str(case.study_id): case for case in study_cases}
+        for case in study_cases:
+            typed_configuration = case.configuration.get("configuration")
+            if not isinstance(typed_configuration, CoordinationStudyConfiguration):
+                continue
+            for scenario in typed_configuration.scenarios:
+                source_id = scenario.short_circuit_study_id
+                if source_id is None:
+                    continue
+                source_case = study_cases_by_id.get(source_id)
+                if source_case is None or source_case.study_type != "short_circuit":
+                    raise ProjectPersistenceError(
+                        f"Coordination Study Case {case.study_id} references missing or non-Short-Circuit "
+                        f"Study Case {source_id!r}."
+                    )
 
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
