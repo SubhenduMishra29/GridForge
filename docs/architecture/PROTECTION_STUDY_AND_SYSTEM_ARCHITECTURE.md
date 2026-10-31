@@ -1124,3 +1124,34 @@ zero-sequence path is created.
 Verification boundary: source changes are committed remotely on the feature
 branch. No tests/CI, Python syntax/import checks, persistence round-trip or
 numerical short-circuit runtime execution have been run.
+
+
+## D14I — grounded-wye / grounded-wye three-test T-equivalent foundation
+
+Added an immutable Core input contract for the three zero-sequence driving-point
+measurements required to identify a two-winding grounded-wye T equivalent:
+HV open-circuit Z0, LV open-circuit Z0 explicitly referred to the HV winding,
+and HV short-circuit Z0. All values are physical ohms on one declared test
+MVA basis. The contract records HV/LV test voltage bases, requires a non-empty
+source reference, and rejects data that has not explicitly been referred to
+HV or that includes neutral return impedance. Neutral 3Zn remains a separate
+network contribution and must not be embedded in the measured transformer
+T parameters.
+
+The Analysis layer now derives the T parameters using the three-test
+relations: ZM = sqrt(Z2' * (Z1 - Z3)), ZH = Z1 - ZM, and
+ZX' = Z2' - ZM. The complex square-root branch is selected deterministically;
+individual fitted series-leg resistances are not forced positive because a
+valid fitted equivalent can contain a negative individual leg. The measured
+impedances themselves must be finite, non-zero and non-negative-resistance.
+The implementation verifies that the derived T network reconstructs all three
+measured driving-point impedances within stated numerical tolerances.
+
+**Integration boundary:** this pass adds and exports the typed test-data
+contract and pure T-equivalent derivation only. It does not yet attach the
+contract to Transformer construction/update commands or persistence, convert
+neutral impedances into the two winding branches, stamp the two-Bus zero-
+sequence matrix, add the transformer to zero-sequence component connectivity,
+or calculate both terminal zero-sequence currents. Consequently the
+existing grounded-wye/grounded-wye network path remains fail-closed; the new
+calculation must not be interpreted as enabling Yg-Yg earth-fault studies.
