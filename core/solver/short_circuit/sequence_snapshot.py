@@ -13,7 +13,6 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from core.network.physical_conductor_topology import PhysicalConductorTopologySnapshot
-from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
 
 import numpy as np
 
@@ -247,7 +246,7 @@ class SequenceNetworkSnapshot:
     transformer_zero_shunts: tuple[SequenceTransformerZeroShuntSnapshot, ...] = ()
     transformer_zero_two_bus_stamps: tuple[SequenceTransformerZeroTwoBusSnapshot, ...] = ()
     physical_conductor_topology: PhysicalConductorTopologySnapshot | None = None
-    physical_conductor_impedances: PhysicalConductorImpedanceSnapshot | None = None
+    physical_conductor_impedances: Any | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -302,8 +301,8 @@ class SequenceNetworkSnapshot:
                             raise ValueError("Physical conductor branch references a Bus outside the sequence snapshot.")
         conductor_impedances = self.physical_conductor_impedances
         if conductor_impedances is not None:
-            if not isinstance(conductor_impedances, PhysicalConductorImpedanceSnapshot):
-                raise TypeError("physical_conductor_impedances must be a PhysicalConductorImpedanceSnapshot.")
+            if not all(hasattr(conductor_impedances, name) for name in ("project_id", "activation_generation", "topology_revision", "branches")):
+                raise TypeError("physical_conductor_impedances must satisfy the detached impedance snapshot contract.")
             if conductor_topology is None:
                 raise ValueError("Physical conductor impedance snapshot requires its topology snapshot.")
             if (conductor_impedances.project_id, conductor_impedances.activation_generation, conductor_impedances.topology_revision) != (conductor_topology.project_id, conductor_topology.activation_generation, conductor_topology.topology_revision):
