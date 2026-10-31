@@ -832,9 +832,10 @@ reconstructing transformer state from live Core.
 phase-shift fields. It does not apply optional plugin VectorGroup clock
 displacement, winding connection mapping, neutral grounding/zero-sequence
 paths, transformer magnetising/shunt admittance, tertiary windings, or
-unbalanced transformer sequence coupling. Consequently, unbalanced transformer short-circuit studies requiring those
-behaviours remain unsupported and must not be represented as complete. Transformer terminal-current output is supported for balanced three-phase
-fault cases only after the solver consumes this exact stamped primitive.
+unbalanced transformer sequence coupling. Consequently, unbalanced
+transformer short-circuit studies requiring those behaviours remain
+unsupported and must not be represented as complete. Phase D8 implements
+transformer terminal-current output for balanced three-phase fault cases only.
 Unbalanced transformer terminal currents remain unavailable. When a caller
 supplies an external SequenceNetwork alongside a transformer with non-unity
 tap or non-zero phase shift, the matrix must explicitly declare the
