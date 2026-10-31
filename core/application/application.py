@@ -1334,6 +1334,7 @@ class Application:
                             diagnostics.append(f"{prefix}: active source is not an in-service canonical CT referenced by the channel.")
                             continue
                         source_instrument_ids.add(binding.instrument_id)
+                        provenance = sample.provenance
                         if (
                             provenance.get("terminal_current_reference_direction") != "INTO_EQUIPMENT"
                             or provenance.get("current_units") != "per_unit"
@@ -1353,7 +1354,6 @@ class Application:
                         ):
                             diagnostics.append(f"{prefix}: active CT ratio or channel scale/polarity is invalid or stale.")
                             continue
-                        provenance = sample.provenance
                         expected_source_provenance = {
                             "project_id": project.project_id,
                             "activation_generation": lifecycle.activation_generation,
