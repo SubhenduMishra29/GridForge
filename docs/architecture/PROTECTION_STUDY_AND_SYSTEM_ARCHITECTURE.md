@@ -1381,9 +1381,51 @@ The Network aggregate validates phase-domain node references against canonical B
 
 ShortCircuitStudyConfiguration can carry either a typed phase-domain case or explicit source and fault declarations. In the latter form, ShortCircuitPreparation builds the graph snapshot from the detached Network, prepares the physical Line/Cable impedance matrices, assembles the global admittance matrix, and creates the immutable phase-domain case. ProtectionStudyHandler forwards these declarations through the ordinary Study execution boundary. Direct Neutral CT and CBCT bindings are routed to their dedicated physical-conductor measurement adapters; Application residual-input validation recognizes CBCT's derived RESIDUAL sample while preserving the configured N channel, CT association, polarity, ratio, measurement point and topology checks.
 
-**Remaining production gaps:** source equivalents are still explicit study inputs rather than automatically derived from GridForge Grid/Generator/Motor models. The phase-domain network currently stamps Line/Cable branches and explicit graph connections; dedicated multi-conductor transformer, machine, load, arc-fault and switching primitives are not yet implemented. Application commands with undo/redo for graph editing and a UI configuration workflow remain outstanding. The branch is not production-verified; no tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end Protection Study run have been performed.
+**Remaining production gaps:** source equivalents are still explicit study inputs rather than automatically derived from GridForge Grid/Generator/Motor models. The phase-domain network currently stamps Line/Cable branches and explicit graph connections; dedicated multi-conductor transformer, machine, load, arc-fault and switching primitives are not yet implemented. Application now exposes reversible create/remove commands for phase-domain graph nodes and connections. The commands are registered in the composition root, execute through Application transactions, participate in topology revision tracking, and restore exact typed snapshots on undo/redo. A dedicated UI configuration workflow remains outstanding. The branch is not production-verified; no tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end Protection Study run have been performed.
 
 
 ### D15F-04 — Local earth nodes are not ideal global earth
 
 The physical graph distinguishes a local EARTH_NODE from the single global EARTH_REFERENCE datum. Local soil/earth nodes remain unknown-potential nodes in the global admittance matrix. Only the one explicitly declared global reference is fixed at zero potential. A GROUND_ELECTRODE connects a conductor to a local EARTH_NODE; EARTH_RETURN connects local earth nodes to other earth-domain nodes or to the global reference through its declared impedance. Earth reachability requires an explicit graph path to the global reference. This prevents separate electrodes from being silently treated as an equipotential ideal-earth network.
+
+
+### D15F-05 — Transactional Application graph editing and fault-type contracts
+
+The phase-domain conductor graph is editable through Application-owned
+reversible commands. Create/remove commands exist for graph nodes and
+connections, are registered by the Application composition root, execute
+against the active canonical Network inside a Transaction, and register
+inverse operations. These command types advance the project topology revision.
+Core remains authoritative for node/connection identities and electrical
+connection semantics.
+
+The phase-domain fault boundary validates the declared fault type against the
+explicit fault-connection topology. LG requires one phase-to-earth leg with
+an explicit earth-return path; LL requires one distinct phase-to-phase leg;
+LLG requires two distinct phases connected to one common reachable earth
+node; 3PH requires A/B/C legs connected to one explicit non-earth FAULT_NODE.
+Fault-star nodes cannot be reused as source attachment nodes or connected
+into the ordinary conductor graph.
+
+Direct Neutral CT and CBCT configuration validation accepts only a complete,
+mode-matched construction and exact measurement binding. Direct physical
+conductor measurement execution requires a successful phase-domain result
+with COMPLETE conductor-current coverage. Phase-domain Protection Study
+completeness is determined from that physical result coverage rather than
+from intentionally absent sequence-domain contribution records. Ideal
+zero-ohm continuity bonds remain contracted electrical nodes; their
+indeterminate individual current does not downgrade otherwise complete
+branch/finite-connection current coverage.
+
+Ordinary Application Study preparation now forwards phase-domain case,
+source and fault declarations to ShortCircuitPreparation. A caller-supplied
+typed case is accepted only when its graph, physical impedance snapshot and
+assembled admittance exactly match freshly prepared values from the captured
+authoritative Network and topology revision.
+
+The Application command path is available for programmatic configuration.
+A dedicated UI editor, automatic source Norton-equivalent derivation from all
+supported GridForge source models, and multi-conductor transformer/machine/
+load/switching primitives remain outstanding. No tests/CI, syntax/import
+checks, persistence round-trip, numerical fixture, or end-to-end protection
+execution was run.
