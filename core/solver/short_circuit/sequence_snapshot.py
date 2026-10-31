@@ -48,9 +48,11 @@ class SequenceBranchSnapshot:
     negative: complex | None
     zero: complex | None
     equipment_type: str
+    from_terminal_role: str = "FROM"
+    to_terminal_role: str = "TO"
 
     def __post_init__(self) -> None:
-        for name in ("branch_id", "from_bus_id", "to_bus_id", "equipment_type"):
+        for name in ("branch_id", "from_bus_id", "to_bus_id", "equipment_type", "from_terminal_role", "to_terminal_role"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty engineering identifier.")
@@ -60,6 +62,8 @@ class SequenceBranchSnapshot:
                 raise ValueError(f"{name} must be a non-negative integer.")
         if self.from_bus_id == self.to_bus_id or self.from_bus_index == self.to_bus_index:
             raise ValueError("A branch snapshot requires distinct endpoints.")
+        if self.from_terminal_role == self.to_terminal_role:
+            raise ValueError("A branch snapshot requires distinct terminal roles.")
         for name in ("positive", "negative", "zero"):
             value = getattr(self, name)
             if value is not None:
