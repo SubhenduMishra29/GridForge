@@ -241,9 +241,6 @@ def classify_transformer_zero_sequence(
             "grounded-wye/grounded-wye zero-sequence Ybus stamping and terminal-current "
             "integration are not yet enabled."
         )
-            "to grounded-wye zero-sequence transfer remains numerically unavailable until its "
-            "core/test-derived two-winding equivalent is implemented."
-        )
 
     grounded_side = grounded[0]
     reference = getattr(transformer, "impedance_reference_winding", None)
