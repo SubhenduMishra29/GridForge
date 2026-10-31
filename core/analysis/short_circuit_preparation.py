@@ -88,9 +88,9 @@ class ShortCircuitPreparation:
             else:
                 sequence_elements = tuple(str(getattr(element, "id", element)) for element in elements)
             if normalized_type.is_unbalanced:
-                for name in ("positive", "negative", "zero"):
+                for name in required_sequences:
                     if not snapshot.has_matrix(name):
-                        raise ValueError(f"{name.capitalize()}-sequence matrix is required for an unsymmetrical fault study.")
+                        raise ValueError(f"{name.capitalize()}-sequence matrix is required for this unsymmetrical fault study.")
                 if not sequence_elements:
                     raise ValueError("At least one sequence-network element is required for an unsymmetrical fault study.")
 
@@ -147,7 +147,13 @@ class ShortCircuitPreparation:
                     "unless it declares the canonical FROM_SIDE_COMPLEX_TAP_V1 stamping convention."
                 )
         else:
-            required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
+            required = (
+                ("positive", "negative")
+                if fault_type is FaultType.LINE_LINE
+                else ("positive", "negative", "zero")
+                if fault_type.is_unbalanced
+                else ("positive",)
+            )
             sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
