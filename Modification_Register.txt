@@ -15842,3 +15842,10 @@ Verification:
 - Extended detached SequenceBranchSnapshot to retain validated tap_ratio and phase_shift_rad; ShortCircuitPreparation copies these values from the canonical Core Transformer.
 - Scope is deliberately limited to the scalar Core tap and phase-shift model. Optional VectorGroup plugin clock displacement, winding connection mapping, zero-sequence grounding, unbalanced sequence coupling, magnetising/shunt admittance and tertiary windings are not applied. Transformer terminal-current records remain withheld until their equations consume the same stamped primitive.
 - Verification: remote source review only. No tests or CI run, per repository workflow. Python syntax/import/runtime checks remain outstanding.
+
+
+[2026-10-31] Protection Study Phase D8 — tap-aware transformer terminal currents
+- Extended the detached short-circuit solver to calculate transformer FROM/TO terminal currents from the same complex-tap two-port primitive used by canonical Ybus preparation.
+- Both terminal currents are positive into the transformer at their respective physical terminals; the Branch contribution retains FROM-terminal orientation. Records preserve terminal role and Bus identity.
+- Transformer terminal-current output is restricted to balanced three-phase faults with the positive-sequence primitive. Unbalanced transformer currents remain unavailable because winding connection/vector-group and neutral-grounding sequence paths are not modeled. Magnetising/shunt and tertiary-winding currents remain unsupported.
+- No tests or CI were run. Remote source-level review only; Python syntax/import/runtime checks remain outstanding.
