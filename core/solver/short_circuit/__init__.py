@@ -26,6 +26,7 @@ from .result import (
     ShortCircuitEquipmentCurrent,
     ShortCircuitResult,
     ShortCircuitSourceContribution,
+    ShortCircuitTerminalCurrent,
 )
 from .short_circuit_solver import ShortCircuitSolver
 from .short_circuit import ShortCircuit
@@ -45,6 +46,7 @@ __all__ = [
     "ShortCircuitSourceContribution",
     "ShortCircuitEquipmentCurrent",
     "ShortCircuitBranchCurrent",
+    "ShortCircuitTerminalCurrent",
     "ShortCircuitResult",
     "ShortCircuitSolver",
     "ShortCircuit",
