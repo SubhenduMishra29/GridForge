@@ -50,6 +50,8 @@ class SequenceBranchSnapshot:
     equipment_type: str
     from_terminal_role: str = "FROM"
     to_terminal_role: str = "TO"
+    tap_ratio: float = 1.0
+    phase_shift_rad: float = 0.0
 
     def __post_init__(self) -> None:
         for name in ("branch_id", "from_bus_id", "to_bus_id", "equipment_type", "from_terminal_role", "to_terminal_role"):
@@ -64,6 +66,14 @@ class SequenceBranchSnapshot:
             raise ValueError("A branch snapshot requires distinct endpoints.")
         if self.from_terminal_role == self.to_terminal_role:
             raise ValueError("A branch snapshot requires distinct terminal roles.")
+        tap_ratio = float(self.tap_ratio)
+        phase_shift_rad = float(self.phase_shift_rad)
+        if not np.isfinite(tap_ratio) or tap_ratio <= 0.0:
+            raise ValueError("tap_ratio must be finite and greater than zero.")
+        if not np.isfinite(phase_shift_rad):
+            raise ValueError("phase_shift_rad must be finite.")
+        object.__setattr__(self, "tap_ratio", tap_ratio)
+        object.__setattr__(self, "phase_shift_rad", phase_shift_rad)
         for name in ("positive", "negative", "zero"):
             value = getattr(self, name)
             if value is not None:
