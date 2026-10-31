@@ -128,6 +128,10 @@ class PhaseDomainShortCircuitCase:
             raise ValueError("Phase-domain graph and admittance provenance mismatch.")
         if provenance != (self.impedances.project_id, self.impedances.activation_generation, self.impedances.topology_revision):
             raise ValueError("Phase-domain graph and impedance provenance mismatch.")
+        from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
+        rebuilt_admittance = assemble_phase_domain_admittance(self.graph, self.impedances)
+        if rebuilt_admittance != self.admittance:
+            raise ValueError("Phase-domain admittance does not match its authoritative graph and physical impedance snapshot.")
         sources, faults = tuple(self.sources), tuple(self.faults)
         if not sources:
             raise ValueError("Phase-domain short-circuit case requires explicit source equivalents.")
