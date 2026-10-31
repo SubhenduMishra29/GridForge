@@ -148,6 +148,10 @@ class PhaseDomainShortCircuitCase:
         base = float(self.base_mva)
         if not math.isfinite(base) or base <= 0.0:
             raise ValueError("base_mva must be finite and positive.")
+        if not self.impedances.branches:
+            raise ValueError("Phase-domain short-circuit case requires at least one prepared physical conductor branch.")
+        if not math.isclose(base, self.impedances.base_mva, rel_tol=1e-9, abs_tol=1e-9):
+            raise ValueError("Phase-domain case base_mva does not match its physical conductor impedance snapshot.")
         branch_ids = {item.equipment_id for item in self.impedances.branches}
         connection_ids = {item.connection_id for item in self.graph.connections}
         collisions = branch_ids & connection_ids
