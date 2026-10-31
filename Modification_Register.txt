@@ -17099,3 +17099,53 @@ Correction:
 Verification:
     Static source inspection only. No tests/CI, syntax/import checks, or
     runtime command/rollback execution were run.
+
+
+======================================================================
+GF-SC-D15F-10 — GENERIC EQUIPMENT-TERMINAL CURRENT AND CT ROUTING
+======================================================================
+
+Files:
+    core/solver/short_circuit/phase_domain_solver.py
+    core/protection/residual_current.py
+    core/measurement/protection_scenario_measurement.py
+
+Changes:
+    - Phase-domain execution now emits a signed conductor-current record
+      for an explicitly modeled EQUIPMENT_TERMINAL when its physical
+      terminal-current cut is uniquely resolvable from finite-impedance
+      incident connections and an explicit, unique voltage base.
+    - Current is reported positive INTO_EQUIPMENT, with physical node,
+      incident connection IDs, topology revision, project activation and
+      SI-current provenance.
+    - Equipment-terminal current is omitted with a diagnostic when the
+      terminal has no explicit Bus voltage-base reference, lacks a unique
+      voltage base, has no finite-impedance incident path, or touches an
+      ideal zero-ohm bond whose individual current division is indeterminate.
+    - Neutral CT and CBCT construction now accept explicit canonical
+      equipment terminal roles rather than hard-coding Line/Cable FROM/TO.
+      The measurement adapter accepts an explicitly configured equipment
+      terminal and still validates CT P1/P2 topology side, conductor identity,
+      terminal identity, construction, ratio, polarity and topology revision.
+    - No protection zone, conductor membership, return path, current split,
+      or missing construction data is inferred.
+
+Remaining D15F integration:
+    - Automatic phase-domain source-equivalent preparation from Grid,
+      Generator and Motor operating/short-circuit models is not complete.
+    - Transformer winding/vector-group/zero-sequence phase-domain primitives
+      are not automatically prepared from Transformer construction data.
+    - Motor, Generator and Load multi-conductor electrical primitives and
+      their internal current paths are not yet automatically assembled.
+    - Equipment-terminal records are available only where the explicit graph
+      already contains a uniquely resolvable finite-impedance terminal cut.
+      This change does not manufacture missing equipment primitives.
+    - CT primary installation still requires the physical phase-domain graph
+      to represent the SLD-derived conductor cut. Mapping a SimpleWire CT
+      installation into that graph remains an integration requirement.
+    - No tests/CI were run. Syntax/import checks, numerical terminal-current
+      fixtures, persistence round-trip, and end-to-end Neutral CT/CBCT
+      Protection Study execution remain unverified.
+
+Status:
+    Source changes committed to the PR branch; not production-verified.
