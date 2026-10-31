@@ -51,6 +51,42 @@ class PhaseDomainSourceEquivalent:
 
 
 @dataclass(frozen=True, slots=True)
+class PhaseDomainMultiConductorSource:
+    """Explicit coupled Norton source with one impedance matrix for many conductors."""
+
+    source_id: str
+    node_ids: tuple[str, ...]
+    internal_voltage_v: tuple[complex, ...]
+    impedance_matrix_ohm: tuple[tuple[complex, ...], ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_id", _name(self.source_id, "source_id"))
+        nodes = tuple(_name(x, "source node_id") for x in self.node_ids)
+        voltages = tuple(_finite_complex(x, "source internal voltage") for x in self.internal_voltage_v)
+        matrix = tuple(tuple(_finite_complex(x, "source impedance matrix") for x in row) for row in self.impedance_matrix_ohm)
+        size = len(nodes)
+        if not size or len(set(nodes)) != size or len(voltages) != size:
+            raise ValueError("Multi-conductor source requires unique nodes and one internal voltage per conductor.")
+        if len(matrix) != size or any(len(row) != size for row in matrix):
+            raise ValueError("Multi-conductor source impedance matrix must match its node vector.")
+        for i in range(size):
+            for j in range(size):
+                if not math.isclose(matrix[i][j].real, matrix[j][i].real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(matrix[i][j].imag, matrix[j][i].imag, rel_tol=1e-9, abs_tol=1e-12):
+                    raise ValueError("Multi-conductor source impedance matrix must be reciprocal.")
+        z = np.asarray(matrix, dtype=complex)
+        try:
+            condition = float(np.linalg.cond(z))
+            if not math.isfinite(condition) or condition > 1.0e12:
+                raise ValueError("Multi-conductor source impedance matrix is singular or ill-conditioned.")
+            np.linalg.inv(z)
+        except np.linalg.LinAlgError as exc:
+            raise ValueError("Multi-conductor source impedance matrix is singular.") from exc
+        object.__setattr__(self, "node_ids", nodes)
+        object.__setattr__(self, "internal_voltage_v", voltages)
+        object.__setattr__(self, "impedance_matrix_ohm", matrix)
+
+
+@dataclass(frozen=True, slots=True)
 class PhaseDomainFaultConnection:
     connection_id: str
     from_node_id: str
