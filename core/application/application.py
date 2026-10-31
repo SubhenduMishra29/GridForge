@@ -1280,6 +1280,7 @@ class Application:
                     )
                     normalized_sources = {}
                     source_instrument_ids: set[str] = set()
+                    three_phase_terminal_identity: tuple[str, str] | None = None
                     for phase, binding_id in expected_sources.items():
                         prefix = (
                             f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
@@ -1382,6 +1383,18 @@ class Application:
                         if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
                             diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
                             continue
+                        if residual_configuration.mode == "THREE_PHASE_SUM":
+                            terminal_identity = (
+                                str(provenance.get("equipment_id")),
+                                str(provenance.get("equipment_terminal_role")),
+                            )
+                            if three_phase_terminal_identity is None:
+                                three_phase_terminal_identity = terminal_identity
+                            elif terminal_identity != three_phase_terminal_identity:
+                                diagnostics.append(
+                                    f"{prefix}: A/B/C residual sources do not monitor the same canonical equipment terminal."
+                                )
+                                continue
                         if residual_configuration.mode in {"NEUTRAL_CT", "CBCT"}:
                             if (
                                 binding.metadata.get("residual_source_mode") != residual_configuration.mode
