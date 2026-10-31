@@ -345,11 +345,11 @@ class Transformer(Branch):
 
     @property
     def vector_group_configuration(self):
-        return self._vector_group_configuration
+        return getattr(self, "_vector_group_configuration", None)
 
     @property
     def zero_sequence_test_configuration(self):
-        return self._zero_sequence_test_configuration
+        return getattr(self, "_zero_sequence_test_configuration", None)
 
     @property
     def element_type(self) -> str:
@@ -658,7 +658,7 @@ class Transformer(Branch):
         if self._zero_sequence_resistance_ohm is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
             raise ValueError("Transformer Z0 requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
-            self._vector_group_configuration, self._zero_sequence_test_configuration,
+            getattr(self, "_vector_group_configuration", None), getattr(self, "_zero_sequence_test_configuration", None),
             self._impedance_reference_winding, self._hv_winding_connection,
             self._lv_winding_connection, self._zero_sequence_resistance_ohm,
         )
@@ -688,8 +688,8 @@ class Transformer(Branch):
                 "zero_sequence_reactance_ohm": self._zero_sequence_reactance_ohm,
                 "core_construction": self._core_construction,
                 "zero_sequence_test_basis": self._zero_sequence_test_basis,
-                "vector_group_configuration": self._vector_group_configuration,
-                "zero_sequence_test_configuration": self._zero_sequence_test_configuration,
+                "vector_group_configuration": getattr(self, "_vector_group_configuration", None),
+                "zero_sequence_test_configuration": getattr(self, "_zero_sequence_test_configuration", None),
             }
         )
         return summary
