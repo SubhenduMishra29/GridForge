@@ -44,7 +44,7 @@ class SequenceNetworkPreparation:
             raise ValueError("TopologySnapshot bus IDs must be unique for sequence preparation.")
         index = {bus_id: i for i, bus_id in enumerate(bus_ids)}
         sequence = SequenceNetwork()
-        branch_data: list[tuple[int, int, dict[str, complex | None], str]] = []
+        branch_data: list[tuple[int, int, dict[str, complex | None], str, complex]] = []
 
         for element in self._branch_elements():
             if not bool(getattr(element, "in_service", True)):
@@ -60,7 +60,7 @@ class SequenceNetworkPreparation:
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             from_id = str(bus_a.id)
             to_id = str(bus_b.id)
-            branch_data.append((index[from_id], index[to_id], data, str(element_id)))
+            branch_data.append((index[from_id], index[to_id], data, str(element_id), self._branch_complex_tap(element)))
 
         for source in self.network.grids:
             if not bool(getattr(source, "in_service", True)):
@@ -75,7 +75,7 @@ class SequenceNetworkPreparation:
             element_id = getattr(source, "id", source)
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             bus_id = str(bus.id)
-            branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
+            branch_data.append((index[bus_id], index[bus_id], data, str(element_id), 1.0 + 0.0j))
 
         for collection_name in ("generators", "synchronous_machines", "motors"):
             for machine in getattr(self.network, collection_name, ()):
@@ -161,6 +161,17 @@ class SequenceNetworkPreparation:
         raise ValueError(f"Unsupported sequence-network branch type: {type(element).__name__}.")
 
     @staticmethod
+    def _branch_complex_tap(element: Any) -> complex:
+        """Return the explicit from-side complex tap used by the two-port primitive."""
+        tap = float(getattr(element, "tap", 1.0))
+        shift = float(getattr(element, "shift", 0.0))
+        if not np.isfinite(tap) or tap <= 0.0:
+            raise ValueError(f"Branch '{getattr(element, 'id', element)}' has an invalid tap ratio.")
+        if not np.isfinite(shift):
+            raise ValueError(f"Branch '{getattr(element, 'id', element)}' has an invalid phase shift.")
+        return complex(tap * np.cos(shift), tap * np.sin(shift))
+
+    @staticmethod
     def _source_impedance(source: Any, name: str) -> complex | None:
         value = getattr(source, name, None)
         if value is None:
@@ -171,9 +182,10 @@ class SequenceNetworkPreparation:
         return result
 
     @staticmethod
-    def _build_matrix(size: int, branches: list[tuple[int, int, dict[str, complex | None], str]], sequence: str) -> np.ndarray:
+    def _build_matrix(size: int, branches: list[tuple[int, int, dict[str, complex | None], str, complex]], sequence: str) -> np.ndarray:
+        """Stamp scalar sources and series/tap two-port branches into Ybus."""
         y = np.zeros((size, size), dtype=complex)
-        for i, j, data, element_id in branches:
+        for i, j, data, element_id, tap in branches:
             z = data[sequence]
             if z is None:
                 raise ValueError(f"Element '{element_id}' lacks {sequence}-sequence impedance.")
@@ -183,10 +195,13 @@ class SequenceNetworkPreparation:
             if i == j:
                 y[i, i] += admittance
             else:
-                y[i, i] += admittance
+                if not np.isfinite(tap.real) or not np.isfinite(tap.imag) or abs(tap) == 0.0:
+                    raise ValueError(f"Element '{element_id}' has an invalid complex tap.")
+                # Standard from-side off-nominal tap convention.
+                y[i, i] += admittance / (abs(tap) ** 2)
+                y[i, j] -= admittance / tap.conjugate()
+                y[j, i] -= admittance / tap
                 y[j, j] += admittance
-                y[i, j] -= admittance
-                y[j, i] -= admittance
         if np.any(np.abs(np.diag(y)) == 0.0):
             raise ValueError("Sequence network contains a bus without a connected source or branch.")
         try:
