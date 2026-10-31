@@ -17660,3 +17660,48 @@ Verification:
     verification were run.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-26
+======================================================================
+
+Scope:
+    Preserve canonical SLD Bus attachment identity in the authoritative
+    electrical topology snapshot.
+
+Finding:
+    EquipmentBusAttachment retained equipment, terminal and Bus IDs but
+    discarded the exact Bus attachment-N endpoint used by SimpleWire
+    connectivity. This prevented downstream phase-domain nodes from
+    resolving the same canonical endpoint identity used by CT topology
+    association.
+
+Correction:
+    - EquipmentBusAttachment now optionally carries bus_attachment_id.
+      When present it must be one of the canonical attachment-0 through
+      attachment-8 slots. None remains explicit for legacy/direct physical
+      terminal-to-Bus attachments that do not expose a SimpleWire Bus slot.
+    - TopologyManager._physical_attachments now inspects the terminal's
+      committed topology component and preserves the unique matching Bus
+      attachment ID.
+    - Multiple matching Bus attachment slots on the same resolved Bus are
+      rejected as ambiguous. The producer does not fabricate a slot.
+    - Existing equipment/terminal/Bus identity and snapshot provenance
+      remain unchanged.
+
+Boundary:
+    This correction preserves endpoint provenance; it does not yet create
+    physical conductor continuity, phase-domain graph nodes, neutral/PE/
+    screen paths, CT physical cuts, or CBCT aperture membership. Missing
+    Bus attachment identity remains unavailable and must fail closed in
+    any consumer requiring an SLD attachment vertex.
+
+Verification:
+    Remote source edits committed. No tests/CI, syntax/import checks,
+    numerical fixtures, or end-to-end study execution were run.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE RE-FETCH REQUIRED; NOT PRODUCTION-VERIFIED
+
+======================================================================
+
