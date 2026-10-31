@@ -106,8 +106,10 @@ class ProtectionScenarioMeasurementAdapter:
         endpoint = binding.source_endpoint_reference
         if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
             raise ValueError("Physical conductor CT requires an explicit equipment-terminal endpoint.")
-        if endpoint.object_id != binding.source_equipment_id or endpoint.terminal_role not in {"FROM", "TO"}:
-            raise ValueError("Physical conductor CT endpoint must identify the configured Branch FROM/TO terminal.")
+        if endpoint.object_id != binding.source_equipment_id:
+            raise ValueError("Physical conductor CT endpoint must identify the configured source equipment.")
+        if not endpoint.terminal_role or any(ch.isspace() for ch in endpoint.terminal_role):
+            raise ValueError("Physical conductor CT endpoint must use a canonical terminal role.")
         if not isinstance(conductor_id, str) or not conductor_id.strip():
             raise ValueError("conductor_id must be explicit.")
         conductor_id = conductor_id.strip()
