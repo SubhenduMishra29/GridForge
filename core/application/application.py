@@ -1034,6 +1034,10 @@ class Application:
         acquisition timestamps are deliberately not fabricated.
         """
         from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementSample
+        from core.protection.residual_current import (
+            normalize_residual_current_source,
+            resolve_residual_current,
+        )
 
         if not isinstance(scenario_id, str) or not scenario_id.strip():
             raise ValueError("scenario_id must be a non-empty string.")
@@ -1256,6 +1260,175 @@ class Application:
                     "reference_basis_id": sample.reference_basis_id,
                     "provenance": provenance,
                 })
+            if element_configuration.function_code in {"50N", "51N"}:
+                residual_configuration = element_configuration.residual_current_input
+                if residual_configuration is None:
+                    diagnostics.append(
+                        f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: explicit residual-current configuration is missing."
+                    )
+                else:
+                    expected_sources = (
+                        dict(residual_configuration.phase_binding_ids or {})
+                        if residual_configuration.mode == "THREE_PHASE_SUM"
+                        else {"N": residual_configuration.direct_binding_id}
+                    )
+                    normalized_sources = {}
+                    for phase, binding_id in expected_sources.items():
+                        prefix = (
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                            f"residual_source={phase!r}, binding={binding_id!r}"
+                        )
+                        binding = configuration.get_measurement_binding(binding_id)
+                        expected_samples.add(binding_id)
+                        sample = samples_by_binding.get(binding_id)
+                        if sample is None:
+                            diagnostics.append(f"{prefix}: detached scenario sample is missing.")
+                            continue
+                        channel = channels.get(binding.channel_id)
+                        if channel is None or runtime_channels.get(binding.channel_id) is not channel:
+                            diagnostics.append(f"{prefix}: authoritative physical MeasurementChannel is unavailable.")
+                            continue
+                        if (
+                            binding.protection_element_id != element_configuration.element_id
+                            or binding.relay_input_id != "residual_current"
+                            or sample.protection_element_id != element_configuration.element_id
+                            or sample.relay_input_id != "residual_current"
+                            or sample.binding_id != binding_id
+                            or sample.channel_id != binding.channel_id
+                            or sample.instrument_id != binding.instrument_id
+                            or binding.measurement_type.strip().lower() != "current"
+                            or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
+                            or getattr(channel, "source_id", None) != binding.instrument_id
+                        ):
+                            diagnostics.append(f"{prefix}: residual source, binding, sample, channel or CT identity does not agree.")
+                            continue
+                        if (
+                            binding.phase_or_sequence.strip().upper() != phase
+                            or sample.phase_or_sequence.strip().upper() != phase
+                            or getattr(getattr(channel, "phase", None), "value", None) != phase
+                            or sample.quantity_key != binding.result_quantity
+                            or sample.unit != "A"
+                            or getattr(channel, "unit", None) != "A"
+                        ):
+                            diagnostics.append(f"{prefix}: source phase/sequence, result member or ampere unit is inconsistent.")
+                            continue
+                        source_terminal = getattr(channel, "source_terminal", None)
+                        if (
+                            source_terminal is None
+                            or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                            or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                        ):
+                            diagnostics.append(f"{prefix}: channel is not sourced from the configured CT secondary terminal.")
+                            continue
+                        try:
+                            active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                        except (KeyError, TypeError, ValueError):
+                            diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                            continue
+                        if (
+                            getattr(active_instrument, "TYPE", None) != "CT"
+                            or getattr(channel, "source", None) is not active_instrument
+                        ):
+                            diagnostics.append(f"{prefix}: active source is not the canonical CT referenced by the channel.")
+                            continue
+                        try:
+                            active_ratio = float(active_instrument.ratio)
+                            channel_scale = float(channel.scale)
+                            channel_polarity = float(channel.polarity)
+                        except (AttributeError, TypeError, ValueError, OverflowError):
+                            active_ratio = channel_scale = channel_polarity = float("nan")
+                        if (
+                            not isfinite(active_ratio) or active_ratio <= 0.0
+                            or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                            or not isfinite(channel_scale) or not isfinite(channel_polarity)
+                        ):
+                            diagnostics.append(f"{prefix}: active CT ratio or channel scale/polarity is invalid or stale.")
+                            continue
+                        provenance = sample.provenance
+                        expected_source_provenance = {
+                            "project_id": project.project_id,
+                            "activation_generation": lifecycle.activation_generation,
+                            "topology_revision": network_state.topology_revision,
+                            "ct_topology_revision": network_state.topology_revision,
+                            "ct_id": binding.instrument_id,
+                            "equipment_id": binding.source_equipment_id,
+                            "equipment_terminal_role": binding.source_endpoint_reference.terminal_role,
+                            "instrument_ratio": binding.instrument_ratio,
+                            "measurement_point_id": residual_configuration.measurement_point_id,
+                        }
+                        if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
+                            diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
+                            continue
+                        if residual_configuration.mode in {"NEUTRAL_CT", "CBCT"}:
+                            if (
+                                binding.metadata.get("residual_source_mode") != residual_configuration.mode
+                                or provenance.get("residual_source_mode") != residual_configuration.mode
+                                or phase != "N"
+                            ):
+                                diagnostics.append(f"{prefix}: direct neutral/CBCT source must explicitly declare its mode and neutral phase.")
+                                continue
+                        elif binding.metadata.get("residual_source_mode") is not None:
+                            diagnostics.append(f"{prefix}: three-phase sum source cannot declare a direct neutral/CBCT mode.")
+                            continue
+                        expected_direction = {
+                            "P1_P2": "P1_TO_P2",
+                            "P2_P1": "P2_TO_P1",
+                        }.get(getattr(getattr(active_instrument, "polarity", None), "value", getattr(active_instrument, "polarity", None)))
+                        if expected_direction is None or provenance.get("ct_positive_current_direction") != expected_direction:
+                            diagnostics.append(f"{prefix}: CT physical polarity provenance does not match the active CT.")
+                            continue
+                        normalized_sources[binding_id] = normalize_residual_current_source(
+                            sample,
+                            measurement_point_id=residual_configuration.measurement_point_id,
+                            instrument_ratio=active_ratio,
+                            channel_scale=channel_scale,
+                            channel_polarity=channel_polarity,
+                        )
+                    if len(normalized_sources) == len(expected_sources):
+                        try:
+                            residual_sample = resolve_residual_current(
+                                residual_configuration,
+                                normalized_sources,
+                            )
+                            relay_input = runtime.system.get_element(
+                                element_configuration.element_id
+                            ).function.get_input("residual_current")
+                            derived_source = relay_input.channel
+                            element_snapshots["residual_current"] = MappingProxyType({
+                                "channel_id": derived_source.id,
+                                "channel_identity": id(derived_source),
+                                "input_kind": "DERIVED_RESIDUAL_CURRENT",
+                                "value": residual_sample.value,
+                                "source_value": residual_sample.value,
+                                "timestamp": None,
+                                "quality": MeasurementQuality.UNKNOWN,
+                                "available": True,
+                                "usable": True,
+                                "validity": MeasurementValidity.VALID,
+                                "sample_sequence": None,
+                                "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                                "scenario_id": scenario_id,
+                                "binding_id": None,
+                                "source_binding_ids": residual_sample.source_binding_ids,
+                                "source_mode": residual_sample.source_mode,
+                                "measurement_point_id": residual_sample.measurement_point_id,
+                                "reference_basis_id": residual_sample.reference_basis_id,
+                                "provenance": MappingProxyType({
+                                    "project_id": project.project_id,
+                                    "activation_generation": lifecycle.activation_generation,
+                                    "topology_revision": residual_sample.topology_revision,
+                                    "scenario_id": scenario_id,
+                                    "measurement_point_id": residual_sample.measurement_point_id,
+                                    "source_mode": residual_sample.source_mode,
+                                    "source_binding_ids": residual_sample.source_binding_ids,
+                                    "reference_basis_id": residual_sample.reference_basis_id,
+                                    "primary_current_basis": "PRIMARY_AMPS",
+                                }),
+                            })
+                        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                            diagnostics.append(
+                                f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: residual-current composition failed closed: {exc}"
+                            )
             snapshots_by_element[element_configuration.element_id] = MappingProxyType(element_snapshots)
 
         unexpected = set(samples_by_binding) - expected_samples
