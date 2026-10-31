@@ -68,13 +68,7 @@ class ShortCircuitPreparation:
                 from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
                 from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
                 from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
-                graph = build_phase_domain_conductor_network(
-                    project_id=topology_snapshot.project_id,
-                    activation_generation=topology_snapshot.activation_generation,
-                    topology_revision=topology_snapshot.topology_revision,
-                    nodes=network.phase_domain_nodes,
-                    connections=network.phase_domain_connections,
-                )
+                graph = network.build_phase_domain_conductor_snapshot()
                 if phase_domain_sources is None:
                     from core.analysis.phase_domain_source_preparation import prepare_phase_domain_source_equivalents
                     sources = prepare_phase_domain_source_equivalents(network, graph)
