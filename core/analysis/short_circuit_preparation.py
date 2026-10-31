@@ -137,6 +137,61 @@ class ShortCircuitPreparation:
                     raise ValueError("Phase-domain case provenance does not match the captured project topology.")
                 if self.base_mva is None or not math.isclose(phase_domain_case.base_mva, float(self.base_mva), rel_tol=1e-9, abs_tol=1e-9):
                     raise ValueError("Phase-domain case and ShortCircuitPreparation must use the same explicit MVA base.")
+
+                # Bind every numerical source to a live, registered Core
+                # equipment owner. A graph node alone is not proof that an
+                # electrical source exists or is in service.
+                from core.solver.short_circuit.phase_domain_solver import (
+                    PhaseDomainSourceEquivalent,
+                    PhaseDomainMultiConductorSource,
+                )
+                for source in phase_domain_case.sources:
+                    source_node_ids = (
+                        (source.node_id,)
+                        if isinstance(source, PhaseDomainSourceEquivalent)
+                        else source.node_ids
+                    )
+                    source_nodes = tuple(
+                        phase_domain_case.graph.node(node_id)
+                        for node_id in source_node_ids
+                    )
+                    equipment_ids = {node.equipment_id for node in source_nodes}
+                    if len(equipment_ids) != 1 or None in equipment_ids:
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} must resolve to exactly one registered equipment owner."
+                        )
+                    equipment_id = next(iter(equipment_ids))
+                    try:
+                        equipment = network.get_by_identity(equipment_id)
+                    except (KeyError, TypeError) as exc:
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} references unregistered equipment {equipment_id!r}."
+                        ) from exc
+                    if equipment is None or str(getattr(equipment, "id", "")) != equipment_id:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} is not the canonical registered Network object."
+                        )
+                    equipment_type = str(getattr(equipment, "element_type", "")).strip().lower()
+                    if equipment_type not in {"grid", "generator", "motor"}:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} has unsupported source model type {equipment_type!r}."
+                        )
+                    if getattr(equipment, "in_service", None) is not True:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} is not explicitly in service."
+                        )
+                    if equipment_type == "motor" and getattr(equipment, "running", None) is not True:
+                        raise ValueError(
+                            f"Motor source {equipment_id!r} is not explicitly running; no motor contribution is admitted."
+                        )
+                    if any(node.terminal_role != "terminal" for node in source_nodes):
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} must attach to the authoritative terminal role."
+                        )
+                    if any(node.conductor_role not in {"A", "B", "C"} for node in source_nodes):
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} may inject only into explicitly declared phase conductors; neutral/PE source injection is unsupported."
+                        )
                 voltage_bases: dict[str, float] = {}
                 for bus_id in bus_ids:
                     bus = network.get_by_identity(bus_id)
