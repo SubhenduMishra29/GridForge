@@ -1316,3 +1316,14 @@ Verification:
 Remote source edits and static source review only. No tests/CI, Python syntax/
 import checks, topology runtime fixture, persistence round-trip, or numerical
 conductor-current calculation was run.
+
+
+## D15E — Physical conductor impedance preparation and branch-local current solution
+
+D15E adds a separate physical multi-conductor numerical preparation product. It converts explicit Line/Cable series impedance matrices from ohm/km to total ohms and per-unit on the declared three-phase MVA and line-line voltage base. Full mutual coupling is retained by matrix inversion. Explicit shunt-admittance matrices are converted from S/km to total siemens and per-unit; missing shunt data remains unavailable.
+
+The immutable prepared snapshot carries conductor matrix order and roles, branch and Bus identities, project/activation/topology provenance, physical length, study bases and source reference. FROM/TO Bus voltage bases must match for a Line/Cable primitive. Stale inventory, stale topology, missing study base, unsupported voltage-level transition or singular matrix fails closed.
+
+The branch-local current solver accepts complete explicit conductor-voltage vectors at both terminals and solves the full coupled series impedance equation. When shunt data exists it also calculates the two nominal-pi half-shunt terminal contributions. Without explicit shunt data it returns series current only; it does not treat missing shunt as zero.
+
+This phase does not create conductor nodes or infer neutral, earth, PE or screen return paths. Existing sequence-network fault results do not provide all conductor terminal potentials, so no physical conductor-current, neutral-CT or CBCT result is synthesized. Global phase-domain conductor-node network stamping and integration into fault-current execution remain subsequent work. NEUTRAL_CT and CBCT remain fail-closed.
