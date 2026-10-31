@@ -109,6 +109,8 @@ class ShortCircuitPreparation:
                     connections=network.phase_domain_connections,
                 )
                 authoritative_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                if not authoritative_topology.branches:
+                    raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
                 authoritative_impedances = prepare_physical_conductor_impedance_snapshot(
                     network, authoritative_topology, base_mva=float(self.base_mva)
                 )
