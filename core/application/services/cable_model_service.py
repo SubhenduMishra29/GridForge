@@ -78,7 +78,7 @@ class CableModelService(ModelServiceSupport):
         )
         if clear_conductor_system and conductor_system is not None:
             raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
-        if all(value is None for value in values):
+        if all(value is None for value in values) and not clear_conductor_system:
             raise DomainError(
                 code="NO_CABLE_UPDATE",
                 message="At least one mutable Cable property must be specified.",
@@ -114,7 +114,7 @@ class CableModelService(ModelServiceSupport):
             "b0_us_per_km": b0_us_per_km,
             "thermal_limit_mva": thermal_limit_mva,
             "conductor_count": conductor_count,
-            "conductor_system": None if clear_conductor_system else conductor_system,
+            "conductor_system": None if clear_conductor_system else (old["conductor_system"] if conductor_system is None else conductor_system),
         }
 
         def restore_snapshot() -> None:
