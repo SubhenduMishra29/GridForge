@@ -15922,3 +15922,65 @@ Verification:
     import integrity and end-to-end scenario execution remain unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-D11C-01 — END-TO-END ANSI 50N/51N RESIDUAL INPUT
+======================================================================
+
+Files:
+    core/protection/relay_input.py
+    core/protection/runtime.py
+    core/protection/input_contracts.py
+    core/protection/protection_element.py
+    core/protection/project_configuration.py
+    core/measurement/protection_scenario_measurement.py
+    core/application/application.py
+    core/protection/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Implementation:
+    - Added a typed DerivedRelayMeasurement source. It is not a
+      MeasurementChannel and is never registered in the physical channel
+      service.
+    - Runtime composes residual_current for 50N/51N only when an explicit
+      ResidualCurrentInputConfiguration exists.
+    - Enabled canonical complex-phasor CURRENT/A input contracts for 50N
+      and 51N, with source-set validation against persisted A/B/C or
+      direct neutral/CBCT binding identities.
+    - Application validates each detached source against the active
+      project, topology revision, CT/channel identities, CT ratio and
+      polarity, terminal current direction/units, explicit measurement
+      point, and source-mode declaration.
+    - Each CT-secondary sample is normalized once to signed primary
+      amperes using its own CT ratio and channel scale/polarity. The
+      resolver computes the complex phasor sum for THREE_PHASE_SUM.
+    - Application installs a detached derived residual snapshot with
+      source binding IDs and provenance. ProtectionElement verifies the
+      derived source identity and provenance before RelayInput evaluation.
+    - Existing 50N instantaneous pickup and 51N IEC inverse-time logic
+      consume the residual phasor without modifying physical channels.
+
+Configuration contract:
+    Every residual binding declares metadata.measurement_point_id equal
+    to the function's configured measurement point. Direct NEUTRAL_CT or
+    CBCT bindings additionally declare metadata.residual_source_mode as
+    the exact configured mode. THREE_PHASE_SUM requires three distinct
+    CT instruments and phase A/B/C channels.
+
+Boundary:
+    This enables the short-circuit scenario path only for source types
+    represented by the existing terminal-current solver records and
+    supported CT association adapter. It does not claim general live
+    telemetry integration, transformer vector-group compensation, or
+    unsupported/unbalanced terminal-current coverage. Direct neutral/CBCT
+    identity is an explicit persisted instrument-mode declaration; the
+    current CT domain model does not yet distinguish separate physical
+    neutral-CT and CBCT subclasses.
+
+Verification:
+    Remote source updates committed. No tests or CI run. Python syntax,
+    import integrity and end-to-end execution have not yet been verified
+    in a local runtime.
+
+======================================================================
