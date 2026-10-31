@@ -15890,3 +15890,35 @@ Verification:
 - Residual phasor resolution now requires PRIMARY_AMPS basis and explicit normalization provenance. Unequal CT ratios can be combined only after independent primary-current normalization.
 - The engineer-configured measurement_point_id is supplied explicitly and retained in provenance; no measurement point or protection zone is inferred.
 - Application multi-binding snapshot assembly, direct neutral/CBCT source-mode population and 50N/51N input-contract enablement remain outstanding. 50N/51N remain fail-closed. No tests or CI were run; remote source review only, syntax/import/runtime checks outstanding.
+
+======================================================================
+GF-PROT-D11B-01 — EXPLICIT RESIDUAL SOURCE-BINDING RELATION
+======================================================================
+
+Files:
+    core/protection/project_configuration.py
+
+Correction:
+    ProtectionProjectConfiguration now permits multiple physical
+    ProtectionMeasurementBinding records for the ANSI 50N/51N
+    residual_current RelayInput only when each binding ID is explicitly
+    declared by ResidualCurrentInputConfiguration (A/B/C source map or
+    the single direct source ID).
+
+    Ordinary physical RelayInput associations retain the strict
+    one-input/one-binding rule. Replacing function configuration cannot
+    orphan an existing residual source binding, and removing a binding
+    referenced by the residual input configuration is refused.
+
+Boundary:
+    This change establishes the persisted source-binding relationship;
+    it does not yet compose a derived RelayInput or enable 50N/51N
+    scenario evaluation. The function input contracts remain fail-closed
+    until Application snapshot assembly, derived-input identity checks,
+    and direct neutral/CBCT source validation are integrated.
+
+Verification:
+    Remote source update committed. No tests or CI run. Python syntax,
+    import integrity and end-to-end scenario execution remain unverified.
+
+======================================================================
