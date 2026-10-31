@@ -17487,3 +17487,47 @@ Verification:
     execution performed.
 
 ======================================================================
+======================================================================
+GF-SC-D15F-22
+======================================================================
+
+Scope:
+    Physical Generator neutral-source and earth-return integration.
+
+Correction:
+    - Added a grounded multi-conductor source primitive with three
+      internal phase-to-neutral source impedances and a distinct physical
+      neutral terminal. Solver stamping uses a phase-to-neutral incidence
+      matrix, so the source neutral participates in nodal KCL.
+    - Generator Z0 is machine-only in the phase source matrix; neutral
+      grounding impedance is no longer folded into 3*Zn there.
+    - Automatic Generator source preparation requires one explicit N
+      equipment-terminal node and exactly one source-referenced
+      GROUND_ELECTRODE connection. Its complex impedance must match the
+      Generator neutral-grounding model value, and the local earth node
+      must have an explicit graph path to EARTH_REFERENCE.
+    - Grounded source current results include A/B/C phase currents and
+      the balancing neutral current. The grounding electrode connection
+      current is calculated by the physical connection-current result path.
+
+Fail-closed boundaries:
+    - Ideal/solid neutral grounding is rejected because this solver does
+      not yet resolve individual current through zero-ohm graph bonds.
+    - Grid external source grounding remains represented by its declared
+      Z0 contract; a separate physical Grid neutral/earth source port is
+      not yet implemented.
+    - PE/screen return paths, multiple-electrode current division,
+      ideal-bond current recovery, and complete source-to-earth current
+      reconciliation remain open.
+    - No source grounding is inferred from the Grid grounded flag or
+      Generator neutral_grounded flag alone.
+
+Verification:
+    - Remote source edits and register entry committed. No tests/CI,
+      syntax/import checks, numerical fixtures, or end-to-end study
+      execution were run.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
+
+======================================================================
