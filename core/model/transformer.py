@@ -75,6 +75,7 @@ class Transformer(Branch):
         "_lv_neutral_grounding_impedance_ohm",
         "_hv_terminal_role", "_lv_terminal_role", "_impedance_reference_winding",
         "_zero_sequence_resistance_ohm", "_zero_sequence_reactance_ohm",
+        "_core_construction", "_zero_sequence_test_basis",
     )
 
     def __init__(
@@ -98,6 +99,8 @@ class Transformer(Branch):
         impedance_reference_winding: str | None = None,
         zero_sequence_resistance_ohm: float | None = None,
         zero_sequence_reactance_ohm: float | None = None,
+        core_construction: TransformerCoreConstruction | str | None = None,
+        zero_sequence_test_basis: str | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -171,8 +174,12 @@ class Transformer(Branch):
         self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(hv_terminal_role, lv_terminal_role)
         self._impedance_reference_winding = self._normalize_reference_winding(impedance_reference_winding)
         self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(zero_sequence_resistance_ohm, zero_sequence_reactance_ohm)
+        self._core_construction = self._normalize_core_construction(core_construction)
+        self._zero_sequence_test_basis = self._normalize_zero_sequence_test_basis(zero_sequence_test_basis)
         if self._zero_sequence_resistance_ohm is not None and (self._impedance_reference_winding is None or self._hv_terminal_role is None):
             raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
+        if self._zero_sequence_resistance_ohm is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
+            raise ValueError("Transformer Z0 requires explicit core_construction and zero_sequence_test_basis.")
 
     @staticmethod
     def _validate_terminal_mapping(hv_role: str | None, lv_role: str | None) -> tuple[str | None, str | None]:
@@ -267,6 +274,32 @@ class Transformer(Branch):
         if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag) or impedance.real < 0.0:
             raise ValueError(f"{side} neutral grounding impedance must be finite with non-negative resistance.")
         return impedance
+    @staticmethod
+    def _normalize_core_construction(value: TransformerCoreConstruction | str | None) -> TransformerCoreConstruction | None:
+        if value is None:
+            return None
+        try:
+            return value if isinstance(value, TransformerCoreConstruction) else TransformerCoreConstruction(str(value).strip().upper())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("core_construction must be THREE_LIMB, FIVE_LIMB or SHELL_FORM.") from exc
+
+    @staticmethod
+    def _normalize_zero_sequence_test_basis(value: str | None) -> str | None:
+        if value is None:
+            return None
+        result = str(value).strip().upper()
+        if result not in {"MEASURED_ZERO_SEQUENCE_TEST", "MANUFACTURER_ZERO_SEQUENCE_DATA"}:
+            raise ValueError("zero_sequence_test_basis must be MEASURED_ZERO_SEQUENCE_TEST or MANUFACTURER_ZERO_SEQUENCE_DATA.")
+        return result
+
+    @property
+    def core_construction(self) -> TransformerCoreConstruction | None:
+        return self._core_construction
+
+    @property
+    def zero_sequence_test_basis(self) -> str | None:
+        return self._zero_sequence_test_basis
+
     @property
     def element_type(self) -> str:
         return self.TYPE
@@ -581,6 +614,8 @@ class Transformer(Branch):
                 "impedance_reference_winding": self._impedance_reference_winding,
                 "zero_sequence_resistance_ohm": self._zero_sequence_resistance_ohm,
                 "zero_sequence_reactance_ohm": self._zero_sequence_reactance_ohm,
+                "core_construction": self._core_construction,
+                "zero_sequence_test_basis": self._zero_sequence_test_basis,
                 "core_construction": self._core_construction,
                 "zero_sequence_test_basis": self._zero_sequence_test_basis,
             }
