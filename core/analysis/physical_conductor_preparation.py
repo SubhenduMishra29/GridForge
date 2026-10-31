@@ -91,10 +91,10 @@ class PreparedPhysicalConductorBranch:
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive.")
             object.__setattr__(self, name, value)
-        if isinstance(self.activation_generation, bool) or self.activation_generation < 1:
-            raise ValueError("activation_generation must be positive.")
-        if isinstance(self.topology_revision, bool) or self.topology_revision < 0:
-            raise ValueError("topology_revision must be non-negative.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
+            raise ValueError("topology_revision must be a non-negative integer.")
         for name in ("series_impedance_ohm", "series_impedance_pu", "series_admittance_pu"):
             object.__setattr__(self, name, _matrix(getattr(self, name), name, size=size))
         if (self.shunt_admittance_siemens is None) != (self.shunt_admittance_pu is None):
@@ -125,10 +125,10 @@ class PhysicalConductorImpedanceSnapshot:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
             raise ValueError("project_id must be non-empty.")
         object.__setattr__(self, "project_id", self.project_id.strip())
-        if isinstance(self.activation_generation, bool) or self.activation_generation < 1:
-            raise ValueError("activation_generation must be positive.")
-        if isinstance(self.topology_revision, bool) or self.topology_revision < 0:
-            raise ValueError("topology_revision must be non-negative.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
+            raise ValueError("topology_revision must be a non-negative integer.")
         branches = tuple(self.branches)
         if any(not isinstance(item, PreparedPhysicalConductorBranch) for item in branches):
             raise TypeError("branches must contain PreparedPhysicalConductorBranch records.")
@@ -214,7 +214,7 @@ def prepare_physical_conductor_impedance_snapshot(
         branch = network.get_by_identity(item.equipment_id)
         if branch is None or str(getattr(branch, "id", "")) != item.equipment_id:
             raise ValueError(f"Physical conductor owner {item.equipment_id!r} is not registered.")
-        if str(getattr(branch, "conductor_system", None)) == "None" or getattr(branch, "conductor_system", None) is not item.conductor_system:
+        if getattr(branch, "conductor_system", None) is not item.conductor_system:
             raise ValueError(f"Physical conductor inventory changed after topology preparation for {item.equipment_id!r}.")
         from_bus = network.get_by_identity(item.from_bus_id)
         to_bus = network.get_by_identity(item.to_bus_id)
@@ -233,6 +233,9 @@ def prepare_physical_conductor_impedance_snapshot(
         z_base = kv_from * kv_from / base_mva
         z_pu = z_ohm / z_base
         try:
+            condition_number = float(np.linalg.cond(z_pu))
+            if not math.isfinite(condition_number) or condition_number > 1.0e12:
+                raise ValueError(f"Physical conductor series impedance matrix for {item.equipment_id!r} is numerically ill-conditioned.")
             y_pu = np.linalg.inv(z_pu)
         except np.linalg.LinAlgError as exc:
             raise ValueError(f"Physical conductor series impedance matrix for {item.equipment_id!r} is singular.") from exc
