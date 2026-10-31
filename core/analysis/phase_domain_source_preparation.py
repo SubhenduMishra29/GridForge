@@ -67,8 +67,8 @@ def prepare_phase_domain_source_equivalents(
     for that terminal, an endpoint Bus with a matching declared impedance
     voltage base, and complete Z0/Z1/Z2 plus explicit source voltage data.
     A Grid's Z0 must include its external grounding contribution. A
-    Generator's Z0 is machine-only; 3*Zn is added from its explicit neutral
-    grounding impedance.
+    Generator's Z0 is machine-only; neutral grounding is represented by a
+    separate physical GROUND_ELECTRODE connection.
     """
     if not isinstance(graph, PhaseDomainConductorNetwork):
         raise TypeError("graph must be PhaseDomainConductorNetwork.")
