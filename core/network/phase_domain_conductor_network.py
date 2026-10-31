@@ -582,7 +582,7 @@ def build_phase_domain_conductor_network_from_sld(
                     conductor_role=conductor_role,
                     conductor_id=stable_id("breaker-pole", breaker.id, conductor_role),
                     equipment_id=breaker.id,
-                    terminal_role=terminal_role,
+                    terminal_role=terminal.role,
                     bus_id=attachment.bus_id,
                     topology_reference=TopologyEndpointReference.from_terminal(terminal_ref),
                 ))
