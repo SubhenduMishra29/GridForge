@@ -363,6 +363,10 @@ class Transformer(Branch):
     def zero_sequence_test_configuration(self):
         return getattr(self, "_zero_sequence_test_configuration", None)
 
+    @property
+    def zero_sequence_two_winding_test_data(self):
+        return getattr(self, "_zero_sequence_two_winding_test_data", None)
+
     @staticmethod
     def _normalize_zero_sequence_two_winding_test_data(value):
         if value is None:
