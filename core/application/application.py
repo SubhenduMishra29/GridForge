@@ -1844,6 +1844,12 @@ class Application:
         revision_before = self.revision
         active_network = lifecycle.network
         network_snapshot = deserialize_network(serialize_network(active_network))
+        # Project scope and activation generation are runtime provenance, not
+        # persisted Network engineering state. Restore them on the detached
+        # study copy before rebuilding its TopologySnapshot so phase-domain
+        # preparation can verify its provenance against the captured project.
+        network_snapshot.project_id = project_id
+        network_snapshot.activation_generation = activation_generation
         # Canonical persistence omits runtime topology revision counters. A
         # detached study snapshot must retain the exact active Network revision;
         # reconstruction can replay attachment mutations and change its counter.
