@@ -16288,3 +16288,48 @@ Verification:
     were run. Runtime and end-to-end earth-fault execution remain unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D14G-01 — COMPONENT-AWARE SEQUENCE-NETWORK SOLVABILITY
+======================================================================
+
+Files:
+    core/analysis/sequence_network_preparation.py
+    core/analysis/short_circuit_preparation.py
+    core/solver/short_circuit/sequence_snapshot.py
+    core/solver/short_circuit/unsymmetrical_fault.py
+    core/solver/short_circuit/short_circuit_solver.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Builds sequence-conducting connected components independently for
+      positive, negative and zero sequence. A branch joins two Buses only
+      when its requested sequence impedance is explicitly available.
+    - Treats source impedances and explicit grounding shunts as component
+      anchors. Each component is inverted independently when its Ybus block
+      is nonsingular.
+    - Retains floating/singular components as unavailable Bus-index sets;
+      no pseudo-inverse, artificial ground, or invented impedance is used.
+    - Carries unavailable-component metadata into the immutable sequence
+      snapshot and validates its sequence names and Bus-index bounds.
+    - Rejects a fault only if the fault Bus lacks a required sequence:
+      LL uses positive/negative; LG and LLG require positive/negative/zero.
+    - Suppresses contribution and terminal-current records for equipment
+      whose required sequence endpoints are in unavailable components.
+      Existing contribution coverage reports those omissions as partial.
+
+Boundary:
+    A transformer without a supported zero-sequence transfer primitive
+    does not connect its HV/LV Buses in Z0. A one-sided grounded-wye shunt
+    grounds only its configured Bus. Grounded-wye/grounded-wye transfer,
+    transformer Z0 terminal currents and earth-fault relay measurement are
+    still not implemented.
+
+Verification:
+    Remote source review and SHA verification only. No tests/CI, Python
+    syntax/import checks, numerical component fixtures or solver execution
+    were run. Numerical correctness remains unverified at runtime.
+
+======================================================================
