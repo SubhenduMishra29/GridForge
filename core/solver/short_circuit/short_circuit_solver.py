@@ -99,7 +99,7 @@ class ShortCircuitSolver:
             return None
         fault_index = self.input.fault_bus_index
         voltages: dict[str, np.ndarray] = {}
-        sequences = ("positive",) if self.input.fault_type is FaultType.THREE_PHASE else ("positive", "negative", "zero")
+        sequences = self._required_for_fault()
         fault_currents = typed["sequence_currents"]
         names = {"positive": "I1", "negative": "I2", "zero": "I0"}
         for sequence in sequences:
@@ -182,7 +182,10 @@ class ShortCircuitSolver:
         equipment: dict[str, ShortCircuitEquipmentCurrent] = {}
         branches: dict[str, ShortCircuitBranchCurrent] = {}
 
+        required = self._required_for_fault()
         for source in snapshot.sources:
+            if not all(snapshot.is_bus_available(name, source.bus_index) for name in required):
+                continue
             sequence_currents = self._source_current_sequences(source, voltages)
             if sequence_currents is None:
                 continue
@@ -211,6 +214,12 @@ class ShortCircuitSolver:
             )
 
         for branch in snapshot.branches:
+            if not all(
+                snapshot.is_bus_available(name, index)
+                for name in required
+                for index in (branch.from_bus_index, branch.to_bus_index)
+            ):
+                continue
             sequence_currents = self._branch_current_sequences(branch, voltages)
             if sequence_currents is None:
                 continue
@@ -253,7 +262,18 @@ class ShortCircuitSolver:
             return {}, ContributionStatus.UNAVAILABLE, ("Solved sequence Bus voltages are unavailable for terminal-current calculation.",)
         records: dict[str, ShortCircuitTerminalCurrent] = {}
         diagnostics: list[str] = []
+        required = self._required_for_fault()
         for branch in snapshot.branches:
+            if not all(
+                snapshot.is_bus_available(name, index)
+                for name in required
+                for index in (branch.from_bus_index, branch.to_bus_index)
+            ):
+                diagnostics.append(
+                    f"Terminal currents unavailable for '{branch.branch_id}': "
+                    "one or both terminals belong to an ungrounded sequence-network component."
+                )
+                continue
             if branch.equipment_type == "Transformer":
                 transformer_currents = self._transformer_terminal_current_sequences(branch, voltages)
                 if transformer_currents is None:
