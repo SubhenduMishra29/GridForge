@@ -16497,3 +16497,28 @@ Verification:
     production-verified.
 
 ======================================================================
+
+D14I-03 — Transformer terminal CT / residual-current integration hardening
+    - Audited the D14I HV/LV transformer terminal-current records through the
+      configured CT terminal adapter and ANSI 50N/51N residual-input path.
+    - The adapter uses the measured equipment terminal Bus base, preserves
+      INTO_EQUIPMENT and sequence-model provenance, applies CT-side orientation
+      and physical CT polarity once, then converts primary amperes to CT
+      secondary amperes.
+    - Application normalizes each configured phase CT sample to signed
+      primary amperes and sums the complex A/B/C phasors.
+    - Added fail-closed validation that all three A/B/C residual-current
+      sources reference the same canonical equipment terminal identity
+      (equipment ID plus terminal role), in addition to the existing explicit
+      measurement-point, project, topology, CT, phase and ratio checks. This
+      prevents a single residual sum from combining currents measured at
+      different equipment terminals.
+    - No protection zone is inferred and no configured CT endpoint is moved.
+
+Verification:
+    Remote source review and GitHub source edit only. No tests/CI, Python
+    syntax/import checks, transformer numerical fixture, CT adapter execution,
+    or end-to-end ANSI 50N/51N scenario execution were run. Not
+    production-verified.
+
+======================================================================
