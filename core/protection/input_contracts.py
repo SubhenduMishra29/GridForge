@@ -199,16 +199,18 @@ def validate_protection_input_contracts(
             if residual is None:
                 diagnostics.append(f"{prefix}: explicit residual_current_input configuration is required.")
                 continue
-            if residual.mode != "THREE_PHASE_SUM":
-                if not residual.construction_complete:
-                    diagnostics.append(
-                        f"{prefix}: {residual.mode} requires a mode-matched explicit physical construction contract; a direct binding ID alone is insufficient."
-                    )
+            direct_mode = residual.mode in {"NEUTRAL_CT", "CBCT"}
+            if direct_mode and not residual.construction_complete:
                 diagnostics.append(
-                    f"{prefix}: {residual.mode} remains unavailable because the short-circuit model has no neutral-conductor current primitive or CBCT multi-conductor window-current assembly."
+                    f"{prefix}: {residual.mode} requires a complete, mode-matched physical construction contract."
                 )
                 continue
-            expected_ids = dict(residual.phase_binding_ids or {})
+
+            expected_ids = (
+                {"N": residual.direct_binding_id}
+                if direct_mode
+                else dict(residual.phase_binding_ids or {})
+            )
             configured_bindings = {
                 binding.binding_id: binding
                 for binding in getattr(configuration, "measurement_bindings", ())
@@ -220,6 +222,7 @@ def validate_protection_input_contracts(
                     f"{prefix}: residual-current binding set must exactly match the persisted {residual.mode} source configuration."
                 )
                 continue
+
             source_channels = set()
             for phase, binding_id in expected_ids.items():
                 binding = configured_bindings[binding_id]
@@ -229,9 +232,42 @@ def validate_protection_input_contracts(
                     diagnostics.append(f"{detail}: residual-current source must be a current measurement.")
                 if binding.phase_or_sequence.strip().upper() != phase:
                     diagnostics.append(f"{detail}: configured source phase/sequence does not match its declared residual role.")
-                expected_member = {"A": "Ia", "B": "Ib", "C": "Ic"}[phase]
-                if binding.result_quantity != f"phase_currents.{expected_member}":
-                    diagnostics.append(f"{detail}: result_quantity must select the solver's {expected_member} phase-current member.")
+
+                if direct_mode:
+                    construction = residual.construction
+                    endpoint = binding.source_endpoint_reference
+                    if not endpoint.is_terminal:
+                        diagnostics.append(f"{detail}: direct Neutral CT/CBCT requires an explicit equipment-terminal endpoint.")
+                    if construction is None:
+                        diagnostics.append(f"{detail}: direct residual-current construction is missing.")
+                    elif residual.mode == "NEUTRAL_CT":
+                        if (
+                            binding.source_equipment_id != construction.equipment_id
+                            or endpoint.object_id != construction.equipment_id
+                            or endpoint.terminal_role != construction.terminal_role
+                        ):
+                            diagnostics.append(f"{detail}: Neutral CT construction does not match the bound equipment terminal.")
+                        expected_quantity = f"conductor_currents.{construction.conductor_id}"
+                        if binding.result_quantity != expected_quantity:
+                            diagnostics.append(f"{detail}: Neutral CT result_quantity must identify its configured conductor current.")
+                    else:
+                        members = tuple(construction.conductors)
+                        if not members or any(
+                            item.equipment_id != binding.source_equipment_id
+                            or item.terminal_role != endpoint.terminal_role
+                            for item in members
+                        ):
+                            diagnostics.append(f"{detail}: every CBCT conductor must belong to the bound equipment terminal.")
+                        expected_quantity = f"conductor_currents.CBCT:{construction.window_id}"
+                        if binding.result_quantity != expected_quantity:
+                            diagnostics.append(f"{detail}: CBCT result_quantity must identify its exact configured window.")
+                    if binding.metadata.get("residual_source_mode") != residual.mode:
+                        diagnostics.append(f"{detail}: binding metadata must explicitly declare residual_source_mode={residual.mode!r}.")
+                else:
+                    expected_member = {"A": "Ia", "B": "Ib", "C": "Ic"}[phase]
+                    if binding.result_quantity != f"phase_currents.{expected_member}":
+                        diagnostics.append(f"{detail}: result_quantity must select the solver's {expected_member} phase-current member.")
+
                 if channel is None:
                     diagnostics.append(f"{detail}: physical MeasurementChannel is absent from the authoritative registry.")
                     continue
@@ -244,11 +280,11 @@ def validate_protection_input_contracts(
                     diagnostics.append(f"{detail}: source channel must expose amperes; implicit conversion is forbidden.")
                 if getattr(channel, "source_id", None) != binding.instrument_id:
                     diagnostics.append(f"{detail}: source channel instrument identity does not match its binding.")
-                if residual.mode != "THREE_PHASE_SUM":
-                    if binding.metadata.get("residual_source_mode") != residual.mode:
-                        diagnostics.append(f"{detail}: binding metadata must explicitly declare residual_source_mode={residual.mode!r}.")
                 if binding.metadata.get("measurement_point_id") != residual.measurement_point_id:
                     diagnostics.append(f"{detail}: binding metadata must match the configured measurement_point_id.")
+
+            if direct_mode and len(source_channels) != 1:
+                diagnostics.append(f"{prefix}: direct Neutral CT/CBCT requires exactly one authoritative physical MeasurementChannel.")
             if residual.mode == "THREE_PHASE_SUM" and len(source_channels) != 3:
                 diagnostics.append(f"{prefix}: A/B/C residual sum requires three distinct physical MeasurementChannels.")
             continue
