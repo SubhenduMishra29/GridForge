@@ -16700,3 +16700,58 @@ Verification:
     Remote source edits and static source review only. No tests/CI, Python
     syntax/import checks, topology runtime fixture, persistence round-trip,
     or numerical conductor-current calculation was run.
+
+
+======================================================================
+GF-SC-D15E — PHYSICAL CONDUCTOR IMPEDANCE PREPARATION AND BRANCH-LOCAL CURRENT SOLUTION
+======================================================================
+
+Files:
+    core/analysis/physical_conductor_preparation.py
+    core/analysis/sequence_network_preparation.py
+    core/analysis/__init__.py
+    core/solver/short_circuit/sequence_snapshot.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Changes:
+    - Added immutable PreparedPhysicalConductorBranch and
+      PhysicalConductorImpedanceSnapshot contracts. The snapshot preserves
+      conductor IDs, matrix order, conductor roles, branch and Bus identities,
+      length, MVA/kV bases, project identity, activation generation, topology
+      revision and source reference.
+    - Converts the engineer-supplied series impedance matrix from ohm/km to
+      total ohms and per-unit using Zbase = kV_LL^2 / MVA. Full mutual
+      coupling is retained through matrix inversion.
+    - Converts explicit shunt-admittance matrices from S/km to total siemens
+      and per-unit. Missing shunt data remains unavailable.
+    - Requires matching FROM/TO Bus voltage bases and fresh canonical
+      project/activation/topology provenance. Stale inventory, singular
+      matrices, missing study bases and unsupported voltage transitions fail
+      closed.
+    - Adds a branch-local coupled current solver using complete, explicit
+      conductor-voltage vectors at both terminals. With explicit shunt data,
+      it calculates nominal-pi half-shunt terminal contributions. Without
+      shunt data, it returns series currents only and leaves terminal totals
+      unavailable.
+    - SequenceNetworkPreparation carries the detached physical impedance
+      snapshot separately from scalar positive/negative/zero sequence data.
+      SequenceNetworkSnapshot freezes and validates topology provenance and
+      complete active-branch coverage.
+
+Engineering boundary:
+    - No independent conductor nodes, neutral bonds, earth/PE/screen
+      terminations, or global conductor-domain Ybus are created.
+    - No neutral current is inferred from phase-current summation. No earth,
+      screen or PE return path is inferred.
+    - Existing sequence fault results do not provide all conductor terminal
+      potentials. Therefore no physical conductor-current, neutral-CT or
+      CBCT result is synthesized. Global phase-domain node stamping and
+      fault-solver integration remain subsequent work. NEUTRAL_CT and CBCT
+      remain fail-closed.
+
+Verification:
+    Remote source edits only. No tests/CI were run, per repository workflow.
+    Python syntax, import integrity, numerical matrix fixtures, persistence
+    round-trip and end-to-end execution remain unverified. Source-integrated,
+    not production-verified.
