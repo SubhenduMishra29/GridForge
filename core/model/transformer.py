@@ -534,6 +534,11 @@ class Transformer(Branch):
         self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(
             self._lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV"
         )
+        self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(self._hv_terminal_role, self._lv_terminal_role)
+        self._impedance_reference_winding = self._normalize_reference_winding(self._impedance_reference_winding)
+        self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm)
+        if self._zero_sequence_resistance_ohm is not None and (self._impedance_reference_winding is None or self._hv_terminal_role is None):
+            raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
         return True
 
     def summary(self) -> dict[str, Any]:
@@ -553,6 +558,11 @@ class Transformer(Branch):
                 "lv_winding_connection": self._lv_winding_connection,
                 "hv_neutral_grounding_impedance_ohm": self._hv_neutral_grounding_impedance_ohm,
                 "lv_neutral_grounding_impedance_ohm": self._lv_neutral_grounding_impedance_ohm,
+                "hv_terminal_role": self._hv_terminal_role,
+                "lv_terminal_role": self._lv_terminal_role,
+                "impedance_reference_winding": self._impedance_reference_winding,
+                "zero_sequence_resistance_ohm": self._zero_sequence_resistance_ohm,
+                "zero_sequence_reactance_ohm": self._zero_sequence_reactance_ohm,
             }
         )
         return summary
