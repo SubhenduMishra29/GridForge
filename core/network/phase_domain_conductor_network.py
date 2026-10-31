@@ -243,6 +243,12 @@ class PhaseDomainConductorNetwork:
                     or PhaseDomainNodeKind.FAULT_NODE in {left.kind, right.kind}
                 ):
                     raise ValueError("GROUND_ELECTRODE must join one physical conductor node to one local EARTH_NODE.")
+                conductor = right if left.kind is PhaseDomainNodeKind.EARTH_NODE else left
+                if conductor.conductor_role not in {"N", "PE", "SHIELD", "OTHER"}:
+                    raise ValueError("GROUND_ELECTRODE cannot permanently ground a phase or pilot conductor; use an explicit fault connection for fault paths.")
+            if edge.kind is PhaseDomainConnectionKind.BOND:
+                if {left.conductor_role, right.conductor_role} & {"A", "B", "C", "PILOT"}:
+                    raise ValueError("BOND cannot join a phase or pilot conductor; use explicit fault connections for fault paths.")
             if edge.kind is PhaseDomainConnectionKind.EARTH_RETURN:
                 earth_kinds = {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}
                 if left.kind not in earth_kinds or right.kind not in earth_kinds or PhaseDomainNodeKind.EARTH_NODE not in {left.kind, right.kind}:
