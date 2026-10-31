@@ -15849,3 +15849,5 @@ Verification:
 - Both terminal currents are positive into the transformer at their respective physical terminals; the Branch contribution retains FROM-terminal orientation. Records preserve terminal role and Bus identity.
 - Transformer terminal-current output is restricted to balanced three-phase faults with the positive-sequence primitive. Unbalanced transformer currents remain unavailable because winding connection/vector-group and neutral-grounding sequence paths are not modeled. Magnetising/shunt and tertiary-winding currents remain unsupported.
 - No tests or CI were run. Remote source-level review only; Python syntax/import/runtime checks remain outstanding.
+
+- External SequenceNetwork inputs are rejected for tapped/phase-shifting transformers unless they carry the canonical FROM_SIDE_COMPLEX_TAP_V1 convention marker; this prevents terminal-current equations from consuming a matrix stamped under an unknown tap convention.
