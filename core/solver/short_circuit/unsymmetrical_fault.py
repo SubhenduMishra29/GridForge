@@ -38,19 +38,34 @@ class UnsymmetricalFault:
             raise ValueError("Fault impedance real part cannot be negative.")
         return value
 
-    def _validate_bus_index(self) -> int:
+    def _validate_bus_index(self, required_sequences: tuple[str, ...] = ("positive", "negative", "zero")) -> int:
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise ValueError("A deterministic fault_bus_index is required for network sequence calculations.")
         index = int(self.fault_bus_index)
-        for sequence in ("positive", "negative", "zero"):
+        for sequence in required_sequences:
             matrix = self.sequence_snapshot.get_matrix(sequence)
             if not 0 <= index < matrix.shape[0]:
                 raise IndexError(f"fault_bus_index {index} is outside the {sequence}-sequence matrix.")
+            if not self.sequence_snapshot.is_bus_available(sequence, index):
+                raise ValueError(f"Fault Bus index {index} has no grounded {sequence}-sequence network component.")
         return index
 
-    def _get_sequence_impedances(self, elements: Iterable[Any] | None = None) -> tuple[complex, complex, complex]:
-        index = self._validate_bus_index()
-        return tuple(self.sequence_snapshot.get_driving_point_impedance(sequence, index) for sequence in ("positive", "negative", "zero"))  # type: ignore[return-value]
+    def _get_sequence_impedances(
+        self,
+        elements: Iterable[Any] | None = None,
+        *,
+        required_sequences: tuple[str, ...] = ("positive", "negative", "zero"),
+    ) -> tuple[complex, complex, complex]:
+        index = self._validate_bus_index(required_sequences)
+        values = {
+            sequence: self.sequence_snapshot.get_driving_point_impedance(sequence, index)
+            for sequence in required_sequences
+        }
+        return (
+            values.get("positive", 0.0j),
+            values.get("negative", 0.0j),
+            values.get("zero", 0.0j),
+        )
 
     @staticmethod
     def _polar(value: complex) -> tuple[float, float]:
@@ -81,7 +96,9 @@ class UnsymmetricalFault:
     def calculate_ll_fault(self, elements: Iterable[Any] = (), Vprefault: Any = 1.0 + 0.0j, Zf: Any = 0.0 + 0.0j) -> dict:
         Vprefault = self._validate_complex(Vprefault, "Vprefault")
         Zf = self._validate_fault_impedance(Zf)
-        Z1, Z2, Z0 = self._get_sequence_impedances(elements)
+        Z1, Z2, Z0 = self._get_sequence_impedances(
+            elements, required_sequences=("positive", "negative")
+        )
         total = Z1 + Z2 + Zf
         if abs(total) <= np.finfo(float).eps:
             raise ValueError("LL total sequence impedance is zero; fault current is undefined.")
