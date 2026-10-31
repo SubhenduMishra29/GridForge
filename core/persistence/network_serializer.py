@@ -172,7 +172,7 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
         raise NetworkSerializationError(
             f"Connectivity schema must be an integer, got {connectivity_schema!r}."
         )
-    if connectivity_schema not in {1, 2, CONNECTIVITY_SERIALIZATION_VERSION}:
+    if connectivity_schema not in {1, 2, 3, CONNECTIVITY_SERIALIZATION_VERSION}:
         raise NetworkSerializationError(
             f"Unsupported project connectivity schema: {connectivity_schema!r}"
         )
