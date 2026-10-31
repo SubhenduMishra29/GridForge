@@ -1460,3 +1460,16 @@ SimpleWire, Junction and phase-domain graph collections while updating the
 schema marker. Schema 1 and 2 migrations continue to initialize the
 phase-domain collections as empty. The network deserializer retains
 read-compatibility for schemas 1, 2 and 3 during migration.
+
+
+### D15F-08 — Direct CT construction support boundary
+
+Direct Neutral CT and CBCT construction contracts now require a supported
+Line/Cable FROM or TO terminal. A Neutral CT identifies the neutral conductor
+by conductor_id; the terminal role remains the owning branch terminal role.
+Every CBCT window conductor must belong to the same equipment terminal.
+Equipment-neutral terminals (for example, transformer neutral terminals)
+remain fail-closed until the corresponding multi-conductor equipment
+primitive and terminal-current result contract are implemented. This avoids
+accepting a construction that the current Line/Cable phase-domain solver
+cannot execute.
