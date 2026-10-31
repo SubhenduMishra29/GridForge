@@ -50,6 +50,7 @@ class SequenceNetworkPreparation:
         sequence = SequenceNetwork()
         branch_data: list[tuple[int, int, dict[str, complex | None], str, complex]] = []
         transformer_zero_shunts: list[tuple[int, TransformerZeroSequenceShunt]] = []
+        transformer_zero_two_bus_stamps: list[Any] = []
 
         for element in self._branch_elements():
             if not bool(getattr(element, "in_service", True)):
@@ -73,6 +74,20 @@ class SequenceNetworkPreparation:
                     classify_transformer_zero_sequence,
                 )
                 topology = classify_transformer_zero_sequence(element)
+                if len(topology.grounded_winding_sides) == 2:
+                    from core.analysis.transformer_zero_sequence_t_equivalent import build_transformer_zero_sequence_two_bus_stamp
+                    hv_role = str(getattr(element.hv_terminal_role, "value", element.hv_terminal_role)).strip().upper()
+                    lv_role = str(getattr(element.lv_terminal_role, "value", element.lv_terminal_role)).strip().upper()
+                    hv_bus = terminal_bus_by_role.get(hv_role)
+                    lv_bus = terminal_bus_by_role.get(lv_role)
+                    if hv_bus is None or lv_bus is None:
+                        raise ValueError(f"Transformer '{element_id}' HV/LV terminals do not resolve to canonical Buses.")
+                    stamp = build_transformer_zero_sequence_two_bus_stamp(
+                        element, hv_bus, lv_bus, base_mva=self._require_base(),
+                        hv_terminal_role=hv_role, lv_terminal_role=lv_role,
+                        hv_bus_index=index[str(hv_bus.id)], lv_bus_index=index[str(lv_bus.id)],
+                    )
+                    transformer_zero_two_bus_stamps.append(stamp)
                 if topology.path is TransformerZeroSequencePath.GROUNDED_WYE_SIDE_RETURN:
                     side = topology.grounded_winding_sides[0]
                     declared_terminal_role = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
@@ -135,8 +150,13 @@ class SequenceNetworkPreparation:
                 [(bus_index, equivalent.impedance_pu) for bus_index, equivalent in transformer_zero_shunts]
                 if name == "zero" else []
             )
+            coupled_stamps = (
+                [(item.hv_bus_index, item.lv_bus_index, item.y_hh_pu, item.y_hl_pu, item.y_ll_pu) for item in transformer_zero_two_bus_stamps]
+                if name == "zero" else []
+            )
             matrix, unavailable = self._build_matrix(
-                len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps
+                len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps,
+                coupled_stamps=coupled_stamps,
             )
             sequence.set_matrix(name, matrix)
             if not hasattr(sequence, "unavailable_bus_indices"):
@@ -145,6 +165,7 @@ class SequenceNetworkPreparation:
         sequence.transformer_zero_sequence_shunts = tuple(
             equivalent for _, equivalent in transformer_zero_shunts
         )
+        sequence.transformer_zero_sequence_two_bus_stamps = tuple(transformer_zero_two_bus_stamps)
         # Detached preparation can verify that this matrix uses the same
         # from-side complex-tap convention as transformer terminal results.
         sequence.transformer_tap_convention = "FROM_SIDE_COMPLEX_TAP_V1"
@@ -255,6 +276,7 @@ class SequenceNetworkPreparation:
         sequence: str,
         *,
         shunt_stamps: list[tuple[int, complex]] | None = None,
+        coupled_stamps: list[tuple[int, int, complex, complex, complex]] | None = None,
     ) -> tuple[np.ndarray, tuple[int, ...]]:
         """Build component-wise Zbus matrices and identify ungrounded islands.
 
@@ -284,6 +306,19 @@ class SequenceNetworkPreparation:
                 y[j, j] += admittance
                 adjacency[i].add(j)
                 adjacency[j].add(i)
+
+        for i, j, y_ii, y_ij, y_jj in coupled_stamps or ():
+            if i == j or not (0 <= i < size and 0 <= j < size):
+                raise ValueError("Coupled transformer zero-sequence stamp requires two distinct valid Bus indices.")
+            values = tuple(complex(value) for value in (y_ii, y_ij, y_jj))
+            if any(not np.isfinite(value.real) or not np.isfinite(value.imag) for value in values):
+                raise ValueError("Coupled transformer zero-sequence admittance stamp must be finite.")
+            y[i, i] += values[0]
+            y[i, j] += values[1]
+            y[j, i] += values[1]
+            y[j, j] += values[2]
+            adjacency[i].add(j)
+            adjacency[j].add(i)
 
         for bus_index, impedance_pu in shunt_stamps or ():
             if not 0 <= bus_index < size:
