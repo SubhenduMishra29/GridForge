@@ -119,6 +119,8 @@ class ProtectionFunctionConfiguration:
                 raise ValueError("input_channel_ids values must be non-empty strings.")
             if channel_id != channel_id.strip():
                 raise ValueError("input channel IDs must not contain surrounding whitespace.")
+        if self.function_code in {"50N", "51N"} and self.input_channel_ids:
+            raise ValueError("ANSI 50N/51N accepts only the derived residual_current input; physical input_channel_ids must be empty.")
         for metadata_key in self.metadata:
             if not isinstance(metadata_key, str) or not metadata_key.strip():
                 raise ValueError("metadata keys must be non-empty strings.")
