@@ -225,6 +225,9 @@ def validate_protection_input_contracts(
                     diagnostics.append(f"{detail}: residual-current source must be a current measurement.")
                 if binding.phase_or_sequence.strip().upper() != phase:
                     diagnostics.append(f"{detail}: configured source phase/sequence does not match its declared residual role.")
+                expected_member = {"A": "Ia", "B": "Ib", "C": "Ic"}[phase]
+                if binding.result_quantity != f"phase_currents.{expected_member}":
+                    diagnostics.append(f"{detail}: result_quantity must select the solver's {expected_member} phase-current member.")
                 if channel is None:
                     diagnostics.append(f"{detail}: physical MeasurementChannel is absent from the authoritative registry.")
                     continue
