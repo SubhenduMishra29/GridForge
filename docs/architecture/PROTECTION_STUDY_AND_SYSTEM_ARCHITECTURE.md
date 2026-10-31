@@ -967,5 +967,8 @@ The canonical input contracts declare a complex-capable current input in amperes
 
 The existing ANSI 50N instantaneous pickup and ANSI 51N IEC inverse-time/latching/reset algorithms consume the same derived residual phasor through their ordinary RelayInput accessors. No physical MeasurementChannel is mutated, no protection zone is inferred from the CT location, and ordinary single-channel protection inputs retain their existing one-binding contract.
 
+Both ANSI 50N and 51N pickups are interpreted in primary amperes because the derived residual snapshot is normalized to PRIMARY_AMPS. The operating quantity is residual current 3I0 = Ia + Ib + Ic; it is not the zero-sequence component I0 alone.
+
+
 Engineering configuration requirement: every residual source binding must declare `measurement_point_id` equal to the function's configured point. For the currently executable `THREE_PHASE_SUM` mode, A/B/C source bindings must use three distinct CT instruments, three phase-specific current channels, and the same explicit measurement point. `NEUTRAL_CT` and `CBCT` configurations are persisted but rejected at runtime until their physical source models and solver contributions exist.
 
