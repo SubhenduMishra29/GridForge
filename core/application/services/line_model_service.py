@@ -95,7 +95,7 @@ class LineModelService(ModelServiceSupport):
         values = (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, conductor_system, rate_mva, in_service)
         if clear_conductor_system and conductor_system is not None:
             raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
-        if all(value is None for value in values):
+        if all(value is None for value in values) and not clear_conductor_system:
             raise ValueError("At least one mutable Line field must be specified.")
 
         old = {
