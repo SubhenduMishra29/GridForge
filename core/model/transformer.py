@@ -74,6 +74,8 @@ class Transformer(Branch):
         "_lv_winding_connection",
         "_hv_neutral_grounding_impedance_ohm",
         "_lv_neutral_grounding_impedance_ohm",
+        "_hv_neutral_earth_return_impedance_ohm",
+        "_lv_neutral_earth_return_impedance_ohm",
         "_hv_neutral_terminal_role",
         "_lv_neutral_terminal_role",
         "_hv_terminal_role", "_lv_terminal_role",
@@ -102,6 +104,8 @@ class Transformer(Branch):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_neutral_earth_return_impedance_ohm: complex | None = None,
+        lv_neutral_earth_return_impedance_ohm: complex | None = None,
         hv_neutral_terminal_role: str | None = None,
         lv_neutral_terminal_role: str | None = None,
         hv_phase_roles: tuple[str, ...] | None = None,
@@ -189,6 +193,8 @@ class Transformer(Branch):
         self._lv_winding_connection = self._normalize_winding_connection(lv_winding_connection)
         self._hv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(hv_neutral_grounding_impedance_ohm, self._hv_winding_connection, "HV")
         self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV")
+        self._hv_neutral_earth_return_impedance_ohm = self._validate_neutral_earth_return(hv_neutral_earth_return_impedance_ohm, self._hv_winding_connection, "HV")
+        self._lv_neutral_earth_return_impedance_ohm = self._validate_neutral_earth_return(lv_neutral_earth_return_impedance_ohm, self._lv_winding_connection, "LV")
         self._hv_neutral_terminal_role = self._validate_neutral_terminal_role(
             hv_neutral_terminal_role, self._hv_winding_connection, "HV"
         )
@@ -396,6 +402,7 @@ class Transformer(Branch):
                 phase_roles=self._hv_phase_roles,
                 neutral_terminal_role=self._hv_neutral_terminal_role,
                 neutral_grounding_impedance_ohm=self._hv_neutral_grounding_impedance_ohm,
+                earth_return_impedance_ohm=self._hv_neutral_earth_return_impedance_ohm,
             ),
             lv=TransformerWindingConductorConstruction(
                 winding="LV",
@@ -404,6 +411,7 @@ class Transformer(Branch):
                 phase_roles=self._lv_phase_roles,
                 neutral_terminal_role=self._lv_neutral_terminal_role,
                 neutral_grounding_impedance_ohm=self._lv_neutral_grounding_impedance_ohm,
+                earth_return_impedance_ohm=self._lv_neutral_earth_return_impedance_ohm,
             ),
             vector_group=self._vector_group_configuration,
             core_construction=self._core_construction,
@@ -443,6 +451,24 @@ class Transformer(Branch):
         if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag) or impedance.real < 0.0:
             raise ValueError(f"{side} neutral grounding impedance must be finite with non-negative resistance.")
         return impedance
+    @staticmethod
+    def _validate_neutral_earth_return(value: complex | None, connection: TransformerWindingConnection | None, side: str) -> complex | None:
+        if connection is not TransformerWindingConnection.WYE_GROUNDED:
+            if value is not None:
+                raise ValueError(f"{side} neutral earth-return impedance is only valid for WYE_GROUNDED.")
+            return None
+        if value is None:
+            raise ValueError(f"{side} grounded-wye winding requires explicit earth-return impedance.")
+        if isinstance(value, bool):
+            raise TypeError(f"{side} earth-return impedance must be a complex value in ohms.")
+        try:
+            impedance = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{side} earth-return impedance must be a complex value in ohms.") from exc
+        if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag) or impedance.real < 0.0 or impedance == 0j:
+            raise ValueError(f"{side} earth-return impedance must be finite, passive and non-zero.")
+        return impedance
+
     @staticmethod
     def _normalize_core_construction(value: TransformerCoreConstruction | str | None) -> TransformerCoreConstruction | None:
         if value is None:
