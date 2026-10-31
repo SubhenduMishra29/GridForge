@@ -18231,3 +18231,56 @@ D15F-35 solver reconciliation addition:
     GROUND_ELECTRODE branch current. A missing/duplicate/ideal electrode or
     current mismatch fails the solve; successful checks are included in
     source_return_reconciliation under TRANSFORMER:<id>:<winding>:N.
+
+
+======================================================================
+GF-SC-D15F-36
+======================================================================
+
+Scope:
+    Bind transformer zero-sequence core-return and delta-circulating
+    coverage claims to the exact phase-domain terminal admittance matrix.
+
+Corrections:
+    - Added TransformerZeroSequenceMultiportEvidence with:
+        * SHA-256 fingerprint of the ordered complex terminal admittance
+          matrix and its terminal labels;
+        * explicit THREE_LIMB, FIVE_LIMB or SHELL_FORM core construction;
+        * a non-empty core zero-sequence manufacturer/test reference;
+        * one non-empty circulating-current test reference for each
+          delta-connected winding and no references for non-delta windings.
+    - Added deterministic transformer_multiport_fingerprint().
+    - Transformer model accepts typed evidence only alongside an explicit
+      terminal-domain admittance matrix and exposes it in diagnostics.
+    - The transformer multiport producer validates exact terminal order,
+      exact matrix digest, core construction identity, and exact delta
+      winding evidence coverage. Missing or stale evidence fails closed.
+    - Exported the evidence type and fingerprint helper from core.model.
+
+Engineering boundary:
+    - Evidence binding prevents a matrix from being silently reused after
+      terminal-order, matrix-value, core-type or delta-topology changes.
+    - This is provenance/coverage validation, not an independent numerical
+      reconstruction of magnetic core or delta-loop physics.
+    - The terminal admittance matrix remains responsible for the actual
+      external zero-sequence response and delta circulation equivalent.
+    - Internal delta loop currents are not individually observable from a
+      terminal-only reduced multiport. Their numerical reporting requires
+      explicit internal loop ports/branch states and is not claimed here.
+    - Three-limb/five-limb/shell-form behaviour is not inferred from labels;
+      the manufacturer/test evidence must describe the supplied matrix.
+    - No unsupported transformer connection/core combination is promoted
+      to validated merely by supplying a reference string.
+
+Verification:
+    Remote source re-fetch and static source assertions only. No tests/CI,
+    syntax/import checks, matrix fingerprint fixtures, serialization
+    round-trip, numerical zero-sequence cases or end-to-end fault study
+    were run. Runtime behaviour remains unverified.
+
+Status:
+    MATRIX-BOUND CORE/DELTA ZERO-SEQUENCE EVIDENCE VALIDATION IMPLEMENTED —
+    NUMERICAL CORE/DELTA CURRENT VERIFICATION DEFERRED
+
+======================================================================
+
