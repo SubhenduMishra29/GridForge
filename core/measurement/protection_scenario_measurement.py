@@ -97,6 +97,27 @@ class ProtectionScenarioMeasurementAdapter:
             raise ValueError("Physical conductor CT samples require an explicitly identified PHASE_DOMAIN result.")
         if result.conductor_current_status is not ContributionStatus.COMPLETE:
             raise ValueError("Neutral CT/CBCT execution requires COMPLETE physical conductor-current coverage.")
+        result_revision = result.provenance.get("topology_revision")
+        if (
+            isinstance(result_revision, bool)
+            or not isinstance(result_revision, int)
+            or result_revision < 0
+            or ct_association.topology_revision != result_revision
+        ):
+            raise ValueError(
+                "CT primary association topology revision does not match the solved "
+                "phase-domain conductor-current result."
+            )
+        result_project = result.provenance.get("project_id")
+        if not isinstance(result_project, str) or not result_project.strip():
+            raise ValueError("Phase-domain conductor-current result lacks project provenance.")
+        result_generation = result.provenance.get("activation_generation")
+        if (
+            isinstance(result_generation, bool)
+            or not isinstance(result_generation, int)
+            or result_generation < 1
+        ):
+            raise ValueError("Phase-domain conductor-current result lacks valid activation provenance.")
         if binding.measurement_type.strip().lower() != "current":
             raise ValueError("Physical conductor adapter only accepts current bindings.")
         if binding.instrument_id != getattr(instrument, "id", None):
