@@ -17420,3 +17420,34 @@ Verification:
     remotely. No tests, CI, syntax/import checks, or numerical execution.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-20
+======================================================================
+
+Scope:
+    Explicit Motor short-circuit construction contract.
+
+Correction:
+    Motor now accepts explicit locked_rotor_z1_pu, negative- and zero-
+    sequence impedances, original MVA/voltage bases, and explicit pre-fault
+    internal voltage magnitude/angle. The model validates finite passive
+    impedances, nonzero impedance values, paired positive bases, and
+    required locked-rotor positive-sequence data and internal voltage.
+
+Engineering boundary:
+    rated_mva, rated_kv, power_factor, slip and starting_current_pu remain
+    nameplate/operating data; none is silently converted into a fault
+    equivalent. Missing sequence data remains unavailable. This contract
+    does not yet model induction-motor decay, rotor time constants,
+    saturation, terminal phase connection, or a physical neutral/earth
+    return path, and does not yet generate a phase-domain source primitive.
+
+Status:
+    CORRECTED — REMOTE SOURCE VERIFICATION REQUIRED
+
+Verification:
+    Constructor, validation, diagnostics and register changes verified
+    remotely. No tests, CI, syntax/import checks, or numerical execution.
+
+======================================================================
