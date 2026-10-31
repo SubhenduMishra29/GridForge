@@ -16242,3 +16242,49 @@ Limitations:
     equivalent. Legacy persisted Z0 data without the new contracts is not
     accepted for classification. No tests/CI or Python syntax/import checks
     were run.
+
+
+======================================================================
+GF-SC-D14F-01 — ONE-SIDED GROUNDED-WYE ZERO-SEQUENCE RETURN
+======================================================================
+
+Files:
+    core/analysis/transformer_zero_sequence.py
+    core/analysis/sequence_network_preparation.py
+    core/analysis/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added an immutable TransformerZeroSequenceShunt equivalent with
+      transformer identity, grounded Bus, winding side, transformer Z0,
+      separate neutral 3Zn, total physical impedance, per-unit impedance,
+      voltage/MVA base and test/core provenance.
+    - For exactly one grounded-wye winding, resolves the HV/LV terminal
+      role through the canonical topology snapshot and stamps the
+      equivalent only as a shunt on that grounded-wye Bus.
+    - Forms Z0,return = Z0,transformer + 3Zn. Transformer Z0 remains
+      referred to its explicitly declared grounded winding and excludes
+      neutral return; neutral impedance is multiplied by three once.
+    - Converts physical ohms using the grounded Bus nominal line-to-line
+      kV and study MVA base. No transformer tap or phase-shift series
+      primitive is applied to the grounded-side shunt.
+    - Requires DELTA_CLOSED test condition for an opposite delta winding
+      and OPEN_CIRCUIT for an opposite ungrounded-wye winding. Shorted
+      opposite-winding test data is not treated as a one-sided shunt.
+    - Retains core construction and test provenance; no empirical core
+      multiplier is inferred. No opposite-Bus zero-sequence path is added.
+
+Boundary:
+    Grounded-wye/grounded-wye transfer remains fail-closed. No transformer
+    zero-sequence terminal-current record, earth-fault result, or relay
+    measurement path is enabled. No external zero-sequence path is created
+    on a delta winding. Singular/floating zero-sequence networks remain
+    rejected by matrix inversion.
+
+Verification:
+    Remote source review and SHA verification only. No tests/CI, Python
+    syntax/import checks, matrix numerical checks, or persistence round-trip
+    were run. Runtime and end-to-end earth-fault execution remain unverified.
+
+======================================================================
