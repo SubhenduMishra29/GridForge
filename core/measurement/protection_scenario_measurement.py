@@ -147,6 +147,12 @@ class ProtectionScenarioMeasurementAdapter:
             "instrument_ratio": ratio,
             "ct_positive_current_direction": ct_association.positive_current_direction,
         }
+        # Residual-current mode and measurement point are persisted binding
+        # declarations, never inferred from CT location or channel phase.
+        for metadata_key in ("measurement_point_id", "residual_source_mode"):
+            declared = binding.metadata.get(metadata_key)
+            if declared is not None:
+                provenance[metadata_key] = declared
         basis_id = f"CT_SECONDARY_A:{ct_association.ct_id}:{channel.id}:{ratio:.12g}"
         return ProtectionScenarioMeasurementSample(
             scenario_id=scenario_id, binding_id=binding.binding_id,
