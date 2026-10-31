@@ -224,8 +224,11 @@ class Cable(Branch):
         self.thermal_limit_mva = self._validate_non_negative(
             self.thermal_limit_mva, "thermal_limit_mva"
         )
-        if self.conductor_system is not None and len(self.conductor_system.conductors) != self.conductor_count:
-            raise ValueError("Cable conductor_count must match the explicit physical conductor inventory.")
+        if self.conductor_system is not None:
+            if len(self.conductor_system.conductors) != self.conductor_count:
+                raise ValueError("Cable conductor_count must match the explicit physical conductor inventory.")
+            if not math.isclose(self.conductor_system.length_km, self.length_km, rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("Cable conductor-system length must match Cable length_km.")
         if self.resistance_ohm == 0.0 and self.reactance_ohm == 0.0:
             raise ValueError(
                 f"Cable '{self.id}' must have non-zero positive-sequence series impedance."
