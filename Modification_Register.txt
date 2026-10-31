@@ -16333,3 +16333,58 @@ Verification:
     were run. Numerical correctness remains unverified at runtime.
 
 ======================================================================
+
+
+======================================================================
+
+GF-SC-D14H-01 — GROUNDED-WYE TRANSFORMER TERMINAL-CURRENT INTEGRATION
+
+Files:
+    core/analysis/transformer_zero_sequence.py
+    core/analysis/sequence_network_preparation.py
+    core/analysis/short_circuit_preparation.py
+    core/solver/short_circuit/sequence_snapshot.py
+    core/solver/short_circuit/__init__.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/solver/short_circuit/result.py
+    core/measurement/protection_scenario_measurement.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added the explicit grounded terminal role to the D14F transformer
+      zero-sequence shunt equivalent and propagated the canonical FROM/TO
+      identity from topology preparation.
+    - Added immutable SequenceTransformerZeroShuntSnapshot records. The
+      sequence snapshot now preserves transformer ID, grounded Bus/index,
+      winding side, terminal role, per-unit shunt impedance, physical
+      transformer Z0, neutral 3Zn, total impedance, voltage/MVA bases,
+      core construction and zero-sequence test-data provenance.
+    - Normalized terminal-role enum values when preparing branch snapshots.
+    - Extended transformer terminal-current calculation to LG/LLG faults:
+      positive and negative sequence use the tap-aware two-port primitive;
+      negative sequence uses the conjugated complex tap; zero sequence is
+      calculated only at the grounded-wye terminal as V0/Z0,return.
+    - Preserved INTO_EQUIPMENT direction. The opposite winding receives no
+      external zero-sequence current; internal delta circulation is not
+      reported as a Bus terminal current.
+    - Added immutable sequence-provenance data to ShortCircuitTerminalCurrent
+      and carried it into detached ProtectionScenarioMeasurementSample
+      provenance so the existing CT conversion path can consume the complete
+      phase/sequence terminal current without mutating live channels.
+    - Exported the immutable transformer shunt snapshot contract.
+
+Fail-closed boundary:
+    - Transformer LG/LLG terminal current is unavailable if the immutable
+      snapshot lacks the explicit grounded-side shunt, if its Bus/terminal
+      identity does not match the branch, or if its required sequence
+      component is unavailable.
+    - No transformer zero-sequence series transfer, opposite-delta external
+      current, grounded-wye/grounded-wye transfer, neutral/CBCT conductor
+      primitive, or unbalanced transformer model is inferred.
+    - This is a study terminal-current path; it does not trip breakers or
+      mutate live ProtectionRuntime/MeasurementChannel state.
+
+Verification:
+    Remote source edits committed. No tests/CI, Python syntax/import checks,
+    persistence round-trip or numerical end-to-end execution were run.
