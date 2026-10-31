@@ -126,6 +126,33 @@ class Network:
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
         self._junctions.validate()
+        conductor_node_keys: set[tuple[str, str, str]] = set()
+        for node in self._phase_domain_nodes.values():
+            if node.bus_id is not None:
+                bus = registered.get(node.bus_id)
+                if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'.")
+            if node.kind.value == "BUS_CONDUCTOR":
+                if node.bus_id is None or node.conductor_id is None:
+                    raise ValueError(f"Bus conductor node '{node.node_id}' lacks canonical Bus/conductor identity.")
+            if node.equipment_id is not None:
+                owner = registered.get(node.equipment_id)
+                if owner is None:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'.")
+                roles = {str(getattr(item, "role", "")).strip().upper() for item in getattr(owner, "terminals", ())}
+                if node.terminal_role not in roles:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'.")
+                if node.kind.value == "BRANCH_TERMINAL":
+                    system = getattr(owner, "conductor_system", None)
+                    if system is None:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory.")
+                    declared = {item.conductor_id: item.role.value for item in system.conductors}
+                    if declared.get(node.conductor_id) != node.conductor_role:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory.")
+                    key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                    if key in conductor_node_keys:
+                        raise ValueError(f"Duplicate branch terminal conductor node {key!r}.")
+                    conductor_node_keys.add(key)
         for edge in self._phase_domain_connections.values():
             if edge.from_node_id not in self._phase_domain_nodes or edge.to_node_id not in self._phase_domain_nodes:
                 raise ValueError("Phase-domain graph contains a dangling connection.")
