@@ -17466,8 +17466,10 @@ Correction:
     Z0/Z1/Z2, declared impedance bases, terminal Bus voltage base and
     explicit source voltage. Per-unit sequence impedances are converted
     to SI ohms and transformed into a reciprocal phase impedance matrix.
-    Generator neutral impedance contributes 3*Zn to machine Z0; Grid Z0
-    must already include its external grounding contribution.
+    At D15F-21, Generator neutral impedance was folded into Z0 as 3*Zn.
+    D15F-22 supersedes that treatment: Generator Z0 is machine-only and
+    neutral grounding is a separate physical GROUND_ELECTRODE connection.
+    Grid Z0 must still include its external grounding contribution.
     ShortCircuitPreparation now automatically builds source primitives
     when phase-domain faults are supplied without explicit sources.
 
