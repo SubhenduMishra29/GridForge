@@ -82,6 +82,7 @@ class Transformer(Branch):
         "_core_construction", "_zero_sequence_test_basis",
         "_vector_group_configuration", "_zero_sequence_test_configuration",
         "_zero_sequence_two_winding_test_data",
+        "_phase_domain_terminal_admittance_siemens",
     )
 
     def __init__(
@@ -114,6 +115,7 @@ class Transformer(Branch):
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+        phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -200,6 +202,7 @@ class Transformer(Branch):
         self._vector_group_configuration = self._normalize_vector_group_configuration(vector_group_configuration)
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
+        self._phase_domain_terminal_admittance_siemens = self._validate_phase_domain_terminal_admittance(phase_domain_terminal_admittance_siemens)
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
         if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
             raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
@@ -307,6 +310,36 @@ class Transformer(Branch):
         if roles != ("A", "B", "C"):
             raise ValueError(f"{side} winding phase roles must explicitly be ('A', 'B', 'C') in order.")
         return roles
+
+    @staticmethod
+    def _validate_phase_domain_terminal_admittance(value):
+        if value is None:
+            return None
+        if isinstance(value, (str, bytes)):
+            raise TypeError("phase_domain_terminal_admittance_siemens must be a square numeric matrix.")
+        try:
+            matrix = tuple(tuple(complex(item) for item in row) for row in value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("phase_domain_terminal_admittance_siemens must be a square numeric matrix.") from exc
+        size = len(matrix)
+        if size < 6 or any(len(row) != size for row in matrix):
+            raise ValueError("Transformer terminal admittance matrix must be square and contain at least six terminals.")
+        import numpy as np
+        array = np.asarray(matrix, dtype=complex)
+        if not np.all(np.isfinite(array.real)) or not np.all(np.isfinite(array.imag)):
+            raise ValueError("Transformer terminal admittance matrix must contain finite values.")
+        if not np.allclose(array, array.T, rtol=1e-9, atol=1e-12):
+            raise ValueError("Transformer terminal admittance matrix must be reciprocal.")
+        eigenvalues = np.linalg.eigvalsh((array.real + array.real.T) * 0.5)
+        scale = max(1.0, float(np.max(np.abs(eigenvalues))))
+        if float(np.min(eigenvalues)) < -1e-10 * scale:
+            raise ValueError("Transformer terminal conductance matrix must be positive semidefinite.")
+        return matrix
+
+    @property
+    def phase_domain_terminal_admittance_siemens(self):
+        """Explicit complete terminal-domain primitive; None means unavailable."""
+        return self._phase_domain_terminal_admittance_siemens
 
     @property
     def physical_conductor_construction(self):
@@ -848,6 +881,7 @@ class Transformer(Branch):
                 "vector_group_configuration": getattr(self, "_vector_group_configuration", None),
                 "zero_sequence_test_configuration": getattr(self, "_zero_sequence_test_configuration", None),
                 "zero_sequence_two_winding_test_data": getattr(self, "_zero_sequence_two_winding_test_data", None),
+                "phase_domain_terminal_admittance_siemens": self._phase_domain_terminal_admittance_siemens,
             }
         )
         return summary
