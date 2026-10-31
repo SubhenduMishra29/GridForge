@@ -1327,3 +1327,36 @@ The immutable prepared snapshot carries conductor matrix order and roles, branch
 The branch-local current solver accepts complete explicit conductor-voltage vectors at both terminals and solves the full coupled series impedance equation. When shunt data exists it also calculates the two nominal-pi half-shunt terminal contributions. Without explicit shunt data it returns series current only; it does not treat missing shunt as zero.
 
 This phase does not create conductor nodes or infer neutral, earth, PE or screen return paths. Existing sequence-network fault results do not provide all conductor terminal potentials, so no physical conductor-current, neutral-CT or CBCT result is synthesized. Global phase-domain conductor-node network stamping and integration into fault-current execution remain subsequent work. NEUTRAL_CT and CBCT remain fail-closed.
+
+
+## D15F-01 — Authoritative phase-domain conductor graph foundation
+
+The Core Network aggregate now owns explicit phase-domain conductor graph
+contracts. A graph node identifies one physical conductor node or one
+explicit earth-reference node. A connection identifies a declared continuity,
+bond, equipment bond, screen bond, grounding-electrode connection, or
+earth-return impedance. Each connection carries its own complex impedance
+in ohms; an ideal connection is represented only by an explicitly supplied
+zero-ohm value.
+
+The graph is detached and deterministic. Its snapshot carries project,
+activation-generation, and topology-revision provenance. Duplicate identities,
+dangling endpoints, non-finite/negative-resistance impedances, self-links,
+and invalid connection semantics are rejected. Ground-electrode connections
+must terminate at an explicit EARTH_REFERENCE node. Screen bonding requires
+a SHIELD conductor, and equipment bonding requires a PE conductor.
+Earth reachability is a graph property only; it does not imply zero-ohm earth
+or a valid fault-current return without the declared connection impedances.
+
+The authoritative `Network` aggregate now owns the registered node and
+connection records. Mutations invalidate derived topology, and removal of a
+node is rejected while connections still reference it. The graph remains
+headless and independent of SLD graphics.
+
+**Not yet enabled:** branch conductor terminal-to-node binding, global
+phase-domain admittance assembly, source and fault boundary stamping,
+phase-domain short-circuit execution, and solver-produced physical
+conductor-current records. The existing sequence solver is unchanged.
+Neutral CT and CBCT remain unavailable to protection execution until
+physical current records are produced and validated against their explicit
+construction declarations.
