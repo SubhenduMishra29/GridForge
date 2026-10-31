@@ -452,8 +452,12 @@ class Transformer(Branch):
         target_z0r = self._zero_sequence_resistance_ohm if zero_sequence_resistance_ohm is None and not _replace_winding_configuration else zero_sequence_resistance_ohm
         target_z0x = self._zero_sequence_reactance_ohm if zero_sequence_reactance_ohm is None and not _replace_winding_configuration else zero_sequence_reactance_ohm
         target_z0r, target_z0x = self._validate_zero_sequence_impedance(target_z0r, target_z0x)
+        target_core = self._normalize_core_construction(self._core_construction if core_construction is None and not _replace_winding_configuration else core_construction)
+        target_test_basis = self._normalize_zero_sequence_test_basis(self._zero_sequence_test_basis if zero_sequence_test_basis is None and not _replace_winding_configuration else zero_sequence_test_basis)
         if target_z0r is not None and (target_reference_winding is None or target_hv_role is None):
             raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
+        if target_z0r is not None and (target_core is None or target_test_basis is None):
+            raise ValueError("Transformer Z0 requires explicit core_construction and zero_sequence_test_basis.")
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
@@ -470,6 +474,7 @@ class Transformer(Branch):
             self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
             self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
+            self._core_construction, self._zero_sequence_test_basis,
         )
         try:
             self._r = target_r
@@ -489,6 +494,7 @@ class Transformer(Branch):
             self._hv_terminal_role, self._lv_terminal_role = target_hv_role, target_lv_role
             self._impedance_reference_winding = target_reference_winding
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = target_z0r, target_z0x
+            self._core_construction, self._zero_sequence_test_basis = target_core, target_test_basis
             self.validate()
         except Exception:
             (
@@ -499,6 +505,7 @@ class Transformer(Branch):
                 self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
                 self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
                 self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
+                self._core_construction, self._zero_sequence_test_basis,
             ) = old_state
             self.name = old_name
             raise
@@ -537,8 +544,12 @@ class Transformer(Branch):
         self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(self._hv_terminal_role, self._lv_terminal_role)
         self._impedance_reference_winding = self._normalize_reference_winding(self._impedance_reference_winding)
         self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm)
+        self._core_construction = self._normalize_core_construction(self._core_construction)
+        self._zero_sequence_test_basis = self._normalize_zero_sequence_test_basis(self._zero_sequence_test_basis)
         if self._zero_sequence_resistance_ohm is not None and (self._impedance_reference_winding is None or self._hv_terminal_role is None):
             raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
+        if self._zero_sequence_resistance_ohm is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
+            raise ValueError("Transformer Z0 requires explicit core_construction and zero_sequence_test_basis.")
         return True
 
     def summary(self) -> dict[str, Any]:
