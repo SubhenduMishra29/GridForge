@@ -1429,3 +1429,23 @@ supported GridForge source models, and multi-conductor transformer/machine/
 load/switching primitives remain outstanding. No tests/CI, syntax/import
 checks, persistence round-trip, numerical fixture, or end-to-end protection
 execution was run.
+
+
+### D15F-06 — Nodal KCL verification and physical result integrity
+
+The phase-domain solver now evaluates the nodal current-balance residual after
+solving the augmented system. The residual includes the exact Lagrange
+multiplier reactions for ideal fault constraints. Non-finite ideal-constraint
+currents or a KCL residual above the scaled numerical tolerance fail the
+calculation rather than producing a successful Protection Study input.
+The maximum absolute KCL residual is retained in the phase-domain solution
+and ShortCircuitResult values/provenance in amperes.
+
+Detached Application study snapshots now restore project_id and
+activation_generation runtime provenance before rebuilding their canonical
+TopologySnapshot. This is required for physical conductor preparation to
+validate its graph and impedance snapshots against the captured project
+activation rather than the detached Network's default runtime identity.
+
+No tests/CI or numerical fixtures were run; the new KCL gate has not yet been
+exercised against reference fault cases.
