@@ -1088,3 +1088,39 @@ A blocked delta-side Bus therefore remains electrically isolated in Z0, while
 a grounded-wye-side shunt can independently establish the grounded-side
 return. This phase does not implement grounded-wye/grounded-wye transformer
 transfer or transformer zero-sequence terminal-current primitives.
+
+
+## D14H — Grounded-wye transformer zero-sequence terminal-current integration
+
+The one-sided grounded-wye return shunt is now carried from sequence-network
+preparation into the immutable short-circuit execution snapshot with explicit
+transformer identity, grounded Bus index, winding side, terminal role,
+per-unit impedance, physical Z0, separate neutral 3Zn, base values, core
+construction and test-data provenance.
+
+For LG/LLG studies, transformer terminal currents are composed from:
+- the tap-aware positive-sequence two-port current at each physical terminal;
+- the tap-aware negative-sequence two-port current at each physical terminal,
+  using the conjugated complex tap;
+- the zero-sequence grounded-side shunt current, calculated as
+  `I0 = V0 / (Z0,transformer + 3Zn)` on the prepared per-unit base and
+  assigned only to the explicitly grounded-wye terminal.
+
+The opposite winding receives no externally reported zero-sequence terminal
+current. Internal delta circulation is not represented as an external Bus
+terminal current. Terminal records retain the `INTO_EQUIPMENT` reference
+direction and include immutable sequence-model provenance. The existing CT
+terminal adapter consumes the resulting phase/sequence values and now carries
+that terminal derivation provenance into the detached CT sample; CT orientation
+and physical polarity are still applied exactly once.
+
+The solver fails closed when the immutable snapshot lacks the grounded-wye
+shunt identity, when its Bus/terminal mapping does not match the transformer
+branch, or when the required sequence component is unavailable. It does not
+infer a zero-sequence path from a transformer Z0 value alone. Grounded-wye /
+grounded-wye transfer remains unsupported, and no opposite-delta external
+zero-sequence path is created.
+
+Verification boundary: source changes are committed remotely on the feature
+branch. No tests/CI, Python syntax/import checks, persistence round-trip or
+numerical short-circuit runtime execution have been run.
