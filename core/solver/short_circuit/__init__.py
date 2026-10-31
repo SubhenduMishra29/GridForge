@@ -14,6 +14,7 @@ from .sequence_snapshot import (
     SequenceBranchSnapshot,
     SequenceNetworkSnapshot,
     SequenceSourceSnapshot,
+    SequenceTransformerZeroShuntSnapshot,
 )
 from .impedance_matrix import ImpedanceMatrix
 from .symmetrical_fault import SymmetricalFault
@@ -36,6 +37,7 @@ __all__ = [
     "SequenceNetwork",
     "SequenceBranchSnapshot",
     "SequenceSourceSnapshot",
+    "SequenceTransformerZeroShuntSnapshot",
     "SequenceNetworkSnapshot",
     "ImpedanceMatrix",
     "SymmetricalFault",
