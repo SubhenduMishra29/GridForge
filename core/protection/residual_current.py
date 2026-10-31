@@ -205,6 +205,8 @@ def resolve_residual_current(
     values = []
     canonical = None
     for binding_id, sample in selected:
+        if getattr(sample, "binding_id", None) != binding_id:
+            raise ValueError(f"Residual-current source identity does not match configured binding {binding_id!r}.")
         if getattr(sample, "unit", None) != "A":
             raise ValueError(f"Residual-current source {binding_id!r} is not expressed in amperes.")
         if getattr(sample, "reference_basis_id", None) != "PRIMARY_AMPS":
