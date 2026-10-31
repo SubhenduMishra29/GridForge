@@ -33,6 +33,7 @@ from core.application.revision import ProjectRevision
 from core.protection.configuration_fingerprint import canonical_configuration_value
 from core.protection.decision import ProtectionDecision
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.runtime import ProtectionRuntime
 
 
 def _freeze_mapping(value: Any, field_name: str) -> Any:
@@ -453,24 +454,42 @@ class ProtectionStudyHandler:
                     diagnostics=tuple(conversion_diagnostics)
                 )
             else:
-                scenario_execution = application._evaluate_protection_scenario(
-                    scenario_id=scenario.scenario_id,
-                    samples=tuple(scenario_samples),
-                    evaluation_time=configuration.evaluation_time,
-                    evaluation_timestep=configuration.timestep,
-                    event_id=configuration.event_id,
-                    event_type=configuration.event_type,
-                    supervision=configuration.supervision,
-                    evaluation_metadata={
-                        **dict(configuration.metadata),
-                        "study_id": str(request.study_id),
-                        "study_type": "protection",
-                        "scenario_id": scenario.scenario_id,
-                        "source_model_revision": request.source_revision.model_revision,
-                        "source_topology_revision": request.source_revision.topology_revision,
-                    },
-                    network_state=execution_context.topology_snapshot,
+                # Each fault scenario gets a fresh stateful protection runtime.
+                # In particular, ANSI 51N pickup/timing/latching state must not
+                # leak between independent scenarios or mutate the live runtime.
+                scenario_runtime = ProtectionRuntime(
+                    lifecycle.network,
+                    active_configuration,
+                    activation_generation=request.activation_generation,
                 )
+                try:
+                    scenario_runtime.compose(measurement_service.channels)
+                except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                    scenario_execution = ProtectionExecutionResult(
+                        diagnostics=(
+                            f"Scenario protection runtime composition failed closed: {type(exc).__name__}: {exc}",
+                        )
+                    )
+                else:
+                    scenario_execution = application._evaluate_protection_scenario(
+                        scenario_id=scenario.scenario_id,
+                        samples=tuple(scenario_samples),
+                        evaluation_time=configuration.evaluation_time,
+                        evaluation_timestep=configuration.timestep,
+                        event_id=configuration.event_id,
+                        event_type=configuration.event_type,
+                        supervision=configuration.supervision,
+                        evaluation_metadata={
+                            **dict(configuration.metadata),
+                            "study_id": str(request.study_id),
+                            "study_type": "protection",
+                            "scenario_id": scenario.scenario_id,
+                            "source_model_revision": request.source_revision.model_revision,
+                            "source_topology_revision": request.source_revision.topology_revision,
+                        },
+                        network_state=execution_context.topology_snapshot,
+                        protection_runtime=scenario_runtime,
+                    )
                 relay_evaluation_completed = not scenario_execution.diagnostics
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
