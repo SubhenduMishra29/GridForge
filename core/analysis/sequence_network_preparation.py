@@ -133,10 +133,13 @@ class SequenceNetworkPreparation:
                 [(bus_index, equivalent.impedance_pu) for bus_index, equivalent in transformer_zero_shunts]
                 if name == "zero" else []
             )
-            sequence.set_matrix(
-                name,
-                self._build_matrix(len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps),
+            matrix, unavailable = self._build_matrix(
+                len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps
             )
+            sequence.set_matrix(name, matrix)
+            if not hasattr(sequence, "unavailable_bus_indices"):
+                sequence.unavailable_bus_indices = {}
+            sequence.unavailable_bus_indices[name] = unavailable
         sequence.transformer_zero_sequence_shunts = tuple(
             equivalent for _, equivalent in transformer_zero_shunts
         )
@@ -249,50 +252,73 @@ class SequenceNetworkPreparation:
         sequence: str,
         *,
         shunt_stamps: list[tuple[int, complex]] | None = None,
-    ) -> np.ndarray:
-        """Stamp scalar sources, series/tap branches and explicit bus shunts into Ybus."""
+    ) -> tuple[np.ndarray, tuple[int, ...]]:
+        """Build component-wise Zbus matrices and identify ungrounded islands.
+
+        Sequence branches define connectivity only when that sequence has
+        an explicit series impedance. Sources and explicit grounding shunts
+        anchor their own connected component. Floating components are marked
+        unavailable rather than forcing unrelated grounded islands to fail.
+        """
         y = np.zeros((size, size), dtype=complex)
+        adjacency: list[set[int]] = [set() for _ in range(size)]
         for i, j, data, element_id, tap in branches:
-            # Negative-sequence phase displacement is opposite to the
-            # positive-sequence displacement for a phase-shifting transformer.
-            sequence_tap = tap.conjugate() if sequence == "negative" else tap
             z = data[sequence]
             if z is None:
-                # A transformer one-sided return is a grounded-Bus shunt,
-                # never an artificial HV-LV zero-sequence series branch.
-                if sequence == "zero":
-                    continue
-                raise ValueError(f"Element '{element_id}' lacks {sequence}-sequence impedance.")
-            if abs(z) == 0.0:
-                raise ValueError(f"Element '{element_id}' has zero {sequence}-sequence impedance.")
+                continue
+            if not np.isfinite(z.real) or not np.isfinite(z.imag) or abs(z) == 0.0:
+                raise ValueError(f"Element '{element_id}' has invalid {sequence}-sequence impedance.")
             admittance = 1.0 / z
             if i == j:
                 y[i, i] += admittance
             else:
+                sequence_tap = tap.conjugate() if sequence == "negative" else tap
                 if not np.isfinite(sequence_tap.real) or not np.isfinite(sequence_tap.imag) or abs(sequence_tap) == 0.0:
                     raise ValueError(f"Element '{element_id}' has an invalid complex tap.")
-                # Standard from-side off-nominal tap convention.
                 y[i, i] += admittance / (abs(sequence_tap) ** 2)
                 y[i, j] -= admittance / sequence_tap.conjugate()
                 y[j, i] -= admittance / sequence_tap
                 y[j, j] += admittance
+                adjacency[i].add(j)
+                adjacency[j].add(i)
+
         for bus_index, impedance_pu in shunt_stamps or ():
             if not 0 <= bus_index < size:
                 raise ValueError("Zero-sequence shunt Bus index is outside the prepared topology.")
             impedance = complex(impedance_pu)
-            if (
-                not np.isfinite(impedance.real)
-                or not np.isfinite(impedance.imag)
-                or abs(impedance) == 0.0
-            ):
+            if not np.isfinite(impedance.real) or not np.isfinite(impedance.imag) or abs(impedance) == 0.0:
                 raise ValueError("Transformer zero-sequence shunt impedance must be finite and non-zero.")
             y[bus_index, bus_index] += 1.0 / impedance
-        if np.any(np.abs(np.diag(y)) == 0.0):
-            raise ValueError("Sequence network contains a bus without a connected source, branch or shunt.")
-        try:
-            return np.linalg.inv(y)
-        except np.linalg.LinAlgError as exc:
-            raise ValueError("Sequence network admittance matrix is singular; the prepared network is not solvable.") from exc
+
+        zbus = np.zeros((size, size), dtype=complex)
+        visited: set[int] = set()
+        unavailable: list[int] = []
+        for root in range(size):
+            if root in visited:
+                continue
+            stack = [root]
+            component: list[int] = []
+            visited.add(root)
+            while stack:
+                current = stack.pop()
+                component.append(current)
+                for neighbor in adjacency[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+            component.sort()
+            component_y = y[np.ix_(component, component)]
+            try:
+                component_z = np.linalg.inv(component_y)
+            except np.linalg.LinAlgError:
+                unavailable.extend(component)
+                continue
+            if not np.all(np.isfinite(component_z.real)) or not np.all(np.isfinite(component_z.imag)):
+                unavailable.extend(component)
+                continue
+            zbus[np.ix_(component, component)] = component_z
+        return zbus, tuple(sorted(unavailable))
+
 
 
 __all__ = ["SequenceNetworkPreparation"]
