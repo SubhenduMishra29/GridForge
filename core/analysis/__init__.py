@@ -47,6 +47,8 @@ from core.analysis.sequence_network_preparation import SequenceNetworkPreparatio
 from core.analysis.transformer_zero_sequence_t_equivalent import (
     TransformerZeroSequenceTEquivalent,
     derive_transformer_zero_sequence_t_equivalent,
+    TransformerZeroSequenceTwoBusStamp,
+    build_transformer_zero_sequence_two_bus_stamp,
 )
 from core.analysis.transformer_zero_sequence import (
     TransformerZeroSequencePath,
@@ -95,6 +97,8 @@ __all__ = [
     "TransformerZeroSequenceShunt",
     "TransformerZeroSequenceTEquivalent",
     "derive_transformer_zero_sequence_t_equivalent",
+    "TransformerZeroSequenceTwoBusStamp",
+    "build_transformer_zero_sequence_two_bus_stamp",
     "build_transformer_zero_sequence_shunt",
     "classify_transformer_zero_sequence",
     "FaultType",
