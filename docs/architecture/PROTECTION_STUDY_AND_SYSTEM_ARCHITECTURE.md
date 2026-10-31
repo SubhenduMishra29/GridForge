@@ -1154,8 +1154,15 @@ handled by the generic model-state dataclass persistence path. The Core model
 requires grounded-wye/grounded-wye winding declarations and a Yy vector group;
 Analysis classification requires explicit core construction, test-data basis,
 and the applicable HV test declaration, then validates the derived T model.
-The two-Bus zero-sequence matrix stamp, neutral 3Zn referral into both winding
-branches, sequence-component connectivity, immutable solver snapshot, and
-both terminal zero-sequence current calculations are not yet enabled.
-Grounded-wye/grounded-wye short-circuit preparation therefore remains
-fail-closed; this phase does not enable Yg-Yg earth-fault studies.
+D14I solver integration now builds the reduced two-Bus zero-sequence
+admittance stamp from the three-test T equivalent. HV and LV neutral 3Zn are
+added once to their respective T series legs; LV neutral impedance is referred
+to HV by the square of the explicit test voltage ratio. The builder requires
+both Bus nominal voltage bases to match the declared HV/LV test bases and
+rejects non-unity tap or phase shift until a tap-adjusted zero-sequence test
+model is implemented. The coupled admittance stamp joins the two Bus sequence
+components, is inverted with the rest of the zero-sequence component, and is
+copied into an immutable SequenceNetworkSnapshot. The solver calculates both
+transformer terminal I0 values from the frozen two-port admittance matrix,
+retains test/neutral/base provenance, and emits the normal INTO_EQUIPMENT
+terminal-current records for the downstream CT adapter.
