@@ -26,7 +26,7 @@ from core.model import EndpointReference
 from core.network import CTMeasurementAssociation
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.solver.power_flow.result import PowerFlowResult
-from core.solver.short_circuit.result import ShortCircuitResult
+from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult
 
 
 MeasurementQuantity: TypeAlias = (
@@ -386,8 +386,8 @@ class MeasurementGeneration:
             raise ValueError("A CT cannot be its own measured equipment terminal.")
         if not result.success or result.status.value != "COMPLETE":
             raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
-        if result.terminal_current_status is not ContributionStatus.COMPLETE:
-            raise UnsupportedMeasurementQuantity("Short-circuit terminal-current records are incomplete or unavailable.")
+        if result.terminal_current_status not in {ContributionStatus.COMPLETE, ContributionStatus.PARTIAL}:
+            raise UnsupportedMeasurementQuantity("Short-circuit terminal-current records are unavailable or failed.")
         if result.provenance.get("current_units") != "per_unit":
             raise UnsupportedMeasurementQuantity("Short-circuit result does not declare per-unit terminal-current provenance.")
         if ct_association.topology_revision != result.provenance.get("topology_revision"):
