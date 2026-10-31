@@ -387,6 +387,7 @@ class ProtectionStudyHandler:
                 scenario.configuration.fault_impedance,
                 elements=scenario.configuration.element_ids or None,
                 topology_snapshot=execution_context.topology_snapshot,
+                phase_domain_case=scenario.configuration.phase_domain_case,
             )
             short_circuit_result = ShortCircuitAnalysis.from_prepared(prepared_input).run()
             expected_provenance = {
