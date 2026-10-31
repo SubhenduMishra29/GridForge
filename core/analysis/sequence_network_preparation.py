@@ -56,6 +56,12 @@ class SequenceNetworkPreparation:
             element_id = getattr(element, "id", element)
             for name in requested:
                 if data[name] is None:
+                    if isinstance(element, Transformer) and name == "zero":
+                        raise ValueError(
+                            f"Transformer '{element_id}' has no supported zero-sequence equivalent yet. "
+                            "Winding connection and neutral grounding inputs are persisted, but "
+                            "winding-pair transfer/blocking and neutral-network stamping are not implemented."
+                        )
                     raise ValueError(f"{type(element).__name__} '{element_id}' lacks explicit {name}-sequence engineering data.")
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             from_id = str(bus_a.id)
