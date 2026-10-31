@@ -182,6 +182,8 @@ class DeleteShuntCommand(Command):
 class CreateLineCommand(Command):
     def __init__(self, *, line_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None,
                  resistance_ohm: float, reactance_ohm: float, shunt_susceptance_siemens: float = 0.0,
+                 zero_sequence_resistance_ohm: float | None = None,
+                 zero_sequence_reactance_ohm: float | None = None,
                  name: str = "", rate_mva: float = 100.0,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
@@ -193,15 +195,17 @@ class CreateLineCommand(Command):
             "resistance_ohm": resistance_ohm,
             "reactance_ohm": reactance_ohm,
             "shunt_susceptance_siemens": shunt_susceptance_siemens,
+            "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm,
             "name": name,
             "rate_mva": rate_mva,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class UpdateLineCommand(Command):
-    def __init__(self, *, line_id: str, name: str | None = None, resistance_ohm: float | None = None, reactance_ohm: float | None = None, shunt_susceptance_siemens: float | None = None, rate_mva: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if all(value is None for value in (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, rate_mva, in_service)):
+    def __init__(self, *, line_id: str, name: str | None = None, resistance_ohm: float | None = None, reactance_ohm: float | None = None, shunt_susceptance_siemens: float | None = None, zero_sequence_resistance_ohm: float | None = None, zero_sequence_reactance_ohm: float | None = None, rate_mva: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if all(value is None for value in (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, rate_mva, in_service)):
             raise ValueError("UpdateLineCommand requires at least one mutable Line field.")
-        super().__init__(**_command(UPDATE_LINE, {"line_id": line_id, "name": name, "resistance_ohm": resistance_ohm, "reactance_ohm": reactance_ohm, "shunt_susceptance_siemens": shunt_susceptance_siemens, "rate_mva": rate_mva, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(UPDATE_LINE, {"line_id": line_id, "name": name, "resistance_ohm": resistance_ohm, "reactance_ohm": reactance_ohm, "shunt_susceptance_siemens": shunt_susceptance_siemens, "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm, "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm, "rate_mva": rate_mva, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class DeleteLineCommand(Command):
     def __init__(self, *, line_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
