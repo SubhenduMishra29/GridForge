@@ -16997,3 +16997,31 @@ Remaining constraints:
       remain outside the current phase-domain stamp set.
     - No tests/CI, syntax/import checks, persistence round-trip, numerical
       fixtures, or end-to-end Protection Study execution were run.
+
+
+======================================================================
+GF-SC-D15F-06 — PHASE-DOMAIN KCL AND SNAPSHOT PROVENANCE
+======================================================================
+
+Files:
+    core/solver/short_circuit/phase_domain_solver.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/application/application.py
+    core/analysis/short_circuit_preparation.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Changes:
+    - Added nodal KCL residual verification after the phase-domain augmented
+      solve, including exact ideal-fault Lagrange multiplier reactions.
+      Non-finite multipliers or residual above scaled tolerance fail closed.
+    - Preserved maximum KCL residual in amperes in the immutable phase-domain
+      solution and ShortCircuitResult values/provenance.
+    - Restored project_id and activation_generation on detached Network
+      snapshots before topology reconstruction so physical conductor
+      preparation can verify exact project activation provenance.
+    - Typed phase-domain cases are checked against fresh graph, impedance and
+      admittance values prepared from the captured authoritative Network.
+
+Verification:
+    No tests/CI, Python syntax/import checks, numerical reference cases,
+    persistence round-trip, or end-to-end Protection Study execution were run.
