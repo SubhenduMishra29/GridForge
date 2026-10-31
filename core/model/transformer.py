@@ -23,6 +23,7 @@ from core.base.per_unit import PerUnitSystem
 
 from .branch import Branch
 from .transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
+from .transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence
 
 
 class ImpedanceBasis(str, Enum):
@@ -85,6 +86,7 @@ class Transformer(Branch):
         "_vector_group_configuration", "_zero_sequence_test_configuration",
         "_zero_sequence_two_winding_test_data",
         "_phase_domain_terminal_admittance_siemens",
+        "_zero_sequence_multiport_evidence",
         "_phase_domain_multiport_tap_ratio", "_phase_domain_multiport_phase_shift_rad",
     )
 
@@ -121,6 +123,7 @@ class Transformer(Branch):
         zero_sequence_test_configuration: Any | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+        zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
         phase_domain_multiport_tap_ratio: float | None = None,
         phase_domain_multiport_phase_shift_rad: float | None = None,
         tap: float = 1.0,
@@ -212,6 +215,11 @@ class Transformer(Branch):
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
         self._phase_domain_terminal_admittance_siemens = self._validate_phase_domain_terminal_admittance(phase_domain_terminal_admittance_siemens)
+        if zero_sequence_multiport_evidence is not None and not isinstance(zero_sequence_multiport_evidence, TransformerZeroSequenceMultiportEvidence):
+            raise TypeError("zero_sequence_multiport_evidence must be TransformerZeroSequenceMultiportEvidence.")
+        if zero_sequence_multiport_evidence is not None and phase_domain_terminal_admittance_siemens is None:
+            raise ValueError("Zero-sequence multiport evidence requires an explicit terminal admittance matrix.")
+        self._zero_sequence_multiport_evidence = zero_sequence_multiport_evidence
         if phase_domain_terminal_admittance_siemens is None:
             if phase_domain_multiport_tap_ratio is not None or phase_domain_multiport_phase_shift_rad is not None:
                 raise ValueError("Transformer multiport tap/shift snapshots require an explicit terminal admittance matrix.")
@@ -364,6 +372,10 @@ class Transformer(Branch):
     @property
     def phase_domain_multiport_phase_shift_rad(self) -> float | None:
         return self._phase_domain_multiport_phase_shift_rad
+
+    @property
+    def zero_sequence_multiport_evidence(self) -> TransformerZeroSequenceMultiportEvidence | None:
+        return self._zero_sequence_multiport_evidence
 
     @property
     def phase_domain_terminal_admittance_siemens(self):
@@ -933,6 +945,7 @@ class Transformer(Branch):
                 "zero_sequence_test_configuration": getattr(self, "_zero_sequence_test_configuration", None),
                 "zero_sequence_two_winding_test_data": getattr(self, "_zero_sequence_two_winding_test_data", None),
                 "phase_domain_terminal_admittance_siemens": self._phase_domain_terminal_admittance_siemens,
+                "zero_sequence_multiport_evidence": self._zero_sequence_multiport_evidence,
                 "phase_domain_multiport_tap_ratio": self._phase_domain_multiport_tap_ratio,
                 "phase_domain_multiport_phase_shift_rad": self._phase_domain_multiport_phase_shift_rad,
             }
