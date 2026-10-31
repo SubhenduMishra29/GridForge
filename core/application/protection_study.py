@@ -388,6 +388,8 @@ class ProtectionStudyHandler:
                 elements=scenario.configuration.element_ids or None,
                 topology_snapshot=execution_context.topology_snapshot,
                 phase_domain_case=scenario.configuration.phase_domain_case,
+                phase_domain_sources=scenario.configuration.phase_domain_sources or None,
+                phase_domain_faults=scenario.configuration.phase_domain_faults or None,
             )
             short_circuit_result = ShortCircuitAnalysis.from_prepared(prepared_input).run()
             expected_provenance = {
