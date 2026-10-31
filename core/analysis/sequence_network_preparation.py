@@ -60,9 +60,13 @@ class SequenceNetworkPreparation:
             data = self._branch_sequence_impedances(element, bus_a)
             element_id = getattr(element, "id", element)
             if isinstance(element, Transformer) and "zero" in requested:
+                def terminal_role_value(terminal: Any) -> str:
+                    role = getattr(terminal, "role", "")
+                    return str(getattr(role, "value", role)).strip().upper()
+
                 terminal_bus_by_role = {
-                    str(getattr(element.from_terminal, "role", "")): bus_a,
-                    str(getattr(element.to_terminal, "role", "")): bus_b,
+                    terminal_role_value(element.from_terminal): bus_a,
+                    terminal_role_value(element.to_terminal): bus_b,
                 }
                 from core.analysis.transformer_zero_sequence import (
                     TransformerZeroSequencePath,
@@ -284,7 +288,7 @@ class SequenceNetworkPreparation:
                 raise ValueError("Transformer zero-sequence shunt impedance must be finite and non-zero.")
             y[bus_index, bus_index] += 1.0 / impedance
         if np.any(np.abs(np.diag(y)) == 0.0):
-            raise ValueError("Sequence network contains a bus without a connected source or branch.")
+            raise ValueError("Sequence network contains a bus without a connected source, branch or shunt.")
         try:
             return np.linalg.inv(y)
         except np.linalg.LinAlgError as exc:
