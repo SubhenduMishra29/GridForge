@@ -7,6 +7,7 @@ from .terminal import Terminal
 from .injection import Injection
 from .bus import Bus
 from .branch import Branch
+from .conductor import ConductorRole, ConductorMaterial, PhysicalConductor, BranchConductorSystem
 from .line import Line
 from .cable import Cable
 from .transformer import ImpedanceBasis, TransformerCoreConstruction, TransformerWindingConnection, Transformer
@@ -62,7 +63,7 @@ ElectricalObject.register(Relay)
 from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 __all__ = (
-    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "TransformerCoreConstruction", "TransformerWindingConnection", "TransformerVectorGroupConnection", "TransformerWindingPolarity", "ZeroSequenceTestEnergizedWinding", "ZeroSequenceTestOtherWindingCondition", "TransformerVectorGroupConfiguration", "TransformerZeroSequenceTestConfiguration", "TransformerZeroSequenceTwoWindingTestData", "validate_zero_sequence_test_applicability", "Transformer", "Switch",
+    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "ConductorRole", "ConductorMaterial", "PhysicalConductor", "BranchConductorSystem", "Line", "Cable", "ImpedanceBasis", "TransformerCoreConstruction", "TransformerWindingConnection", "TransformerVectorGroupConnection", "TransformerWindingPolarity", "ZeroSequenceTestEnergizedWinding", "ZeroSequenceTestOtherWindingCondition", "TransformerVectorGroupConfiguration", "TransformerZeroSequenceTestConfiguration", "TransformerZeroSequenceTwoWindingTestData", "validate_zero_sequence_test_applicability", "Transformer", "Switch",
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
     "PotentialTransformer", "CVT", "Relay", "EndpointReference", "EndpointReferenceKind", "EquipmentType",
