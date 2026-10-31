@@ -1269,3 +1269,50 @@ Engineering boundary:
 Verification:
 Remote GitHub source edits only. No tests/CI, Python syntax/import checks,
 persistence round-trip, or numerical matrix fixtures were run.
+
+
+## D15D — Physical conductor branch-topology association
+
+The Network layer now resolves each explicit Line/Cable `BranchConductorSystem`
+against the canonical `TopologySnapshot`. It produces immutable
+`PhysicalConductorTopologySnapshot` and
+`PhysicalConductorBranchTopology` records containing project/activation/
+topology provenance, equipment identity/type, canonical FROM/TO terminal
+roles, resolved FROM/TO Bus IDs, in-service state, and the complete immutable
+conductor-system data.
+
+Every physical conductor identity is exposed as a
+`PhysicalConductorBranchAssociation` tied to its owning branch and that
+branch's resolved FROM/TO Bus attachment pair. This association explicitly
+does not claim separate phase/neutral/PE terminal nodes or conductor-to-earth
+bonds. A Line/Cable branch has one canonical FROM and one canonical TO terminal;
+the individual conductor inventory is carried inside that branch boundary.
+
+Fail-closed behavior:
+- The snapshot must match the current Network topology revision and a valid,
+  rebuilt topology.
+- An in-service conductor-equipped branch must have exactly one canonical Bus
+  attachment at FROM and TO.
+- Multiple Bus attachments, same-Bus endpoints, invalid terminal ownership,
+  non-canonical terminal roles, or missing active endpoints are rejected.
+- Out-of-service branches may retain incomplete endpoint associations; they
+  are not promoted to active physical paths.
+- No neutral, PE, screen, or ground bond is synthesized. No SLD symbol or
+  graphics item participates in resolution.
+
+`SequenceNetworkPreparation` attaches the immutable physical-conductor
+topology snapshot to its prepared sequence network. The short-circuit
+`SequenceNetworkSnapshot` preserves and validates that detached topology
+against its Bus identity set. This is provenance/topology integration only:
+the existing sequence-domain matrix builder does not yet consume the
+multi-conductor impedance matrix and no physical conductor currents are
+calculated.
+
+D15E remains responsible for the multi-conductor numerical preparation and
+current solution; explicit neutral/PE grounding and CBCT window semantics
+remain subsequent work.
+
+Verification:
+Remote source edits and static source review only. No tests/CI, Python syntax/
+import checks, topology runtime fixture, persistence round-trip, or numerical
+conductor-current calculation was run.
