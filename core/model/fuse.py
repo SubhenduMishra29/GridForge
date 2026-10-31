@@ -140,7 +140,6 @@ class Fuse(ElectricalObject):
         "_rated_current_a",
         "_rated_voltage_v",
         "_interrupting_rating_ka",
-    )
 
     # ============================================================
     # CONSTRUCTION
@@ -158,6 +157,7 @@ class Fuse(ElectricalObject):
         rated_current_a: float | None = None,
         rated_voltage_v: float | None = None,
         interrupting_rating_ka: float | None = None,
+        phase_domain_conductor_roles: tuple[str, ...] | None = None,
     ) -> None:
         """
         Construct a Fuse.
@@ -267,6 +267,10 @@ class Fuse(ElectricalObject):
                 interrupting_rating_ka,
                 "interrupting_rating_ka",
             )
+        )
+
+        self._phase_domain_conductor_roles = self._normalize_phase_domain_conductor_roles(
+            phase_domain_conductor_roles
         )
 
     # ============================================================
@@ -619,6 +623,7 @@ class Fuse(ElectricalObject):
         summary.update(
             {
                 "type": self.TYPE,
+                "phase_domain_conductor_roles": self._phase_domain_conductor_roles,
                 "in_service": self._in_service,
                 "blown": self._blown,
                 "conducts": self.conducts,
@@ -637,6 +642,27 @@ class Fuse(ElectricalObject):
         )
 
         return summary
+
+    @property
+    def phase_domain_conductor_roles(self) -> tuple[str, ...] | None:
+        """Explicit phase/neutral conductor roles physically carried by this device."""
+        return self._phase_domain_conductor_roles
+
+    @staticmethod
+    def _normalize_phase_domain_conductor_roles(value):
+        if value is None:
+            return None
+        if not isinstance(value, (tuple, list)) or not value:
+            raise TypeError("phase_domain_conductor_roles must be a non-empty tuple or list.")
+        normalized = []
+        for raw in value:
+            role = str(getattr(raw, "value", raw)).strip().upper()
+            if role not in {"A", "B", "C", "N"}:
+                raise ValueError("Switching device conductor roles are limited to explicit A, B, C and N poles.")
+            if role in normalized:
+                raise ValueError(f"Duplicate physical conductor role {role!r}.")
+            normalized.append(role)
+        return tuple(normalized)
 
     # ============================================================
     # REPRESENTATION
