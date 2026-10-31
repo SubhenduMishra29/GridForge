@@ -58,6 +58,21 @@ class TransformerDeltaLoopState:
         object.__setattr__(self, "impedance_ohm", impedance)
 
 
+def transformer_delta_loop_fingerprint(loop_states: Sequence[TransformerDeltaLoopState]) -> str:
+    """Fingerprint ordered internal loop ids, windings, coupling and impedances."""
+    payload = []
+    for item in loop_states:
+        payload.append(
+            "|".join((
+                item.loop_id,
+                item.winding,
+                ",".join(f"{value.real.hex()}:{value.imag.hex()}" for value in item.coupling_coefficients),
+                f"{complex(item.impedance_ohm).real.hex()}:{complex(item.impedance_ohm).imag.hex()}",
+            ))
+        )
+    return sha256("\n".join(payload).encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class TransformerZeroSequenceMultiportEvidence:
     """Manufacturer/test evidence attached to one exact transformer matrix."""
@@ -67,6 +82,7 @@ class TransformerZeroSequenceMultiportEvidence:
     core_construction: str
     core_zero_sequence_test_reference: str
     delta_circulating_test_references: Mapping[str, str]
+    delta_loop_sha256: str | None = None
 
     def __post_init__(self) -> None:
         digest = str(self.matrix_sha256).strip().lower()
@@ -93,6 +109,14 @@ class TransformerZeroSequenceMultiportEvidence:
                 raise ValueError("Delta circulating test references must map HV/LV to non-empty sources.")
             refs[key] = ref
         object.__setattr__(self, "delta_circulating_test_references", MappingProxyType(refs))
+        loop_digest = None if self.delta_loop_sha256 is None else str(self.delta_loop_sha256).strip().lower()
+        if loop_digest is not None and (len(loop_digest) != 64 or any(ch not in "0123456789abcdef" for ch in loop_digest)):
+            raise ValueError("delta_loop_sha256 must be a 64-character SHA-256 digest.")
+        if refs and loop_digest is None:
+            raise ValueError("Delta circulating-current evidence requires a fingerprint of the explicit loop states.")
+        if not refs and loop_digest is not None:
+            raise ValueError("A delta-loop fingerprint is invalid when no delta winding is configured.")
+        object.__setattr__(self, "delta_loop_sha256", loop_digest)
 
 
 def validate_transformer_zero_sequence_multiport_evidence(
@@ -102,6 +126,7 @@ def validate_transformer_zero_sequence_multiport_evidence(
     terminal_labels: Sequence[str],
     core_construction: str,
     delta_windings: Sequence[str],
+    delta_loop_states: Sequence[TransformerDeltaLoopState] = (),
 ) -> None:
     """Fail closed unless evidence is bound to this exact matrix and topology."""
     if not isinstance(evidence, TransformerZeroSequenceMultiportEvidence):
@@ -116,6 +141,15 @@ def validate_transformer_zero_sequence_multiport_evidence(
         raise ValueError("Transformer zero-sequence evidence core construction does not match the physical model.")
     required = {str(value).strip().upper() for value in delta_windings}
     supplied = set(evidence.delta_circulating_test_references)
+    loop_states = tuple(delta_loop_states)
+    loop_windings = {item.winding for item in loop_states}
+    if loop_windings != required:
+        raise ValueError(
+            "Explicit internal delta-loop states must cover exactly the delta-connected windings; "
+            f"required={sorted(required)}, supplied={sorted(loop_windings)}."
+        )
+    if required and evidence.delta_loop_sha256 != transformer_delta_loop_fingerprint(loop_states):
+        raise ValueError("Transformer delta-loop evidence fingerprint does not match the active internal loop states.")
     if supplied != required:
         raise ValueError(
             "Delta circulating-current evidence must identify exactly the delta-connected windings; "
@@ -125,6 +159,7 @@ def validate_transformer_zero_sequence_multiport_evidence(
 
 __all__ = [
     "TransformerDeltaLoopState",
+    "transformer_delta_loop_fingerprint",
     "TransformerZeroSequenceMultiportEvidence",
     "transformer_multiport_fingerprint",
     "validate_transformer_zero_sequence_multiport_evidence",
