@@ -23,7 +23,7 @@ from core.base.per_unit import PerUnitSystem
 
 from .branch import Branch
 from .transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
-from .transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence
+from .transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
 
 
 class ImpedanceBasis(str, Enum):
@@ -87,6 +87,7 @@ class Transformer(Branch):
         "_zero_sequence_two_winding_test_data",
         "_phase_domain_terminal_admittance_siemens",
         "_zero_sequence_multiport_evidence",
+        "_phase_domain_delta_loop_states",
         "_phase_domain_multiport_tap_ratio", "_phase_domain_multiport_phase_shift_rad",
     )
 
@@ -124,6 +125,7 @@ class Transformer(Branch):
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
         zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
+        phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] = (),
         phase_domain_multiport_tap_ratio: float | None = None,
         phase_domain_multiport_phase_shift_rad: float | None = None,
         tap: float = 1.0,
@@ -220,6 +222,14 @@ class Transformer(Branch):
         if zero_sequence_multiport_evidence is not None and phase_domain_terminal_admittance_siemens is None:
             raise ValueError("Zero-sequence multiport evidence requires an explicit terminal admittance matrix.")
         self._zero_sequence_multiport_evidence = zero_sequence_multiport_evidence
+        loop_states = tuple(phase_domain_delta_loop_states)
+        if any(not isinstance(item, TransformerDeltaLoopState) for item in loop_states):
+            raise TypeError("phase_domain_delta_loop_states must contain TransformerDeltaLoopState records.")
+        if len({item.loop_id for item in loop_states}) != len(loop_states):
+            raise ValueError("Transformer delta loop ids must be unique.")
+        if loop_states and phase_domain_terminal_admittance_siemens is None:
+            raise ValueError("Explicit delta loop states require the transformer terminal admittance matrix.")
+        self._phase_domain_delta_loop_states = loop_states
         if phase_domain_terminal_admittance_siemens is None:
             if phase_domain_multiport_tap_ratio is not None or phase_domain_multiport_phase_shift_rad is not None:
                 raise ValueError("Transformer multiport tap/shift snapshots require an explicit terminal admittance matrix.")
@@ -372,6 +382,10 @@ class Transformer(Branch):
     @property
     def phase_domain_multiport_phase_shift_rad(self) -> float | None:
         return self._phase_domain_multiport_phase_shift_rad
+
+    @property
+    def phase_domain_delta_loop_states(self) -> tuple[TransformerDeltaLoopState, ...]:
+        return self._phase_domain_delta_loop_states
 
     @property
     def zero_sequence_multiport_evidence(self) -> TransformerZeroSequenceMultiportEvidence | None:
@@ -946,6 +960,7 @@ class Transformer(Branch):
                 "zero_sequence_two_winding_test_data": getattr(self, "_zero_sequence_two_winding_test_data", None),
                 "phase_domain_terminal_admittance_siemens": self._phase_domain_terminal_admittance_siemens,
                 "zero_sequence_multiport_evidence": self._zero_sequence_multiport_evidence,
+                "phase_domain_delta_loop_states": self._phase_domain_delta_loop_states,
                 "phase_domain_multiport_tap_ratio": self._phase_domain_multiport_tap_ratio,
                 "phase_domain_multiport_phase_shift_rad": self._phase_domain_multiport_phase_shift_rad,
             }
