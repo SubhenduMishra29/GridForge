@@ -278,7 +278,7 @@ class SequenceNetworkSnapshot:
                     zero_sequence_test_basis=str(getattr(item.zero_sequence_test_basis, "value", item.zero_sequence_test_basis)),
                     test_energized_winding=str(getattr(item.test_configuration.energized_winding, "value", item.test_configuration.energized_winding)),
                     test_other_winding_condition=str(getattr(item.test_configuration.other_winding_condition, "value", item.test_configuration.other_winding_condition)),
-                    test_neutral_return_included=bool(item.test_configuration.neutral_return_included),
+                    test_neutral_return_included=item.test_configuration.neutral_return_included,
                 )
                 for item in getattr(sequence_network, "transformer_zero_sequence_shunts", ())
             ),
