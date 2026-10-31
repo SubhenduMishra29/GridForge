@@ -178,6 +178,7 @@ class ShortCircuitTerminalCurrent:
     phase_currents: Mapping[str, complex] = field(default_factory=dict)
     reference_direction: str = "INTO_EQUIPMENT"
     current_units: str = "per_unit"
+    sequence_provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in ("equipment_id", "equipment_type", "terminal_role", "bus_id"):
@@ -185,6 +186,9 @@ class ShortCircuitTerminalCurrent:
         object.__setattr__(self, "current", _validate_current(self.current, "terminal current"))
         object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
         object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
+        if not isinstance(self.sequence_provenance, Mapping):
+            raise TypeError("sequence_provenance must be a mapping.")
+        object.__setattr__(self, "sequence_provenance", _freeze_value(self.sequence_provenance))
         if self.reference_direction != "INTO_EQUIPMENT":
             raise ValueError("Terminal current reference_direction must be INTO_EQUIPMENT.")
         if self.current_units != "per_unit":
