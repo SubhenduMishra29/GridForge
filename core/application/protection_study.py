@@ -76,6 +76,7 @@ class ProtectionFaultScenarioResult:
     configuration: ShortCircuitStudyConfiguration
     short_circuit_result: ShortCircuitResult
     execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
+    relay_evaluation_completed: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -87,6 +88,8 @@ class ProtectionFaultScenarioResult:
             raise TypeError("short_circuit_result must be a ShortCircuitResult.")
         if not isinstance(self.execution, ProtectionExecutionResult):
             raise TypeError("execution must be a ProtectionExecutionResult.")
+        if not isinstance(self.relay_evaluation_completed, bool):
+            raise TypeError("relay_evaluation_completed must be a boolean.")
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -305,7 +308,7 @@ class ProtectionStudyResult:
         if self.fault_scenarios and not self.measurement_snapshot_evaluated:
             return (
                 "evaluated"
-                if any(item.execution.decisions for item in self.fault_scenarios)
+                if all(item.relay_evaluation_completed for item in self.fault_scenarios)
                 else "fault_scenarios_calculated"
             )
         return "evaluated" if self.measurement_snapshot_evaluated else "not_evaluated"
@@ -444,6 +447,7 @@ class ProtectionStudyHandler:
 
             if cancellation.cancelled:
                 return None
+            relay_evaluation_completed = False
             if conversion_diagnostics:
                 scenario_execution = ProtectionExecutionResult(
                     diagnostics=tuple(conversion_diagnostics)
@@ -467,11 +471,13 @@ class ProtectionStudyHandler:
                     },
                     network_state=execution_context.topology_snapshot,
                 )
+                relay_evaluation_completed = not scenario_execution.diagnostics
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
                 short_circuit_result=short_circuit_result,
                 execution=scenario_execution,
+                relay_evaluation_completed=relay_evaluation_completed,
             ))
             if cancellation.cancelled:
                 return None
