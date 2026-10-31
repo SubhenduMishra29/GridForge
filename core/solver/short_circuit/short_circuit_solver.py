@@ -135,26 +135,92 @@ class ShortCircuitSolver:
         self,
         branch: SequenceBranchSnapshot,
         voltages: dict[str, np.ndarray],
-    ) -> tuple[dict[str, complex], dict[str, complex]] | None:
-        """Return transformer FROM/TO currents from its stamped two-port primitive."""
-        if self._required_for_fault() != ("positive",):
-            return None
-        impedance = branch.positive
-        if impedance is None:
-            return None
-        tap = branch.tap_ratio * cmath.exp(1j * branch.phase_shift_rad)
-        if not math.isfinite(tap.real) or not math.isfinite(tap.imag) or abs(tap) == 0.0:
-            return None
-        admittance = 1.0 / impedance
-        from_voltage = complex(voltages["positive"][branch.from_bus_index])
-        to_voltage = complex(voltages["positive"][branch.to_bus_index])
-        from_current = (from_voltage / (abs(tap) ** 2) - to_voltage / tap.conjugate()) * admittance
-        to_current = (-from_voltage / tap + to_voltage) * admittance
-        return {"I1": from_current}, {"I1": to_current}
+        zero_shunt: Any | None = None,
+    ) -> tuple[dict[str, complex], dict[str, complex], dict[str, Any]] | None:
+        """Return transformer terminal sequence currents for supported primitives.
+
+        Positive/negative sequence use the transformer two-port. Zero sequence
+        is available only on the explicitly grounded-wye terminal represented
+        by the prepared D14F shunt. No opposite-winding transfer is inferred.
+        """
+        required = self._required_for_fault()
+        from_currents: dict[str, complex] = {}
+        to_currents: dict[str, complex] = {}
+        names = {"positive": "I1", "negative": "I2"}
+        for sequence in ("positive", "negative"):
+            if sequence not in required:
+                continue
+            impedance = getattr(branch, sequence)
+            if impedance is None:
+                return None
+            tap = branch.tap_ratio * cmath.exp(1j * branch.phase_shift_rad)
+            if sequence == "negative":
+                tap = tap.conjugate()
+            if not math.isfinite(tap.real) or not math.isfinite(tap.imag) or abs(tap) == 0.0:
+                return None
+            admittance = 1.0 / impedance
+            from_voltage = complex(voltages[sequence][branch.from_bus_index])
+            to_voltage = complex(voltages[sequence][branch.to_bus_index])
+            from_current = (
+                from_voltage / (abs(tap) ** 2) - to_voltage / tap.conjugate()
+            ) * admittance
+            to_current = (-from_voltage / tap + to_voltage) * admittance
+            from_currents[names[sequence]] = from_current
+            to_currents[names[sequence]] = to_current
+
+        provenance: dict[str, Any] = {
+            "positive_negative_model": "TAP_AWARE_TRANSFORMER_TWO_PORT",
+            "zero_sequence_model": "NOT_REQUIRED" if "zero" not in required else "UNAVAILABLE",
+        }
+        if "zero" in required:
+            if zero_shunt is None:
+                return None
+            if zero_shunt.transformer_id != branch.branch_id:
+                return None
+            if zero_shunt.bus_id == branch.from_bus_id and zero_shunt.terminal_role == branch.from_terminal_role:
+                grounded_side = "FROM"
+                grounded_bus_index = branch.from_bus_index
+            elif zero_shunt.bus_id == branch.to_bus_id and zero_shunt.terminal_role == branch.to_terminal_role:
+                grounded_side = "TO"
+                grounded_bus_index = branch.to_bus_index
+            else:
+                return None
+            if zero_shunt.bus_index != grounded_bus_index:
+                return None
+            voltage_zero = complex(voltages["zero"][grounded_bus_index])
+            grounded_current = voltage_zero / zero_shunt.impedance_pu
+            if not (math.isfinite(grounded_current.real) and math.isfinite(grounded_current.imag)):
+                return None
+            if grounded_side == "FROM":
+                from_currents["I0"] = grounded_current
+                to_currents["I0"] = 0.0j
+            else:
+                from_currents["I0"] = 0.0j
+                to_currents["I0"] = grounded_current
+            provenance = {
+                **provenance,
+                "zero_sequence_model": "GROUNDED_WYE_SIDE_RETURN_SHUNT",
+                "zero_sequence_transformer_id": zero_shunt.transformer_id,
+                "zero_sequence_grounded_winding_side": zero_shunt.grounded_winding_side,
+                "zero_sequence_grounded_terminal_role": zero_shunt.terminal_role,
+                "zero_sequence_grounded_bus_id": zero_shunt.bus_id,
+                "zero_sequence_impedance_pu": zero_shunt.impedance_pu,
+                "transformer_z0_ohm": zero_shunt.transformer_z0_ohm,
+                "neutral_3zn_ohm": zero_shunt.neutral_3zn_ohm,
+                "zero_sequence_total_impedance_ohm": zero_shunt.total_impedance_ohm,
+                "zero_sequence_core_construction": zero_shunt.core_construction,
+                "zero_sequence_test_basis": zero_shunt.zero_sequence_test_basis,
+            }
+        return from_currents, to_currents, provenance
 
     def _branch_current_sequences(self, branch: SequenceBranchSnapshot, voltages: dict[str, np.ndarray]) -> dict[str, complex] | None:
         if branch.equipment_type == "Transformer":
-            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages)
+            snapshot = self.input.sequence_snapshot
+            zero_shunt = next(
+                (item for item in snapshot.transformer_zero_shunts if item.transformer_id == branch.branch_id),
+                None,
+            ) if snapshot is not None else None
+            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages, zero_shunt)
             return None if terminal_currents is None else terminal_currents[0]
         required = self._required_for_fault()
         result: dict[str, complex] = {}
@@ -253,7 +319,7 @@ class ShortCircuitSolver:
         self,
         typed: dict[str, Any],
     ) -> tuple[dict[str, ShortCircuitTerminalCurrent], ContributionStatus, tuple[str, ...]]:
-        """Calculate terminal currents for supported series-only primitives."""
+        """Calculate terminal currents for supported line/cable and transformer primitives."""
         snapshot = self.input.sequence_snapshot
         if snapshot is None or not snapshot.branches:
             return {}, ContributionStatus.UNAVAILABLE, ("No prepared branch terminal primitives are available.",)
@@ -263,35 +329,67 @@ class ShortCircuitSolver:
         records: dict[str, ShortCircuitTerminalCurrent] = {}
         diagnostics: list[str] = []
         required = self._required_for_fault()
+        transformer_shunts = {item.transformer_id: item for item in snapshot.transformer_zero_shunts}
         for branch in snapshot.branches:
-            if not all(
-                snapshot.is_bus_available(name, index)
-                for name in required
-                for index in (branch.from_bus_index, branch.to_bus_index)
-            ):
-                diagnostics.append(
-                    f"Terminal currents unavailable for '{branch.branch_id}': "
-                    "one or both terminals belong to an ungrounded sequence-network component."
-                )
-                continue
             if branch.equipment_type == "Transformer":
-                transformer_currents = self._transformer_terminal_current_sequences(branch, voltages)
+                # Positive and negative sequence traverse the two-winding
+                # primitive. Zero sequence is checked only at the explicitly
+                # grounded terminal; the opposite winding is not a Z0 path.
+                two_port_required = tuple(name for name in required if name in {"positive", "negative"})
+                if not all(
+                    snapshot.is_bus_available(name, index)
+                    for name in two_port_required
+                    for index in (branch.from_bus_index, branch.to_bus_index)
+                ):
+                    diagnostics.append(
+                        f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                        "positive/negative sequence terminal component is unavailable."
+                    )
+                    continue
+                zero_shunt = transformer_shunts.get(branch.branch_id)
+                if "zero" in required:
+                    if zero_shunt is None:
+                        diagnostics.append(
+                            f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                            "no explicit grounded-wye zero-sequence terminal equivalent is present in the immutable study snapshot."
+                        )
+                        continue
+                    if not snapshot.is_bus_available("zero", zero_shunt.bus_index):
+                        diagnostics.append(
+                            f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                            "the configured grounded-wye zero-sequence Bus component is unavailable."
+                        )
+                        continue
+                transformer_currents = self._transformer_terminal_current_sequences(
+                    branch, voltages, zero_shunt
+                )
                 if transformer_currents is None:
                     diagnostics.append(
                         f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
-                        "the prepared fault case does not provide the supported positive-sequence two-port primitive."
+                        "the prepared transformer sequence primitives or grounded-side shunt do not match the terminal snapshot."
                     )
                     continue
-                from_sequence, to_sequence = transformer_currents
+                from_sequence, to_sequence, sequence_provenance = transformer_currents
                 terminal_sequence_records = (
                     (branch.from_terminal_role, branch.from_bus_id, from_sequence),
                     (branch.to_terminal_role, branch.to_bus_id, to_sequence),
                 )
             elif branch.equipment_type in {"Line", "Cable"}:
+                if not all(
+                    snapshot.is_bus_available(name, index)
+                    for name in required
+                    for index in (branch.from_bus_index, branch.to_bus_index)
+                ):
+                    diagnostics.append(
+                        f"Terminal currents unavailable for '{branch.branch_id}': "
+                        "one or both terminals belong to an unavailable sequence-network component."
+                    )
+                    continue
                 sequence_currents = self._branch_current_sequences(branch, voltages)
                 if sequence_currents is None:
                     diagnostics.append(f"Terminal currents unavailable for {branch.branch_id}: required sequence impedance is missing.")
                     continue
+                sequence_provenance = {"terminal_current_model": "SERIES_BRANCH_SEQUENCE_IMPEDANCE"}
                 terminal_sequence_records = (
                     (branch.from_terminal_role, branch.from_bus_id, sequence_currents),
                     (branch.to_terminal_role, branch.to_bus_id, {name: -value for name, value in sequence_currents.items()}),
@@ -316,6 +414,7 @@ class ShortCircuitSolver:
                     current=signed_phase["Ia"],
                     sequence_currents=signed_sequence,
                     phase_currents=signed_phase,
+                    sequence_provenance=sequence_provenance,
                 )
         if len(records) == 2 * len(snapshot.branches):
             return records, ContributionStatus.COMPLETE, ()
