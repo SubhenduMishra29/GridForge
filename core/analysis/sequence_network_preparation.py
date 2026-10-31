@@ -9,6 +9,10 @@ import numpy as np
 from core.model.cable import Cable
 from core.model.line import Line
 from core.model.transformer import Transformer
+from core.analysis.transformer_zero_sequence import (
+    TransformerZeroSequenceShunt,
+    build_transformer_zero_sequence_shunt,
+)
 from core.network.topology_snapshot import TopologySnapshot
 from core.solver.short_circuit.sequence_network import SequenceNetwork
 
@@ -45,6 +49,7 @@ class SequenceNetworkPreparation:
         index = {bus_id: i for i, bus_id in enumerate(bus_ids)}
         sequence = SequenceNetwork()
         branch_data: list[tuple[int, int, dict[str, complex | None], str, complex]] = []
+        transformer_zero_shunts: list[tuple[int, TransformerZeroSequenceShunt]] = []
 
         for element in self._branch_elements():
             if not bool(getattr(element, "in_service", True)):
@@ -54,14 +59,33 @@ class SequenceNetworkPreparation:
                 continue
             data = self._branch_sequence_impedances(element, bus_a)
             element_id = getattr(element, "id", element)
-            for name in requested:
-                if data[name] is None:
-                    if isinstance(element, Transformer) and name == "zero":
+            if isinstance(element, Transformer) and "zero" in requested:
+                terminal_bus_by_role = {
+                    str(getattr(element.from_terminal, "role", "")): bus_a,
+                    str(getattr(element.to_terminal, "role", "")): bus_b,
+                }
+                from core.analysis.transformer_zero_sequence import (
+                    TransformerZeroSequencePath,
+                    classify_transformer_zero_sequence,
+                )
+                topology = classify_transformer_zero_sequence(element)
+                if topology.path is TransformerZeroSequencePath.GROUNDED_WYE_SIDE_RETURN:
+                    side = topology.grounded_winding_sides[0]
+                    terminal_role = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
+                    grounded_bus = terminal_bus_by_role.get(str(terminal_role))
+                    if grounded_bus is None:
                         raise ValueError(
-                            f"Transformer '{element_id}' has no supported zero-sequence equivalent yet. "
-                            "Winding connection and neutral grounding inputs are persisted, but "
-                            "winding-pair transfer/blocking and neutral-network stamping are not implemented."
+                            f"Transformer '{element_id}' grounded {side} terminal does not resolve "
+                            "to a Bus through the canonical topology snapshot."
                         )
+                    equivalent = build_transformer_zero_sequence_shunt(
+                        element, grounded_bus, base_mva=self._require_base()
+                    )
+                    if equivalent is None:
+                        raise ValueError(f"Transformer '{element_id}' grounded-wye return equivalent was unexpectedly unavailable.")
+                    transformer_zero_shunts.append((index[str(grounded_bus.id)], equivalent))
+            for name in requested:
+                if data[name] is None and not isinstance(element, Transformer):
                     raise ValueError(f"{type(element).__name__} '{element_id}' lacks explicit {name}-sequence engineering data.")
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             from_id = str(bus_a.id)
@@ -101,7 +125,17 @@ class SequenceNetworkPreparation:
                 branch_data.append((index[bus_id], index[bus_id], data, str(element_id), 1.0 + 0.0j))
 
         for name in requested:
-            sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
+            shunt_stamps = (
+                [(bus_index, equivalent.impedance_pu) for bus_index, equivalent in transformer_zero_shunts]
+                if name == "zero" else []
+            )
+            sequence.set_matrix(
+                name,
+                self._build_matrix(len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps),
+            )
+        sequence.transformer_zero_sequence_shunts = tuple(
+            equivalent for _, equivalent in transformer_zero_shunts
+        )
         # Detached preparation can verify that this matrix uses the same
         # from-side complex-tap convention as transformer terminal results.
         sequence.transformer_tap_convention = "FROM_SIDE_COMPLEX_TAP_V1"
@@ -205,8 +239,14 @@ class SequenceNetworkPreparation:
         return result
 
     @staticmethod
-    def _build_matrix(size: int, branches: list[tuple[int, int, dict[str, complex | None], str, complex]], sequence: str) -> np.ndarray:
-        """Stamp scalar sources and series/tap two-port branches into Ybus."""
+    def _build_matrix(
+        size: int,
+        branches: list[tuple[int, int, dict[str, complex | None], str, complex]],
+        sequence: str,
+        *,
+        shunt_stamps: list[tuple[int, complex]] | None = None,
+    ) -> np.ndarray:
+        """Stamp scalar sources, series/tap branches and explicit bus shunts into Ybus."""
         y = np.zeros((size, size), dtype=complex)
         for i, j, data, element_id, tap in branches:
             # Negative-sequence phase displacement is opposite to the
@@ -214,6 +254,10 @@ class SequenceNetworkPreparation:
             sequence_tap = tap.conjugate() if sequence == "negative" else tap
             z = data[sequence]
             if z is None:
+                # A transformer one-sided return is a grounded-Bus shunt,
+                # never an artificial HV-LV zero-sequence series branch.
+                if sequence == "zero":
+                    continue
                 raise ValueError(f"Element '{element_id}' lacks {sequence}-sequence impedance.")
             if abs(z) == 0.0:
                 raise ValueError(f"Element '{element_id}' has zero {sequence}-sequence impedance.")
@@ -228,6 +272,17 @@ class SequenceNetworkPreparation:
                 y[i, j] -= admittance / sequence_tap.conjugate()
                 y[j, i] -= admittance / sequence_tap
                 y[j, j] += admittance
+        for bus_index, impedance_pu in shunt_stamps or ():
+            if not 0 <= bus_index < size:
+                raise ValueError("Zero-sequence shunt Bus index is outside the prepared topology.")
+            impedance = complex(impedance_pu)
+            if (
+                not np.isfinite(impedance.real)
+                or not np.isfinite(impedance.imag)
+                or abs(impedance) == 0.0
+            ):
+                raise ValueError("Transformer zero-sequence shunt impedance must be finite and non-zero.")
+            y[bus_index, bus_index] += 1.0 / impedance
         if np.any(np.abs(np.diag(y)) == 0.0):
             raise ValueError("Sequence network contains a bus without a connected source or branch.")
         try:
