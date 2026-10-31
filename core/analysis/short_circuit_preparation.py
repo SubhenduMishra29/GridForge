@@ -132,6 +132,22 @@ class ShortCircuitPreparation:
     def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
+            if fault_type.is_unbalanced:
+                for transformer in (item for item in self._branch_elements(network) if isinstance(item, Transformer) and bool(getattr(item, "in_service", True))):
+                    if (
+                        getattr(transformer, "hv_winding_connection", None) is not None
+                        and getattr(transformer, "lv_winding_connection", None) is not None
+                        and getattr(transformer.hv_winding_connection, "value", transformer.hv_winding_connection) == "WYE_GROUNDED"
+                        and getattr(transformer.lv_winding_connection, "value", transformer.lv_winding_connection) == "WYE_GROUNDED"
+                    ):
+                        supplied_stamps = {
+                            str(getattr(item, "transformer_id", ""))
+                            for item in getattr(sequence_network, "transformer_zero_sequence_two_bus_stamps", ())
+                        }
+                        if str(transformer.id) not in supplied_stamps:
+                            raise ValueError(
+                                f"Externally supplied sequence network lacks the explicit D14I two-Bus zero-sequence stamp for grounded-wye/grounded-wye Transformer '{transformer.id}'."
+                            )
             requires_tap_aware_matrix = any(
                 isinstance(element, Transformer)
                 and (
