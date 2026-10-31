@@ -100,10 +100,14 @@ class SequenceTransformerZeroShuntSnapshot:
     base_voltage_kv: float
     core_construction: str
     zero_sequence_test_basis: str
+    test_energized_winding: str
+    test_other_winding_condition: str
+    test_neutral_return_included: bool
 
     def __post_init__(self) -> None:
         for name in ("transformer_id", "bus_id", "terminal_role", "grounded_winding_side",
-                     "core_construction", "zero_sequence_test_basis"):
+                     "core_construction", "zero_sequence_test_basis", "test_energized_winding",
+                     "test_other_winding_condition"):
             value = str(getattr(self, name)).strip()
             if not value:
                 raise ValueError(f"{name} must be a non-empty provenance value.")
@@ -112,6 +116,8 @@ class SequenceTransformerZeroShuntSnapshot:
             raise ValueError("Transformer zero-sequence shunt terminal_role must be FROM or TO.")
         if self.grounded_winding_side not in {"HV", "LV"}:
             raise ValueError("grounded_winding_side must be HV or LV.")
+        if type(self.test_neutral_return_included) is not bool:
+            raise TypeError("test_neutral_return_included must be a boolean.")
         if isinstance(self.bus_index, bool) or not isinstance(self.bus_index, int) or self.bus_index < 0:
             raise ValueError("Transformer shunt bus_index must be a non-negative integer.")
         for name in ("impedance_pu", "transformer_z0_ohm", "neutral_3zn_ohm", "total_impedance_ohm"):
@@ -270,6 +276,9 @@ class SequenceNetworkSnapshot:
                     base_voltage_kv=float(item.base_voltage_kv),
                     core_construction=str(getattr(item.core_construction, "value", item.core_construction)),
                     zero_sequence_test_basis=str(getattr(item.zero_sequence_test_basis, "value", item.zero_sequence_test_basis)),
+                    test_energized_winding=str(getattr(item.test_configuration.energized_winding, "value", item.test_configuration.energized_winding)),
+                    test_other_winding_condition=str(getattr(item.test_configuration.other_winding_condition, "value", item.test_configuration.other_winding_condition)),
+                    test_neutral_return_included=bool(item.test_configuration.neutral_return_included),
                 )
                 for item in getattr(sequence_network, "transformer_zero_sequence_shunts", ())
             ),
