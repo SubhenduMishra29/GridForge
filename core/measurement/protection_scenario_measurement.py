@@ -103,8 +103,14 @@ class ProtectionScenarioMeasurementAdapter:
         parts = binding.result_quantity.split(".", 1)
         if len(parts) != 2 or parts[0] not in {"phase_currents", "sequence_currents"}:
             raise ValueError("Binding result_quantity must name an explicit phase_currents or sequence_currents member.")
-        if parts[1] != binding.phase_or_sequence:
-            raise ValueError("Binding phase_or_sequence does not match its result_quantity member.")
+        phase_member = {
+            "A": "Ia", "B": "Ib", "C": "Ic",
+            "POSITIVE_SEQUENCE": "I1",
+            "NEGATIVE_SEQUENCE": "I2",
+            "ZERO_SEQUENCE": "I0",
+        }.get(binding.phase_or_sequence.strip().upper(), binding.phase_or_sequence)
+        if parts[1] != phase_member:
+            raise ValueError("Binding phase_or_sequence does not map to its result_quantity member.")
         ct_side = ct_association.locate_measurement_endpoint(endpoint)
         ct_terminal = ct_association.p1_terminal_reference if ct_side == "P1_SIDE" else ct_association.p2_terminal_reference
         terminal_key = f"{endpoint.object_id}:{endpoint.terminal_role}"
@@ -228,8 +234,14 @@ class ProtectionScenarioMeasurementAdapter:
         quantity_parts = binding.result_quantity.split(".", 1)
         if len(quantity_parts) != 2 or quantity_parts[0] not in {"phase_currents", "sequence_currents"}:
             raise ValueError("Binding result_quantity must explicitly name a phase_currents or sequence_currents member.")
-        if quantity_parts[1] != binding.phase_or_sequence:
-            raise ValueError("Binding phase_or_sequence does not match its explicit result_quantity member.")
+        phase_member = {
+            "A": "Ia", "B": "Ib", "C": "Ic",
+            "POSITIVE_SEQUENCE": "I1",
+            "NEGATIVE_SEQUENCE": "I2",
+            "ZERO_SEQUENCE": "I0",
+        }.get(binding.phase_or_sequence.strip().upper(), binding.phase_or_sequence)
+        if quantity_parts[1] != phase_member:
+            raise ValueError("Binding phase_or_sequence does not map to its explicit result_quantity member.")
         ratio = float(getattr(instrument, "ratio"))
         if not isfinite(ratio) or ratio <= 0.0 or abs(ratio - binding.instrument_ratio) > max(1e-9, ratio * 1e-9):
             raise ValueError("Configured binding ratio does not match the authoritative CT ratio.")
