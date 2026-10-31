@@ -18224,3 +18224,10 @@ Status:
 
 D15F-35 model correction:
     Transformer constructor and physical_conductor_construction producer now expose and validate separate HV/LV neutral earth-return impedance fields. Grounded-wye construction cannot be produced without explicit return impedance; ungrounded/delta windings reject these fields. Transformer diagnostic summary includes both values.
+
+D15F-35 solver reconciliation addition:
+    PhaseDomainShortCircuitSolver now compares each transformer grounded
+    winding neutral multiport terminal current against the signed physical
+    GROUND_ELECTRODE branch current. A missing/duplicate/ideal electrode or
+    current mismatch fails the solve; successful checks are included in
+    source_return_reconciliation under TRANSFORMER:<id>:<winding>:N.
