@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from typing import Any
 
@@ -88,6 +88,14 @@ def _encode(value: Any, *, terminal_attributes: dict[str, Terminal], path: str) 
         return {"$ref": {"type": type(value).__name__, "id": value.id}}
     if isinstance(value, Enum):
         return {"$enum": f"{type(value).__module__}:{type(value).__qualname__}", "name": value.name}
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            "$dataclass": f"{type(value).__module__}:{type(value).__qualname__}",
+            "fields": {
+                item.name: _encode(getattr(value, item.name), terminal_attributes=terminal_attributes, path=f"{path}.{item.name}")
+                for item in fields(value)
+            },
+        }
     if value is None or isinstance(value, (str, int, bool)):
         return value
     if isinstance(value, float):
@@ -162,6 +170,16 @@ def _decode(value: Any) -> Any:
             for part in qualname.split("."):
                 target = getattr(target, part)
             return target[value["name"]]
+        if "$dataclass" in value:
+            module_name, qualname = value["$dataclass"].split(":", 1)
+            module = __import__(module_name, fromlist=[qualname.split(".")[0]])
+            target: Any = module
+            for part in qualname.split("."):
+                target = getattr(target, part)
+            payload = value.get("fields")
+            if not isinstance(payload, dict):
+                raise ModelSerializationError("Persisted $dataclass fields must be an object.")
+            return target(**{key: _decode(item) for key, item in payload.items()})
         return {key: _decode(item) for key, item in value.items()}
     return value
 
