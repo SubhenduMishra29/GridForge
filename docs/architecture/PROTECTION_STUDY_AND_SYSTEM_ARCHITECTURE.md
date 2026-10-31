@@ -1262,7 +1262,7 @@ Engineering boundary:
   mutual impedance is invented.
 - This phase does not calculate conductor currents, stamp a multi-conductor
   network, derive neutral current from phase-current sum, or enable neutral CT
-  and CBCT measurements. Those remain D15D/D15E/D15F-D15G work.
+  and CBCT measurements. Those remain D15E/D15F-D15G work.
 - Legacy Line/Cable models without a conductor system remain loadable, but
   cannot be promoted to physical conductor-current coverage.
 
