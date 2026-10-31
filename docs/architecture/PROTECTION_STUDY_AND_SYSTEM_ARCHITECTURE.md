@@ -982,3 +982,8 @@ Engineering configuration requirement: every residual source binding must declar
 The Line Core model now accepts optional `zero_sequence_resistance_ohm` and `zero_sequence_reactance_ohm` as a required pair. These values are physical series impedance data, are persisted by the generic ModelDTO slot/state serializer, and can be created or updated through the Application command and transactional `LineModelService` path. Existing Line projects deserialize with both values absent and remain valid for positive-sequence studies.
 
 `SequenceNetworkPreparation` converts an explicitly supplied Line Z0 to the study per-unit base. Unsymmetrical fault preparation still fails closed when Z0 is absent or zero; it never substitutes Z1 for Z0. The solver then uses the prepared zero-sequence network when calculating SLG/LLG branch terminal-current records. This is a prerequisite for 50N/51N residual-current measurements on line-connected CT locations, not a declaration that every transformer or neutral return path is supported.
+
+
+### D13 — Transformer negative-sequence primitive
+
+For the existing passive, static two-winding Transformer model, the negative-sequence series impedance is prepared from the same physical series impedance as positive sequence. The negative-sequence complex tap uses the conjugate phase displacement, reversing the phase-shift angle while retaining the tap ratio. This does not infer transformer zero-sequence behavior: winding connections, vector group, neutral grounding and zero-sequence transfer remain unsupported, and earth-fault preparation through a transformer must still fail closed.
