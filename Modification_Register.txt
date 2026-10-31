@@ -16083,8 +16083,10 @@ Implementation:
     - Added explicit complex neutral grounding impedance in ohms for
       each grounded-wye winding. Solid grounding is represented only
       by explicit 0j; no grounding value is inferred.
-    - Exposed the fields through transformer construction command and
-      Application TransformerModelService.
+    - Exposed the fields through transformer construction and update
+      commands and transactional TransformerModelService operations.
+    - Added atomic Core configuration updates, exact rollback restoration,
+      and winding/grounding values in Transformer summaries.
     - Added finite complex-number DTO encoding/decoding so the neutral
       grounding impedances survive canonical project persistence.
     - Sequence preparation now reports the exact unsupported zero-
