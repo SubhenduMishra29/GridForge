@@ -164,6 +164,10 @@ def validate_zero_sequence_test_applicability(
     reference = str(reference_winding).strip().upper()
     if reference not in {"HV", "LV"}:
         raise ValueError("Z0 impedance reference winding must be HV or LV.")
+    if test.neutral_return_included:
+        raise ValueError(
+            "Declared transformer Z0 excludes neutral 3Zn; test data that includes neutral return cannot be used without an explicit correction."
+        )
     if test.energized_winding.value != reference:
         raise ValueError(
             "Zero-sequence test energized winding must match the declared Z0 reference winding."
