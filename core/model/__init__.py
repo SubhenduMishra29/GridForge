@@ -9,6 +9,7 @@ from .bus import Bus
 from .branch import Branch
 from .conductor import ConductorRole, ConductorMaterial, PhysicalConductor, BranchConductorSystem
 from .physical_conductor_construction import PhysicalConductorPath, PhysicalConductorConstruction
+from .transformer_physical_conductor_construction import TransformerWindingConductorConstruction, TransformerPhysicalConductorConstruction
 from .line import Line
 from .cable import Cable
 from .transformer import ImpedanceBasis, TransformerCoreConstruction, TransformerWindingConnection, Transformer
@@ -64,7 +65,7 @@ ElectricalObject.register(Relay)
 from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 __all__ = (
-    "ElectricalObject", "Terminal", "Injection", "PhysicalConductorPath", "PhysicalConductorConstruction", "Bus", "Branch", "ConductorRole", "ConductorMaterial", "PhysicalConductor", "BranchConductorSystem", "Line", "Cable", "ImpedanceBasis", "TransformerCoreConstruction", "TransformerWindingConnection", "TransformerVectorGroupConnection", "TransformerWindingPolarity", "ZeroSequenceTestEnergizedWinding", "ZeroSequenceTestOtherWindingCondition", "TransformerVectorGroupConfiguration", "TransformerZeroSequenceTestConfiguration", "TransformerZeroSequenceTwoWindingTestData", "validate_zero_sequence_test_applicability", "Transformer", "Switch",
+    "ElectricalObject", "Terminal", "Injection", "PhysicalConductorPath", "PhysicalConductorConstruction", "TransformerWindingConductorConstruction", "TransformerPhysicalConductorConstruction", "Bus", "Branch", "ConductorRole", "ConductorMaterial", "PhysicalConductor", "BranchConductorSystem", "Line", "Cable", "ImpedanceBasis", "TransformerCoreConstruction", "TransformerWindingConnection", "TransformerVectorGroupConnection", "TransformerWindingPolarity", "ZeroSequenceTestEnergizedWinding", "ZeroSequenceTestOtherWindingCondition", "TransformerVectorGroupConfiguration", "TransformerZeroSequenceTestConfiguration", "TransformerZeroSequenceTwoWindingTestData", "validate_zero_sequence_test_applicability", "Transformer", "Switch",
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
     "PotentialTransformer", "CVT", "Relay", "EndpointReference", "EndpointReferenceKind", "EquipmentType",
