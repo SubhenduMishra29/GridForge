@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.model.terminal import Terminal
-from core.network import Junction, Network, SimpleWireConnection
+from core.network import Junction, Network, SimpleWireConnection, PhaseDomainConductorNode, PhaseDomainConnection
 
 from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
 from .project_package import CONNECTIVITY_SERIALIZATION_VERSION, CORE_SERIALIZATION_VERSION
@@ -60,6 +60,8 @@ def serialize_network(network: Network) -> dict[str, Any]:
             "schema": CONNECTIVITY_SERIALIZATION_VERSION,
             "junctions": junctions,
             "simple_wires": simple_wires,
+            "phase_domain_nodes": [item.to_dict() for item in network.phase_domain_nodes],
+            "phase_domain_connections": [item.to_dict() for item in network.phase_domain_connections],
         },
     }
 
@@ -170,7 +172,7 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
         raise NetworkSerializationError(
             f"Connectivity schema must be an integer, got {connectivity_schema!r}."
         )
-    if connectivity_schema not in {1, CONNECTIVITY_SERIALIZATION_VERSION}:
+    if connectivity_schema not in {1, 2, CONNECTIVITY_SERIALIZATION_VERSION}:
         raise NetworkSerializationError(
             f"Unsupported project connectivity schema: {connectivity_schema!r}"
         )
@@ -231,6 +233,25 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
             raise NetworkSerializationError(
                 f"Invalid persisted Simple Wire relationship: {exc}"
             ) from exc
+
+    if connectivity_schema >= 3:
+        raw_nodes = connectivity_data.get("phase_domain_nodes")
+        raw_connections = connectivity_data.get("phase_domain_connections")
+        if not isinstance(raw_nodes, list) or not isinstance(raw_connections, list):
+            raise NetworkSerializationError("Connectivity schema 3 requires phase_domain_nodes and phase_domain_connections arrays.")
+        for raw_node in raw_nodes:
+            try:
+                network.add_phase_domain_node(PhaseDomainConductorNode.from_dict(raw_node))
+            except Exception as exc:
+                raise NetworkSerializationError(f"Invalid persisted phase-domain conductor node: {exc}") from exc
+        for raw_edge in raw_connections:
+            try:
+                network.add_phase_domain_connection(PhaseDomainConnection.from_dict(raw_edge))
+            except Exception as exc:
+                raise NetworkSerializationError(f"Invalid persisted phase-domain conductor connection: {exc}") from exc
+    else:
+        if "phase_domain_nodes" in connectivity_data or "phase_domain_connections" in connectivity_data:
+            raise NetworkSerializationError("Legacy connectivity schemas cannot contain phase-domain graph records.")
 
     try:
         network.rebuild_topology()
