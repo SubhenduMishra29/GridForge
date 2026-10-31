@@ -16601,3 +16601,56 @@ Engineering boundary:
 Verification:
     Remote source edits only. No tests/CI, Python syntax/import checks,
     solver execution or numerical conductor-current fixtures were run.
+
+
+======================================================================
+GF-SC-D15C — CORE PHYSICAL CONDUCTOR INVENTORY AND COUPLED BRANCH DATA
+======================================================================
+
+Files:
+    core/model/conductor.py
+    core/model/branch.py
+    core/model/line.py
+    core/model/cable.py
+    core/model/__init__.py
+    core/application/commands/model_commands.py
+    core/application/services/line_model_service.py
+    core/application/services/cable_model_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Changes:
+    - Added immutable PhysicalConductor identity and construction metadata,
+      with distinct A/B/C, neutral, protective-earth, screen, pilot and other
+      physical roles. Material, cross-section and rated ampacity remain
+      explicit optional data.
+    - Added immutable BranchConductorSystem with physical length, explicit
+      matrix conductor ordering, full reciprocal series impedance matrix
+      (self and mutual terms) in ohm/km, and optional explicit shunt-admittance
+      matrix in S/km.
+    - Validates unique conductor identities, exact matrix inventory/order,
+      finite complex matrix entries, reciprocal symmetry and positive-definite
+      real resistance matrix without introducing a NumPy dependency in Core.
+    - Branch owns the typed conductor-system value. Line and Cable accept it;
+      Cable validates physical conductor count and conductor-system length
+      against its own configuration.
+    - Exposed the types from core.model. Existing generic ModelDTO slot and
+      dataclass encoding preserves the new Branch slot and immutable values.
+    - Extended Line/Cable create/update command payloads and transactional
+      Application services. Update omission preserves existing inventory;
+      explicit clear_conductor_system removes it and undo restores the prior
+      value.
+
+Engineering boundary:
+    No conductor inventory is synthesized from Cable.conductor_count.
+    Neutral, protective earth and screen are distinct. No neutral/earth return
+    path or additional Network node is inferred. The conductor system is
+    explicit data only; no multi-conductor network stamp or conductor-current
+    calculation is enabled. D15D/D15E and D15F/D15G remain outstanding.
+    Legacy branches without explicit conductor data remain valid but do not
+    qualify for physical conductor-current coverage.
+
+Verification:
+    Remote source edits only. No tests/CI, Python syntax/import checks,
+    persistence round-trip, command execution or numerical matrix fixtures
+    were run. Production runtime verification remains outstanding.
