@@ -17929,12 +17929,15 @@ Fail-closed boundaries:
       configurator implementation.
 
 Verification:
-    Remote source re-fetch only. No tests/CI, syntax/import checks,
-    model serialization round-trip, numerical fixtures or end-to-end
-    study execution were run. Runtime behaviour remains unverified.
+    Remote source re-fetch confirms the common construction/path types,
+    four equipment adapters, public model exports, generic SLD graph
+    consumption, impedance propagation, operating-state gates, and this
+    register entry. No tests/CI, syntax/import checks, model serialization
+    round-trip, numerical fixtures or end-to-end study execution were run.
+    Runtime behaviour remains unverified.
 
 Status:
-    IMPLEMENTED — REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+    IMPLEMENTED — REMOTE SOURCE CHECKED; RUNTIME VERIFICATION DEFERRED
 
 ======================================================================
 
