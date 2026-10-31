@@ -170,9 +170,9 @@ def resolve_residual_current(
     """Resolve a configured residual-current input without source inference.
 
     Each source sample must expose value, unit, scenario_id, phase_or_sequence,
-    reference_basis_id and provenance containing measurement_point_id and
-    topology_revision. For a three-phase sum, all three CT-secondary bases
-    must match exactly; mixed CT ratios are deliberately rejected.
+    reference_basis_id='PRIMARY_AMPS' and provenance containing an explicit
+    measurement_point_id, topology_revision, and verified normalization flag.
+    CT-secondary samples must be normalized independently before resolution.
     """
     if not isinstance(configuration, ResidualCurrentInputConfiguration):
         raise TypeError("configuration must be ResidualCurrentInputConfiguration.")
