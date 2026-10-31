@@ -287,6 +287,10 @@ class Transformer(Branch):
         rate_mva: float | None = None,
         name: str | None = None,
         in_service: bool | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
 
@@ -350,6 +354,10 @@ class Transformer(Branch):
             raise TypeError("name must be a string.")
         target_name = target_name.strip() or self.id
         target_in_service = self._in_service if in_service is None else bool(in_service)
+        target_hv_connection = self._normalize_winding_connection(self._hv_winding_connection if hv_winding_connection is None else hv_winding_connection)
+        target_lv_connection = self._normalize_winding_connection(self._lv_winding_connection if lv_winding_connection is None else lv_winding_connection)
+        target_hv_grounding = self._validate_neutral_grounding(self._hv_neutral_grounding_impedance_ohm if hv_neutral_grounding_impedance_ohm is None else hv_neutral_grounding_impedance_ohm, target_hv_connection, "HV")
+        target_lv_grounding = self._validate_neutral_grounding(self._lv_neutral_grounding_impedance_ohm if lv_neutral_grounding_impedance_ohm is None else lv_neutral_grounding_impedance_ohm, target_lv_connection, "LV")
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
@@ -362,6 +370,8 @@ class Transformer(Branch):
             self._r, self._x, self._b, self._impedance_basis,
             self._impedance_base_mva, self._tap, self._shift,
             self._rate_mva, self.name, self._in_service,
+            self._hv_winding_connection, self._lv_winding_connection,
+            self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
         )
         try:
             self._r = target_r
@@ -374,12 +384,18 @@ class Transformer(Branch):
             self._rate_mva = target_rate
             self.name = target_name
             self._in_service = target_in_service
+            self._hv_winding_connection = target_hv_connection
+            self._lv_winding_connection = target_lv_connection
+            self._hv_neutral_grounding_impedance_ohm = target_hv_grounding
+            self._lv_neutral_grounding_impedance_ohm = target_lv_grounding
             self.validate()
         except Exception:
             (
                 self._r, self._x, self._b, self._impedance_basis,
                 self._impedance_base_mva, self._tap, self._shift,
                 self._rate_mva, old_name, self._in_service,
+                self._hv_winding_connection, self._lv_winding_connection,
+                self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
             ) = old_state
             self.name = old_name
             raise
@@ -422,6 +438,10 @@ class Transformer(Branch):
                 "tap_ratio": self._tap,
                 "shift_rad": self._shift,
                 "shift_deg": self.phase_shift_deg,
+                "hv_winding_connection": self._hv_winding_connection,
+                "lv_winding_connection": self._lv_winding_connection,
+                "hv_neutral_grounding_impedance_ohm": self._hv_neutral_grounding_impedance_ohm,
+                "lv_neutral_grounding_impedance_ohm": self._lv_neutral_grounding_impedance_ohm,
             }
         )
         return summary
