@@ -940,3 +940,14 @@ ratios to a common primary-current basis, or enable 50N/51N input contracts.
 Those functions remain fail-closed until that integration is complete.
 No protection zone is inferred from CT placement. No live MeasurementChannel
 state is mutated.
+
+
+## Protection Study D11a — residual-current primary-current normalization
+
+Residual-current source samples are normalized independently to a common primary-current basis before phasor combination. The normalization boundary consumes a validated detached CT-secondary sample and the active binding's CT ratio plus MeasurementChannel scale and polarity. It applies channel scale, channel polarity and CT ratio exactly once. The measurement adapter has already applied CT primary-side P1/P2 orientation and physical CT polarity; those operations must not be repeated.
+
+The resulting immutable source sample declares amperes on the `PRIMARY_AMPS` basis and carries provenance confirming normalization, the engineer-configured measurement point, topology revision, CT ratio and channel scale/polarity. Three-phase residual current remains the complex phasor sum Ia + Ib + Ic. Different CT ratios are valid only after independent normalization to primary amperes.
+
+This increment adds the normalization contract and resolver enforcement only. Application multi-binding RelayInput snapshot assembly, direct neutral/CBCT source-mode population, and ANSI 50N/51N input-contract enablement remain outstanding. 50N/51N therefore remain fail-closed. No protection zone is inferred from CT placement and no live MeasurementChannel state is mutated.
+
+Verification: remote source review only. No tests or CI run; Python syntax, import integrity and runtime execution remain outstanding.
