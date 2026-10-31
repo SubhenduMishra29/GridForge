@@ -44,6 +44,10 @@ from core.analysis.transient_stability import (
     TransientStabilityAnalysis,
 )
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
+from core.analysis.transformer_zero_sequence_t_equivalent import (
+    TransformerZeroSequenceTEquivalent,
+    derive_transformer_zero_sequence_t_equivalent,
+)
 from core.analysis.transformer_zero_sequence import (
     TransformerZeroSequencePath,
     TransformerZeroSequenceTopology,
@@ -89,6 +93,8 @@ __all__ = [
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
     "TransformerZeroSequenceShunt",
+    "TransformerZeroSequenceTEquivalent",
+    "derive_transformer_zero_sequence_t_equivalent",
     "build_transformer_zero_sequence_shunt",
     "classify_transformer_zero_sequence",
     "FaultType",
