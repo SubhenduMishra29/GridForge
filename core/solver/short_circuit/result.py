@@ -166,6 +166,32 @@ class ShortCircuitEquipmentCurrent:
 
 
 @dataclass(frozen=True, slots=True)
+class ShortCircuitTerminalCurrent:
+    """Current at one physical equipment terminal, positive INTO equipment."""
+
+    equipment_id: str
+    equipment_type: str
+    terminal_role: str
+    bus_id: str
+    current: complex
+    sequence_currents: Mapping[str, complex] = field(default_factory=dict)
+    phase_currents: Mapping[str, complex] = field(default_factory=dict)
+    reference_direction: str = "INTO_EQUIPMENT"
+    current_units: str = "per_unit"
+
+    def __post_init__(self) -> None:
+        for name in ("equipment_id", "equipment_type", "terminal_role", "bus_id"):
+            object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
+        object.__setattr__(self, "current", _validate_current(self.current, "terminal current"))
+        object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
+        object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
+        if self.reference_direction != "INTO_EQUIPMENT":
+            raise ValueError("Terminal current reference_direction must be INTO_EQUIPMENT.")
+        if self.current_units != "per_unit":
+            raise ValueError("Terminal current current_units must be per_unit.")
+
+
+@dataclass(frozen=True, slots=True)
 class ShortCircuitResult:
     """Completed short-circuit result detached from all live Core objects."""
 
@@ -188,6 +214,9 @@ class ShortCircuitResult:
     status: ShortCircuitStatus | str | None = None
     contribution_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
     diagnostics: tuple[str, ...] = ()
+    terminal_currents: Mapping[str, ShortCircuitTerminalCurrent] = field(default_factory=dict)
+    terminal_current_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
+    terminal_current_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", _freeze_value(self.values))
@@ -209,6 +238,13 @@ class ShortCircuitResult:
         object.__setattr__(self, "source_contributions", self._freeze_records(self.source_contributions, ShortCircuitSourceContribution, "source_contributions"))
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
+        object.__setattr__(self, "terminal_currents", self._freeze_terminal_records(self.terminal_currents))
+        try:
+            terminal_status = ContributionStatus(self.terminal_current_status)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported terminal current status: {self.terminal_current_status!r}.") from exc
+        object.__setattr__(self, "terminal_current_status", terminal_status)
+        object.__setattr__(self, "terminal_current_diagnostics", tuple(str(item) for item in self.terminal_current_diagnostics))
         object.__setattr__(self, "provenance", _freeze_value(self.provenance))
         status = self.status
         if status is None:
@@ -240,6 +276,19 @@ class ShortCircuitResult:
             frozen[key] = value
         return MappingProxyType(frozen)
 
+    @staticmethod
+    def _freeze_terminal_records(values: Mapping[str, ShortCircuitTerminalCurrent]) -> Mapping[str, ShortCircuitTerminalCurrent]:
+        frozen: dict[str, ShortCircuitTerminalCurrent] = {}
+        for key, value in values.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("terminal_currents keys must be non-empty identifiers.")
+            if not isinstance(value, ShortCircuitTerminalCurrent):
+                raise TypeError("terminal_currents values must be ShortCircuitTerminalCurrent records.")
+            if key != f"{value.equipment_id}:{value.terminal_role}":
+                raise ValueError("terminal current key must match equipment ID and terminal role.")
+            frozen[key] = value
+        return MappingProxyType(frozen)
+
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
 
@@ -263,6 +312,9 @@ class ShortCircuitResult:
             "source_contributions": dict(self.source_contributions),
             "equipment_currents": dict(self.equipment_currents),
             "branch_currents": dict(self.branch_currents),
+            "terminal_currents": dict(self.terminal_currents),
+            "terminal_current_status": self.terminal_current_status,
+            "terminal_current_diagnostics": self.terminal_current_diagnostics,
             "provenance": dict(self.provenance),
         })
         return result
@@ -274,5 +326,6 @@ __all__ = [
     "ShortCircuitSourceContribution",
     "ShortCircuitBranchCurrent",
     "ShortCircuitEquipmentCurrent",
+    "ShortCircuitTerminalCurrent",
     "ShortCircuitResult",
 ]
