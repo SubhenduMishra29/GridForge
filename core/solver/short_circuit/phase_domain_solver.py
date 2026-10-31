@@ -207,6 +207,8 @@ class PhaseDomainShortCircuitSolver:
                 indices = [snapshot.source_node_to_index[node_id] for node_id in source.node_ids]
                 if any(index is None for index in indices):
                     raise ValueError(f"Multi-conductor source {source.source_id!r} is connected to a fixed earth node.")
+                if len(set(indices)) != len(indices):
+                    raise ValueError(f"Multi-conductor source {source.source_id!r} has terminals contracted by an ideal conductor bond.")
                 source_y = np.linalg.inv(np.asarray(source.impedance_matrix_ohm, dtype=complex))
                 source_rhs = source_y @ np.asarray(source.internal_voltage_v, dtype=complex)
                 for row, global_row in enumerate(indices):
