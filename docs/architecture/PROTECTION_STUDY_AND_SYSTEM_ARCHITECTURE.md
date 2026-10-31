@@ -1061,3 +1061,30 @@ zero-sequence terminal-current primitive, earth-fault result, or relay
 measurement path is enabled by this phase. A network containing a floating
 or disconnected zero-sequence island remains unsolvable and is rejected by
 the existing matrix singularity checks.
+
+
+## D14G — Component-aware sequence-network solvability
+
+Sequence-network preparation partitions each sequence network by its actual
+sequence-conducting branches. A transformer without a supported zero-sequence
+transfer primitive does not connect its HV and LV Buses in the zero-sequence
+graph. Explicit source impedances and supported grounding shunts anchor
+components; an island without a valid reference/return remains unavailable
+rather than receiving a fictitious ground or pseudo-inverse.
+
+Each grounded, numerically invertible component is independently reduced to
+its own Zbus block. Floating or singular components are retained as explicit
+unavailable Bus-index metadata in the immutable sequence snapshot. They do
+not prevent unrelated grounded components from being prepared. A fault is
+rejected only when its required sequence network is unavailable at the fault
+Bus. LL faults require positive and negative sequence; LG and LLG faults also
+require an available zero-sequence return. Contribution and terminal-current
+records are suppressed for equipment whose required sequence endpoints lie
+in unavailable components, and coverage diagnostics remain partial rather
+than fabricating zero currents.
+
+No Moore-Penrose inverse or arbitrary grounding impedance is introduced.
+A blocked delta-side Bus therefore remains electrically isolated in Z0, while
+a grounded-wye-side shunt can independently establish the grounded-side
+return. This phase does not implement grounded-wye/grounded-wye transformer
+transfer or transformer zero-sequence terminal-current primitives.
