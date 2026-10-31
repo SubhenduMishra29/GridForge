@@ -90,6 +90,8 @@ class ShortCircuitPreparation:
                 from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
                 if not isinstance(phase_domain_case, PhaseDomainShortCircuitCase):
                     raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+                if self.base_mva is None:
+                    raise ValueError("Phase-domain preparation requires an explicit study MVA base.")
                 # A caller-supplied typed case may carry valid-looking project
                 # revisions while embedding stale graph or impedance data.
                 # Rebuild every Network-derived primitive from this captured
