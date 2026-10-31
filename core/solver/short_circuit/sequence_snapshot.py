@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from core.network.physical_conductor_topology import PhysicalConductorTopologySnapshot
+
 import numpy as np
 
 
@@ -243,6 +245,7 @@ class SequenceNetworkSnapshot:
     unavailable_bus_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     transformer_zero_shunts: tuple[SequenceTransformerZeroShuntSnapshot, ...] = ()
     transformer_zero_two_bus_stamps: tuple[SequenceTransformerZeroTwoBusSnapshot, ...] = ()
+    physical_conductor_topology: PhysicalConductorTopologySnapshot | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -282,6 +285,17 @@ class SequenceNetworkSnapshot:
                 if self.bus_ids[stamp.hv_bus_index] != stamp.hv_bus_id or self.bus_ids[stamp.lv_bus_index] != stamp.lv_bus_id:
                     raise ValueError("Yg-Yg transformer Bus identity does not match bus_ids.")
         object.__setattr__(self, "transformer_zero_two_bus_stamps", two_bus_stamps)
+        conductor_topology = self.physical_conductor_topology
+        if conductor_topology is not None:
+            if not isinstance(conductor_topology, PhysicalConductorTopologySnapshot):
+                raise TypeError("physical_conductor_topology must be a PhysicalConductorTopologySnapshot.")
+            if conductor_topology.topology_revision < 0:
+                raise ValueError("Physical conductor topology revision must be non-negative.")
+            if self.bus_ids:
+                for item in conductor_topology.branches:
+                    for bus_id in (item.from_bus_id, item.to_bus_id):
+                        if bus_id is not None and bus_id not in self.bus_ids:
+                            raise ValueError("Physical conductor branch references a Bus outside the sequence snapshot.")
         unavailable: dict[str, tuple[int, ...]] = {}
         for sequence in ("positive", "negative", "zero"):
             raw_indices = tuple(self.unavailable_bus_indices.get(sequence, ()))
@@ -336,6 +350,7 @@ class SequenceNetworkSnapshot:
             branches=branches,
             sources=sources,
             unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
+            physical_conductor_topology=getattr(sequence_network, "physical_conductor_topology", None),
             transformer_zero_two_bus_stamps=tuple(
                 SequenceTransformerZeroTwoBusSnapshot(
                     transformer_id=str(item.transformer_id),
