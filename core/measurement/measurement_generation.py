@@ -426,7 +426,7 @@ class MeasurementGeneration:
         if not isfinite(base_mva) or base_mva <= 0.0 or not isfinite(voltage_kv) or voltage_kv <= 0.0:
             raise UnsupportedMeasurementQuantity("Short-circuit study bases must be finite and positive.")
         primary_current_a = complex(values[member_key]) * (base_mva * 1000.0 / (sqrt(3.0) * voltage_kv))
-        ct_reference_current_a = primary_current_a if ct_side == "P1_SIDE" else -primary_current_a
+        ct_reference_current_a = -primary_current_a if ct_side == "P1_SIDE" else primary_current_a
         return self._apply_ct_polarity(ct_reference_current_a, source) / self._ratio(source, "current")
     @staticmethod
     def _current_base_a(prepared_power_flow: Any, bus_id: str) -> float:
