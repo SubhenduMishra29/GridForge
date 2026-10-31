@@ -92,7 +92,7 @@ class SequenceNetworkPreparation:
                 element_id = getattr(machine, "id", machine)
                 sequence.add_element(element_id, data["positive"], data.get("negative"), data.get("zero"))
                 bus_id = str(bus.id)
-                branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
+                branch_data.append((index[bus_id], index[bus_id], data, str(element_id), 1.0 + 0.0j))
 
         for name in requested:
             sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
