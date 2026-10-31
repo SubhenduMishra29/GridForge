@@ -16106,3 +16106,37 @@ Verification:
     serialization round-trip and runtime integration are unverified.
 
 ======================================================================
+
+GF-SC-D14B-01 — TRANSFORMER ZERO-SEQUENCE INPUT PROPAGATION
+
+Files:
+    core/application/commands/model_commands.py
+    core/application/services/transformer_model_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Exposed explicit HV/LV terminal-role mapping (FROM/TO), Z0
+      reference winding (HV/LV), and paired physical Z0 resistance and
+      reactance through CreateTransformerCommand and UpdateTransformerCommand.
+    - Propagated the fields through TransformerModelService create/update.
+    - Included the fields in update candidate validation, transaction
+      undo state, and exact rollback restoration.
+    - Retained the existing Core requirement that a configured Z0 pair
+      must have a complete distinct HV/LV terminal mapping and a declared
+      impedance reference winding.
+    - Documented that transformer Z0 is physical ohms referred to the
+      declared winding and excludes neutral 3Zn contributions.
+
+Boundary:
+    No transformer zero-sequence Ybus stamp is enabled. Grounded-wye
+    transfer, delta circulating paths, vector-group effects, core-return
+    behavior and transformer zero-sequence terminal currents remain
+    fail-closed until their network primitives are implemented.
+
+Verification:
+    Remote source edits only. No tests or CI run. Python syntax,
+    import integrity, command-dispatch execution and persistence
+    round-trip remain unverified.
+
+======================================================================
