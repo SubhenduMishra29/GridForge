@@ -16755,3 +16755,48 @@ Verification:
     Python syntax, import integrity, numerical matrix fixtures, persistence
     round-trip and end-to-end execution remain unverified. Source-integrated,
     not production-verified.
+
+
+======================================================================
+GF-SC-D15F-01 — AUTHORITATIVE PHASE-DOMAIN CONDUCTOR GRAPH FOUNDATION
+======================================================================
+
+Files:
+    core/network/phase_domain_conductor_network.py
+    core/network/network.py
+    core/network/__init__.py
+
+Changes:
+    - Added immutable Core contracts for phase-domain conductor nodes,
+      earth-reference nodes, and explicit physical connections.
+    - Connection kinds distinguish continuity, bonding, equipment bonding,
+      screen bonding, grounding electrodes, and earth-return impedance.
+    - Every connection carries an explicit complex impedance in ohms.
+      Ideal zero-ohm bonds are permitted only when explicitly configured;
+      negative resistance, non-finite values, self-connections, duplicate
+      identities, and dangling endpoints are rejected.
+    - Ground-electrode edges must terminate at an explicit EARTH_REFERENCE
+      node. Screen bonds must include a SHIELD conductor. Equipment bonds
+      must include a PE conductor.
+    - Added deterministic immutable graph snapshots with project,
+      activation-generation, and topology-revision provenance, node lookup,
+      adjacency lookup, and explicit earth-reachability queries.
+    - Network now owns registered phase-domain nodes and connections.
+      Add/remove operations validate dependencies and invalidate derived
+      topology. Network.validate rejects dangling phase-domain references.
+    - Exported the new Core contracts from core.network.
+
+Engineering boundary:
+    This is the authoritative graph foundation, not yet a global numerical
+    phase-domain solver. It does not synthesize Bus conductor nodes, infer
+    neutral/PE/screen bonds, or treat a reachable earth node as zero
+    impedance. The next integration must bind each graph node to the
+    canonical branch conductor inventory and terminal topology, assemble
+    branch and connection admittances, solve explicit source/fault boundary
+    conditions, and populate conductor-current result records. Protection
+    direct Neutral CT/CBCT execution remains fail-closed until those solver
+    records are available.
+
+Verification:
+    Remote GitHub source edits only. No tests/CI, syntax/import checks,
+    persistence round-trip, or numerical solve were run.
