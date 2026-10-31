@@ -123,6 +123,8 @@ class Disconnector(ElectricalObject):
         "_voltage_kv",
         "_rated_current_a",
         "_operating_time",
+        "_phase_domain_conductor_roles",
+    )
 
     # ============================================================
     # CONSTRUCTION
