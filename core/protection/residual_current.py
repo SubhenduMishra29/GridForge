@@ -33,8 +33,8 @@ class NeutralCTConstruction:
                 raise ValueError(f"Neutral CT construction requires explicit {name}.")
             object.__setattr__(self, name, value.strip())
         role = self.terminal_role.upper()
-        if role not in {"FROM", "TO", "N", "NEUTRAL"}:
-            raise ValueError("Neutral CT terminal_role must identify an explicit neutral conductor terminal.")
+        if role not in {"FROM", "TO"}:
+            raise ValueError("Neutral CT terminal_role must identify a supported Line/Cable FROM or TO terminal; equipment-neutral terminals require a supported multi-conductor equipment primitive.")
         object.__setattr__(self, "terminal_role", role)
         direction = self.positive_current_direction.strip().upper()
         if direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
@@ -67,6 +67,10 @@ class CBCTConductor:
         if phase not in {"A", "B", "C", "N"}:
             raise ValueError("CBCT enclosed conductor role must be A, B, C, or N.")
         object.__setattr__(self, "phase_or_sequence", phase)
+        terminal_role = self.terminal_role.strip().upper()
+        if terminal_role not in {"FROM", "TO"}:
+            raise ValueError("CBCT conductor terminal_role must identify a supported Line/Cable FROM or TO terminal.")
+        object.__setattr__(self, "terminal_role", terminal_role)
         direction = self.positive_current_direction.strip().upper()
         if direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
             raise ValueError("CBCT conductor direction must be INTO_EQUIPMENT or OUT_OF_EQUIPMENT.")
@@ -104,6 +108,8 @@ class CBCTWindowConstruction:
         ids = [item.conductor_id for item in conductors]
         if len(ids) != len(set(ids)):
             raise ValueError("CBCT window conductor identities must be unique.")
+        if len({item.equipment_id for item in conductors}) != 1 or len({item.terminal_role for item in conductors}) != 1:
+            raise ValueError("All CBCT enclosed conductors must belong to one supported equipment terminal.")
         object.__setattr__(self, "conductors", conductors)
 
     def to_dict(self) -> dict[str, Any]:
