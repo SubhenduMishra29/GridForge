@@ -93,6 +93,8 @@ class LineModelService(ModelServiceSupport):
         line = self._get_required("line", line_id, "Line")
         self._require_type(line, Line, line_id, "Line")
         values = (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, conductor_system, rate_mva, in_service)
+        if not isinstance(clear_conductor_system, bool):
+            raise TypeError("clear_conductor_system must be bool.")
         if clear_conductor_system and conductor_system is not None:
             raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
         if all(value is None for value in values) and not clear_conductor_system:
