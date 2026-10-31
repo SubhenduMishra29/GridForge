@@ -31,6 +31,13 @@ class ImpedanceBasis(str, Enum):
     ENGINEERING = "engineering"
 
 
+class TransformerCoreConstruction(str, Enum):
+    """Magnetic-core construction governing zero-sequence return paths."""
+    THREE_LIMB = "THREE_LIMB"
+    FIVE_LIMB = "FIVE_LIMB"
+    SHELL_FORM = "SHELL_FORM"
+
+
 class TransformerWindingConnection(str, Enum):
     """Physical connection of one transformer winding."""
     DELTA = "DELTA"
