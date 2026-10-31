@@ -305,6 +305,57 @@ class PhaseDomainShortCircuitSolver:
                         },
                     )
                     conductor_records[record.record_id] = record
+        for edge in case.graph.connections:
+            if not edge.in_service or edge.impedance_ohm == 0j:
+                continue
+            current_a = connection_currents[edge.connection_id]
+            for side, node_id, signed_current in (
+                ("FROM", edge.from_node_id, current_a),
+                ("TO", edge.to_node_id, -current_a),
+            ):
+                node = case.graph.node(node_id)
+                if node.kind is PhaseDomainNodeKind.EARTH_REFERENCE:
+                    continue
+                if node.conductor_id is None or node.bus_id is None:
+                    connection_diagnostics.append(
+                        f"Connection {edge.connection_id!r} endpoint {node_id!r} lacks conductor or Bus identity; terminal current record omitted."
+                    )
+                    continue
+                base_candidates = {
+                    branch.base_voltage_kv for branch in case.impedances.branches
+                    if node.bus_id in {branch.from_bus_id, branch.to_bus_id}
+                }
+                if len(base_candidates) != 1:
+                    connection_diagnostics.append(
+                        f"Connection {edge.connection_id!r} endpoint {node_id!r} has no unique voltage base; terminal current record omitted."
+                    )
+                    continue
+                voltage_base_kv = next(iter(base_candidates))
+                current_base_a = case.base_mva * 1e6 / (math.sqrt(3.0) * voltage_base_kv * 1e3)
+                record = ShortCircuitConductorCurrent(
+                    conductor_id=node.conductor_id,
+                    equipment_id=edge.connection_id,
+                    equipment_type=edge.kind.value,
+                    terminal_role=side,
+                    bus_id=node.bus_id,
+                    phase_or_sequence=node.conductor_role,
+                    current=signed_current / current_base_a,
+                    topology_revision=case.graph.topology_revision,
+                    base_mva=case.base_mva,
+                    voltage_base_kv=voltage_base_kv,
+                    reference_direction="INTO_EQUIPMENT",
+                    current_units="per_unit",
+                    provenance={
+                        "domain": "PHASE_DOMAIN_CONNECTION",
+                        "connection_kind": edge.kind.value,
+                        "connection_impedance_ohm": edge.impedance_ohm,
+                        "current_a": complex(signed_current),
+                        "project_id": case.graph.project_id,
+                        "activation_generation": case.graph.activation_generation,
+                    },
+                )
+                conductor_records[record.record_id] = record
+
         return PhaseDomainShortCircuitSolution(
             node_voltages_v=voltage_by_node,
             conductor_currents=conductor_records,
