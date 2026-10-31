@@ -1221,3 +1221,51 @@ snapshots, and calculate per-conductor current only where the electrical
 model contains the required conductor impedance/return path. In particular,
 a neutral conductor must not be assigned the negative sum of phase currents
 unless the network model explicitly proves that it is the sole return path.
+
+
+## D15C — Canonical Core physical-conductor inventory
+
+GridForge now has an explicit Core value model for physical conductors carried by
+two-terminal Branch equipment. `PhysicalConductor` provides a stable
+branch-local conductor identity and a distinct physical role: A, B, C, neutral,
+protective earth, screen, pilot, or other. Material, designation, cross-section,
+and rated current are explicit optional construction data; none is inferred
+from a phase label or conductor count.
+
+`BranchConductorSystem` owns the ordered conductor inventory, physical length,
+and a full reciprocal series-impedance matrix in ohms per kilometre. Matrix
+rows and columns are bound to an explicit `matrix_conductor_ids` ordering.
+Diagonal entries represent self impedance and off-diagonal entries represent
+mutual impedance. The real resistance matrix must be positive definite.
+Optional shunt-admittance matrix data is preserved separately; absence is not
+rewritten as a measured zero.
+
+The Branch Core model owns the immutable conductor-system value. Line and Cable
+constructors accept it; Cable additionally requires the declared physical
+inventory count and conductor-system length to agree with Cable configuration.
+Generic ModelDTO slot/dataclass persistence preserves the contracts without a
+parallel persistence schema. Application Line/Cable services and immutable
+create/update command payloads accept the same typed value. Removal is explicit
+through `clear_conductor_system`; omission on update preserves the existing
+inventory. Transaction rollback restores the previous conductor system.
+
+Engineering boundary:
+- Conductor IDs are unique within their owning Branch; project identity is the
+  equipment ID plus conductor ID.
+- Neutral, protective earth, and screen remain separate physical conductors.
+- A conductor spans the owning Branch FROM/TO terminal pair. D15C does not
+  create additional Network nodes or infer terminal-to-earth/neutral return
+  connectivity.
+- Existing Cable `conductor_count` is only a count and never synthesizes
+  identities or electrical parameters.
+- The full impedance matrix is explicit and reciprocal. No uncoupled/zero
+  mutual impedance is invented.
+- This phase does not calculate conductor currents, stamp a multi-conductor
+  network, derive neutral current from phase-current sum, or enable neutral CT
+  and CBCT measurements. Those remain D15D/D15E/D15F-D15G work.
+- Legacy Line/Cable models without a conductor system remain loadable, but
+  cannot be promoted to physical conductor-current coverage.
+
+Verification:
+Remote GitHub source edits only. No tests/CI, Python syntax/import checks,
+persistence round-trip, or numerical matrix fixtures were run.
