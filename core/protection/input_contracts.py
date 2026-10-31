@@ -16,6 +16,7 @@ from math import isfinite
 from numbers import Real
 
 from core.measurement.measurement_channel import MeasurementPhase, MeasurementSignalType
+from core.model import EndpointReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +237,9 @@ def validate_protection_input_contracts(
                 if direct_mode:
                     construction = residual.construction
                     endpoint = binding.source_endpoint_reference
-                    if not endpoint.is_terminal:
+                    if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
                         diagnostics.append(f"{detail}: direct Neutral CT/CBCT requires an explicit equipment-terminal endpoint.")
+                        continue
                     if construction is None:
                         diagnostics.append(f"{detail}: direct residual-current construction is missing.")
                     elif residual.mode == "NEUTRAL_CT":
