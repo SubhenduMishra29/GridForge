@@ -527,17 +527,28 @@ class ShortCircuitSolver:
         )
         expected = expected_branch + expected_connections
         actual = len(solution.conductor_currents)
-        unresolved_ideal_bonds = any(
-            edge.in_service and edge.impedance_ohm == 0j for edge in case.graph.connections
+        # Zero-ohm graph bonds are contracted into common electrical nodes
+        # during admittance assembly. Their individual branch currents are not
+        # separate result quantities and must not downgrade complete branch/
+        # finite-impedance connection coverage. Other omitted-current diagnostics
+        # remain coverage failures.
+        ideal_bond_diagnostics = tuple(
+            item for item in solution.diagnostics
+            if "is an ideal zero-ohm bond" in item
         )
-        if actual == expected and expected > 0 and not unresolved_ideal_bonds and not solution.diagnostics:
+        coverage_diagnostics = tuple(
+            item for item in solution.diagnostics
+            if "is an ideal zero-ohm bond" not in item
+        )
+        if actual == expected and expected > 0 and not coverage_diagnostics:
             status = ContributionStatus.COMPLETE
-            diagnostics: tuple[str, ...] = ()
+            diagnostics: tuple[str, ...] = ideal_bond_diagnostics
         elif actual:
             status = ContributionStatus.PARTIAL
             diagnostics = (
                 f"Physical conductor-current coverage is partial: produced {actual} of {expected} terminal records.",
-                *solution.diagnostics,
+                *coverage_diagnostics,
+                *ideal_bond_diagnostics,
             )
         else:
             status = ContributionStatus.UNAVAILABLE
