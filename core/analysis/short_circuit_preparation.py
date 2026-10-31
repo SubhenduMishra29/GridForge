@@ -193,8 +193,8 @@ class ShortCircuitPreparation:
                     negative=negative,
                     zero=zero,
                     equipment_type=type(element).__name__,
-                    from_terminal_role=str(getattr(element.from_terminal, "role", "FROM")),
-                    to_terminal_role=str(getattr(element.to_terminal, "role", "TO")),
+                    from_terminal_role=str(getattr(getattr(element.from_terminal, "role", "FROM"), "value", getattr(element.from_terminal, "role", "FROM"))).strip().upper(),
+                    to_terminal_role=str(getattr(getattr(element.to_terminal, "role", "TO"), "value", getattr(element.to_terminal, "role", "TO"))).strip().upper(),
                     tap_ratio=float(getattr(element, "tap", 1.0)),
                     phase_shift_rad=float(getattr(element, "shift", 0.0)),
                 )
