@@ -12,6 +12,7 @@ import math
 from typing import Any
 
 from .branch import Branch
+from .conductor import BranchConductorSystem
 
 
 class Line(Branch):
@@ -45,6 +46,7 @@ class Line(Branch):
         name: str | None = None,
         rate_mva: float | None = None,
         in_service: bool = True,
+        conductor_system: BranchConductorSystem | None = None,
     ) -> None:
         """Construct a Line from explicit engineering electrical quantities."""
         if (zero_sequence_resistance_ohm is None) != (zero_sequence_reactance_ohm is None):
@@ -59,6 +61,7 @@ class Line(Branch):
             name=name,
             rate_mva=rate_mva,
             in_service=in_service,
+            conductor_system=conductor_system,
         )
         self.zero_sequence_resistance_ohm = zero_sequence_resistance_ohm
         self.zero_sequence_reactance_ohm = zero_sequence_reactance_ohm
