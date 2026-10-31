@@ -154,10 +154,10 @@ def classify_transformer_zero_sequence(
     Its Z0 must be referred to that grounded winding. Neutral impedance is
     deliberately excluded from the stored Z0 and must later contribute 3Zn.
 
-    Two grounded-wye windings require an explicit vector-group/clock and
-    winding-polarity contract before transfer can be represented. The
-    current Transformer model does not yet carry that contract, so this
-    case fails closed rather than assuming zero-sequence transfer.
+    Two grounded-wye windings require explicit vector-group/clock, winding-
+    polarity and applicable test contracts. The model carries and validates
+    those declarations, but this classifier still fails closed because the
+    numerical two-winding zero-sequence transfer equivalent is not implemented.
 
     Delta-delta and ungrounded-wye combinations have no external grounded
     neutral path in this two-winding model. Delta circulation is reported
