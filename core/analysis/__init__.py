@@ -44,6 +44,13 @@ from core.analysis.transient_stability import (
     TransientStabilityAnalysis,
 )
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
+from core.analysis.physical_conductor_preparation import (
+    PreparedPhysicalConductorBranch,
+    PhysicalConductorImpedanceSnapshot,
+    PhysicalConductorBranchCurrentSolution,
+    prepare_physical_conductor_impedance_snapshot,
+    solve_physical_conductor_branch_currents,
+)
 from core.analysis.transformer_zero_sequence_t_equivalent import (
     TransformerZeroSequenceTEquivalent,
     derive_transformer_zero_sequence_t_equivalent,
@@ -92,6 +99,11 @@ __all__ = [
     "TransientStabilityStudyResult",
     "TransientStabilityAnalysis",
     "SequenceNetworkPreparation",
+    "PreparedPhysicalConductorBranch",
+    "PhysicalConductorImpedanceSnapshot",
+    "PhysicalConductorBranchCurrentSolution",
+    "prepare_physical_conductor_impedance_snapshot",
+    "solve_physical_conductor_branch_currents",
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
     "TransformerZeroSequenceShunt",
