@@ -177,6 +177,8 @@ class SequenceTransformerZeroTwoBusSnapshot:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer.")
+        if self.hv_bus_index == self.lv_bus_index:
+            raise ValueError("Yg-Yg snapshot requires distinct HV/LV Bus indices.")
         for name in ("y_hh_pu", "y_hl_pu", "y_ll_pu", "hv_neutral_3zn_ohm", "lv_neutral_3zn_ohm",
                      "lv_neutral_3zn_hv_referred_ohm", "test_hv_open_circuit_z0_ohm",
                      "test_lv_open_circuit_z0_hv_referred_ohm", "test_hv_short_circuit_z0_ohm"):
