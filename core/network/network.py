@@ -318,10 +318,61 @@ class Network:
         )
 
     def add_phase_domain_node(self, node: PhaseDomainConductorNode) -> None:
+        """Register one physical-conductor node after validating its Core ownership.
+
+        Validate the complete candidate graph and all canonical Bus/equipment
+        references before mutating Network state. This keeps invalid graph
+        records from entering the authoritative aggregate through an
+        Application command and makes transaction rollback deterministic.
+        """
         if not isinstance(node, PhaseDomainConductorNode):
             raise TypeError("node must be a PhaseDomainConductorNode.")
         if node.node_id in self._phase_domain_nodes:
             raise ValueError("Duplicate phase-domain node identity.")
+
+        candidate_nodes = tuple(sorted((*self.phase_domain_nodes, node), key=lambda item: item.node_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION",
+            activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=candidate_nodes,
+            connections=self.phase_domain_connections,
+        )
+
+        registered = {element.id: element for element in self.registry._objects.values()}
+        if node.bus_id is not None:
+            bus = registered.get(node.bus_id)
+            if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'."
+                )
+        if node.equipment_id is not None:
+            owner = registered.get(node.equipment_id)
+            if owner is None:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'."
+                )
+            roles = {
+                str(getattr(item, "role", "")).strip().upper()
+                for item in getattr(owner, "terminals", ())
+            }
+            if node.terminal_role not in roles:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'."
+                )
+            if node.kind.value == "BRANCH_TERMINAL":
+                system = getattr(owner, "conductor_system", None)
+                if system is None:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory."
+                    )
+                declared = {item.conductor_id: item.role.value for item in system.conductors}
+                if declared.get(node.conductor_id) != node.conductor_role:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory."
+                    )
+
         self._phase_domain_nodes[node.node_id] = node
         self._invalidate_topology()
 
