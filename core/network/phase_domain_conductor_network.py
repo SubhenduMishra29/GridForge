@@ -89,6 +89,28 @@ class PhaseDomainConductorNode:
             raise ValueError("Bus-conductor nodes require an explicit bus_id.")
 
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "kind": self.kind.value,
+            "conductor_role": self.conductor_role,
+            "conductor_id": self.conductor_id,
+            "equipment_id": self.equipment_id,
+            "terminal_role": self.terminal_role,
+            "bus_id": self.bus_id,
+            "source_reference": self.source_reference,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "PhaseDomainConductorNode":
+        if not isinstance(data, Mapping):
+            raise TypeError("Persisted phase-domain node must be an object.")
+        allowed = {"node_id", "kind", "conductor_role", "conductor_id", "equipment_id", "terminal_role", "bus_id", "source_reference"}
+        if set(data) != allowed:
+            raise ValueError("Persisted phase-domain node fields are incomplete or unsupported.")
+        return cls(**dict(data))
+
+
 @dataclass(frozen=True, slots=True)
 class PhaseDomainConnection:
     """Explicit conductive relationship with physical impedance in ohms."""
@@ -116,6 +138,32 @@ class PhaseDomainConnection:
             raise TypeError("in_service must be bool.")
         if self.source_reference is not None:
             object.__setattr__(self, "source_reference", _identity(self.source_reference, "source_reference"))
+
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "connection_id": self.connection_id,
+            "kind": self.kind.value,
+            "from_node_id": self.from_node_id,
+            "to_node_id": self.to_node_id,
+            "impedance_ohm": {"real": self.impedance_ohm.real, "imag": self.impedance_ohm.imag},
+            "in_service": self.in_service,
+            "source_reference": self.source_reference,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "PhaseDomainConnection":
+        if not isinstance(data, Mapping):
+            raise TypeError("Persisted phase-domain connection must be an object.")
+        allowed = {"connection_id", "kind", "from_node_id", "to_node_id", "impedance_ohm", "in_service", "source_reference"}
+        if set(data) != allowed:
+            raise ValueError("Persisted phase-domain connection fields are incomplete or unsupported.")
+        raw = data["impedance_ohm"]
+        if not isinstance(raw, Mapping) or set(raw) != {"real", "imag"}:
+            raise ValueError("Persisted connection impedance must contain exactly real and imag.")
+        values = dict(data)
+        values["impedance_ohm"] = complex(float(raw["real"]), float(raw["imag"]))
+        return cls(**values)
 
 
 @dataclass(frozen=True, slots=True)
