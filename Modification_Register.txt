@@ -17494,7 +17494,8 @@ GF-SC-D15F-22
 ======================================================================
 
 Scope:
-    Physical Generator neutral-source and earth-return integration.
+    Physical Generator neutral-source and earth-return integration, later
+    extended to Grid sources by D15F-23.
 
 Correction:
     - Added a grounded multi-conductor source primitive with three
@@ -17528,6 +17529,46 @@ Verification:
     - Remote source edits and register entry committed. No tests/CI,
       syntax/import checks, numerical fixtures, or end-to-end study
       execution were run.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
+
+======================================================================
+
+======================================================================
+GF-SC-D15F-23
+======================================================================
+
+Scope:
+    Physical external Grid source neutral and earth-return integration.
+
+Correction:
+    - Grid now accepts and reports explicit
+      neutral_grounding_impedance_ohm configuration.
+    - Grid phase-domain source preparation requires the explicit N
+      equipment-terminal node and one source-referenced
+      GROUND_ELECTRODE connection, matching the configured complex
+      grounding impedance and terminating at a local EARTH_NODE with
+      an explicit path to EARTH_REFERENCE.
+    - Grid source Z0 is treated as source-internal zero-sequence
+      impedance; external neutral grounding is not hidden in Z0.
+    - Grid and Generator now use the same grounded ABCN Norton source
+      primitive. The solver stamps their neutral node in nodal KCL and
+      reports the balancing source neutral current.
+    - Grid summary and constructor documentation expose the new field.
+
+Fail-closed boundaries:
+    - Legacy Grid objects remain constructible for non-phase-domain
+      workflows, but phase-domain source preparation rejects a grounded
+      Grid without explicit neutral grounding impedance and graph data.
+    - Ideal grounding, PE/screen return modelling, multiple-electrode
+      current division and complete source-to-earth current reconciliation
+      remain unsupported.
+
+Verification:
+    - Remote source, export, and Modification_Register checks completed.
+      No tests/CI, syntax/import checks, numerical fixtures, or end-to-end
+      short-circuit execution were run.
 
 Status:
     IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
