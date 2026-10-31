@@ -49,8 +49,6 @@ class Line(Branch):
         """Construct a Line from explicit engineering electrical quantities."""
         if (zero_sequence_resistance_ohm is None) != (zero_sequence_reactance_ohm is None):
             raise ValueError("Line zero-sequence resistance and reactance must be supplied together.")
-        self.zero_sequence_resistance_ohm = zero_sequence_resistance_ohm
-        self.zero_sequence_reactance_ohm = zero_sequence_reactance_ohm
         super().__init__(
             id=id,
             endpoint_from=endpoint_from,
@@ -62,6 +60,8 @@ class Line(Branch):
             rate_mva=rate_mva,
             in_service=in_service,
         )
+        self.zero_sequence_resistance_ohm = zero_sequence_resistance_ohm
+        self.zero_sequence_reactance_ohm = zero_sequence_reactance_ohm
 
     @property
     def resistance_ohm(self) -> float:
