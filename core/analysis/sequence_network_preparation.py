@@ -96,6 +96,9 @@ class SequenceNetworkPreparation:
 
         for name in requested:
             sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
+        # Detached preparation can verify that this matrix uses the same
+        # from-side complex-tap convention as transformer terminal results.
+        sequence.transformer_tap_convention = "FROM_SIDE_COMPLEX_TAP_V1"
         return sequence
 
     @staticmethod
