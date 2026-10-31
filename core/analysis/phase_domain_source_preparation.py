@@ -72,25 +72,24 @@ def prepare_phase_domain_source_equivalents(
         node for node in graph.nodes
         if node.kind is PhaseDomainNodeKind.EQUIPMENT_TERMINAL
     )
-    equipment_ids = sorted({node.equipment_id for node in nodes if node.equipment_id})
+    supported_equipment = tuple(network.grids) + tuple(network.generators)
     sources: list[PhaseDomainMultiConductorSource] = []
-    for equipment_id in equipment_ids:
-        equipment = network.get_by_identity(equipment_id)
-        if equipment is None or str(getattr(equipment, "id", "")) != equipment_id:
-            raise ValueError(f"Phase-domain source {equipment_id!r} is not a canonical registered Network object.")
+    for equipment in supported_equipment:
+        equipment_id = str(getattr(equipment, "id", ""))
+        if not equipment_id or network.get_by_identity(equipment_id) is not equipment:
+            raise ValueError("Automatic phase-domain source preparation requires canonical registered Grid/Generator objects.")
         if getattr(equipment, "in_service", None) is not True:
             continue
         if not isinstance(equipment, (Grid, Generator)):
-            if str(getattr(equipment, "element_type", "")).lower() == "motor" and getattr(equipment, "running", False):
-                raise ValueError(f"Running Motor {equipment_id!r} has no validated phase-domain source decay model; automatic source preparation fails closed.")
-            continue
+            raise TypeError(f"Unsupported registered source model for {equipment_id!r}.")
         terminals = tuple(getattr(equipment, "terminals", ()) or ())
         if len(terminals) != 1 or terminals[0].owner is not equipment or terminals[0].role != "terminal":
             raise ValueError(f"Source {equipment_id!r} must expose exactly one canonical owned terminal.")
         endpoint = terminals[0].endpoint
-        bus_id = str(getattr(endpoint, "id", ""))
-        if not bus_id:
-            raise ValueError(f"Source {equipment_id!r} terminal must resolve directly to a canonical Bus.")
+        bus = endpoint if getattr(endpoint, "nominal_voltage_kv", None) is not None else getattr(endpoint, "bus", None)
+        bus_id = str(getattr(bus, "id", ""))
+        if not bus_id or network.get_by_identity(bus_id) is not bus:
+            raise ValueError(f"Source {equipment_id!r} terminal must resolve to a canonical Bus or explicit Bus endpoint adapter.")
         base_mva = getattr(equipment, "impedance_base_mva", None)
         base_kv = getattr(equipment, "impedance_base_voltage_kv", None)
         if base_mva is None or base_kv is None:
@@ -98,7 +97,6 @@ def prepare_phase_domain_source_equivalents(
         base_mva, base_kv = float(base_mva), float(base_kv)
         if not math.isfinite(base_mva) or base_mva <= 0.0 or not math.isfinite(base_kv) or base_kv <= 0.0:
             raise ValueError(f"Source {equipment_id!r} has invalid impedance bases.")
-        bus = network.get_by_identity(bus_id)
         bus_kv = getattr(bus, "nominal_voltage_kv", None)
         if bus is None or bus_kv is None or not math.isclose(float(bus_kv), base_kv, rel_tol=1e-8, abs_tol=1e-8):
             raise ValueError(f"Source {equipment_id!r} impedance voltage base must equal its terminal Bus nominal voltage.")
