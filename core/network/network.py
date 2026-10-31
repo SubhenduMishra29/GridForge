@@ -127,6 +127,8 @@ class Network:
             raise ValueError("Network contains duplicate canonical identities.")
         self._junctions.validate()
         conductor_node_keys: set[tuple[str, str, str]] = set()
+        bus_conductor_keys: set[tuple[str, str]] = set()
+        equipment_terminal_conductor_keys: set[tuple[str, str, str]] = set()
         for node in self._phase_domain_nodes.values():
             if node.bus_id is not None:
                 bus = registered.get(node.bus_id)
@@ -135,6 +137,15 @@ class Network:
             if node.kind.value == "BUS_CONDUCTOR":
                 if node.bus_id is None or node.conductor_id is None:
                     raise ValueError(f"Bus conductor node '{node.node_id}' lacks canonical Bus/conductor identity.")
+                key = (node.bus_id, node.conductor_id)
+                if key in bus_conductor_keys:
+                    raise ValueError(f"Duplicate Bus conductor node identity {key!r}.")
+                bus_conductor_keys.add(key)
+            if node.kind.value == "EQUIPMENT_TERMINAL":
+                key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                if key in equipment_terminal_conductor_keys:
+                    raise ValueError(f"Duplicate equipment terminal conductor node {key!r}.")
+                equipment_terminal_conductor_keys.add(key)
             if node.equipment_id is not None:
                 owner = registered.get(node.equipment_id)
                 if owner is None:
