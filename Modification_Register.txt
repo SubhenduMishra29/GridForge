@@ -17789,6 +17789,8 @@ Correction:
       the master state and that pole's explicit state are closed.
     - The SLD phase-domain graph builder creates separate FROM/TO
       EQUIPMENT_TERMINAL nodes for every declared breaker pole.
+    - Breaker terminal endpoint references use the canonical lowercase
+      EquipmentType value and preserve the exact Core terminal-role spelling.
     - Breaker terminal nodes attach to exact canonical SLD Bus attachment
       slots and same-role Busbar conductor nodes.
     - An internal zero-ohm CONTINUITY edge is created only for a closed
