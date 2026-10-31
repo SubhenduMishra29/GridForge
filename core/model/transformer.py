@@ -66,6 +66,8 @@ class Transformer(Branch):
         "_lv_winding_connection",
         "_hv_neutral_grounding_impedance_ohm",
         "_lv_neutral_grounding_impedance_ohm",
+        "_hv_terminal_role", "_lv_terminal_role", "_impedance_reference_winding",
+        "_zero_sequence_resistance_ohm", "_zero_sequence_reactance_ohm",
     )
 
     def __init__(
