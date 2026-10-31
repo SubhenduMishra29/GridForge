@@ -47,6 +47,12 @@ from .simple_wire_commands import (
     CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE,
     CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand,
 )
+from .phase_domain_conductor_commands import (
+    CREATE_PHASE_DOMAIN_NODE, REMOVE_PHASE_DOMAIN_NODE,
+    CREATE_PHASE_DOMAIN_CONNECTION, REMOVE_PHASE_DOMAIN_CONNECTION,
+    CreatePhaseDomainNodeCommand, RemovePhaseDomainNodeCommand,
+    CreatePhaseDomainConnectionCommand, RemovePhaseDomainConnectionCommand,
+)
 from .insertion_commands import (
     INSERT_EQUIPMENT_INTO_CONNECTION,
     InsertEquipmentIntoConnectionCommand,
