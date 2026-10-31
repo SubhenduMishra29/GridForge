@@ -44,6 +44,11 @@ from core.analysis.transient_stability import (
     TransientStabilityAnalysis,
 )
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
+from core.analysis.transformer_zero_sequence import (
+    TransformerZeroSequencePath,
+    TransformerZeroSequenceTopology,
+    classify_transformer_zero_sequence,
+)
 from core.analysis.contingency import (
     ContingencyAnalysis,
     ContingencyResult,
@@ -79,6 +84,9 @@ __all__ = [
     "TransientStabilityStudyResult",
     "TransientStabilityAnalysis",
     "SequenceNetworkPreparation",
+    "TransformerZeroSequencePath",
+    "TransformerZeroSequenceTopology",
+    "classify_transformer_zero_sequence",
     "FaultType",
     "ContingencyAnalysis",
     "ContingencyResult",
