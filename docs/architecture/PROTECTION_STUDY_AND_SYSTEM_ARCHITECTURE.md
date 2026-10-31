@@ -771,7 +771,9 @@ protection remains outside this D5 relay-snapshot path until CT normalisation
 and function-specific compensation are implemented.
 
 Each `ProtectionFaultScenarioResult` now retains its own
-`ProtectionExecutionResult`, preserving scenario attribution when several
-fault cases are evaluated in one Study. The Study result exposes the combined
-decision/diagnostic views while retaining the per-scenario records. No
-breaker command is dispatched and no live measurement channel is injected.
+`ProtectionExecutionResult` and an explicit `relay_evaluation_completed`
+flag. A completed evaluation with no ProtectionDecision is a valid
+no-operation result and is not confused with a scenario where relay evaluation
+never ran. The Study result exposes combined decision/diagnostic views while
+retaining per-scenario records. No breaker command is dispatched and no live
+measurement channel is injected.
