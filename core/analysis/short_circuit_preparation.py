@@ -36,7 +36,7 @@ class ShortCircuitPreparation:
         self.base_mva = base_mva
         self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None) -> ShortCircuitInput:
         network = self._network
         if topology_snapshot is None:
             network.rebuild_topology()
@@ -54,6 +54,48 @@ class ShortCircuitPreparation:
             if len(set(bus_ids)) != len(bus_ids):
                 raise ValueError("TopologySnapshot bus IDs must be unique for Short Circuit preparation.")
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
+            if phase_domain_case is not None:
+                from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
+                if not isinstance(phase_domain_case, PhaseDomainShortCircuitCase):
+                    raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+                if complex(Zf) != 0j:
+                    raise ValueError("Phase-domain fault impedance must be declared on the explicit fault connections, not duplicated in Zf.")
+                if (
+                    phase_domain_case.graph.project_id,
+                    phase_domain_case.graph.activation_generation,
+                    phase_domain_case.graph.topology_revision,
+                ) != (
+                    topology_snapshot.project_id,
+                    topology_snapshot.activation_generation,
+                    topology_snapshot.topology_revision,
+                ):
+                    raise ValueError("Phase-domain case provenance does not match the captured project topology.")
+                if self.base_mva is None or not math.isclose(phase_domain_case.base_mva, float(self.base_mva), rel_tol=1e-9, abs_tol=1e-9):
+                    raise ValueError("Phase-domain case and ShortCircuitPreparation must use the same explicit MVA base.")
+                voltage_bases: dict[str, float] = {}
+                for bus_id in bus_ids:
+                    bus = network.get_by_identity(bus_id)
+                    nominal_kv = getattr(bus, "nominal_voltage_kv", None)
+                    if nominal_kv is not None:
+                        value = float(nominal_kv)
+                        if math.isfinite(value) and value > 0.0:
+                            voltage_bases[bus_id] = value
+                return ShortCircuitInput(
+                    fault_type=normalized_type,
+                    fault_bus_index=bus_index,
+                    fault_bus_id=bus_ids[bus_index],
+                    prefault_voltage=1.0 + 0.0j,
+                    fault_impedance=0.0j,
+                    bus_ids=bus_ids,
+                    sequence_snapshot=None,
+                    sequence_elements=(),
+                    project_id=topology_snapshot.project_id,
+                    activation_generation=topology_snapshot.activation_generation,
+                    topology_revision=topology_snapshot.topology_revision,
+                    base_mva=self.base_mva,
+                    bus_voltage_bases_kv=voltage_bases,
+                    phase_domain_case=phase_domain_case,
+                )
             prefault_voltages = tuple(
                 self._prepare_prefault_voltage(network, bus_id)
                 for bus_id in bus_ids
