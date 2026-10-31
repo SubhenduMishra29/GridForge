@@ -83,7 +83,7 @@ class ShortCircuitInput:
                 node.bus_id
                 for fault in case.faults
                 for node in (case.graph.node(fault.from_node_id), case.graph.node(fault.to_node_id))
-                if node.kind.value != "EARTH_REFERENCE" and node.bus_id is not None
+                if node.kind.value not in {"EARTH_NODE", "EARTH_REFERENCE"} and node.bus_id is not None
             }
             if fault_bus_ids != {str(self.fault_bus_id)}:
                 raise ValueError("Every phase-domain fault connection must be located at the ShortCircuitInput fault Bus.")
