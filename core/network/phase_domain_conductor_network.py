@@ -540,6 +540,25 @@ def build_phase_domain_conductor_network_from_sld(
     # common Core PhysicalConductorConstruction contract. Construction
     # describes installed paths; the equipment model remains the sole
     # authority for live operating state.
+    # A transformer is a magnetically coupled multi-winding device, not
+    # a galvanic FROM-to conductor. Until the phase-domain solver has a
+    # dedicated coupled winding primitive, never silently omit it or
+    # substitute an ordinary continuity edge.
+    for transformer in getattr(network, "transformers", ()):
+        if not getattr(transformer, "in_service", True):
+            continue
+        construction = getattr(transformer, "physical_conductor_construction", None)
+        if construction is None:
+            raise ValueError(
+                f"In-service Transformer {transformer.id!r} lacks explicit "
+                "HV/LV winding conductor construction and terminal mapping."
+            )
+        raise NotImplementedError(
+            f"Transformer {transformer.id!r} has explicit winding construction, "
+            "but coupled transformer winding stamping is not yet supported by "
+            "the phase-domain conductor solver. No galvanic HV-LV path is created."
+        )
+
     equipment_collections = (
         ("breakers", "breaker"),
         ("switches", "switch"),
