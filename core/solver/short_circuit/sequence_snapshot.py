@@ -247,6 +247,7 @@ class SequenceNetworkSnapshot:
     transformer_zero_two_bus_stamps: tuple[SequenceTransformerZeroTwoBusSnapshot, ...] = ()
     physical_conductor_topology: PhysicalConductorTopologySnapshot | None = None
     physical_conductor_impedances: Any | None = None
+    physical_conductor_impedance_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -299,7 +300,11 @@ class SequenceNetworkSnapshot:
                     for bus_id in (item.from_bus_id, item.to_bus_id):
                         if bus_id is not None and bus_id not in self.bus_ids:
                             raise ValueError("Physical conductor branch references a Bus outside the sequence snapshot.")
+        conductor_diagnostics = tuple(str(item) for item in self.physical_conductor_impedance_diagnostics)
         conductor_impedances = self.physical_conductor_impedances
+        if conductor_impedances is None and conductor_topology is not None and any(item.in_service for item in conductor_topology.branches) and not conductor_diagnostics:
+            conductor_diagnostics = ("UNAVAILABLE: physical conductor impedance snapshot was not prepared.",)
+        object.__setattr__(self, "physical_conductor_impedance_diagnostics", conductor_diagnostics)
         if conductor_impedances is not None:
             if not all(hasattr(conductor_impedances, name) for name in ("project_id", "activation_generation", "topology_revision", "branches")):
                 raise TypeError("physical_conductor_impedances must satisfy the detached impedance snapshot contract.")
@@ -367,6 +372,7 @@ class SequenceNetworkSnapshot:
             unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
             physical_conductor_topology=getattr(sequence_network, "physical_conductor_topology", None),
             physical_conductor_impedances=getattr(sequence_network, "physical_conductor_impedances", None),
+            physical_conductor_impedance_diagnostics=tuple(getattr(sequence_network, "physical_conductor_impedance_diagnostics", ())),
             transformer_zero_two_bus_stamps=tuple(
                 SequenceTransformerZeroTwoBusSnapshot(
                     transformer_id=str(item.transformer_id),
