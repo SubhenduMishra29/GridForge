@@ -141,8 +141,8 @@ class ShortCircuitSolver:
         """Return transformer terminal sequence currents for supported primitives.
 
         Positive/negative sequence use the transformer two-port. Zero sequence
-        is available only on the explicitly grounded-wye terminal represented
-        by the prepared D14F shunt. No opposite-winding transfer is inferred.
+        uses either the explicitly grounded-side D14F shunt or the measured,
+        neutral-aware D14I Yg-Yg two-Bus T equivalent frozen in the snapshot.
         """
         required = self._required_for_fault()
         from_currents: dict[str, complex] = {}
