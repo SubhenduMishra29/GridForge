@@ -83,6 +83,7 @@ class Transformer(Branch):
         "_vector_group_configuration", "_zero_sequence_test_configuration",
         "_zero_sequence_two_winding_test_data",
         "_phase_domain_terminal_admittance_siemens",
+        "_phase_domain_multiport_tap_ratio", "_phase_domain_multiport_phase_shift_rad",
     )
 
     def __init__(
@@ -116,6 +117,8 @@ class Transformer(Branch):
         zero_sequence_test_configuration: Any | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+        phase_domain_multiport_tap_ratio: float | None = None,
+        phase_domain_multiport_phase_shift_rad: float | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -203,6 +206,18 @@ class Transformer(Branch):
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
         self._phase_domain_terminal_admittance_siemens = self._validate_phase_domain_terminal_admittance(phase_domain_terminal_admittance_siemens)
+        if phase_domain_terminal_admittance_siemens is None:
+            if phase_domain_multiport_tap_ratio is not None or phase_domain_multiport_phase_shift_rad is not None:
+                raise ValueError("Transformer multiport tap/shift snapshots require an explicit terminal admittance matrix.")
+            self._phase_domain_multiport_tap_ratio = None
+            self._phase_domain_multiport_phase_shift_rad = None
+        else:
+            if phase_domain_multiport_tap_ratio is None or phase_domain_multiport_phase_shift_rad is None:
+                raise ValueError("Explicit transformer multiport matrix requires tap and phase-shift snapshots.")
+            self._phase_domain_multiport_tap_ratio = self._validate_positive(phase_domain_multiport_tap_ratio, "phase_domain_multiport_tap_ratio")
+            self._phase_domain_multiport_phase_shift_rad = self._validate_finite(phase_domain_multiport_phase_shift_rad, "phase_domain_multiport_phase_shift_rad")
+            if not math.isclose(self._phase_domain_multiport_tap_ratio, self._tap, rel_tol=1e-10, abs_tol=1e-12) or not math.isclose(self._phase_domain_multiport_phase_shift_rad, self._shift, rel_tol=1e-10, abs_tol=1e-12):
+                raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
         if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
             raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
@@ -882,6 +897,8 @@ class Transformer(Branch):
                 "zero_sequence_test_configuration": getattr(self, "_zero_sequence_test_configuration", None),
                 "zero_sequence_two_winding_test_data": getattr(self, "_zero_sequence_two_winding_test_data", None),
                 "phase_domain_terminal_admittance_siemens": self._phase_domain_terminal_admittance_siemens,
+                "phase_domain_multiport_tap_ratio": self._phase_domain_multiport_tap_ratio,
+                "phase_domain_multiport_phase_shift_rad": self._phase_domain_multiport_phase_shift_rad,
             }
         )
         return summary
