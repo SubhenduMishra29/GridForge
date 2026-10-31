@@ -131,6 +131,8 @@ def build_transformer_zero_sequence_two_bus_stamp(
     base_mva: float,
     hv_terminal_role: str,
     lv_terminal_role: str,
+    hv_bus_index: int,
+    lv_bus_index: int,
 ) -> TransformerZeroSequenceTwoBusStamp:
     """Build a Yg-Yg T-equivalent stamp, adding each neutral 3Zn once.
 
@@ -187,7 +189,7 @@ def build_transformer_zero_sequence_two_bus_stamp(
     return TransformerZeroSequenceTwoBusStamp(
         transformer_id=str(transformer.id), hv_bus_id=str(hv_bus.id), lv_bus_id=str(lv_bus.id),
         hv_terminal_role=hv_terminal_role, lv_terminal_role=lv_terminal_role,
-        hv_bus_index=-1, lv_bus_index=-1,
+        hv_bus_index=hv_bus_index, lv_bus_index=lv_bus_index,
         y_hh_pu=y_hh_ohm * scale, y_hl_pu=y_hl_ohm * scale, y_ll_pu=y_ll_ohm * scale,
         hv_series_with_neutral_ohm=z_h, lv_series_with_neutral_hv_referred_ohm=z_l,
         magnetizing_shunt_ohm=z_m, hv_neutral_3zn_ohm=neutral_hv,
