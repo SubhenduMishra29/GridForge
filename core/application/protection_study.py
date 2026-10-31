@@ -456,13 +456,6 @@ class ProtectionStudyHandler:
                             ct_association=ct_associations[binding.instrument_id],
                         )
                     scenario_samples.append(scenario_sample)
-                    if False:
-                        scenario_id=scenario.scenario_id,
-                        binding=binding,
-                        result=short_circuit_result,
-                        instrument=instrument,
-                        channel=channel,
-                        # legacy conversion call removed; scenario_sample is appended above.
                 except Exception as exc:
                     conversion_diagnostics.append(
                         f"{prefix}: scenario measurement conversion refused: {type(exc).__name__}: {exc}"
