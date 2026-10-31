@@ -179,6 +179,24 @@ class ShortCircuitPreparation:
                         raise ValueError(
                             f"Phase-domain source owner {equipment_id!r} is not explicitly in service."
                         )
+                    # A matching equipment_id/role string is not sufficient:
+                    # the source node must correspond to a real Core terminal
+                    # owned by this exact registered equipment object.
+                    declared_terminals = tuple(getattr(equipment, "terminals", ()) or ())
+                    terminal_roles = {
+                        str(getattr(terminal, "role", "")).strip()
+                        for terminal in declared_terminals
+                        if getattr(terminal, "owner", None) is equipment
+                    }
+                    for node in source_nodes:
+                        if getattr(node.kind, "value", node.kind) != "EQUIPMENT_TERMINAL":
+                            raise ValueError(
+                                f"Phase-domain source node {node.node_id!r} must be an EQUIPMENT_TERMINAL, not {getattr(node.kind, 'value', node.kind)!r}."
+                            )
+                        if node.terminal_role not in terminal_roles:
+                            raise ValueError(
+                                f"Phase-domain source node {node.node_id!r} does not identify an authoritative terminal owned by equipment {equipment_id!r}."
+                            )
                     if equipment_type == "motor" and getattr(equipment, "running", None) is not True:
                         raise ValueError(
                             f"Motor source {equipment_id!r} is not explicitly running; no motor contribution is admitted."
