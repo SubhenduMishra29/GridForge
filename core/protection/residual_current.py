@@ -32,9 +32,9 @@ class NeutralCTConstruction:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Neutral CT construction requires explicit {name}.")
             object.__setattr__(self, name, value.strip())
-        role = self.terminal_role.upper()
-        if role not in {"FROM", "TO"}:
-            raise ValueError("Neutral CT terminal_role must identify a supported Line/Cable FROM or TO terminal; equipment-neutral terminals require a supported multi-conductor equipment primitive.")
+        role = self.terminal_role.strip().upper()
+        if not role or any(ch.isspace() for ch in role):
+            raise ValueError("Neutral CT terminal_role must be a canonical non-empty terminal role.")
         object.__setattr__(self, "terminal_role", role)
         direction = self.positive_current_direction.strip().upper()
         if direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
@@ -68,8 +68,8 @@ class CBCTConductor:
             raise ValueError("CBCT enclosed conductor role must be A, B, C, or N.")
         object.__setattr__(self, "phase_or_sequence", phase)
         terminal_role = self.terminal_role.strip().upper()
-        if terminal_role not in {"FROM", "TO"}:
-            raise ValueError("CBCT conductor terminal_role must identify a supported Line/Cable FROM or TO terminal.")
+        if not terminal_role or any(ch.isspace() for ch in terminal_role):
+            raise ValueError("CBCT conductor terminal_role must be a canonical non-empty terminal role.")
         object.__setattr__(self, "terminal_role", terminal_role)
         direction = self.positive_current_direction.strip().upper()
         if direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
