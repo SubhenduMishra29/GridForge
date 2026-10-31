@@ -91,6 +91,12 @@ class ProtectionScenarioMeasurementAdapter:
             raise TypeError("channel must be a MeasurementChannel.")
         if not isinstance(ct_association, CTMeasurementAssociation):
             raise TypeError("ct_association must be a CTMeasurementAssociation.")
+        if not result.success or result.status.value != "COMPLETE":
+            raise ValueError("Physical conductor CT samples require a complete successful short-circuit result.")
+        if result.provenance.get("calculation_domain") != "PHASE_DOMAIN":
+            raise ValueError("Physical conductor CT samples require an explicitly identified PHASE_DOMAIN result.")
+        if result.conductor_current_status is not ContributionStatus.COMPLETE:
+            raise ValueError("Neutral CT/CBCT execution requires COMPLETE physical conductor-current coverage.")
         if binding.measurement_type.strip().lower() != "current":
             raise ValueError("Physical conductor adapter only accepts current bindings.")
         if binding.instrument_id != getattr(instrument, "id", None):
