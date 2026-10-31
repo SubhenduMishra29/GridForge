@@ -115,6 +115,10 @@ class TransformerModelService(ModelServiceSupport):
         shift: float | None = None,
         rate_mva: float | None = None,
         in_service: bool | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -125,6 +129,8 @@ class TransformerModelService(ModelServiceSupport):
         values = (
             name, r, x, b, impedance_basis, impedance_base_mva,
             tap, shift, rate_mva, in_service,
+            hv_winding_connection, lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm,
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
@@ -142,6 +148,10 @@ class TransformerModelService(ModelServiceSupport):
             "shift": transformer.shift,
             "rate_mva": transformer.rate_mva,
             "in_service": transformer.in_service,
+            "hv_winding_connection": transformer.hv_winding_connection,
+            "lv_winding_connection": transformer.lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": transformer.hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": transformer.lv_neutral_grounding_impedance_ohm,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -160,6 +170,10 @@ class TransformerModelService(ModelServiceSupport):
             shift=shift,
             rate_mva=rate_mva,
             in_service=in_service,
+            hv_winding_connection=hv_winding_connection,
+            lv_winding_connection=lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
+            lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
         )
 
         if service_state_changed:
