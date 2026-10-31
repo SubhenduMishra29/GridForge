@@ -15936,6 +15936,7 @@ Files:
     core/protection/project_configuration.py
     core/measurement/protection_scenario_measurement.py
     core/application/application.py
+    core/application/protection_study.py
     core/protection/__init__.py
     docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
 
