@@ -433,14 +433,36 @@ class ProtectionStudyHandler:
                             execution_context.project_snapshot,
                             binding.instrument_id,
                         )
-                    scenario_samples.append(sample_adapter.convert_terminal_ct_sample(
+                    element_configuration = configured_elements[binding.protection_element_id]
+                    residual_configuration = element_configuration.residual_current_input
+                    if residual_configuration is not None and residual_configuration.mode == "NEUTRAL_CT":
+                        scenario_sample = sample_adapter.convert_neutral_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    elif residual_configuration is not None and residual_configuration.mode == "CBCT":
+                        scenario_sample = sample_adapter.convert_cbct_window_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    else:
+                        scenario_sample = sample_adapter.convert_terminal_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                        )
+                    scenario_samples.append(scenario_sample)
+                    if False:
                         scenario_id=scenario.scenario_id,
                         binding=binding,
                         result=short_circuit_result,
                         instrument=instrument,
                         channel=channel,
-                        ct_association=ct_associations[binding.instrument_id],
-                    ))
+                        # legacy conversion call removed; scenario_sample is appended above.
                 except Exception as exc:
                     conversion_diagnostics.append(
                         f"{prefix}: scenario measurement conversion refused: {type(exc).__name__}: {exc}"
