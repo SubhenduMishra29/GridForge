@@ -256,9 +256,14 @@ class UpdateTransformerCommand(Command):
                  x: float | None = None, b: float | None = None,
                  impedance_basis: ImpedanceBasis | str | None = None, impedance_base_mva: float | None = None,
                  tap: float | None = None, shift: float | None = None, rate_mva: float | None = None,
-                 in_service: bool | None = None, command_id: UUID | None = None,
+                 in_service: bool | None = None,
+                 hv_winding_connection: TransformerWindingConnection | str | None = None,
+                 lv_winding_connection: TransformerWindingConnection | str | None = None,
+                 hv_neutral_grounding_impedance_ohm: complex | None = None,
+                 lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service)
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm)
         if all(value is None for value in values):
             raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
         normalized_basis = None
@@ -271,6 +276,9 @@ class UpdateTransformerCommand(Command):
             "transformer_id": transformer_id, "name": name, "r": r, "x": x, "b": b,
             "impedance_basis": normalized_basis, "impedance_base_mva": impedance_base_mva,
             "tap": tap, "shift": shift, "rate_mva": rate_mva, "in_service": in_service,
+            "hv_winding_connection": hv_winding_connection, "lv_winding_connection": lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
