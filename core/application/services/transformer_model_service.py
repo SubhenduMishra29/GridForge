@@ -18,6 +18,7 @@ from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.model.terminal import Terminal
 from core.model.transformer import Transformer, TransformerWindingConnection
+from core.model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
 from core.network.network import Network
 
 
@@ -60,6 +61,8 @@ class TransformerModelService(ModelServiceSupport):
         zero_sequence_reactance_ohm: float | None = None,
         core_construction: Any | None = None,
         zero_sequence_test_basis: str | None = None,
+        vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+        zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -110,6 +113,8 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
             core_construction=core_construction,
             zero_sequence_test_basis=zero_sequence_test_basis,
+            vector_group_configuration=vector_group_configuration,
+            zero_sequence_test_configuration=zero_sequence_test_configuration,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
@@ -183,6 +188,8 @@ class TransformerModelService(ModelServiceSupport):
             "zero_sequence_reactance_ohm": transformer.zero_sequence_reactance_ohm,
             "core_construction": transformer.core_construction,
             "zero_sequence_test_basis": transformer.zero_sequence_test_basis,
+            "vector_group_configuration": transformer.vector_group_configuration,
+            "zero_sequence_test_configuration": transformer.zero_sequence_test_configuration,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -212,6 +219,8 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
             core_construction=core_construction,
             zero_sequence_test_basis=zero_sequence_test_basis,
+            vector_group_configuration=vector_group_configuration,
+            zero_sequence_test_configuration=zero_sequence_test_configuration,
         )
 
         if service_state_changed:
