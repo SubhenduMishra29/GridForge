@@ -168,11 +168,19 @@ class ResidualCurrentInputConfiguration:
                 raise ValueError(f"{mode} requires one explicit direct_binding_id.")
             if self.phase_binding_ids is not None:
                 raise ValueError(f"{mode} cannot declare phase_binding_ids.")
-            if mode == "NEUTRAL_CT" and not isinstance(self.construction, NeutralCTConstruction):
-                raise ValueError("NEUTRAL_CT requires explicit NeutralCTConstruction; a binding ID alone is not a physical source model.")
-            if mode == "CBCT" and not isinstance(self.construction, CBCTWindowConstruction):
-                raise ValueError("CBCT requires explicit CBCTWindowConstruction with conductor membership; a binding ID alone is not a physical source model.")
+            if self.construction is not None:
+                expected = NeutralCTConstruction if mode == "NEUTRAL_CT" else CBCTWindowConstruction
+                if not isinstance(self.construction, expected):
+                    raise TypeError(f"{mode} construction must be {expected.__name__}.")
             object.__setattr__(self, "direct_binding_id", self.direct_binding_id.strip())
+
+    @property
+    def construction_complete(self) -> bool:
+        """Whether a direct source has an explicit, mode-matched construction contract."""
+        if self.mode == "THREE_PHASE_SUM":
+            return self.construction is None
+        expected = NeutralCTConstruction if self.mode == "NEUTRAL_CT" else CBCTWindowConstruction
+        return isinstance(self.construction, expected)
 
     def to_dict(self) -> dict[str, Any]:
         return {
