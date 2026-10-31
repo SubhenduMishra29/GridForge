@@ -1449,3 +1449,14 @@ activation rather than the detached Network's default runtime identity.
 
 No tests/CI or numerical fixtures were run; the new KCL gate has not yet been
 exercised against reference fault cases.
+
+
+### D15F-07 — Connectivity persistence schema 4
+
+The explicit FAULT_NODE kind is part of the persisted phase-domain conductor
+graph vocabulary. Connectivity serialization is therefore advanced from
+schema 3 to schema 4. Migration preserves and validates the existing schema-3
+SimpleWire, Junction and phase-domain graph collections while updating the
+schema marker. Schema 1 and 2 migrations continue to initialize the
+phase-domain collections as empty. The network deserializer retains
+read-compatibility for schemas 1, 2 and 3 during migration.
