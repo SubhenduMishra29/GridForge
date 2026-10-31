@@ -15825,3 +15825,13 @@ Verification:
   retaining an instrument/channel-specific CT-secondary reference basis.
 - Verification: source-level review only. No tests or CI run, per repository
   workflow. Python syntax/import/runtime checks remain outstanding.
+
+
+[2026-10-31] Protection Study Phase D6 — signed equipment terminal-current foundation
+- Added immutable ShortCircuitTerminalCurrent records keyed by equipment ID and terminal role. Each record carries its canonical Bus identity, complex phase/sequence currents, per-unit declaration, and an explicit positive-into-equipment reference direction.
+- ShortCircuitPreparation preserves physical FROM/TO terminal roles in the detached sequence branch snapshot.
+- ShortCircuitSolver derives independent FROM and TO terminal currents from solved sequence voltages and the prepared series impedance. The TO terminal current is the negative of the FROM-oriented series current under the declared into-equipment convention.
+- Added independent terminal_current_status and terminal_current_diagnostics to ShortCircuitResult. COMPLETE requires both terminal records for every prepared branch; unsupported equipment is reported as PARTIAL/UNAVAILABLE and is never replaced by Branch aggregate current.
+- This increment deliberately supports only series-only Line and Cable primitives. Transformer terminal currents remain unavailable until the model includes tap, winding/vector-group, phase-shift and sequence-grounding behavior. Shunt/mutual models, machine stator terminals, load contributions and Bus-boundary currents remain outstanding.
+- Protection CT scenario adapters do not consume the new records yet; no unsupported CT path is enabled by this change.
+- Verification: remote source-level review only. No tests or CI run, per repository workflow. Python syntax/import/runtime checks remain outstanding.
