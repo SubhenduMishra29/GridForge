@@ -85,6 +85,10 @@ class ProtectionScenarioMeasurementAdapter:
             raise TypeError("binding must be a ProtectionMeasurementBinding.")
         if not isinstance(result, ShortCircuitResult):
             raise TypeError("result must be a ShortCircuitResult.")
+        if not isinstance(channel, MeasurementChannel):
+            raise TypeError("channel must be a MeasurementChannel.")
+        if not isinstance(ct_association, CTMeasurementAssociation):
+            raise TypeError("ct_association must be a CTMeasurementAssociation.")
         if binding.measurement_type.strip().lower() != "current":
             raise ValueError("Terminal-current adapter only accepts current bindings.")
         if binding.instrument_id != getattr(instrument, "id", None):
