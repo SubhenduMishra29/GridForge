@@ -1098,7 +1098,7 @@ transformer identity, grounded Bus index, winding side, terminal role,
 per-unit impedance, physical Z0, separate neutral 3Zn, base values, core
 construction and test-data provenance.
 
-For LG/LLG studies, transformer terminal currents are composed from:
+For LL studies, transformer terminal currents are composed from positive- and negative-sequence two-port currents. For LG/LLG studies, transformer terminal currents are composed from:
 - the tap-aware positive-sequence two-port current at each physical terminal;
 - the tap-aware negative-sequence two-port current at each physical terminal,
   using the conjugated complex tap;
