@@ -60,6 +60,24 @@ class ShortCircuitPreparation:
             )
             prefault_voltage = prefault_voltages[bus_index]
             snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
+            required_sequences = (
+                ("positive", "negative")
+                if normalized_type is FaultType.LINE_LINE
+                else ("positive", "negative", "zero")
+                if normalized_type.is_unbalanced
+                else ("positive",)
+            )
+            unavailable_at_fault = tuple(
+                sequence for sequence in required_sequences
+                if not snapshot.is_bus_available(sequence, bus_index)
+            )
+            if unavailable_at_fault:
+                raise ValueError(
+                    f"Fault Bus '{bus_ids[bus_index]}' belongs to an ungrounded or "
+                    f"numerically unavailable sequence-network component for: "
+                    f"{', '.join(unavailable_at_fault)} sequence. No earth-return "
+                    "path is declared for this component."
+                )
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
