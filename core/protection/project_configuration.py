@@ -57,7 +57,12 @@ class ProtectionFunctionConfiguration:
         object.__setattr__(self, "function_code", self.function_code.upper())
         if self.residual_current_input is not None and not isinstance(self.residual_current_input, ResidualCurrentInputConfiguration):
             raise TypeError("residual_current_input must be ResidualCurrentInputConfiguration or None.")
-        if self.function_code not in {"50N", "51N"} and self.residual_current_input is not None:
+        if self.function_code in {"50N", "51N"}:
+            if self.residual_current_input is None:
+                raise ValueError(f"ANSI {self.function_code} requires an explicit residual_current_input configuration.")
+            if "residual_current" in self.input_channel_ids:
+                raise ValueError("residual_current is a derived relay input, not a physical MeasurementChannel ID.")
+        elif self.residual_current_input is not None:
             raise ValueError("Residual-current input configuration is valid only for ANSI 50N/51N functions.")
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
