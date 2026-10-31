@@ -17354,3 +17354,36 @@ Verification:
     syntax/import checks, or numerical execution performed.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-18
+======================================================================
+
+Scope:
+    Explicit original impedance bases for Grid per-unit sequence data.
+
+Finding:
+    Grid accepted z1_pu/z2_pu/z0_pu without recording the MVA and voltage
+    bases on which those per-unit values were specified. Physical-ohm
+    conversion cannot be performed safely without both bases.
+
+Correction:
+    Grid now accepts impedance_base_mva and impedance_base_voltage_kv,
+    validates them as a paired positive contract, requires both whenever
+    any per-unit sequence impedance is supplied, and exposes them in its
+    diagnostic summary. short_circuit_mva/x_over_r do not substitute for
+    missing sequence data.
+
+Engineering boundary:
+    This establishes the Grid original per-unit base contract only. It
+    does not derive phase-domain source equivalents or assert completeness
+    of internal voltage, grounding, negative/zero-sequence data.
+
+Status:
+    CORRECTED — REMOTE SOURCE VERIFICATION REQUIRED
+
+Verification:
+    Constructor, validation and summary changes verified after commit.
+    No tests, CI, syntax/import checks, or numerical execution performed.
+
+======================================================================
