@@ -153,7 +153,16 @@ class SequenceNetworkPreparation:
             return {"positive": z1, "negative": z1, "zero": z0}
         if isinstance(element, Line):
             z1 = self._ohm_to_pu(element.series_impedance, voltage)
-            return {"positive": z1, "negative": z1, "zero": None}
+            zero_r = getattr(element, "zero_sequence_resistance_ohm", None)
+            zero_x = getattr(element, "zero_sequence_reactance_ohm", None)
+            if (zero_r is None) != (zero_x is None):
+                raise ValueError(
+                    f"Line '{element.id}' must declare both zero-sequence resistance and reactance."
+                )
+            z0 = None if zero_r is None else self._ohm_to_pu(complex(float(zero_r), float(zero_x)), voltage)
+            if z0 == 0.0 + 0.0j:
+                raise ValueError(f"Line '{element.id}' has zero zero-sequence impedance; an explicit non-zero Z0 is required.")
+            return {"positive": z1, "negative": z1, "zero": z0}
         if isinstance(element, Transformer):
             study_kv = voltage
             if study_kv <= 0.0:
