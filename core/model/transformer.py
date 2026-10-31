@@ -186,6 +186,8 @@ class Transformer(Branch):
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
+        if self._zero_sequence_two_winding_test_data is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
+            raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
             self._vector_group_configuration, self._zero_sequence_test_configuration,
             self._impedance_reference_winding, self._hv_winding_connection, self._lv_winding_connection,
@@ -597,6 +599,8 @@ class Transformer(Branch):
             self._zero_sequence_two_winding_test_data if zero_sequence_two_winding_test_data is None and not _replace_winding_configuration else zero_sequence_two_winding_test_data
         )
         self._validate_zero_sequence_two_winding_test_data(target_two_winding_test_data, target_hv_connection, target_lv_connection, target_vector_group)
+        if target_two_winding_test_data is not None and (target_core is None or target_test_basis is None):
+            raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
             target_vector_group, target_test_configuration, target_reference_winding,
             target_hv_connection, target_lv_connection, target_z0r, target_two_winding_test_data,
@@ -705,6 +709,8 @@ class Transformer(Branch):
             self._zero_sequence_two_winding_test_data, self._hv_winding_connection,
             self._lv_winding_connection, getattr(self, "_vector_group_configuration", None),
         )
+        if self._zero_sequence_two_winding_test_data is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
+            raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
             getattr(self, "_vector_group_configuration", None), getattr(self, "_zero_sequence_test_configuration", None),
             self._impedance_reference_winding, self._hv_winding_connection,
