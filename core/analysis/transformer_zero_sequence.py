@@ -1,15 +1,16 @@
 """Transformer zero-sequence winding-path classification.
 
-This module classifies externally available zero-sequence paths. It does
-not calculate a transformer equivalent impedance or stamp Ybus. Those
-operations require test-configuration, vector-group and core-return
-contracts that must be explicit before a numerical equivalent is enabled.
+This module classifies externally available zero-sequence paths and builds
+the explicitly supported one-sided grounded-wye return shunt. It does not
+model a general two-winding zero-sequence transfer equivalent.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+import numpy as np
 
 from core.model.transformer import (
     TransformerCoreConstruction,
