@@ -712,14 +712,14 @@ and CT-ratio conversion path. The output is detached and carries scenario,
 project, activation, topology, Branch, Bus, CT, base and ratio provenance.
 It never calls `MeasurementChannel.update` and cannot overwrite live values.
 
-**Strict boundary:** this is a CT-secondary sample in amperes
-(`A_secondary`), not a common primary-current reference basis. Each sample
-declares an instrument/channel-specific basis identity so samples from
-different CT ratios cannot accidentally satisfy the differential kernel's
+**Strict boundary:** this is a CT-secondary sample expressed in the canonical
+ampere unit (`A`), not a common primary-current reference basis. Each sample
+declares an instrument/channel-specific CT-secondary basis identity so samples
+from different CT ratios cannot accidentally satisfy the differential kernel's
 common-basis guard. Differential protection still requires an explicit,
 engineering-valid CT normalisation/compensation stage before its samples can
 be evaluated. Bus-attached and equipment-terminal CT contribution adapters,
-PT/CVT fault-voltage conversion remains pending. Phase D5 now assembles
+PT/CVT fault-voltage conversion remain pending. Phase D5 now assembles
 detached RelayInput snapshots and evaluates eligible current protection
 functions for explicitly bound Branch FROM/TO CT samples. Unsupported
 instrument/input paths still fail closed, and no breaker action is dispatched.
