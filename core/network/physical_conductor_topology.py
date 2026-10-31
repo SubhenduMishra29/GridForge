@@ -102,8 +102,6 @@ class PhysicalConductorBranchAssociation:
                 raise ValueError(f"{name} must be a non-empty Bus identity or None.")
             if value is not None:
                 object.__setattr__(self, name, value.strip())
-        if (self.from_bus_id is None) != (self.to_bus_id is None):
-            raise ValueError("A conductor association cannot have only one resolved branch-terminal Bus.")
 
     @property
     def identity(self) -> tuple[str, str]:
@@ -166,9 +164,9 @@ def build_physical_conductor_topology_snapshot(
     if not bool(getattr(state, "topology_valid", False)):
         raise ValueError("Physical conductor topology requires a valid, rebuilt Network topology.")
 
-    attachments: dict[tuple[str, str], list[str]] = {}
+    attachments: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for item in topology_snapshot.equipment_bus_attachments:
-        attachments.setdefault((item.equipment_id, item.terminal_role), []).append(item.bus_id)
+        attachments.setdefault((item.equipment_id, item.terminal_role), []).append((item.equipment_type, item.bus_id))
 
     records: list[PhysicalConductorBranchTopology] = []
     for equipment_type, collection in (("line", network.lines), ("cable", network.cables)):
@@ -198,8 +196,11 @@ def build_physical_conductor_topology_snapshot(
                 )
             if len(from_matches) > 1 or len(to_matches) > 1:
                 raise ValueError(f"{equipment_type} '{equipment_id}' has ambiguous physical-conductor terminal attachment.")
-            from_bus = from_matches[0] if from_matches else None
-            to_bus = to_matches[0] if to_matches else None
+            for matches in (from_matches, to_matches):
+                if matches and matches[0][0] != equipment_type:
+                    raise ValueError(f"{equipment_type} '{equipment_id}' topology attachment has contradictory equipment type.")
+            from_bus = from_matches[0][1] if from_matches else None
+            to_bus = to_matches[0][1] if to_matches else None
             if active and from_bus == to_bus:
                 raise ValueError(f"In-service {equipment_type} '{equipment_id}' resolves both terminals to the same Bus.")
 
