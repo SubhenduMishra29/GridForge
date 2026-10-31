@@ -16416,13 +16416,17 @@ Implementation:
     - Exported the Core test-data contract and Analysis equivalent builder.
 
 Fail-closed boundary:
-    The test-data contract is not yet stored on Transformer or propagated
-    through commands/services/undo/persistence. No neutral 3Zn two-side
-    referral, two-Bus Ybus stamp, zero-sequence component-graph connection,
-    immutable solver snapshot, or two-terminal transformer zero-sequence
-    current calculation is enabled. Grounded-wye/grounded-wye remains
-    unavailable in SequenceNetworkPreparation. D14H one-sided shunt behavior
-    is unchanged.
+    The test-data contract is stored on Transformer, summarized, propagated
+    through create/update commands and TransformerModelService, and included
+    in transactional rollback. Generic model-state dataclass persistence
+    handles the value; no persistence round-trip was run. The classifier
+    requires explicit Yy vector group, test configuration, core construction
+    and test-data provenance, and validates the derived T model. No neutral
+    3Zn two-side referral, two-Bus Ybus stamp, sequence-component graph
+    connection, immutable solver snapshot, or two-terminal transformer
+    zero-sequence current calculation is enabled. Grounded-wye/grounded-wye
+    remains unavailable in SequenceNetworkPreparation. D14H one-sided shunt
+    behavior is unchanged.
 
 Verification:
     Remote source edits only. No tests/CI, Python syntax/import checks,
