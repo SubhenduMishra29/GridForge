@@ -1191,3 +1191,32 @@ end-to-end runtime execution were performed.
 The residual-current configuration now requires a typed physical construction declaration for direct-source modes. NEUTRAL_CT identifies the exact neutral conductor, owning equipment terminal, neutral node and positive current reference. CBCT identifies a physical window and explicitly lists the enclosed A/B/C conductors, with optional N conductor membership and an explicit per-conductor current reference direction. The configuration rejects missing construction, duplicate conductor identities, missing phase conductors, ambiguous neutral inclusion and unsupported current-reference directions.
 
 These declarations are construction metadata, not solver evidence. The short-circuit model still has no neutral-conductor network/current primitive and no CBCT window-current assembly from multiple enclosed conductor records. Accordingly, Application and protection input validation continue to reject both direct modes for execution; a complete-looking configuration cannot manufacture a measurement. The next implementation must add canonical Core conductor topology and immutable solver conductor-current records, then validate the configured CT conductor/window against those records before normalization to primary amperes.
+
+
+### D15B — Immutable physical conductor-current result boundary
+
+Added a typed ShortCircuitConductorCurrent record to the short-circuit result
+contract. Each record identifies one physical conductor at one owning
+equipment terminal and carries conductor ID, equipment/type, terminal role,
+Bus, phase/conductor role, complex current, explicit terminal reference
+direction, per-unit basis and derivation provenance. A physical conductor at
+opposite ends of a branch is represented by two terminal-scoped records.
+ShortCircuitResult now exposes an immutable conductor_currents mapping,
+strict composite-key validation, a typed lookup helper, independent coverage
+status and diagnostics.
+
+The solver now reports conductor-current coverage as UNAVAILABLE rather than
+promoting aggregate branch phase currents to physical conductor currents.
+Current SequenceBranchSnapshot records do not carry explicit physical
+conductor inventories or per-conductor electrical parameters. Therefore this
+phase deliberately emits no conductor-current records. Neutral current and
+CBCT aperture-current summation remain unavailable. This is an explicit
+result contract and fail-closed integration point, not a claim that the
+neutral or CBCT solver primitive is complete.
+
+Next work must add persisted physical conductor identities to Core branch
+models and commands, carry those identities into immutable prepared branch
+snapshots, and calculate per-conductor current only where the electrical
+model contains the required conductor impedance/return path. In particular,
+a neutral conductor must not be assigned the negative sum of phase currents
+unless the network model explicitly proves that it is the sole return path.
