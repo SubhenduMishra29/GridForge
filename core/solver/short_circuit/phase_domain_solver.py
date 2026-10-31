@@ -177,12 +177,14 @@ class PhaseDomainShortCircuitCase:
             if len(equipment_ids) != 1:
                 raise ValueError(f"Multi-conductor source {item.source_id!r} spans multiple equipment identities.")
             equipment_id = next(iter(equipment_ids))
-            if equipment_id != item.source_id and any(
-                node.source_reference != item.source_id for node in source_terminals
-            ):
+            if item.source_id != equipment_id:
                 raise ValueError(
-                    f"Source {item.source_id!r} does not match the equipment identity or explicit source_reference "
-                    "of its terminal nodes."
+                    f"Phase-domain source identity {item.source_id!r} must equal its canonical equipment owner "
+                    f"identity {equipment_id!r}; source_reference metadata cannot alias equipment ownership."
+                )
+            if any(node.source_reference not in (None, item.source_id) for node in source_terminals):
+                raise ValueError(
+                    f"Phase-domain source {item.source_id!r} contains conflicting source_reference metadata."
                 )
             roles = [node.conductor_role for node in source_terminals]
             if len(set(roles)) != len(roles):
