@@ -17941,3 +17941,61 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-31
+======================================================================
+
+Scope:
+    Introduce transformer-specific physical winding construction metadata
+    without misrepresenting magnetic coupling as galvanic conductor
+    continuity.
+
+Corrections:
+    - Added TransformerWindingConductorConstruction and
+      TransformerPhysicalConductorConstruction as immutable typed Core
+      contracts, exported through core.model.
+    - Transformer exposes physical_conductor_construction only when both
+      winding connection types, distinct HV/LV SLD terminal roles, and
+      explicit ordered A/B/C phase conductor roles are supplied.
+    - Grounded-wye winding construction requires an explicit neutral
+      terminal role and explicit neutral grounding impedance. The model
+      does not invent a neutral terminal from the two-terminal transformer
+      Branch interface.
+    - Delta and ungrounded-wye windings cannot declare a neutral terminal
+      or neutral grounding impedance through this contract.
+    - Winding metadata retains vector-group and core-construction
+      references. It does not create an HV-to-LV galvanic path.
+    - The SLD phase-domain graph builder now rejects every in-service
+      transformer until a dedicated coupled winding solver primitive is
+      implemented. Missing winding construction fails closed; explicit
+      construction currently reports unsupported coupled stamping rather
+      than being silently omitted or treated as continuity.
+
+Fail-closed boundaries:
+    - This is transformer winding construction metadata, not a complete
+      phase-domain transformer primitive.
+    - No star-point, delta-loop, magnetic coupling, turns ratio, phase
+      displacement, winding leakage impedance matrix, magnetizing branch,
+      zero-sequence core return, neutral conductor graph, or earth-return
+      current is stamped by this change.
+    - The existing sequence-domain transformer and zero-sequence test
+      contracts remain authoritative for their supported sequence studies.
+    - Grounded-wye transformers that previously omitted an explicit
+      neutral terminal mapping now require that mapping when constructing
+      this physical winding contract.
+    - Persistence migration, Application configurator, SLD neutral-port
+      presentation, numerical transformer stamping and runtime verification
+      remain outstanding.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    serialization round-trip, winding matrix fixtures or end-to-end
+    phase-domain execution were run. Runtime behaviour remains unverified.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
