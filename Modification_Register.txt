@@ -16361,8 +16361,8 @@ Implementation:
       transformer Z0, neutral 3Zn, total impedance, voltage/MVA bases,
       core construction and zero-sequence test-data provenance.
     - Normalized terminal-role enum values when preparing branch snapshots.
-    - Extended transformer terminal-current calculation to LG/LLG faults:
-      positive and negative sequence use the tap-aware two-port primitive;
+    - Extended transformer terminal-current calculation to LL, LG and LLG
+      faults: positive and negative sequence use the tap-aware two-port primitive;
       negative sequence uses the conjugated complex tap; zero sequence is
       calculated only at the grounded-wye terminal as V0/Z0,return.
     - Preserved INTO_EQUIPMENT direction. The opposite winding receives no
