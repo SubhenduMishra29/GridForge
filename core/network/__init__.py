@@ -288,6 +288,7 @@ __all__ = [
     "PhaseDomainConnection",
     "PhaseDomainConductorNetwork",
     "build_phase_domain_conductor_network",
+    "build_phase_domain_conductor_network_from_sld",
 
     # Base-layer service
     "PerUnitSystem",
@@ -323,4 +324,5 @@ from .phase_domain_conductor_network import (
     PhaseDomainConnection,
     PhaseDomainConductorNetwork,
     build_phase_domain_conductor_network,
+    build_phase_domain_conductor_network_from_sld,
 )
