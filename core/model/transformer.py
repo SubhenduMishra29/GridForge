@@ -574,6 +574,8 @@ class Transformer(Branch):
                 "impedance_reference_winding": self._impedance_reference_winding,
                 "zero_sequence_resistance_ohm": self._zero_sequence_resistance_ohm,
                 "zero_sequence_reactance_ohm": self._zero_sequence_reactance_ohm,
+                "core_construction": self._core_construction,
+                "zero_sequence_test_basis": self._zero_sequence_test_basis,
             }
         )
         return summary
@@ -608,4 +610,4 @@ class Transformer(Branch):
         return value
 
 
-__all__ = ["ImpedanceBasis", "TransformerWindingConnection", "Transformer"]
+__all__ = ["ImpedanceBasis", "TransformerCoreConstruction", "TransformerWindingConnection", "Transformer"]
