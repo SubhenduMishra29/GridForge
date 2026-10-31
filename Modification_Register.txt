@@ -17757,12 +17757,16 @@ Fail-closed boundaries:
     - No PE/N/screen bonds or earth-return paths are inferred.
 
 Verification:
-    Remote source edits and re-fetch checks only. No tests/CI, syntax/import
+    Remote source re-fetch confirms the SLD graph builder, canonical
+    attachment/terminal references, branch-terminal continuity, Busbar
+    role continuity, owner-local conductor identity handling, Network
+    snapshot integration, both short-circuit graph construction paths,
+    package export, and this register entry. No tests/CI, syntax/import
     checks, numerical fixtures, or end-to-end short-circuit execution were
     run. Runtime behaviour remains unverified.
 
 Status:
-    IMPLEMENTED — STATIC REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+    IMPLEMENTED — REMOTE SOURCE CHECKED; RUNTIME VERIFICATION DEFERRED
 
 ======================================================================
 
