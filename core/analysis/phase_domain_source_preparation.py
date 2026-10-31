@@ -66,9 +66,9 @@ def prepare_phase_domain_source_equivalents(
     A source must have one canonical terminal, exactly one A/B/C graph node
     for that terminal, an endpoint Bus with a matching declared impedance
     voltage base, and complete Z0/Z1/Z2 plus explicit source voltage data.
-    A Grid's Z0 must include its external grounding contribution. A
-    Generator's Z0 is machine-only; neutral grounding is represented by a
-    separate physical GROUND_ELECTRODE connection.
+    Grid and Generator Z0 values represent source-internal zero-sequence
+    impedance only; each source neutral grounding impedance is represented
+    by a separate physical GROUND_ELECTRODE connection.
     """
     if not isinstance(graph, PhaseDomainConductorNetwork):
         raise TypeError("graph must be PhaseDomainConductorNetwork.")
@@ -138,7 +138,7 @@ def prepare_phase_domain_source_equivalents(
         if any(node.equipment_id != equipment_id or node.terminal_role != "terminal" for node in nodes if node.node_id in phase_nodes.values()):
             raise ValueError(f"Source {equipment_id!r} graph nodes do not match its canonical terminal.")
         neutral_node_id = None
-        if isinstance(equipment, Generator):
+        if isinstance(equipment, (Grid, Generator)):
             zn = equipment.neutral_grounding_impedance_ohm
             if zn is None:
                 raise ValueError(f"Grounded Generator {equipment_id!r} requires explicit neutral grounding impedance.")
@@ -147,17 +147,17 @@ def prepare_phase_domain_source_equivalents(
                 raise ValueError(f"Generator {equipment_id!r} neutral grounding impedance must be finite and non-zero; ideal grounding current is not individually resolvable.")
             neutral_matches = [node for node in nodes if node.equipment_id == equipment_id and node.terminal_role == "terminal" and node.conductor_role == "N"]
             if len(neutral_matches) != 1:
-                raise ValueError(f"Grounded Generator {equipment_id!r} requires exactly one explicit N equipment-terminal graph node.")
+                raise ValueError(f"Grounded source {equipment_id!r} requires exactly one explicit N equipment-terminal graph node.")
             neutral_node_id = neutral_matches[0].node_id
             grounding_edges = [edge for edge in graph.connections if edge.in_service and edge.kind is PhaseDomainConnectionKind.GROUND_ELECTRODE and edge.source_reference == equipment_id and neutral_node_id in {edge.from_node_id, edge.to_node_id}]
             if len(grounding_edges) != 1:
-                raise ValueError(f"Generator {equipment_id!r} requires exactly one source-referenced neutral GROUND_ELECTRODE connection.")
+                raise ValueError(f"Source {equipment_id!r} requires exactly one source-referenced neutral GROUND_ELECTRODE connection.")
             grounding_edge = grounding_edges[0]
             if not math.isclose(grounding_edge.impedance_ohm.real, zn.real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(grounding_edge.impedance_ohm.imag, zn.imag, rel_tol=1e-9, abs_tol=1e-12):
-                raise ValueError(f"Generator {equipment_id!r} neutral grounding impedance must match its physical GROUND_ELECTRODE connection.")
+                raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must match its physical GROUND_ELECTRODE connection.")
             earth_node_id = grounding_edge.to_node_id if grounding_edge.from_node_id == neutral_node_id else grounding_edge.from_node_id
             if graph.node(earth_node_id).kind is not PhaseDomainNodeKind.EARTH_NODE or not graph.earth_reachable(earth_node_id):
-                raise ValueError(f"Generator {equipment_id!r} requires a local EARTH_NODE with an explicit path to EARTH_REFERENCE.")
+                raise ValueError(f"Source {equipment_id!r} requires a local EARTH_NODE with an explicit path to EARTH_REFERENCE.")
         if internal_voltage_pu is None or not math.isfinite(float(internal_voltage_pu)) or float(internal_voltage_pu) <= 0.0:
             raise ValueError(f"Source {equipment_id!r} internal voltage magnitude must be finite and positive.")
         angle = math.radians(float(angle_deg))
@@ -167,7 +167,7 @@ def prepare_phase_domain_source_equivalents(
             phase_voltage_base * float(internal_voltage_pu) * cmath.exp(1j * (angle + offset))
             for offset in phase_angles
         )
-        if isinstance(equipment, Generator):
+        if isinstance(equipment, (Grid, Generator)):
             sources.append(PhaseDomainGroundedMultiConductorSource(source_id=equipment_id, phase_node_ids=tuple(phase_nodes[phase] for phase in ("A", "B", "C")), neutral_node_id=neutral_node_id, internal_phase_voltage_v=voltages, phase_impedance_matrix_ohm=zabc))
         else:
             sources.append(PhaseDomainMultiConductorSource(source_id=equipment_id, node_ids=tuple(phase_nodes[phase] for phase in ("A", "B", "C")), internal_voltage_v=voltages, impedance_matrix_ohm=zabc))
