@@ -164,6 +164,11 @@ def build_physical_conductor_topology_snapshot(
     if not bool(getattr(state, "topology_valid", False)):
         raise ValueError("Physical conductor topology requires a valid, rebuilt Network topology.")
 
+    if str(getattr(network, "project_id", "UNSCOPED")) != topology_snapshot.project_id:
+        raise ValueError("TopologySnapshot project identity does not match the Network.")
+    if int(getattr(network, "activation_generation", 1)) != topology_snapshot.activation_generation:
+        raise ValueError("TopologySnapshot activation generation does not match the Network.")
+
     attachments: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for item in topology_snapshot.equipment_bus_attachments:
         attachments.setdefault((item.equipment_id, item.terminal_role), []).append((item.equipment_type, item.bus_id))
@@ -177,6 +182,8 @@ def build_physical_conductor_topology_snapshot(
             equipment_id = getattr(branch, "id", None)
             if not isinstance(equipment_id, str) or not equipment_id.strip():
                 raise ValueError("Conductor-equipped branch has no canonical equipment identity.")
+            if network.get_by_identity(equipment_id) is not branch:
+                raise ValueError(f"Conductor-equipped {equipment_type} '{equipment_id}' is not the canonical registered Network object.")
             from_terminal = getattr(branch, "from_terminal", None)
             to_terminal = getattr(branch, "to_terminal", None)
             if from_terminal is None or to_terminal is None:
