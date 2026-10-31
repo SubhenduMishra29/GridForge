@@ -165,6 +165,9 @@ class BranchConductorSystem:
         if len(ids) != len(set(ids)):
             raise ValueError("Physical conductor identities must be unique within a branch.")
         matrix_ids = tuple(self.matrix_conductor_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in matrix_ids):
+            raise ValueError("Every impedance matrix conductor identity must be a non-empty string.")
+        matrix_ids = tuple(item.strip() for item in matrix_ids)
         if len(matrix_ids) != len(set(matrix_ids)) or set(matrix_ids) != set(ids) or len(matrix_ids) != len(ids):
             raise ValueError("Impedance matrix conductor ordering must identify every physical conductor exactly once.")
         length = _finite_positive(self.length_km, "length_km")
