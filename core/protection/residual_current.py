@@ -140,6 +140,9 @@ def resolve_residual_current(
             raise ValueError(f"Missing configured direct residual-current sample {binding_id!r}.")
         if str(getattr(sample, "phase_or_sequence", "")).upper() not in {"N", "RESIDUAL"}:
             raise ValueError("Neutral CT/CBCT input must be explicitly classified as N or RESIDUAL.")
+        direct_provenance = getattr(sample, "provenance", None)
+        if not isinstance(direct_provenance, Mapping) or direct_provenance.get("residual_source_mode") != configuration.mode:
+            raise ValueError("Direct neutral/CBCT sample provenance must explicitly declare the configured residual source mode.")
         selected = [(binding_id, sample)]
 
     values = []
