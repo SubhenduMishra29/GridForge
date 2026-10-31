@@ -146,7 +146,6 @@ def resolve_residual_current(
         selected = [(binding_id, sample)]
 
     values = []
-    provenance_keys = ("scenario_id", "measurement_point_id", "topology_revision", "reference_basis_id")
     canonical = None
     for binding_id, sample in selected:
         if getattr(sample, "unit", None) != "A":
@@ -174,7 +173,8 @@ def resolve_residual_current(
         values.append(phasor)
 
     total = sum(values, 0j)
-    assert canonical is not None
+    if canonical is None:
+        raise ValueError("Residual-current resolver received no source samples.")
     return ResidualCurrentSample(
         value=total,
         unit="A",
