@@ -37,6 +37,8 @@ class ShortCircuitStudyConfiguration:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     base_mva: float | None = None
     phase_domain_case: Any | None = None
+    phase_domain_sources: tuple[Any, ...] = ()
+    phase_domain_faults: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fault_type", FaultType.from_value(self.fault_type))
@@ -64,6 +66,24 @@ class ShortCircuitStudyConfiguration:
                 raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
             if self.base_mva is None or not math.isclose(self.phase_domain_case.base_mva, self.base_mva, rel_tol=1e-9, abs_tol=1e-9):
                 raise ValueError("Phase-domain case requires the same explicit study base_mva.")
+        sources = tuple(self.phase_domain_sources)
+        faults = tuple(self.phase_domain_faults)
+        if bool(sources) != bool(faults):
+            raise ValueError("Phase-domain study configuration requires both explicit source equivalents and fault connections.")
+        if sources or faults:
+            from core.solver.short_circuit.phase_domain_solver import (
+                PhaseDomainSourceEquivalent, PhaseDomainMultiConductorSource, PhaseDomainFaultConnection,
+            )
+            if any(not isinstance(item, (PhaseDomainSourceEquivalent, PhaseDomainMultiConductorSource)) for item in sources):
+                raise TypeError("phase_domain_sources contains an unsupported source equivalent.")
+            if any(not isinstance(item, PhaseDomainFaultConnection) for item in faults):
+                raise TypeError("phase_domain_faults contains an unsupported fault connection.")
+            if self.base_mva is None:
+                raise ValueError("Phase-domain source/fault configuration requires an explicit base_mva.")
+            if self.phase_domain_case is not None:
+                raise ValueError("Supply either phase_domain_case or phase_domain_sources/faults, not both.")
+        object.__setattr__(self, "phase_domain_sources", sources)
+        object.__setattr__(self, "phase_domain_faults", faults)
         object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
 
