@@ -34,6 +34,7 @@ from .result import (
 from .short_circuit_solver import ShortCircuitSolver
 from .phase_domain_solver import (
     PhaseDomainSourceEquivalent,
+    PhaseDomainMultiConductorSource,
     PhaseDomainFaultConnection,
     PhaseDomainShortCircuitCase,
     PhaseDomainShortCircuitSolution,
@@ -63,6 +64,7 @@ __all__ = [
     "ShortCircuitResult",
     "ShortCircuitSolver",
     "PhaseDomainSourceEquivalent",
+    "PhaseDomainMultiConductorSource",
     "PhaseDomainFaultConnection",
     "PhaseDomainShortCircuitCase",
     "PhaseDomainShortCircuitSolution",
