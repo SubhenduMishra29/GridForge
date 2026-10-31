@@ -919,6 +919,8 @@ class Transformer(Branch):
                 "hv_winding_connection": self._hv_winding_connection,
                 "lv_winding_connection": self._lv_winding_connection,
                 "hv_neutral_grounding_impedance_ohm": self._hv_neutral_grounding_impedance_ohm,
+                "hv_neutral_earth_return_impedance_ohm": self._hv_neutral_earth_return_impedance_ohm,
+                "lv_neutral_earth_return_impedance_ohm": self._lv_neutral_earth_return_impedance_ohm,
                 "lv_neutral_grounding_impedance_ohm": self._lv_neutral_grounding_impedance_ohm,
                 "hv_terminal_role": self._hv_terminal_role,
                 "lv_terminal_role": self._lv_terminal_role,
