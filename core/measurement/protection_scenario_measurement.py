@@ -1,9 +1,10 @@
 """Detached Protection Study measurement samples from explicit fault contributions.
 
-This adapter currently supports explicitly bound Branch FROM/TO CT current
-measurements only. It never updates live MeasurementChannel state. Values are
-expressed in canonical amperes on the CT secondary side; the reference-basis
-identity prevents unlike CT secondaries from being treated as a common basis.
+The terminal-current adapter consumes the exact equipment endpoint persisted
+in the protection binding. The legacy Branch FROM/TO conversion remains
+available for compatibility. Neither path updates live MeasurementChannel
+state. Values use canonical CT-secondary amperes and retain instrument/channel
+basis identity.
 """
 from __future__ import annotations
 
@@ -62,7 +63,7 @@ class ProtectionScenarioMeasurementSample:
 
 
 class ProtectionScenarioMeasurementAdapter:
-    """Convert explicitly bound Branch contributions into detached CT samples."""
+    """Convert explicitly bound terminal/Branch contributions into detached CT samples."""
 
     def __init__(self, generation: MeasurementGeneration | None = None) -> None:
         self._generation = generation or MeasurementGeneration()
