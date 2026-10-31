@@ -17025,3 +17025,25 @@ Changes:
 Verification:
     No tests/CI, Python syntax/import checks, numerical reference cases,
     persistence round-trip, or end-to-end Protection Study execution were run.
+
+
+======================================================================
+GF-SC-D15F-07 — CONNECTIVITY PERSISTENCE SCHEMA 4
+======================================================================
+
+Files:
+    core/persistence/project_package.py
+    core/persistence/migration.py
+    core/persistence/network_serializer.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Changes:
+    - Advanced CONNECTIVITY_SERIALIZATION_VERSION from 3 to 4 for the
+      persisted FAULT_NODE graph kind.
+    - Added schema-3 to schema-4 migration with strict validation of the
+      existing Junction, SimpleWire and phase-domain graph collections.
+    - Preserved direct deserialization compatibility for connectivity
+      schemas 1, 2 and 3 while canonical writes use schema 4.
+
+Verification:
+    No persistence round-trip or migration fixture was run.
