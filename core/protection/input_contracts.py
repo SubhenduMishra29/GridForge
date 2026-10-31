@@ -196,11 +196,12 @@ def validate_protection_input_contracts(
             if residual is None:
                 diagnostics.append(f"{prefix}: explicit residual_current_input configuration is required.")
                 continue
-            expected_ids = (
-                dict(residual.phase_binding_ids or {})
-                if residual.mode == "THREE_PHASE_SUM"
-                else {"N": residual.direct_binding_id}
-            )
+            if residual.mode != "THREE_PHASE_SUM":
+                diagnostics.append(
+                    f"{prefix}: {residual.mode} is not executable from the current short-circuit terminal-current model; a dedicated neutral-conductor or multi-conductor CBCT source model is required."
+                )
+                continue
+            expected_ids = dict(residual.phase_binding_ids or {})
             configured_bindings = {
                 binding.binding_id: binding
                 for binding in getattr(configuration, "measurement_bindings", ())
