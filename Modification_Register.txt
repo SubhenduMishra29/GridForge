@@ -15859,3 +15859,26 @@ Verification:
 - PARTIAL terminal-current sets may provide an individual sample only when its exact terminal record is present and valid. FAILED/UNAVAILABLE sets and missing records are refused. Live MeasurementChannel state remains unchanged.
 - Supported result records are limited to Line/Cable and balanced three-phase Transformer series primitives. Bus attachments, PT/CVT voltage, unbalanced Transformer sequence currents and unsupported equipment remain unavailable.
 - No tests or CI were run. Remote source-level review only; Python syntax/import/runtime checks remain outstanding.
+
+
+[2026-10-31] Protection Study Phase D10 — explicit residual-current input contract
+- Added ResidualCurrentInputConfiguration with mutually exclusive
+  THREE_PHASE_SUM, NEUTRAL_CT and CBCT modes. The model requires explicit
+  measurement-point identity and either exactly three distinct A/B/C binding
+  IDs or one dedicated direct binding ID.
+- Persisted the typed residual-current configuration on
+  ProtectionFunctionConfiguration and restricted its use to ANSI 50N/51N.
+  Added detached serialization/deserialization and public Core exports.
+- Added a fail-closed residual-current resolver. Three-phase mode uses complex
+  phasor addition (Ia + Ib + Ic), not magnitude addition, and requires matching
+  scenario, measurement point, topology revision, canonical ampere unit and
+  identical CT-secondary reference basis. Direct neutral/CBCT modes require
+  explicit N/RESIDUAL phase classification and matching residual source-mode
+  provenance.
+- This is the Core configuration/resolver foundation only. Application
+  snapshot integration, measurement-point and source-mode provenance
+  population, unequal CT ratio normalization to a common primary-current
+  basis, and 50N/51N contract enablement remain outstanding. Existing 50N/51N
+  input contracts remain fail-closed. No zone inference is introduced.
+- No tests or CI were run. Remote source review only; syntax/import/runtime
+  checks remain outstanding.
