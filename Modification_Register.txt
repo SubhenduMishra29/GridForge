@@ -17823,3 +17823,62 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-29
+======================================================================
+
+Scope:
+    Explicit phase-domain conductor inventories and operating-state paths
+    for Switch, Disconnector and Fuse equipment in the SLD-derived
+    physical conductor graph.
+
+Corrections:
+    - Switch, Disconnector and Fuse Core models now accept an optional
+      phase_domain_conductor_roles construction inventory.
+    - The inventory is explicit, immutable and limited to supported
+      switchable conductor roles A, B, C and N. Duplicate, empty,
+      unsupported and implicit conductor declarations are rejected.
+    - Each in-service device must declare its physical conductor inventory
+      before phase-domain graph construction. Missing construction fails
+      closed; no three-pole or neutral inventory is inferred.
+    - The SLD graph builder creates separate FROM/TO equipment-terminal
+      conductor nodes, exact canonical terminal topology references,
+      canonical Bus attachment nodes and same-role Busbar continuity.
+    - Switch internal paths conduct only when the Switch is closed and
+      in service.
+    - Disconnector internal paths conduct only when the Disconnector is
+      closed and in service.
+    - Fuse internal paths conduct only when the Fuse is in service and
+      not blown. A blown fuse has no internal continuity edge.
+    - The graph builder uses the equipment models' authoritative operating
+      states; it does not duplicate or mutate those states.
+
+Fail-closed boundaries:
+    - This contract models a device's declared phase/neutral conductor
+      inventory as continuous terminal-to-terminal poles when its
+      operating state permits conduction. It does not infer PE, screen,
+      pilot, earth or bonding paths.
+    - Per-pole switching discrepancies, fuse element resistance,
+      pre-arcing/arcing behaviour, fuse time-current melting, switch
+      contact resistance, disconnector earthing blades and transient
+      switching phenomena are not represented.
+    - Construction persistence/schema migration and UI configurator
+      integration remain outstanding.
+    - Existing Breaker-specific D15F-28 contract remains separate pending
+      consolidation into a common physical conductor construction value
+      contract; this change does not silently reinterpret Breaker data.
+    - Transformer winding paths and CT physical cut/CBCT aperture mapping
+      remain outstanding.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    persistence round-trip, numerical fixtures or end-to-end study
+    execution were run. Runtime behaviour remains unverified.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
