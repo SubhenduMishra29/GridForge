@@ -17451,3 +17451,39 @@ Verification:
     remotely. No tests, CI, syntax/import checks, or numerical execution.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-21
+======================================================================
+
+Scope:
+    Automatic phase-domain source primitive preparation for Grid and
+    Generator equipment.
+
+Correction:
+    Added phase_domain_source_preparation.py. It derives one coupled ABC
+    Norton source per in-service canonical Grid/Generator from explicit
+    Z0/Z1/Z2, declared impedance bases, terminal Bus voltage base and
+    explicit source voltage. Per-unit sequence impedances are converted
+    to SI ohms and transformed into a reciprocal phase impedance matrix.
+    Generator neutral impedance contributes 3*Zn to machine Z0; Grid Z0
+    must already include its external grounding contribution.
+    ShortCircuitPreparation now automatically builds source primitives
+    when phase-domain faults are supplied without explicit sources.
+
+Fail-closed boundaries:
+    All active registered Grid/Generator objects must be represented.
+    Missing sequence data, unsupported grounding, ambiguous phase terminal
+    nodes, base mismatch, non-passive resistance, or a running Motor without
+    a validated decay model prevents automatic preparation. P/Q, V setpoint,
+    nameplate values and starting_current_pu are not substituted.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED
+
+Verification:
+    Source builder, ShortCircuitPreparation integration and this register
+    entry verified remotely. No tests, CI, syntax/import checks or numerical
+    execution performed.
+
+======================================================================
