@@ -428,6 +428,7 @@ class PhaseDomainShortCircuitSolver:
 
 __all__ = [
     "PhaseDomainSourceEquivalent",
+    "PhaseDomainMultiConductorSource",
     "PhaseDomainFaultConnection",
     "PhaseDomainShortCircuitCase",
     "PhaseDomainShortCircuitSolution",
