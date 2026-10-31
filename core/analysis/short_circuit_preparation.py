@@ -156,6 +156,8 @@ class ShortCircuitPreparation:
                     equipment_type=type(element).__name__,
                     from_terminal_role=str(getattr(element.from_terminal, "role", "FROM")),
                     to_terminal_role=str(getattr(element.to_terminal, "role", "TO")),
+                    tap_ratio=float(getattr(element, "tap", 1.0)),
+                    phase_shift_rad=float(getattr(element, "shift", 0.0)),
                 )
             )
             seen.add(branch_id)
