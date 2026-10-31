@@ -22,6 +22,7 @@ from typing import Any
 from core.base.per_unit import PerUnitSystem
 
 from .branch import Branch
+from .transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
 
 
 class ImpedanceBasis(str, Enum):
@@ -77,6 +78,7 @@ class Transformer(Branch):
         "_zero_sequence_resistance_ohm", "_zero_sequence_reactance_ohm",
         "_core_construction", "_zero_sequence_test_basis",
         "_vector_group_configuration", "_zero_sequence_test_configuration",
+        "_zero_sequence_two_winding_test_data",
     )
 
     def __init__(
@@ -104,6 +106,7 @@ class Transformer(Branch):
         zero_sequence_test_basis: str | None = None,
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -181,6 +184,8 @@ class Transformer(Branch):
         self._zero_sequence_test_basis = self._normalize_zero_sequence_test_basis(zero_sequence_test_basis)
         self._vector_group_configuration = self._normalize_vector_group_configuration(vector_group_configuration)
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
+        self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
+        self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
         self._validate_zero_sequence_contracts(
             self._vector_group_configuration, self._zero_sequence_test_configuration,
             self._impedance_reference_winding, self._hv_winding_connection, self._lv_winding_connection,
@@ -351,6 +356,23 @@ class Transformer(Branch):
     def zero_sequence_test_configuration(self):
         return getattr(self, "_zero_sequence_test_configuration", None)
 
+    @staticmethod
+    def _normalize_zero_sequence_two_winding_test_data(value):
+        if value is None:
+            return None
+        if not isinstance(value, TransformerZeroSequenceTwoWindingTestData):
+            raise TypeError("zero_sequence_two_winding_test_data must be TransformerZeroSequenceTwoWindingTestData.")
+        return value
+
+    @staticmethod
+    def _validate_zero_sequence_two_winding_test_data(value, hv, lv, vector_group):
+        if value is None:
+            return
+        if hv is not TransformerWindingConnection.WYE_GROUNDED or lv is not TransformerWindingConnection.WYE_GROUNDED:
+            raise ValueError("Three-test two-winding Z0 data is valid only for grounded-wye/grounded-wye transformers.")
+        if vector_group is None or vector_group.connection.value != "Yy":
+            raise ValueError("Grounded-wye/grounded-wye three-test data requires an explicit Yy vector-group declaration.")
+
     @property
     def element_type(self) -> str:
         return self.TYPE
@@ -456,6 +478,7 @@ class Transformer(Branch):
         zero_sequence_test_basis: str | None = None,
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
@@ -559,6 +582,10 @@ class Transformer(Branch):
         target_test_configuration = self._normalize_zero_sequence_test_configuration(
             self._zero_sequence_test_configuration if zero_sequence_test_configuration is None and not _replace_winding_configuration else zero_sequence_test_configuration
         )
+        target_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(
+            self._zero_sequence_two_winding_test_data if zero_sequence_two_winding_test_data is None and not _replace_winding_configuration else zero_sequence_two_winding_test_data
+        )
+        self._validate_zero_sequence_two_winding_test_data(target_two_winding_test_data, target_hv_connection, target_lv_connection, target_vector_group)
         self._validate_zero_sequence_contracts(
             target_vector_group, target_test_configuration, target_reference_winding,
             target_hv_connection, target_lv_connection, target_z0r,
@@ -581,6 +608,7 @@ class Transformer(Branch):
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
             self._core_construction, self._zero_sequence_test_basis,
             self._vector_group_configuration, self._zero_sequence_test_configuration,
+            self._zero_sequence_two_winding_test_data,
         )
         try:
             self._r = target_r
@@ -603,6 +631,7 @@ class Transformer(Branch):
             self._core_construction, self._zero_sequence_test_basis = target_core, target_test_basis
             self._vector_group_configuration = target_vector_group
             self._zero_sequence_test_configuration = target_test_configuration
+            self._zero_sequence_two_winding_test_data = target_two_winding_test_data
             self.validate()
         except Exception:
             (
@@ -615,6 +644,7 @@ class Transformer(Branch):
                 self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
                 self._core_construction, self._zero_sequence_test_basis,
                 self._vector_group_configuration, self._zero_sequence_test_configuration,
+                self._zero_sequence_two_winding_test_data,
             ) = old_state
             self.name = old_name
             raise
@@ -659,6 +689,11 @@ class Transformer(Branch):
             raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
         if self._zero_sequence_resistance_ohm is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
             raise ValueError("Transformer Z0 requires explicit core_construction and zero_sequence_test_basis.")
+        self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(getattr(self, "_zero_sequence_two_winding_test_data", None))
+        self._validate_zero_sequence_two_winding_test_data(
+            self._zero_sequence_two_winding_test_data, self._hv_winding_connection,
+            self._lv_winding_connection, getattr(self, "_vector_group_configuration", None),
+        )
         self._validate_zero_sequence_contracts(
             getattr(self, "_vector_group_configuration", None), getattr(self, "_zero_sequence_test_configuration", None),
             self._impedance_reference_winding, self._hv_winding_connection,
@@ -692,6 +727,7 @@ class Transformer(Branch):
                 "zero_sequence_test_basis": self._zero_sequence_test_basis,
                 "vector_group_configuration": getattr(self, "_vector_group_configuration", None),
                 "zero_sequence_test_configuration": getattr(self, "_zero_sequence_test_configuration", None),
+                "zero_sequence_two_winding_test_data": getattr(self, "_zero_sequence_two_winding_test_data", None),
             }
         )
         return summary
