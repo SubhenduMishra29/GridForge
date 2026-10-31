@@ -145,6 +145,8 @@ class TransformerModelService(ModelServiceSupport):
         zero_sequence_reactance_ohm: float | None = None,
         core_construction: Any | None = None,
         zero_sequence_test_basis: str | None = None,
+        vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+        zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -160,6 +162,7 @@ class TransformerModelService(ModelServiceSupport):
             hv_terminal_role, lv_terminal_role, impedance_reference_winding,
             zero_sequence_resistance_ohm, zero_sequence_reactance_ohm,
             core_construction, zero_sequence_test_basis,
+            vector_group_configuration, zero_sequence_test_configuration,
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
