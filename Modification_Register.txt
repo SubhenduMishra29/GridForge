@@ -15948,10 +15948,10 @@ Implementation:
     - Enabled canonical complex-phasor CURRENT/A input contracts for 50N
       and 51N, with source-set validation against persisted A/B/C or
       direct neutral/CBCT binding identities.
-    - Application validates each detached source against the active
+    - Application validates each detached A/B/C source against the active
       project, topology revision, CT/channel identities, CT ratio and
-      polarity, terminal current direction/units, explicit measurement
-      point, and source-mode declaration.
+      polarity, terminal current direction/units, and explicit measurement
+      point. Phase labels are mapped to solver Ia/Ib/Ic result members.
     - Each CT-secondary sample is normalized once to signed primary
       amperes using its own CT ratio and channel scale/polarity. The
       resolver computes the complex phasor sum for THREE_PHASE_SUM.
@@ -15975,8 +15975,10 @@ Boundary:
     telemetry integration, transformer vector-group compensation, or
     unsupported/unbalanced terminal-current coverage. Direct neutral/CBCT
     identity is an explicit persisted instrument-mode declaration; the
-    current CT domain model does not yet distinguish separate physical
-    neutral-CT and CBCT subclasses.
+    current CT domain/solver model does not yet represent a neutral
+    conductor or a multi-conductor CBCT primary window. Those modes must
+    not be treated as operational merely because their configuration
+    contracts are persisted.
 
 Verification:
     Remote source updates committed. No tests or CI run. Python syntax,
