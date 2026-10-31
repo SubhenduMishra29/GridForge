@@ -17999,3 +17999,53 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-32
+======================================================================
+
+Scope:
+    Add an explicit reciprocal transformer terminal-domain multiport
+    primitive to the phase-domain short-circuit solver.
+
+Corrections:
+    - Added PhaseDomainTransformerMultiport with ordered graph node IDs,
+      ordered terminal labels and a complete terminal admittance matrix
+      expressed in SI Siemens.
+    - Validates unique node/label order, square finite matrix dimensions,
+      complex reciprocity and positive-semidefinite terminal conductance.
+    - PhaseDomainShortCircuitCase accepts typed transformer primitives,
+      verifies every terminal node belongs to the named transformer and
+      is an explicitly modelled equipment-terminal node, and rejects
+      duplicate terminal/conductor mappings.
+    - Solver stamps the complete multiport block into the global nodal
+      admittance matrix and returns signed terminal currents by label.
+    - Exported the primitive through core.solver.short_circuit.
+
+Important boundary:
+    - The primitive is a solver execution contract, not yet an automatic
+      Transformer model producer or SLD graph builder integration.
+    - The supplied matrix must already encode winding incidence, star or
+      delta connection, turns ratio, phase displacement, leakage and any
+      included magnetizing/core branches. No scalar r/x, tap, shift,
+      vector-group or core-construction value is used to fabricate it.
+    - Automatic derivation of the matrix from manufacturer/test data,
+      explicit winding/neutral graph-node generation, grounding and
+      zero-sequence core-return construction remain outstanding.
+    - The existing SLD graph builder continues to reject in-service
+      transformers until those producer and topology integrations exist.
+    - No HV-LV galvanic continuity is introduced.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    matrix numerical fixtures, persistence round-trip or end-to-end
+    transformer fault study were run. Runtime behaviour remains
+    unverified.
+
+Status:
+    PARTIAL FOUNDATION IMPLEMENTED — AUTOMATIC TRANSFORMER INTEGRATION
+    AND RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
