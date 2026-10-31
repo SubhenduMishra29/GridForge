@@ -132,7 +132,7 @@ class ShortCircuitPreparation:
     def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
-            if fault_type.is_unbalanced:
+            if fault_type.requires_zero_sequence:
                 for transformer in (item for item in self._branch_elements(network) if isinstance(item, Transformer) and bool(getattr(item, "in_service", True))):
                     if (
                         getattr(transformer, "hv_winding_connection", None) is not None
