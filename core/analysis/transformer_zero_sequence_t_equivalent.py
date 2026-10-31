@@ -114,8 +114,6 @@ class TransformerZeroSequenceTwoBusStamp:
             if not math.isfinite(value.real) or not math.isfinite(value.imag):
                 raise ValueError(f"{name} must be finite.")
             object.__setattr__(self, name, value)
-        if any(abs(getattr(self, name)) == 0.0 for name in ("y_hh_pu", "y_ll_pu")):
-            raise ValueError("Two-Bus transformer diagonal admittances must be non-zero.")
         for name in ("base_mva", "hv_base_voltage_kv", "lv_base_voltage_kv"):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value <= 0.0:
