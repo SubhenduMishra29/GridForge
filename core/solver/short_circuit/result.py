@@ -222,8 +222,8 @@ class ShortCircuitConductorCurrent:
         for name in ("conductor_id", "equipment_id", "equipment_type", "terminal_role", "bus_id"):
             object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
         phase = _validate_identity(self.phase_or_sequence, "phase_or_sequence").upper()
-        if phase not in {"A", "B", "C", "N"}:
-            raise ValueError("Conductor current phase_or_sequence must be A, B, C, or N.")
+        if phase not in {"A", "B", "C", "N", "PE", "SHIELD", "PILOT", "OTHER"}:
+            raise ValueError("Conductor current phase_or_sequence must identify a declared physical conductor role.")
         object.__setattr__(self, "phase_or_sequence", phase)
         object.__setattr__(self, "current", _validate_current(self.current, "conductor current"))
         if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
