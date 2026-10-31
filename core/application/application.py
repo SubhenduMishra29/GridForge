@@ -1095,6 +1095,10 @@ class Application:
         diagnostics = list(validate_protection_input_contracts(configuration, channels))
         samples_by_binding = {item.binding_id: item for item in samples}
         bindings_by_input: dict[tuple[str, str], list[Any]] = {}
+        bindings_by_id = {
+            binding.binding_id: binding
+            for binding in configuration.measurement_bindings
+        }
         for binding in configuration.measurement_bindings:
             bindings_by_input.setdefault(
                 (binding.protection_element_id, binding.relay_input_id), []
@@ -1279,8 +1283,11 @@ class Application:
                             f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
                             f"residual_source={phase!r}, binding={binding_id!r}"
                         )
-                        binding = configuration.get_measurement_binding(binding_id)
+                        binding = bindings_by_id.get(binding_id)
                         expected_samples.add(binding_id)
+                        if binding is None:
+                            diagnostics.append(f"{prefix}: configured residual source binding is absent from the project configuration aggregate.")
+                            continue
                         sample = samples_by_binding.get(binding_id)
                         if sample is None:
                             diagnostics.append(f"{prefix}: detached scenario sample is missing.")
