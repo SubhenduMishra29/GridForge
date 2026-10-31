@@ -26,6 +26,8 @@ def prepare_transformer_phase_domain_multiport(
     if construction is None:
         raise ValueError(f"Transformer {transformer.id!r} lacks explicit HV/LV winding construction.")
     matrix = transformer.phase_domain_terminal_admittance_siemens
+    if construction.vector_group is None:
+        raise ValueError(f"Transformer {transformer.id!r} requires explicit vector-group configuration for its multiport.")
     if matrix is None:
         raise ValueError(
             f"Transformer {transformer.id!r} has no explicit complete terminal-domain admittance matrix. "
