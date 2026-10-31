@@ -178,8 +178,13 @@ def assemble_phase_domain_admittance(
                 edge = bus_links[0]
                 other_id = edge.to_node_id if edge.from_node_id == terminal_node.node_id else edge.from_node_id
                 bus_node = nodes[other_id]
-                if (bus_node.bus_id, bus_node.conductor_id, bus_node.conductor_role) != (
-                    terminal_node.bus_id, terminal_node.conductor_id, terminal_node.conductor_role
+                # Branch conductor IDs are scoped to their owning
+                # Line/Cable. The Bus attachment conductor is a distinct
+                # Bus-owned identity; continuity is established by exact
+                # Bus attachment provenance and conductor role, not by
+                # comparing unrelated owner-local conductor IDs.
+                if (bus_node.bus_id, bus_node.conductor_role) != (
+                    terminal_node.bus_id, terminal_node.conductor_role
                 ):
                     raise ValueError("Branch terminal continuity reaches a contradictory Bus conductor node.")
             from_nodes[conductor_id], to_nodes[conductor_id] = matches_from[0], matches_to[0]
