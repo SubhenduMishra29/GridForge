@@ -432,7 +432,7 @@ class ProtectionStudyHandler:
                             execution_context.project_snapshot,
                             binding.instrument_id,
                         )
-                    scenario_samples.append(sample_adapter.convert_branch_ct_sample(
+                    scenario_samples.append(sample_adapter.convert_terminal_ct_sample(
                         scenario_id=scenario.scenario_id,
                         binding=binding,
                         result=short_circuit_result,
