@@ -50,6 +50,10 @@ class RevisionService:
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
         "connectivity.insert_equipment_into_connection",
+        "connectivity.create_phase_domain_node",
+        "connectivity.remove_phase_domain_node",
+        "connectivity.create_phase_domain_connection",
+        "connectivity.remove_phase_domain_connection",
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "pt", "relay"})
