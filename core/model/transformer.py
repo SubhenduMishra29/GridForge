@@ -186,6 +186,8 @@ class Transformer(Branch):
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
+        if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
+            raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
         if self._zero_sequence_two_winding_test_data is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
             raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
@@ -341,6 +343,8 @@ class Transformer(Branch):
             if two_winding_test_data is not None:
                 if vector_group is None or test_configuration is None or reference != "HV":
                     raise ValueError("Three-test Yg-Yg data requires a Yy vector group, explicit HV test configuration, and HV reference winding.")
+                if test_configuration.energized_winding.value != "HV" or test_configuration.other_winding_condition.value != "SHORT_CIRCUITED":
+                    raise ValueError("Yg-Yg three-test configuration must identify the HV short-circuit test connection.")
                 vector_group.validate_winding_connections(hv, lv)
                 from .transformer_zero_sequence_contracts import validate_zero_sequence_test_applicability
                 validate_zero_sequence_test_applicability(test=test_configuration, reference_winding=reference, hv_connection=hv, lv_connection=lv)
@@ -599,6 +603,8 @@ class Transformer(Branch):
             self._zero_sequence_two_winding_test_data if zero_sequence_two_winding_test_data is None and not _replace_winding_configuration else zero_sequence_two_winding_test_data
         )
         self._validate_zero_sequence_two_winding_test_data(target_two_winding_test_data, target_hv_connection, target_lv_connection, target_vector_group)
+        if target_two_winding_test_data is not None and (target_hv_role is None or target_lv_role is None or target_reference_winding != "HV"):
+            raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
         if target_two_winding_test_data is not None and (target_core is None or target_test_basis is None):
             raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
@@ -709,6 +715,8 @@ class Transformer(Branch):
             self._zero_sequence_two_winding_test_data, self._hv_winding_connection,
             self._lv_winding_connection, getattr(self, "_vector_group_configuration", None),
         )
+        if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
+            raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
         if self._zero_sequence_two_winding_test_data is not None and (self._core_construction is None or self._zero_sequence_test_basis is None):
             raise ValueError("Two-winding transformer Z0 test data requires explicit core_construction and zero_sequence_test_basis.")
         self._validate_zero_sequence_contracts(
