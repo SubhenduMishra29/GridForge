@@ -154,6 +154,7 @@ class SequenceTransformerZeroTwoBusSnapshot:
     lv_neutral_3zn_ohm: complex
     lv_neutral_3zn_hv_referred_ohm: complex
     base_mva: float
+    test_mva_base: float
     hv_base_voltage_kv: float
     lv_base_voltage_kv: float
     test_hv_open_circuit_z0_ohm: complex
@@ -186,7 +187,7 @@ class SequenceTransformerZeroTwoBusSnapshot:
             if not np.isfinite(value.real) or not np.isfinite(value.imag):
                 raise ValueError(f"{name} must be finite.")
             object.__setattr__(self, name, value)
-        for name in ("base_mva", "hv_base_voltage_kv", "lv_base_voltage_kv"):
+        for name in ("base_mva", "test_mva_base", "hv_base_voltage_kv", "lv_base_voltage_kv"):
             value = float(getattr(self, name))
             if not np.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive.")
@@ -345,7 +346,7 @@ class SequenceNetworkSnapshot:
                     hv_neutral_3zn_ohm=complex(item.hv_neutral_3zn_ohm),
                     lv_neutral_3zn_ohm=complex(item.lv_neutral_3zn_ohm),
                     lv_neutral_3zn_hv_referred_ohm=complex(item.lv_neutral_3zn_hv_referred_ohm),
-                    base_mva=float(item.base_mva), hv_base_voltage_kv=float(item.hv_base_voltage_kv),
+                    base_mva=float(item.base_mva), test_mva_base=float(item.test_data.test_mva_base), hv_base_voltage_kv=float(item.hv_base_voltage_kv),
                     lv_base_voltage_kv=float(item.lv_base_voltage_kv),
                     test_hv_open_circuit_z0_ohm=complex(item.test_data.hv_open_circuit_z0_ohm),
                     test_lv_open_circuit_z0_hv_referred_ohm=complex(item.test_data.lv_open_circuit_z0_hv_referred_ohm),
