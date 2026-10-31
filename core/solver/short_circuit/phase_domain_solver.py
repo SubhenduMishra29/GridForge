@@ -426,10 +426,11 @@ class PhaseDomainShortCircuitSolver:
                 edge for edge in case.graph.connections
                 if edge.in_service and node.node_id in {edge.from_node_id, edge.to_node_id}
             ]
-            if not incident or any(edge.impedance_ohm == 0j for edge in incident):
+            if len(incident) != 1 or incident[0].impedance_ohm == 0j:
                 connection_diagnostics.append(
                     f"Equipment terminal {node.equipment_id}:{node.terminal_role}:{node.conductor_id} "
-                    "has no uniquely resolvable finite-impedance terminal-current cut."
+                    "does not have exactly one finite-impedance terminal-current cut; "
+                    "multi-path or ideal-bond current division is not inferred."
                 )
                 continue
             base_candidates = {
