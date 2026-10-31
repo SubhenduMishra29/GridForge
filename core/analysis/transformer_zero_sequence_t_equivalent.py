@@ -145,6 +145,11 @@ def build_transformer_zero_sequence_two_bus_stamp(
         raise ValueError("Two-Bus zero-sequence stamp requires grounded-wye on both transformer windings.")
     if transformer.zero_sequence_two_winding_test_data is None:
         raise ValueError("Explicit three-test transformer zero-sequence data is required.")
+    vector_group = getattr(transformer, "vector_group_configuration", None)
+    if vector_group is None or vector_group.connection.value != "Yy":
+        raise ValueError("An explicit Yy vector-group configuration is required for the Yg-Yg T equivalent.")
+    if vector_group.clock_number != 0 or vector_group.hv_polarity.value != "NORMAL" or vector_group.lv_polarity.value != "NORMAL":
+        raise ValueError("D14I currently supports only Yy0 with normal HV/LV winding polarity; other zero-sequence polarity mappings fail closed.")
     if transformer.hv_neutral_grounding_impedance_ohm is None or transformer.lv_neutral_grounding_impedance_ohm is None:
         raise ValueError("Both grounded-wye neutral grounding impedances must be explicit.")
     if isinstance(base_mva, bool) or not math.isfinite(float(base_mva)) or float(base_mva) <= 0.0:
