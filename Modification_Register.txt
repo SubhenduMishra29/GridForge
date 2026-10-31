@@ -15809,3 +15809,19 @@ Verification:
   instrument/channel-specific and is not a common differential basis.
 - No tests or CI were run. Python syntax/import/runtime execution remains
   unverified through the remote repository connector.
+
+
+[2026-10-31] Protection Study Phase D5 — canonical CT authority and no-operate result status
+- Strengthened Application scenario validation to require that each bound
+  MeasurementChannel references the exact active canonical CT object, and
+  that the active CT ratio and primary polarity still match the detached
+  scenario sample and persisted binding. The detached sample now records the
+  CT association's positive-current direction for this cross-snapshot check.
+- Added an explicit relay_evaluation_completed result contract per fault
+  scenario. A completed evaluation with no ProtectionDecision is now reported
+  as evaluated (no operation), rather than being confused with a scenario
+  for which relay evaluation never ran.
+- Reconciled the D4 architecture wording: samples use canonical unit A while
+  retaining an instrument/channel-specific CT-secondary reference basis.
+- Verification: source-level review only. No tests or CI run, per repository
+  workflow. Python syntax/import/runtime checks remain outstanding.
