@@ -210,6 +210,9 @@ class ShortCircuitSolver:
                 "zero_sequence_total_impedance_ohm": zero_shunt.total_impedance_ohm,
                 "zero_sequence_core_construction": zero_shunt.core_construction,
                 "zero_sequence_test_basis": zero_shunt.zero_sequence_test_basis,
+                "zero_sequence_test_energized_winding": zero_shunt.test_energized_winding,
+                "zero_sequence_test_other_winding_condition": zero_shunt.test_other_winding_condition,
+                "zero_sequence_test_neutral_return_included": zero_shunt.test_neutral_return_included,
             }
         return from_currents, to_currents, provenance
 
