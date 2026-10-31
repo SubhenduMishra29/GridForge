@@ -725,6 +725,60 @@ class PhaseDomainShortCircuitSolver:
                 label: complex(current) for label, current in zip(primitive.terminal_labels, terminal_currents)
             }
 
+        # A grounded winding's neutral port current must balance its
+        # physical neutral electrode current. Earth-node KCL alone cannot
+        # prove that the multiport and grounding branch agree at the port.
+        return_scale = max(
+            (abs(value) for value in connection_currents.values()),
+            default=0.0,
+        )
+        return_tolerance = 1.0e-8 * max(return_scale, 1.0e-9)
+        for primitive in case.transformer_primitives:
+            terminal_map = transformer_terminal_currents[primitive.transformer_id]
+            for label, terminal_current in terminal_map.items():
+                if not label.endswith(":N"):
+                    continue
+                neutral_node = next(
+                    node_id for node_id, node_label in zip(primitive.node_ids, primitive.terminal_labels)
+                    if node_label == label
+                )
+                edges = tuple(
+                    edge for edge in case.graph.connections
+                    if edge.in_service
+                    and edge.kind is PhaseDomainConnectionKind.GROUND_ELECTRODE
+                    and edge.source_reference == primitive.transformer_id
+                    and neutral_node in {edge.from_node_id, edge.to_node_id}
+                )
+                if len(edges) != 1:
+                    raise ValueError(
+                        f"Transformer {primitive.transformer_id!r} neutral port {label!r} "
+                        "requires exactly one physical grounding electrode."
+                    )
+                edge = edges[0]
+                if edge.impedance_ohm == 0j or edge.connection_id not in connection_currents:
+                    raise ValueError(
+                        f"Transformer {primitive.transformer_id!r} neutral port {label!r} "
+                        "has an ideal or unresolved electrode current."
+                    )
+                edge_current = connection_currents[edge.connection_id]
+                leaving_neutral = edge_current if edge.from_node_id == neutral_node else -edge_current
+                residual = abs(complex(terminal_current) + leaving_neutral)
+                if residual > return_tolerance:
+                    raise ValueError(
+                        f"Transformer {primitive.transformer_id!r} neutral/electrode current "
+                        f"mismatch at {label!r}: {residual:.9g} A."
+                    )
+                source_return_reconciliation[
+                    f"TRANSFORMER:{primitive.transformer_id}:{label}"
+                ] = {
+                    "status": "RECONCILED",
+                    "terminal_current_into_transformer_a": complex(terminal_current),
+                    "electrode_current_leaving_neutral_a": leaving_neutral,
+                    "electrode_connection_id": edge.connection_id,
+                    "residual_a": residual,
+                    "tolerance_a": return_tolerance,
+                }
+
         return PhaseDomainShortCircuitSolution(
             node_voltages_v=voltage_by_node,
             conductor_currents=conductor_records,
