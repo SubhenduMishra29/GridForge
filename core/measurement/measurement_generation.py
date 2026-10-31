@@ -385,6 +385,24 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity("CT association topology revision does not match the scenario snapshot.")
         if conductor_current.topology_revision != ct_association.topology_revision:
             raise UnsupportedMeasurementQuantity("Physical conductor-current topology revision is stale.")
+        result_project = result.provenance.get("project_id")
+        result_generation = result.provenance.get("activation_generation")
+        record_project = conductor_current.provenance.get("project_id")
+        record_generation = conductor_current.provenance.get("activation_generation")
+        if (
+            not isinstance(result_project, str)
+            or not result_project.strip()
+            or record_project != result_project
+            or isinstance(result_generation, bool)
+            or not isinstance(result_generation, int)
+            or result_generation < 1
+            or record_generation != result_generation
+        ):
+            raise UnsupportedMeasurementQuantity(
+                "Physical conductor-current project/activation provenance does not match the solved scenario."
+            )
+        if conductor_current.provenance.get("topology_revision") != conductor_current.topology_revision:
+            raise UnsupportedMeasurementQuantity("Physical conductor-current record provenance is internally inconsistent.")
         if conductor_current.equipment_id != equipment_terminal_reference.object_id:
             raise UnsupportedMeasurementQuantity("Physical conductor-current equipment identity does not match the configured endpoint.")
         if conductor_current.terminal_role != equipment_terminal_reference.terminal_role:
