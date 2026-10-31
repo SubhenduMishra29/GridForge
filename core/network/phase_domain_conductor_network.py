@@ -443,7 +443,7 @@ def build_phase_domain_conductor_network_from_sld(
             matches = tuple(
                 item for item in topology_snapshot.equipment_bus_attachments
                 if item.equipment_id == branch.equipment_id
-                and item.terminal_role == role
+                and item.terminal_role.upper() == role
                 and item.bus_id == bus_id
             )
             if len(matches) != 1:
@@ -467,7 +467,7 @@ def build_phase_domain_conductor_network_from_sld(
                 terminal_ref = EndpointReference.terminal(
                     equipment_type=EquipmentType(branch.equipment_type),
                     equipment_id=branch.equipment_id,
-                    terminal_role=terminal_role,
+                    terminal_role=attachment.terminal_role,
                 )
                 bus_ref = EndpointReference.bus(
                     bus_id=attachment.bus_id,
@@ -533,6 +533,111 @@ def build_phase_domain_conductor_network_from_sld(
                     to_node_id=busbar_node_id,
                     impedance_ohm=0j,
                     source_reference=f"BUSBAR:{attachment.bus_id}:{attachment.bus_attachment_id}:{conductor_role}",
+                ))
+
+
+    # Switching equipment is not a wire. Only explicit physical pole
+    # construction may create an internal conducting path.
+    for breaker in getattr(network, "breakers", ()):
+        if not getattr(breaker, "in_service", True):
+            continue
+        pole_states = getattr(breaker, "phase_domain_pole_states", None)
+        if pole_states is None:
+            raise ValueError(
+                f"In-service Breaker {breaker.id!r} has no explicit "
+                "phase_domain_pole_states construction."
+            )
+        if getattr(breaker, "failed", False):
+            raise ValueError(
+                f"Breaker {breaker.id!r} is failed; pole conduction is indeterminate."
+            )
+        terminal_attachments = {}
+        for terminal in breaker.terminals:
+            role = str(terminal.role).upper()
+            matches = tuple(
+                item for item in topology_snapshot.equipment_bus_attachments
+                if item.equipment_id == breaker.id and item.terminal_role.upper() == role
+            )
+            if len(matches) != 1 or matches[0].bus_attachment_id is None:
+                raise ValueError(
+                    f"Breaker {breaker.id!r} terminal {role} requires one canonical SLD Bus attachment slot."
+                )
+            terminal_attachments[role] = (terminal, matches[0])
+        if set(terminal_attachments) != {"FROM", "TO"}:
+            raise ValueError(f"Breaker {breaker.id!r} requires exactly FROM and TO terminals.")
+
+        for conductor_role, pole_closed in pole_states.items():
+            terminal_nodes = {}
+            for terminal_role in ("FROM", "TO"):
+                terminal, attachment = terminal_attachments[terminal_role]
+                terminal_ref = EndpointReference.terminal(
+                    equipment_type=EquipmentType("BREAKER"),
+                    equipment_id=breaker.id,
+                    terminal_role=terminal.role,
+                )
+                equipment_node_id = stable_id("breaker-terminal", breaker.id, terminal_role, conductor_role)
+                add_node(PhaseDomainConductorNode(
+                    node_id=equipment_node_id,
+                    kind=PhaseDomainNodeKind.EQUIPMENT_TERMINAL,
+                    conductor_role=conductor_role,
+                    conductor_id=stable_id("breaker-pole", breaker.id, conductor_role),
+                    equipment_id=breaker.id,
+                    terminal_role=terminal_role,
+                    bus_id=attachment.bus_id,
+                    topology_reference=TopologyEndpointReference.from_terminal(terminal_ref),
+                ))
+                terminal_nodes[terminal_role] = equipment_node_id
+                slot_key = (attachment.bus_id, attachment.bus_attachment_id, conductor_role)
+                bus_node_id = bus_attachment_nodes.get(slot_key)
+                if bus_node_id is None:
+                    bus_node_id = stable_id("bus-attachment", *slot_key)
+                    bus_attachment_nodes[slot_key] = bus_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=bus_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id("attachment-conductor", attachment.bus_attachment_id, conductor_role),
+                        bus_id=attachment.bus_id,
+                        topology_reference=TopologyEndpointReference.from_bus(
+                            EndpointReference.bus(bus_id=attachment.bus_id, attachment_id=attachment.bus_attachment_id)
+                        ),
+                    ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id("breaker-terminal-continuity", breaker.id, terminal_role, conductor_role),
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=equipment_node_id,
+                    to_node_id=bus_node_id,
+                    impedance_ohm=0j,
+                    source_reference=f"BREAKER-TERMINAL:{breaker.id}:{terminal_role}:{conductor_role}",
+                ))
+                busbar_key = (attachment.bus_id, conductor_role)
+                busbar_node_id = busbar_nodes.get(busbar_key)
+                if busbar_node_id is None:
+                    busbar_node_id = stable_id("busbar", attachment.bus_id, conductor_role)
+                    busbar_nodes[busbar_key] = busbar_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=busbar_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id("busbar-conductor", conductor_role),
+                        bus_id=attachment.bus_id,
+                    ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id("busbar-continuity", attachment.bus_id, attachment.bus_attachment_id, conductor_role),
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=bus_node_id,
+                    to_node_id=busbar_node_id,
+                    impedance_ohm=0j,
+                    source_reference=f"BUSBAR:{attachment.bus_id}:{attachment.bus_attachment_id}:{conductor_role}",
+                ))
+            if breaker.closed and pole_closed:
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id("breaker-pole", breaker.id, conductor_role),
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=terminal_nodes["FROM"],
+                    to_node_id=terminal_nodes["TO"],
+                    impedance_ohm=0j,
+                    source_reference=f"BREAKER-POLE:{breaker.id}:{conductor_role}:CLOSED",
                 ))
 
     for node in additional_nodes:
