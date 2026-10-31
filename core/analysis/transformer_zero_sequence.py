@@ -1,8 +1,8 @@
 """Transformer zero-sequence winding-path classification.
 
 This module classifies externally available zero-sequence paths and builds
-the explicitly supported one-sided grounded-wye return shunt. It does not
-model a general two-winding zero-sequence transfer equivalent.
+the explicitly supported one-sided grounded-wye return shunt. Grounded-wye /
+grounded-wye transfer is enabled only through the explicit three-test T model.
 """
 from __future__ import annotations
 
@@ -162,9 +162,10 @@ def classify_transformer_zero_sequence(
     deliberately excluded from the stored Z0 and must later contribute 3Zn.
 
     Two grounded-wye windings require explicit vector-group/clock, winding-
-    polarity and applicable test contracts. The model carries and validates
-    those declarations, but this classifier still fails closed because the
-    numerical two-winding zero-sequence transfer equivalent is not implemented.
+    polarity and applicable test contracts plus all three measured driving-
+    point impedances. The three-test T equivalent is validated before this
+    topology is marked numerically available; network preparation still
+    validates terminal attachment, winding voltage bases and neutral data.
 
     Delta-delta and ungrounded-wye combinations have no external grounded
     neutral path in this two-winding model. Delta circulation is reported
