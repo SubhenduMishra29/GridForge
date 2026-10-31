@@ -17199,3 +17199,32 @@ Verification:
 
 Status:
     CORRECTED — AUTOMATIC PRIMITIVE / PHYSICAL CUT INTEGRATION REMAINS OPEN
+
+======================================================================
+GF-SC-D15F-13 — PHASE-DOMAIN SOURCE TERMINAL IDENTITY GATE
+======================================================================
+
+File:
+    core/solver/short_circuit/phase_domain_solver.py
+
+Correction:
+    - Phase-domain source equivalents must attach to explicit Core
+      EQUIPMENT_TERMINAL nodes; direct injection at arbitrary Bus
+      conductor nodes is rejected.
+    - All conductors in a multi-conductor source must belong to one
+      equipment identity.
+    - Source identity must match the equipment ID or an explicit
+      source_reference on every associated terminal node.
+    - Duplicate physical conductor roles within one source are rejected.
+
+Boundary:
+    - This validates the identity and physical attachment of explicitly
+      supplied source equivalents. It does not yet derive source
+      equivalents automatically from Grid/Generator/Motor models or
+      infer missing sequence/base/neutral data.
+
+Verification:
+    - Static source edit committed. Tests/CI and runtime checks were not run.
+
+Status:
+    CORRECTED — AUTOMATIC SOURCE PREPARATION REMAINS OPEN
