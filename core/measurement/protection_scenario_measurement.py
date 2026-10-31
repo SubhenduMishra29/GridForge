@@ -70,6 +70,111 @@ class ProtectionScenarioMeasurementAdapter:
         if not isinstance(self._generation, MeasurementGeneration):
             raise TypeError("generation must be a MeasurementGeneration.")
 
+    def convert_physical_conductor_ct_sample(
+        self,
+        *,
+        scenario_id: str,
+        binding: ProtectionMeasurementBinding,
+        result: ShortCircuitResult,
+        instrument: Any,
+        channel: MeasurementChannel,
+        ct_association: CTMeasurementAssociation,
+        conductor_id: str,
+        positive_current_direction: str,
+    ) -> ProtectionScenarioMeasurementSample:
+        """Convert one explicitly configured physical conductor current to CT secondary A."""
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be a ProtectionMeasurementBinding.")
+        if not isinstance(result, ShortCircuitResult):
+            raise TypeError("result must be a ShortCircuitResult.")
+        if not isinstance(channel, MeasurementChannel):
+            raise TypeError("channel must be a MeasurementChannel.")
+        if not isinstance(ct_association, CTMeasurementAssociation):
+            raise TypeError("ct_association must be a CTMeasurementAssociation.")
+        if binding.measurement_type.strip().lower() != "current":
+            raise ValueError("Physical conductor adapter only accepts current bindings.")
+        if binding.instrument_id != getattr(instrument, "id", None):
+            raise ValueError("Binding instrument identity does not match the supplied CT.")
+        if binding.channel_id != channel.id:
+            raise ValueError("Binding channel identity does not match the supplied MeasurementChannel.")
+        endpoint = binding.source_endpoint_reference
+        if not isinstance(endpoint, EndpointReference) or not endpoint.is_terminal:
+            raise ValueError("Physical conductor CT requires an explicit equipment-terminal endpoint.")
+        if endpoint.object_id != binding.source_equipment_id or endpoint.terminal_role not in {"FROM", "TO"}:
+            raise ValueError("Physical conductor CT endpoint must identify the configured Branch FROM/TO terminal.")
+        if not isinstance(conductor_id, str) or not conductor_id.strip():
+            raise ValueError("conductor_id must be explicit.")
+        conductor_id = conductor_id.strip()
+        expected_quantity = f"conductor_currents.{conductor_id}"
+        if binding.result_quantity != expected_quantity:
+            raise ValueError("Binding result_quantity must exactly identify the configured physical conductor record.")
+        record_key = f"{endpoint.object_id}:{endpoint.terminal_role}:{conductor_id}"
+        try:
+            record = result.conductor_currents[record_key]
+        except KeyError as exc:
+            raise ValueError(f"Short-circuit result has no physical conductor-current record {record_key!r}.") from exc
+        if record.phase_or_sequence != binding.phase_or_sequence.strip().upper():
+            raise ValueError("Binding conductor role does not match the physical current record.")
+        if record.equipment_id != endpoint.object_id or record.terminal_role != endpoint.terminal_role:
+            raise ValueError("Physical current record identity does not match the configured terminal.")
+        ct_side = ct_association.locate_measurement_endpoint(endpoint)
+        ct_terminal = ct_association.p1_terminal_reference if ct_side == "P1_SIDE" else ct_association.p2_terminal_reference
+        context = PreparedMeasurementContext(
+            source_id=ct_association.ct_id,
+            source_terminal=ct_terminal,
+            bus_id=record.bus_id,
+            electrical_side=ct_side,
+            quantity=result,
+        )
+        value = self._generation.convert_short_circuit_conductor_current(
+            context,
+            instrument,
+            channel,
+            equipment_terminal_reference=endpoint,
+            conductor_current=record,
+            positive_current_direction=positive_current_direction,
+            ct_association=ct_association,
+        )
+        ratio = float(getattr(instrument, "ratio"))
+        if not isfinite(ratio) or ratio <= 0.0 or abs(ratio - binding.instrument_ratio) > max(1e-9, ratio * 1e-9):
+            raise ValueError("Configured binding ratio does not match the authoritative CT ratio.")
+        provenance = {
+            "project_id": result.provenance.get("project_id"),
+            "activation_generation": result.provenance.get("activation_generation"),
+            "topology_revision": result.provenance.get("topology_revision"),
+            "calculation_domain": result.provenance.get("calculation_domain"),
+            "fault_bus_id": result.fault_bus_id,
+            "equipment_id": endpoint.object_id,
+            "equipment_terminal_role": endpoint.terminal_role,
+            "conductor_id": conductor_id,
+            "conductor_role": record.phase_or_sequence,
+            "conductor_current_reference_direction": record.reference_direction,
+            "conductor_current_units": record.current_units,
+            "conductor_current_a": record.provenance.get("current_a"),
+            "measurement_bus_id": record.bus_id,
+            "ct_id": ct_association.ct_id,
+            "ct_primary_side": ct_side,
+            "ct_topology_revision": ct_association.topology_revision,
+            "instrument_ratio": ratio,
+            "ct_positive_current_direction": ct_association.positive_current_direction,
+            "positive_current_direction": positive_current_direction,
+        }
+        basis_id = f"CT_SECONDARY_A:{ct_association.ct_id}:{channel.id}:{ratio:.12g}"
+        return ProtectionScenarioMeasurementSample(
+            scenario_id=scenario_id,
+            binding_id=binding.binding_id,
+            protection_element_id=binding.protection_element_id,
+            relay_input_id=binding.relay_input_id,
+            channel_id=channel.id,
+            instrument_id=ct_association.ct_id,
+            quantity_key=expected_quantity,
+            phase_or_sequence=binding.phase_or_sequence,
+            value=complex(value),
+            unit="A",
+            reference_basis_id=basis_id,
+            provenance=provenance,
+        )
+
     def convert_terminal_ct_sample(
         self,
         *,
