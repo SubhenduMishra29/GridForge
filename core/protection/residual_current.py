@@ -106,6 +106,63 @@ class ResidualCurrentSample:
         object.__setattr__(self, "source_binding_ids", bindings)
 
 
+@dataclass(frozen=True, slots=True)
+class ResidualCurrentSourceSample:
+    """One CT sample normalized to the common primary-current basis."""
+    binding_id: str
+    scenario_id: str
+    phase_or_sequence: str
+    value: complex
+    unit: str
+    reference_basis_id: str
+    provenance: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        for name in ("binding_id", "scenario_id", "phase_or_sequence", "reference_basis_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        value = complex(self.value)
+        if not isfinite(value.real) or not isfinite(value.imag):
+            raise ValueError("Normalized residual-current source must be finite.")
+        if self.unit != "A" or self.reference_basis_id != "PRIMARY_AMPS":
+            raise ValueError("Residual-current source must use amperes on PRIMARY_AMPS basis.")
+        if not isinstance(self.provenance, Mapping) or self.provenance.get("primary_current_normalized") is not True:
+            raise ValueError("Primary-current normalization provenance is required.")
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+
+
+def normalize_residual_current_source(sample: Any, *, measurement_point_id: str, instrument_ratio: float, channel_scale: float, channel_polarity: float) -> ResidualCurrentSourceSample:
+    """Normalize a validated CT-secondary sample to signed primary amperes.
+    CT orientation and physical CT polarity must already have been applied.
+    This applies channel scale/polarity and CT ratio exactly once.
+    """
+    if not isinstance(measurement_point_id, str) or not measurement_point_id.strip():
+        raise ValueError("An explicit measurement_point_id is required.")
+    if getattr(sample, "unit", None) != "A":
+        raise ValueError("Residual-current normalization requires CT-secondary amperes.")
+    provenance = getattr(sample, "provenance", None)
+    if not isinstance(provenance, Mapping):
+        raise ValueError("Residual-current source sample requires provenance.")
+    revision = provenance.get("topology_revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ValueError("Residual-current source requires a valid topology revision.")
+    try:
+        ratio, scale, polarity = float(instrument_ratio), float(channel_scale), float(channel_polarity)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("CT ratio and channel scale/polarity must be numeric.") from exc
+    if not all(isfinite(v) for v in (ratio, scale, polarity)) or ratio <= 0.0:
+        raise ValueError("CT ratio must be positive and channel scale/polarity finite.")
+    primary = complex(sample.value) * scale * polarity * ratio
+    if not isfinite(primary.real) or not isfinite(primary.imag):
+        raise ValueError("Normalized primary-current phasor is non-finite.")
+    normalized_provenance = dict(provenance)
+    normalized_provenance.update({"measurement_point_id": measurement_point_id.strip(), "primary_current_normalized": True, "primary_current_basis": "PRIMARY_AMPS", "normalization_instrument_ratio": ratio, "normalization_channel_scale": scale, "normalization_channel_polarity": polarity})
+    return ResidualCurrentSourceSample(binding_id=sample.binding_id, scenario_id=sample.scenario_id, phase_or_sequence=sample.phase_or_sequence, value=primary, unit="A", reference_basis_id="PRIMARY_AMPS", provenance=normalized_provenance)
+
+
 def resolve_residual_current(
     configuration: ResidualCurrentInputConfiguration,
     samples_by_binding: Mapping[str, Any],
@@ -150,9 +207,11 @@ def resolve_residual_current(
     for binding_id, sample in selected:
         if getattr(sample, "unit", None) != "A":
             raise ValueError(f"Residual-current source {binding_id!r} is not expressed in amperes.")
+        if getattr(sample, "reference_basis_id", None) != "PRIMARY_AMPS":
+            raise ValueError(f"Residual-current source {binding_id!r} is not normalized to primary amperes.")
         provenance = getattr(sample, "provenance", None)
-        if not isinstance(provenance, Mapping):
-            raise ValueError(f"Residual-current source {binding_id!r} lacks provenance.")
+        if not isinstance(provenance, Mapping) or provenance.get("primary_current_normalized") is not True:
+            raise ValueError(f"Residual-current source {binding_id!r} lacks verified primary-current normalization provenance.")
         current = (
             getattr(sample, "scenario_id", None),
             provenance.get("measurement_point_id"),
@@ -166,7 +225,7 @@ def resolve_residual_current(
         if canonical is None:
             canonical = current
         elif current != canonical:
-            raise ValueError("Residual-current sources do not share identical scenario, measurement point, topology revision, and CT-secondary basis.")
+            raise ValueError("Residual-current sources do not share identical scenario, measurement point, topology revision, and primary-current basis.")
         phasor = complex(getattr(sample, "value"))
         if not isfinite(phasor.real) or not isfinite(phasor.imag):
             raise ValueError(f"Residual-current source {binding_id!r} is non-finite.")
@@ -190,5 +249,7 @@ def resolve_residual_current(
 __all__ = [
     "ResidualCurrentInputConfiguration",
     "ResidualCurrentSample",
+    "ResidualCurrentSourceSample",
+    "normalize_residual_current_source",
     "resolve_residual_current",
 ]
