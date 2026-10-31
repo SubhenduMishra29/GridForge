@@ -25,7 +25,7 @@ RESIDUAL_CURRENT_INPUT = "residual_current"
 
 @dataclass(frozen=True, slots=True)
 class EarthInstantaneousOvercurrentSettings:
-    """Immutable engineering settings for ANSI 50N."""
+    """Immutable ANSI 50N settings; pickup is residual primary amperes."""
 
     pickup: float
 
@@ -127,7 +127,7 @@ class EarthInstantaneousOvercurrentRelay(RelayBase):
         metadata = {
             "current": current,
             "pickup": self.pickup,
-            "criterion": "|I0| >= pickup",
+            "criterion": "|Ia + Ib + Ic| = |3I0| >= pickup",
             "earth_fault": True,
             "instantaneous": True,
         }
