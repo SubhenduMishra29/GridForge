@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import math
 from types import MappingProxyType
 from typing import Mapping, Sequence
 
@@ -27,6 +28,34 @@ def transformer_multiport_fingerprint(
         ]
     )
     return sha256(payload.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class TransformerDeltaLoopState:
+    """One explicitly resolved internal delta circulating-current loop."""
+
+    loop_id: str
+    winding: str
+    coupling_coefficients: tuple[complex, ...]
+    impedance_ohm: complex
+
+    def __post_init__(self) -> None:
+        loop_id = str(self.loop_id).strip()
+        winding = str(self.winding).strip().upper()
+        if not loop_id or winding not in {"HV", "LV"}:
+            raise ValueError("Delta loop requires a non-empty id and HV/LV winding.")
+        coefficients = tuple(complex(value) for value in self.coupling_coefficients)
+        if not coefficients or any(not (math.isfinite(v.real) and math.isfinite(v.imag)) for v in coefficients):
+            raise ValueError("Delta loop coupling coefficients must be finite and non-empty.")
+        if not any(value != 0j for value in coefficients):
+            raise ValueError("Delta loop must couple to at least one terminal.")
+        impedance = complex(self.impedance_ohm)
+        if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag) or impedance.real <= 0.0:
+            raise ValueError("Delta loop impedance must be finite with strictly positive resistance.")
+        object.__setattr__(self, "loop_id", loop_id)
+        object.__setattr__(self, "winding", winding)
+        object.__setattr__(self, "coupling_coefficients", coefficients)
+        object.__setattr__(self, "impedance_ohm", impedance)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +124,7 @@ def validate_transformer_zero_sequence_multiport_evidence(
 
 
 __all__ = [
+    "TransformerDeltaLoopState",
     "TransformerZeroSequenceMultiportEvidence",
     "transformer_multiport_fingerprint",
     "validate_transformer_zero_sequence_multiport_evidence",
