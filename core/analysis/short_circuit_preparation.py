@@ -81,9 +81,16 @@ class ShortCircuitPreparation:
                     network, physical_topology, base_mva=self.base_mva
                 )
                 admittance = assemble_phase_domain_admittance(graph, physical_impedances)
+                from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
+                transformer_primitives = tuple(
+                    prepare_transformer_phase_domain_multiport(transformer, graph)
+                    for transformer in getattr(network, "transformers", ())
+                    if getattr(transformer, "in_service", True)
+                )
                 phase_domain_case = PhaseDomainShortCircuitCase(
                     graph=graph, admittance=admittance, impedances=physical_impedances,
                     sources=sources, faults=faults, base_mva=self.base_mva,
+                    transformer_primitives=transformer_primitives,
                 )
             if phase_domain_case is not None:
                 from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
@@ -110,12 +117,20 @@ class ShortCircuitPreparation:
                 authoritative_admittance = assemble_phase_domain_admittance(
                     authoritative_graph, authoritative_impedances
                 )
+                from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
+                authoritative_transformer_primitives = tuple(
+                    prepare_transformer_phase_domain_multiport(transformer, authoritative_graph)
+                    for transformer in getattr(network, "transformers", ())
+                    if getattr(transformer, "in_service", True)
+                )
                 if phase_domain_case.graph != authoritative_graph:
                     raise ValueError("Supplied phase-domain case graph does not match the captured authoritative Network graph.")
                 if phase_domain_case.impedances != authoritative_impedances:
                     raise ValueError("Supplied phase-domain case impedances do not match the captured Line/Cable conductor inventory.")
                 if phase_domain_case.admittance != authoritative_admittance:
                     raise ValueError("Supplied phase-domain case admittance does not match the captured authoritative Network preparation.")
+                if phase_domain_case.transformer_primitives != authoritative_transformer_primitives:
+                    raise ValueError("Supplied phase-domain transformer multiports do not match the captured authoritative Transformer models and winding terminal graph.")
                 if complex(Zf) != 0j:
                     raise ValueError("Phase-domain fault impedance must be declared on the explicit fault connections, not duplicated in Zf.")
                 if (
