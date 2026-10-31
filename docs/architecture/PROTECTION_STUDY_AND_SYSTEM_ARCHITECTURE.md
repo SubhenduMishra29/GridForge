@@ -1166,3 +1166,21 @@ copied into an immutable SequenceNetworkSnapshot. The solver calculates both
 transformer terminal I0 values from the frozen two-port admittance matrix,
 retains test/neutral/base provenance, and emits the normal INTO_EQUIPMENT
 terminal-current records for the downstream CT adapter.
+
+
+### D14I-03 — Three-phase CT measurement-point coherence
+
+For `THREE_PHASE_SUM` residual-current configuration, the Application
+scenario aggregator now requires all three configured A/B/C CT samples to
+refer to the same canonical measured equipment terminal, identified by the
+same equipment ID and terminal role. This check supplements the explicit
+persisted measurement-point ID and the existing project, activation generation,
+topology revision, CT identity, CT polarity, instrument ratio, channel, and
+phase-member checks. A configuration that combines phase currents from
+different equipment terminals is rejected rather than producing a plausible
+but electrically incoherent residual phasor. CT placement and endpoint
+association remain engineer-configured; no protection zone or endpoint is
+inferred by the relay element.
+
+This is source-integrated only. No tests/CI, syntax/import checks, or
+end-to-end runtime execution were performed.
