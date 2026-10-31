@@ -445,6 +445,15 @@ class Transformer(Branch):
         )
         target_hv_grounding = self._validate_neutral_grounding(target_hv_grounding_value, target_hv_connection, "HV")
         target_lv_grounding = self._validate_neutral_grounding(target_lv_grounding_value, target_lv_connection, "LV")
+        target_hv_role = self._hv_terminal_role if hv_terminal_role is None and not _replace_winding_configuration else hv_terminal_role
+        target_lv_role = self._lv_terminal_role if lv_terminal_role is None and not _replace_winding_configuration else lv_terminal_role
+        target_hv_role, target_lv_role = self._validate_terminal_mapping(target_hv_role, target_lv_role)
+        target_reference_winding = self._normalize_reference_winding(self._impedance_reference_winding if impedance_reference_winding is None and not _replace_winding_configuration else impedance_reference_winding)
+        target_z0r = self._zero_sequence_resistance_ohm if zero_sequence_resistance_ohm is None and not _replace_winding_configuration else zero_sequence_resistance_ohm
+        target_z0x = self._zero_sequence_reactance_ohm if zero_sequence_reactance_ohm is None and not _replace_winding_configuration else zero_sequence_reactance_ohm
+        target_z0r, target_z0x = self._validate_zero_sequence_impedance(target_z0r, target_z0x)
+        if target_z0r is not None and (target_reference_winding is None or target_hv_role is None):
+            raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
