@@ -342,13 +342,9 @@ class ProtectionProjectConfiguration:
     def _binding_matches_configured_input(
         cls, configuration: ProtectionFunctionConfiguration, binding: ProtectionMeasurementBinding
     ) -> bool:
-        if configuration.input_channel_ids.get(binding.relay_input_id) == binding.channel_id:
-            return True
-        return (
-            configuration.function_code in {"50N", "51N"}
-            and binding.relay_input_id == "residual_current"
-            and binding.binding_id in cls._residual_binding_ids(configuration)
-        )
+        if configuration.function_code in {"50N", "51N"} and binding.relay_input_id == "residual_current":
+            return binding.binding_id in cls._residual_binding_ids(configuration)
+        return configuration.input_channel_ids.get(binding.relay_input_id) == binding.channel_id
 
     def replace(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
