@@ -15850,3 +15850,12 @@ Verification:
 - Transformer terminal-current output is restricted to balanced three-phase faults with the positive-sequence primitive. Unbalanced transformer currents remain unavailable because winding connection/vector-group and neutral-grounding sequence paths are not modeled. Magnetising/shunt and tertiary-winding currents remain unsupported.
 - External SequenceNetwork inputs are rejected for tapped/phase-shifting transformers unless they carry the canonical FROM_SIDE_COMPLEX_TAP_V1 convention marker; this prevents terminal-current equations from consuming a matrix stamped under an unknown tap convention.
 - No tests or CI were run. Remote source-level review only; Python syntax/import/runtime checks remain outstanding.
+
+
+[2026-10-31] Protection Study Phase D9 — configured equipment-terminal CT measurement adapter
+- Added MeasurementGeneration conversion from ShortCircuitTerminalCurrent records to CT secondary amperes. Conversion verifies result/terminal availability, explicit endpoint identity and role, Bus identity, INTO_EQUIPMENT reference direction, per-unit current basis, topology revision, canonical CT association, physical CT polarity, secondary MeasurementChannel source/terminal, and configured CT ratio.
+- ProtectionScenarioMeasurementAdapter now creates detached samples from the exact endpoint persisted in ProtectionMeasurementBinding; ProtectionStudyHandler routes scenario CT bindings through this terminal-current adapter rather than requiring Branch FROM/TO contribution records.
+- Current sign is derived from the selected endpoint's resolved CT P1/P2 SimpleWire component and the terminal record's positive-into-equipment convention. No protected zone or measurement target is inferred.
+- PARTIAL terminal-current sets may provide an individual sample only when its exact terminal record is present and valid. FAILED/UNAVAILABLE sets and missing records are refused. Live MeasurementChannel state remains unchanged.
+- Supported result records are limited to Line/Cable and balanced three-phase Transformer series primitives. Bus attachments, PT/CVT voltage, unbalanced Transformer sequence currents and unsupported equipment remain unavailable.
+- No tests or CI were run. Remote source-level review only; Python syntax/import/runtime checks remain outstanding.
