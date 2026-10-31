@@ -777,3 +777,32 @@ no-operation result and is not confused with a scenario where relay evaluation
 never ran. The Study result exposes combined decision/diagnostic views while
 retaining per-scenario records. No breaker command is dispatched and no live
 measurement channel is injected.
+
+
+## 22. Short-circuit terminal-current result contract — Phase D6 foundation
+
+The detached `ShortCircuitResult` distinguishes aggregate Branch current from
+current at a physical equipment terminal. Each immutable terminal-current
+record is keyed by exact equipment ID and terminal role and identifies the
+equipment type, canonical Bus attachment, complex phase/sequence currents,
+per-unit current basis, and a fixed reference direction of positive current
+INTO the equipment. For a series-only Branch primitive, the FROM terminal
+current is the Branch current and the TO terminal current is its negative.
+Both values are calculated from solved sequence voltages and prepared series
+impedance; they are not inferred from SLD geometry or CT P1/P2 orientation.
+
+Terminal-current status is independent of source/Branch contribution status.
+COMPLETE requires both terminal records for every prepared Branch; PARTIAL
+reports incomplete coverage; UNAVAILABLE means no supported terminal records
+could be produced. Diagnostics identify unsupported equipment rather than
+silently treating an equipment aggregate as a terminal measurement.
+
+This increment supports only series-only Line and Cable primitives. The
+current Transformer representation lacks the terminal-admittance matrix,
+off-nominal tap, winding/vector-group, phase-shift and sequence-grounding
+semantics required for physically correct terminal currents. Transformer
+terminal records are therefore withheld. Shunt charging, mutual coupling,
+multi-winding transformers, machine stator terminals, load contributions and
+Bus-boundary injection records are also outside this increment. Protection
+Study does not consume these records yet; its unsupported CT paths remain
+fail-closed pending the terminal adapter and base conversion.
