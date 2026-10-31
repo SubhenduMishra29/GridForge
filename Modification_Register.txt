@@ -16905,3 +16905,33 @@ Remaining integration constraints:
       available, but no UI editing workflow is enabled.
     - No tests/CI, syntax/import checks, persistence round-trip, numerical
       fixture or end-to-end Protection Study execution was run.
+
+
+======================================================================
+GF-SC-D15F-04 — EXPLICIT LOCAL EARTH AND GLOBAL REFERENCE SEMANTICS
+======================================================================
+
+Files:
+    core/network/phase_domain_conductor_network.py
+    core/solver/short_circuit/phase_domain_solver.py
+    core/solver/short_circuit/input.py
+
+Correction:
+    - Split EARTH_NODE (a local soil/earth-domain unknown potential) from
+      EARTH_REFERENCE (the single global zero-potential datum).
+    - A graph may contain at most one EARTH_REFERENCE. Local earth nodes
+      remain unknowns in the global nodal matrix and therefore do not become
+      equipotential merely because they are both earth-domain nodes.
+    - GROUND_ELECTRODE must connect a physical conductor to an explicit
+      local EARTH_NODE. EARTH_RETURN must connect a local earth node to
+      another earth-domain node, including the one global reference where
+      configured. Every edge retains its explicit impedance.
+    - Earth reachability is true only when an explicit connection path
+      reaches the global reference. An isolated electrode/soil node is not
+      treated as an ideal ground.
+    - Phase-domain source terminals cannot be attached directly to earth
+      nodes. Fault Bus location checks exclude both local and global earth
+      nodes from Bus identity matching.
+
+This removes the previous implicit ideal-earth equivalence between separate
+reference nodes. No tests/CI or numerical ground-grid fixtures were run.
