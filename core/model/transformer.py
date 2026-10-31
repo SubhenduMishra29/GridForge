@@ -486,6 +486,9 @@ class Transformer(Branch):
             self._lv_winding_connection = target_lv_connection
             self._hv_neutral_grounding_impedance_ohm = target_hv_grounding
             self._lv_neutral_grounding_impedance_ohm = target_lv_grounding
+            self._hv_terminal_role, self._lv_terminal_role = target_hv_role, target_lv_role
+            self._impedance_reference_winding = target_reference_winding
+            self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = target_z0r, target_z0x
             self.validate()
         except Exception:
             (
