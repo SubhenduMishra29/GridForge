@@ -240,6 +240,8 @@ class ProtectionScenarioMeasurementAdapter:
         conductors = tuple(getattr(construction, "conductors", ()))
         if not conductors or not getattr(construction, "window_id", None):
             raise ValueError("CBCT requires an explicit physical window and conductor membership.")
+        if binding.result_quantity != f"conductor_currents.CBCT:{construction.window_id}":
+            raise ValueError("CBCT binding result_quantity must identify its exact physical window.")
         endpoint = binding.source_endpoint_reference
         if not endpoint.is_terminal:
             raise ValueError("CBCT measurement binding must identify one equipment terminal.")
