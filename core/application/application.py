@@ -1373,8 +1373,10 @@ class Application:
                             "equipment_terminal_role": binding.source_endpoint_reference.terminal_role,
                             "instrument_ratio": binding.instrument_ratio,
                             "measurement_point_id": residual_configuration.measurement_point_id,
-                            "ct_primary_side": provenance.get("ct_primary_side"),
                         }
+                        if provenance.get("ct_primary_side") not in {"P1_SIDE", "P2_SIDE"}:
+                            diagnostics.append(f"{prefix}: CT association provenance does not identify exactly one primary side.")
+                            continue
                         if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
                             diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
                             continue
