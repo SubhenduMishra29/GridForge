@@ -227,6 +227,8 @@ class PhaseDomainShortCircuitCase:
             roles = [node.conductor_role for node in source_terminals]
             if len(set(roles)) != len(roles):
                 raise ValueError(f"Source {item.source_id!r} contains duplicate physical conductor roles.")
+            if isinstance(item, PhaseDomainGroundedMultiConductorSource) and roles != ["A", "B", "C", "N"]:
+                raise ValueError(f"Grounded source {item.source_id!r} node order must be exactly A, B, C, N.")
         for item in faults:
             if item.from_node_id not in known or item.to_node_id not in known:
                 raise ValueError(f"Fault {item.connection_id!r} references an unknown graph node.")
