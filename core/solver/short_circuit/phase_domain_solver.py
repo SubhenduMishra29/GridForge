@@ -123,6 +123,7 @@ class PhaseDomainShortCircuitSolution:
     conductor_currents: Mapping[str, ShortCircuitConductorCurrent]
     source_currents_a: Mapping[str, complex]
     fault_currents_a: Mapping[str, complex]
+    connection_currents_a: Mapping[str, complex]
     topology_revision: int
     diagnostics: tuple[str, ...] = ()
 
@@ -131,6 +132,7 @@ class PhaseDomainShortCircuitSolution:
         object.__setattr__(self, "conductor_currents", MappingProxyType(dict(self.conductor_currents)))
         object.__setattr__(self, "source_currents_a", MappingProxyType(dict(self.source_currents_a)))
         object.__setattr__(self, "fault_currents_a", MappingProxyType(dict(self.fault_currents_a)))
+        object.__setattr__(self, "connection_currents_a", MappingProxyType(dict(self.connection_currents_a)))
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
 
 
@@ -219,6 +221,19 @@ class PhaseDomainShortCircuitSolver:
             for fault_id, current in zip(zero_fault_ids, multipliers):
                 fault_currents[fault_id] = complex(current)
 
+        connection_currents: dict[str, complex] = {}
+        connection_diagnostics: list[str] = []
+        for edge in case.graph.connections:
+            if not edge.in_service:
+                continue
+            if edge.impedance_ohm == 0j:
+                connection_diagnostics.append(
+                    f"Connection {edge.connection_id!r} is an ideal zero-ohm bond; its individual current is indeterminate in an ideal parallel network."
+                )
+                continue
+            delta = voltage_by_node[edge.from_node_id] - voltage_by_node[edge.to_node_id]
+            connection_currents[edge.connection_id] = delta / edge.impedance_ohm
+
         conductor_records: dict[str, ShortCircuitConductorCurrent] = {}
         for branch in case.impedances.branches:
             order = branch.matrix_conductor_ids
@@ -263,10 +278,6 @@ class PhaseDomainShortCircuitSolver:
                 for conductor_id, current_a in zip(order, vector):
                     node = terminal_nodes[conductor_id]
                     role = node.conductor_role
-                    if role not in {"A", "B", "C", "N"}:
-                        # Result contract is expanded in the following integration
-                        # to retain PE and screen currents as well.
-                        continue
                     if node.bus_id is None:
                         raise ValueError(f"Branch terminal node {node.node_id!r} requires bus_id for result provenance.")
                     current_base_a = case.base_mva * 1e6 / (math.sqrt(3.0) * branch.base_voltage_kv * 1e3)
@@ -299,7 +310,9 @@ class PhaseDomainShortCircuitSolver:
             conductor_currents=conductor_records,
             source_currents_a=source_currents,
             fault_currents_a=fault_currents,
+            connection_currents_a=connection_currents,
             topology_revision=case.graph.topology_revision,
+            diagnostics=tuple(connection_diagnostics),
         )
 
 
