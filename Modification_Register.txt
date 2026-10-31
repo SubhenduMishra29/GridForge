@@ -16654,3 +16654,49 @@ Verification:
     Remote source edits only. No tests/CI, Python syntax/import checks,
     persistence round-trip, command execution or numerical matrix fixtures
     were run. Production runtime verification remains outstanding.
+
+
+======================================================================
+GF-SC-D15D — PHYSICAL CONDUCTOR BRANCH-TOPOLOGY ASSOCIATION
+======================================================================
+
+Files:
+    core/network/physical_conductor_topology.py
+    core/network/__init__.py
+    core/analysis/sequence_network_preparation.py
+    core/solver/short_circuit/sequence_snapshot.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Changes:
+    - Added immutable PhysicalConductorBranchTopology and
+      PhysicalConductorTopologySnapshot, sourced only from canonical
+      TopologySnapshot equipment_bus_attachments.
+    - Added PhysicalConductorBranchAssociation for every explicit conductor
+      identity, bound to the owning Line/Cable and its resolved FROM/TO Bus
+      attachment pair.
+    - Preserved project ID, activation generation and topology revision.
+    - Active conductor-equipped Line/Cable requires exactly one resolved Bus
+      at each canonical FROM/TO terminal. Missing, ambiguous, same-Bus,
+      invalid-owner or non-canonical terminal mappings fail closed.
+    - Out-of-service conductor-equipped branches may retain unresolved Bus
+      associations and are not promoted to active paths.
+    - SequenceNetworkPreparation attaches the detached physical-conductor
+      topology to prepared sequence data. SequenceNetworkSnapshot preserves
+      the typed topology and validates referenced Bus IDs against its own
+      canonical Bus identity set.
+    - Exported Network contracts from core.network.
+
+Engineering boundary:
+    This phase resolves branch-level terminal attachment for each conductor
+    identity. It does not create independent phase/neutral/PE terminal nodes,
+    conductor-to-ground bonds, neutral/earth return paths, multi-conductor
+    network stamps, or conductor-current calculations. Sequence-domain
+    matrices do not yet consume the coupled conductor impedance matrix.
+    D15E remains numerical preparation/current solution; explicit neutral/PE
+    grounding and CBCT semantics remain subsequent phases.
+
+Verification:
+    Remote source edits and static source review only. No tests/CI, Python
+    syntax/import checks, topology runtime fixture, persistence round-trip,
+    or numerical conductor-current calculation was run.
