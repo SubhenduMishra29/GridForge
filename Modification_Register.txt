@@ -15958,6 +15958,9 @@ Implementation:
     - Application installs a detached derived residual snapshot with
       source binding IDs and provenance. ProtectionElement verifies the
       derived source identity and provenance before RelayInput evaluation.
+    - ProtectionStudyHandler composes a fresh ProtectionRuntime per
+      fault scenario, isolating ANSI 51N pickup timing/latching state and
+      preserving the active live protection runtime.
     - Existing 50N instantaneous pickup and 51N IEC inverse-time logic
       consume the residual phasor without modifying physical channels.
       Pickup is in primary amperes and the operating quantity is
