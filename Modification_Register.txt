@@ -16209,3 +16209,36 @@ Fail-closed boundary:
     Z0. No tests/CI or Python syntax/import checks were run.
 
 ======================================================================
+
+
+======================================================================
+D14E — TRANSFORMER VECTOR-GROUP AND ZERO-SEQUENCE TEST CONTRACTS
+======================================================================
+
+Files:
+    core/model/transformer_zero_sequence_contracts.py
+    core/model/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Implemented:
+    Typed IEC winding-pair notation (Yy/Yd/Dy/Dd), explicit clock number,
+    LV-relative-to-HV phase displacement, independent HV/LV polarity,
+    zero-sequence test energized winding, opposite-winding test condition,
+    and explicit test neutral-return inclusion.
+
+    Vector-group notation is checked against configured winding connections.
+    Test energized winding must match the declared Z0 reference winding.
+    A delta opposite winding requires explicit DELTA_CLOSED test condition.
+
+Limitations:
+    Contracts are not yet persisted on Transformer or propagated through
+    create/update commands and transactional undo. No transformer Z0
+    numerical equivalent, Ybus stamp, or terminal-current path is enabled.
+    D14D fail-closed behavior remains authoritative. Neutral 3Zn remains
+    separate from transformer Z0.
+
+Verification:
+    Remote source edits only. No tests/CI, Python syntax checks, or import
+    integrity checks were run.
+
+======================================================================
