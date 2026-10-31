@@ -17320,3 +17320,37 @@ Verification:
 
 Status:
     CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
+
+======================================================================
+GF-SC-D15F-17
+======================================================================
+
+Scope:
+    Phase-domain short-circuit source identity and equipment provenance.
+
+Finding:
+    A source equivalent could use a source_id different from the canonical
+    equipment identity when its graph nodes repeated that same source_id in
+    source_reference metadata. That metadata is descriptive graph data, not an
+    independent authority for equipment ownership.
+
+Correction:
+    PhaseDomainShortCircuitCase now requires every scalar or multi-conductor
+    source_id to equal the equipment_id declared by all of its equipment
+    terminal nodes. Optional source_reference metadata may be absent or repeat
+    that canonical identity; it cannot alias or override equipment ownership.
+
+Engineering boundary:
+    This closes an identity/provenance ambiguity only. It does not claim that
+    source impedance, internal voltage, sequence data, grounding, or equipment
+    construction parameters are automatically derived. Those remain explicit
+    inputs and unsupported/missing construction data must fail closed.
+
+Status:
+    CORRECTED — REMOTE SOURCE VERIFICATION REQUIRED
+
+Verification:
+    Source block and register entry verified after commit. No tests, CI,
+    syntax/import checks, or numerical execution performed.
+
+======================================================================
