@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 
 from ..command import Command
 from core.model import EndpointReference
-from ...model.transformer import ImpedanceBasis
+from ...model.transformer import ImpedanceBasis, TransformerWindingConnection
 
 CREATE_BUS = "model.create_bus"
 UPDATE_BUS = "model.update_bus"
@@ -216,6 +216,10 @@ class CreateTransformerCommand(Command):
                  r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float | None = None, impedance_base_mva: float | None = None,
                  impedance_base_voltage_kv: float | None = None,
+                 hv_winding_connection: TransformerWindingConnection | str | None = None,
+                 lv_winding_connection: TransformerWindingConnection | str | None = None,
+                 hv_neutral_grounding_impedance_ohm: complex | None = None,
+                 lv_neutral_grounding_impedance_ohm: complex | None = None,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
         _endpoint(endpoint_to, "endpoint_to")
@@ -237,6 +241,10 @@ class CreateTransformerCommand(Command):
             "impedance_basis": normalized_basis,
             "impedance_base_mva": impedance_base_mva,
             "impedance_base_voltage_kv": impedance_base_voltage_kv,
+            "hv_winding_connection": hv_winding_connection,
+            "lv_winding_connection": lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
             "tap": tap,
             "shift": shift,
             "name": name,
