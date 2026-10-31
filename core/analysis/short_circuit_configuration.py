@@ -36,6 +36,7 @@ class ShortCircuitStudyConfiguration:
     element_ids: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
     base_mva: float | None = None
+    phase_domain_case: Any | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fault_type", FaultType.from_value(self.fault_type))
@@ -57,6 +58,12 @@ class ShortCircuitStudyConfiguration:
             if not math.isfinite(base_mva) or base_mva <= 0.0:
                 raise ValueError("base_mva must be finite and greater than zero when supplied.")
             object.__setattr__(self, "base_mva", base_mva)
+        if self.phase_domain_case is not None:
+            from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
+            if not isinstance(self.phase_domain_case, PhaseDomainShortCircuitCase):
+                raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+            if self.base_mva is None or not math.isclose(self.phase_domain_case.base_mva, self.base_mva, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("Phase-domain case requires the same explicit study base_mva.")
         object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
 
