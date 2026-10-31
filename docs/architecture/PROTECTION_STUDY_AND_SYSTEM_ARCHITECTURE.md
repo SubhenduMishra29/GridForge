@@ -1199,7 +1199,8 @@ Added a typed ShortCircuitConductorCurrent record to the short-circuit result
 contract. Each record identifies one physical conductor at one owning
 equipment terminal and carries conductor ID, equipment/type, terminal role,
 Bus, phase/conductor role, complex current, explicit terminal reference
-direction, per-unit basis and derivation provenance. A physical conductor at
+direction, topology revision, MVA/voltage bases, per-unit basis and derivation
+provenance. A physical conductor at
 opposite ends of a branch is represented by two terminal-scoped records.
 ShortCircuitResult now exposes an immutable conductor_currents mapping,
 strict composite-key validation, a typed lookup helper, independent coverage
