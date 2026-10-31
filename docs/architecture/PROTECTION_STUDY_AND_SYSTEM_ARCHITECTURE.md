@@ -797,15 +797,16 @@ reports incomplete coverage; UNAVAILABLE means no supported terminal records
 could be produced. Diagnostics identify unsupported equipment rather than
 silently treating an equipment aggregate as a terminal measurement.
 
-This increment supports only series-only Line and Cable primitives. The
-current Transformer representation lacks the terminal-admittance matrix,
-off-nominal tap, winding/vector-group, phase-shift and sequence-grounding
-semantics required for physically correct terminal currents. Transformer
-terminal records are therefore withheld. Shunt charging, mutual coupling,
-multi-winding transformers, machine stator terminals, load contributions and
-Bus-boundary injection records are also outside this increment. Protection
-Study does not consume these records yet; its unsupported CT paths remain
-fail-closed pending the terminal adapter and base conversion.
+At the time of Phase D6, terminal-current records were supported only
+for series-only Line and Cable primitives. The transformer gap identified
+here was subsequently narrowed by Phase D7 (tap-aware sequence-network
+stamping) and Phase D8 (balanced three-phase transformer terminal currents).
+Unbalanced transformer terminal currents remain unavailable until winding
+connection/vector-group and neutral-grounding sequence models are implemented.
+Shunt charging, mutual coupling, multi-winding transformers, machine stator
+terminals, load contributions and Bus-boundary injection records remain
+outside the implemented terminal-current scope. Protection Study CT adapters
+still do not consume the generic terminal-current records.
 
 
 ## 21. Transformer sequence-network tap primitive — Phase D7
@@ -831,9 +832,8 @@ reconstructing transformer state from live Core.
 phase-shift fields. It does not apply optional plugin VectorGroup clock
 displacement, winding connection mapping, neutral grounding/zero-sequence
 paths, transformer magnetising/shunt admittance, tertiary windings, or
-unbalanced transformer sequence coupling. Consequently, transformer
-short-circuit studies requiring those behaviours remain unsupported and must
-not be represented as complete. Transformer terminal-current output is supported for balanced three-phase
+unbalanced transformer sequence coupling. Consequently, unbalanced transformer short-circuit studies requiring those
+behaviours remain unsupported and must not be represented as complete. Transformer terminal-current output is supported for balanced three-phase
 fault cases only after the solver consumes this exact stamped primitive.
 Unbalanced transformer terminal currents remain unavailable. When a caller
 supplies an external SequenceNetwork alongside a transformer with non-unity
