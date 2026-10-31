@@ -2,7 +2,7 @@
 
 from .context import ProtectionContext
 from .decision import ProtectionDecision
-from .relay_input import RelayInput
+from .relay_input import DerivedRelayMeasurement, RelayInput
 from .relay_base import RelayBase
 from .protection_element import ProtectionElement, ProtectionElementState
 from .protection_system import ProtectionSystem
@@ -38,7 +38,7 @@ from .function_catalog import (
 )
 
 __all__ = [
-    "ProtectionContext", "ProtectionDecision", "RelayInput", "RelayBase",
+    "ProtectionContext", "ProtectionDecision", "RelayInput", "DerivedRelayMeasurement", "RelayBase",
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
