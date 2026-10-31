@@ -16935,3 +16935,65 @@ Correction:
 
 This removes the previous implicit ideal-earth equivalence between separate
 reference nodes. No tests/CI or numerical ground-grid fixtures were run.
+
+
+======================================================================
+GF-SC-D15F-05 — APPLICATION GRAPH EDITING AND STUDY INTEGRATION
+======================================================================
+
+Files:
+    core/application/commands/phase_domain_conductor_commands.py
+    core/application/services/phase_domain_conductor_service.py
+    core/application/services/__init__.py
+    core/application/commands/__init__.py
+    core/application/bootstrap.py
+    core/application/revision_service.py
+    core/application/study_preparation.py
+    core/analysis/short_circuit_preparation.py
+    core/network/network.py
+    core/network/phase_domain_conductor_network.py
+    core/solver/short_circuit/input.py
+    core/solver/short_circuit/phase_domain_solver.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/protection/input_contracts.py
+    core/measurement/protection_scenario_measurement.py
+    core/application/protection_study.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Changes:
+    - Added reversible Application commands for creating/removing phase-domain
+      conductor nodes and physical connections. Registered the handlers in the
+      Application composition root, recorded transaction inverses, and added
+      topology-revision classification for every graph mutation.
+    - Forwarded phase-domain case/source/fault declarations through ordinary
+      Application Study preparation, not only the Protection Study handler.
+    - A caller-supplied typed phase-domain case must exactly match freshly
+      prepared graph, physical impedance and admittance snapshots from the
+      captured Network and topology revision.
+    - Added explicit fault-type/topology compatibility checks: 3PH uses A/B/C
+      legs to one isolated FAULT_NODE; LG uses one phase-to-earth leg; LL uses
+      one distinct phase-to-phase leg; LLG uses two distinct phases to one
+      common earth node with an explicit earth-return path.
+    - Fault-star nodes cannot be used as source attachment nodes or ordinary
+      graph connection endpoints.
+    - Enforced unique Bus-conductor, branch-terminal and equipment-terminal
+      node identities and role-compatible continuity, screen, equipment-bond,
+      grounding-electrode and earth-return connections.
+    - Enabled exact static input validation for direct Neutral CT and CBCT
+      construction/binding/channel contracts. Direct physical conductor
+      sampling requires successful PHASE_DOMAIN results and COMPLETE
+      conductor-current coverage.
+    - Protection Study completeness recognizes complete phase-domain
+      conductor-current results without substituting absent sequence records.
+    - Ideal zero-ohm continuity bonds remain contracted nodes and no longer
+      downgrade complete branch/finite-connection current coverage.
+
+Remaining constraints:
+    - A dedicated UI configuration workflow is not implemented.
+    - Automatic source-equivalent derivation from all GridForge Grid,
+      Generator and machine models is not implemented; phase-domain sources
+      remain explicit study inputs.
+    - Multi-conductor transformer, machine, load and switching primitives
+      remain outside the current phase-domain stamp set.
+    - No tests/CI, syntax/import checks, persistence round-trip, numerical
+      fixtures, or end-to-end Protection Study execution were run.
