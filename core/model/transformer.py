@@ -352,6 +352,14 @@ class Transformer(Branch):
         return matrix
 
     @property
+    def phase_domain_multiport_tap_ratio(self) -> float | None:
+        return self._phase_domain_multiport_tap_ratio
+
+    @property
+    def phase_domain_multiport_phase_shift_rad(self) -> float | None:
+        return self._phase_domain_multiport_phase_shift_rad
+
+    @property
     def phase_domain_terminal_admittance_siemens(self):
         """Explicit complete terminal-domain primitive; None means unavailable."""
         return self._phase_domain_terminal_admittance_siemens
