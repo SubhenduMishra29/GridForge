@@ -468,6 +468,8 @@ class Transformer(Branch):
             self._rate_mva, self.name, self._in_service,
             self._hv_winding_connection, self._lv_winding_connection,
             self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
+            self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
+            self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
         )
         try:
             self._r = target_r
