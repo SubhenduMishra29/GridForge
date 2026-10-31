@@ -17263,3 +17263,32 @@ Verification:
 Status:
     CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
 
+
+
+======================================================================
+GF-SC-D15F-15 — CANONICAL SOURCE TERMINAL OWNERSHIP
+======================================================================
+
+File:
+    core/analysis/short_circuit_preparation.py
+
+Correction:
+    - Phase-domain source graph nodes must be EQUIPMENT_TERMINAL nodes.
+    - Each node's declared terminal role must resolve to an actual
+      Terminal in the canonical registered equipment object's terminal
+      collection.
+    - The Terminal must explicitly identify that same equipment object
+      as its owner. A matching equipment_id and role string alone is
+      no longer sufficient to authorize source injection.
+
+Boundary:
+    - This validates source terminal identity and ownership only.
+      It does not derive source impedance, internal voltage, sequence
+      parameters, grounding, or automatic Norton equivalents.
+
+Verification:
+    - Remote source edit committed. No tests/CI, syntax/import checks,
+      numerical fixtures, or end-to-end study execution were run.
+
+Status:
+    CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
