@@ -150,6 +150,8 @@ class ProtectionScenarioMeasurementAdapter:
             "conductor_role": record.phase_or_sequence,
             "conductor_current_reference_direction": record.reference_direction,
             "conductor_current_units": record.current_units,
+            "terminal_current_reference_direction": record.reference_direction,
+            "current_units": record.current_units,
             "conductor_current_a": record.provenance.get("current_a"),
             "measurement_bus_id": record.bus_id,
             "ct_id": ct_association.ct_id,
