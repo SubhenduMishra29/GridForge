@@ -223,8 +223,24 @@ def classify_transformer_zero_sequence(
             test=test_configuration, reference_winding=reference,
             hv_connection=hv, lv_connection=lv,
         )
+        test_data = getattr(transformer, "zero_sequence_two_winding_test_data", None)
+        if test_data is None:
+            raise ValueError(
+                f"Transformer '{transformer_id}' requires explicit three-test zero-sequence data "
+                "for grounded-wye/grounded-wye transfer."
+            )
+        if getattr(transformer, "core_construction", None) is None or getattr(transformer, "zero_sequence_test_basis", None) is None:
+            raise ValueError(
+                f"Transformer '{transformer_id}' requires explicit core construction and "
+                "zero-sequence test-data provenance for grounded-wye/grounded-wye transfer."
+            )
+        from core.analysis.transformer_zero_sequence_t_equivalent import derive_transformer_zero_sequence_t_equivalent
+        derive_transformer_zero_sequence_t_equivalent(test_data)
         raise ValueError(
-            f"Transformer '{transformer_id}' has validated winding contracts, but grounded-wye "
+            f"Transformer '{transformer_id}' has valid three-test T-equivalent input, but "
+            "grounded-wye/grounded-wye zero-sequence Ybus stamping and terminal-current "
+            "integration are not yet enabled."
+        )
             "to grounded-wye zero-sequence transfer remains numerically unavailable until its "
             "core/test-derived two-winding equivalent is implemented."
         )
