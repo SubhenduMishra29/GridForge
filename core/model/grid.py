@@ -194,6 +194,11 @@ class Grid(ElectricalObject, Injection):
         grounded:
             Whether the source is grounded.
 
+        neutral_grounding_impedance_ohm:
+            Explicit external-source neutral grounding impedance. Required
+            by phase-domain short-circuit preparation together with the
+            physical N terminal and GROUND_ELECTRODE graph connection.
+
         Notes
         -----
         ``endpoint`` and ``bus`` are aliases for initial endpoint
