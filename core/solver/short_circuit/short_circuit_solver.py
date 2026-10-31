@@ -270,7 +270,11 @@ class ShortCircuitSolver:
                 (item for item in snapshot.transformer_zero_shunts if item.transformer_id == branch.branch_id),
                 None,
             ) if snapshot is not None else None
-            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages, zero_shunt)
+            zero_two_bus = next(
+                (item for item in snapshot.transformer_zero_two_bus_stamps if item.transformer_id == branch.branch_id),
+                None,
+            ) if snapshot is not None else None
+            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages, zero_shunt, zero_two_bus)
             return None if terminal_currents is None else terminal_currents[0]
         required = self._required_for_fault()
         result: dict[str, complex] = {}
@@ -380,6 +384,7 @@ class ShortCircuitSolver:
         diagnostics: list[str] = []
         required = self._required_for_fault()
         transformer_shunts = {item.transformer_id: item for item in snapshot.transformer_zero_shunts}
+        transformer_two_bus = {item.transformer_id: item for item in snapshot.transformer_zero_two_bus_stamps}
         for branch in snapshot.branches:
             if branch.equipment_type == "Transformer":
                 # Positive and negative sequence traverse the two-winding
@@ -397,21 +402,23 @@ class ShortCircuitSolver:
                     )
                     continue
                 zero_shunt = transformer_shunts.get(branch.branch_id)
+                zero_two_bus = transformer_two_bus.get(branch.branch_id)
                 if "zero" in required:
-                    if zero_shunt is None:
+                    if zero_shunt is None and zero_two_bus is None:
                         diagnostics.append(
                             f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
                             "no explicit grounded-wye zero-sequence terminal equivalent is present in the immutable study snapshot."
                         )
                         continue
-                    if not snapshot.is_bus_available("zero", zero_shunt.bus_index):
+                    required_zero_indices = (zero_shunt.bus_index,) if zero_shunt is not None else (zero_two_bus.hv_bus_index, zero_two_bus.lv_bus_index)
+                    if not all(snapshot.is_bus_available("zero", index) for index in required_zero_indices):
                         diagnostics.append(
                             f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
                             "the configured grounded-wye zero-sequence Bus component is unavailable."
                         )
                         continue
                 transformer_currents = self._transformer_terminal_current_sequences(
-                    branch, voltages, zero_shunt
+                    branch, voltages, zero_shunt, zero_two_bus
                 )
                 if transformer_currents is None:
                     diagnostics.append(
