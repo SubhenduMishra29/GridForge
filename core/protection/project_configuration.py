@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from .protection_measurement_binding import ProtectionMeasurementBinding
+from .residual_current import ResidualCurrentInputConfiguration
 
 
 def _freeze_value(value: Any) -> Any:
@@ -45,6 +46,7 @@ class ProtectionFunctionConfiguration:
     action_target_type: str | None = None
     action_target_id: str | None = None
     action_type: str | None = None
+    residual_current_input: ResidualCurrentInputConfiguration | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("element_id", "relay_id", "function_code"):
@@ -53,6 +55,10 @@ class ProtectionFunctionConfiguration:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value.strip())
         object.__setattr__(self, "function_code", self.function_code.upper())
+        if self.residual_current_input is not None and not isinstance(self.residual_current_input, ResidualCurrentInputConfiguration):
+            raise TypeError("residual_current_input must be ResidualCurrentInputConfiguration or None.")
+        if self.function_code not in {"50N", "51N"} and self.residual_current_input is not None:
+            raise ValueError("Residual-current input configuration is valid only for ANSI 50N/51N functions.")
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
         if not isinstance(self.blocked, bool):
@@ -130,6 +136,7 @@ class ProtectionFunctionConfiguration:
             "action_target_type": self.action_target_type,
             "action_target_id": self.action_target_id,
             "action_type": self.action_type,
+            "residual_current_input": self.residual_current_input.to_dict() if self.residual_current_input is not None else None,
         }
 
     @classmethod
@@ -156,6 +163,7 @@ class ProtectionFunctionConfiguration:
             action_target_type=data.get("action_target_type"),
             action_target_id=data.get("action_target_id"),
             action_type=data.get("action_type"),
+            residual_current_input=(ResidualCurrentInputConfiguration.from_dict(data["residual_current_input"]) if data.get("residual_current_input") is not None else None),
         )
 
 
