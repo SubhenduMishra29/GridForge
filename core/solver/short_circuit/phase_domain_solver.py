@@ -299,6 +299,7 @@ class PhaseDomainShortCircuitSolver:
                             "domain": "PHASE_DOMAIN",
                             "current_a": complex(current_a),
                             "conductor_role": role,
+                            "physical_node_id": node.node_id,
                             "branch_matrix_order": order,
                             "project_id": case.graph.project_id,
                             "activation_generation": case.graph.activation_generation,
@@ -348,6 +349,7 @@ class PhaseDomainShortCircuitSolver:
                     provenance={
                         "domain": "PHASE_DOMAIN_CONNECTION",
                         "connection_kind": edge.kind.value,
+                        "physical_node_id": node.node_id,
                         "connection_impedance_ohm": edge.impedance_ohm,
                         "current_a": complex(signed_current),
                         "project_id": case.graph.project_id,
