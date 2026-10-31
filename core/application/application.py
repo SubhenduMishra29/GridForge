@@ -1315,9 +1315,17 @@ class Application:
                         ):
                             diagnostics.append(f"{prefix}: residual source, binding, sample, channel or CT identity does not agree.")
                             continue
+                        sample_phase = sample.phase_or_sequence.strip().upper()
+                        sample_phase_valid = (
+                            sample_phase == phase
+                            or (
+                                residual_configuration.mode == "CBCT"
+                                and sample_phase == "RESIDUAL"
+                            )
+                        )
                         if (
                             binding.phase_or_sequence.strip().upper() != phase
-                            or sample.phase_or_sequence.strip().upper() != phase
+                            or not sample_phase_valid
                             or getattr(getattr(channel, "phase", None), "value", None) != phase
                             or sample.quantity_key != binding.result_quantity
                             or sample.unit != "A"
@@ -1396,12 +1404,14 @@ class Application:
                                 )
                                 continue
                         if residual_configuration.mode in {"NEUTRAL_CT", "CBCT"}:
+                            expected_direct_phase = "N" if residual_configuration.mode == "NEUTRAL_CT" else "RESIDUAL"
                             if (
                                 binding.metadata.get("residual_source_mode") != residual_configuration.mode
                                 or provenance.get("residual_source_mode") != residual_configuration.mode
                                 or phase != "N"
+                                or sample_phase != expected_direct_phase
                             ):
-                                diagnostics.append(f"{prefix}: direct neutral/CBCT source must explicitly declare its mode and neutral phase.")
+                                diagnostics.append(f"{prefix}: direct Neutral CT/CBCT sample must declare its configured mode and correct derived phase.")
                                 continue
                         elif binding.metadata.get("residual_source_mode") is not None:
                             diagnostics.append(f"{prefix}: three-phase sum source cannot declare a direct neutral/CBCT mode.")
