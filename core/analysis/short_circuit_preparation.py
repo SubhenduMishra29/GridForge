@@ -143,7 +143,6 @@ class ShortCircuitPreparation:
                 # electrical source exists or is in service.
                 from core.solver.short_circuit.phase_domain_solver import (
                     PhaseDomainSourceEquivalent,
-                    PhaseDomainMultiConductorSource,
                 )
                 for source in phase_domain_case.sources:
                     source_node_ids = (
