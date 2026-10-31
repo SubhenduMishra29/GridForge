@@ -60,6 +60,55 @@ class PhysicalConductorBranchTopology:
     def conductor_roles(self) -> tuple[str, ...]:
         return tuple(item.role.value for item in self.conductor_system.conductors)
 
+    @property
+    def conductor_associations(self) -> tuple[PhysicalConductorBranchAssociation, ...]:
+        """Return one explicit branch-terminal association per conductor."""
+        return tuple(
+            PhysicalConductorBranchAssociation(
+                equipment_id=self.equipment_id,
+                conductor_id=item.conductor_id,
+                conductor_role=item.role.value,
+                from_bus_id=self.from_bus_id,
+                to_bus_id=self.to_bus_id,
+            )
+            for item in self.conductor_system.conductors
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PhysicalConductorBranchAssociation:
+    """Associate one conductor identity with its owning branch terminal pair.
+
+    The FROM/TO Bus IDs are the resolved branch-terminal attachment points.
+    This is not a claim that individual phase/neutral/PE terminals or
+    conductor-to-ground bonds have been modelled.
+    """
+
+    equipment_id: str
+    conductor_id: str
+    conductor_role: str
+    from_bus_id: str | None
+    to_bus_id: str | None
+
+    def __post_init__(self) -> None:
+        for name in ("equipment_id", "conductor_id", "conductor_role"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("from_bus_id", "to_bus_id"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty Bus identity or None.")
+            if value is not None:
+                object.__setattr__(self, name, value.strip())
+        if (self.from_bus_id is None) != (self.to_bus_id is None):
+            raise ValueError("A conductor association cannot have only one resolved branch-terminal Bus.")
+
+    @property
+    def identity(self) -> tuple[str, str]:
+        return self.equipment_id, self.conductor_id
+
 
 @dataclass(frozen=True, slots=True)
 class PhysicalConductorTopologySnapshot:
@@ -174,6 +223,7 @@ def build_physical_conductor_topology_snapshot(
 
 
 __all__ = [
+    "PhysicalConductorBranchAssociation",
     "PhysicalConductorBranchTopology",
     "PhysicalConductorTopologySnapshot",
     "build_physical_conductor_topology_snapshot",
