@@ -813,7 +813,6 @@ still do not consume the generic terminal-current records.
 
 The canonical short-circuit sequence-network preparation stamps a
 two-terminal transformer using the explicit Core Transformer from-side
-two-terminal transformer using the explicit Core Transformer from-side
 complex tap a = t * exp(j * theta), where t is the persisted tap ratio and
 \(\theta\) is the Core phase-shift value in radians. The primitive is:
 
