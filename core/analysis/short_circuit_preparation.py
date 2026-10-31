@@ -15,6 +15,7 @@ from core.solver.short_circuit.sequence_snapshot import (
 )
 from .sequence_network_preparation import SequenceNetworkPreparation
 from core.network.topology_snapshot import TopologySnapshot
+from core.model.transformer import Transformer
 
 
 class ShortCircuitPreparation:
@@ -113,6 +114,20 @@ class ShortCircuitPreparation:
     def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
+            requires_tap_aware_matrix = any(
+                isinstance(element, Transformer)
+                and (
+                    not math.isclose(float(getattr(element, "tap", 1.0)), 1.0, rel_tol=0.0, abs_tol=1e-12)
+                    or not math.isclose(float(getattr(element, "shift", 0.0)), 0.0, rel_tol=0.0, abs_tol=1e-12)
+                )
+                for element in self._branch_elements(network)
+                if bool(getattr(element, "in_service", True))
+            )
+            if requires_tap_aware_matrix and getattr(sequence_network, "transformer_tap_convention", None) != "FROM_SIDE_COMPLEX_TAP_V1":
+                raise ValueError(
+                    "An externally supplied sequence network cannot be used with a non-unity transformer tap/phase shift "
+                    "unless it declares the canonical FROM_SIDE_COMPLEX_TAP_V1 stamping convention."
+                )
         else:
             required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
             sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
