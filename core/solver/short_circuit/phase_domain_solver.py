@@ -139,6 +139,9 @@ class PhaseDomainTransformerMultiport:
     node_ids: tuple[str, ...]
     terminal_labels: tuple[str, ...]
     admittance_siemens: tuple[tuple[complex, ...], ...]
+    internal_loop_labels: tuple[str, ...] = ()
+    internal_loop_coupling: tuple[tuple[complex, ...], ...] = ()
+    internal_loop_impedance_ohm: tuple[tuple[complex, ...], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "transformer_id", _name(self.transformer_id, "transformer_id"))
@@ -161,6 +164,30 @@ class PhaseDomainTransformerMultiport:
         object.__setattr__(self, "node_ids", nodes)
         object.__setattr__(self, "terminal_labels", labels)
         object.__setattr__(self, "admittance_siemens", matrix)
+        loop_labels = tuple(_name(x, "transformer internal delta-loop label") for x in self.internal_loop_labels)
+        coupling = tuple(tuple(_finite_complex(x, "transformer delta-loop coupling") for x in row) for row in self.internal_loop_coupling)
+        loop_z = tuple(tuple(_finite_complex(x, "transformer delta-loop impedance") for x in row) for row in self.internal_loop_impedance_ohm)
+        loop_count = len(loop_labels)
+        if len(set(loop_labels)) != loop_count:
+            raise ValueError("Transformer internal delta-loop labels must be unique.")
+        if loop_count:
+            if len(coupling) != size or any(len(row) != loop_count for row in coupling):
+                raise ValueError("Delta-loop coupling matrix must have terminal_count x loop_count dimensions.")
+            if len(loop_z) != loop_count or any(len(row) != loop_count for row in loop_z):
+                raise ValueError("Delta-loop impedance matrix must be square and match loop labels.")
+            z_values = np.asarray(loop_z, dtype=complex)
+            if not np.allclose(z_values, z_values.T, rtol=1e-9, atol=1e-12):
+                raise ValueError("Delta-loop impedance matrix must be reciprocal.")
+            resistance_eigenvalues = np.linalg.eigvalsh((z_values.real + z_values.real.T) * 0.5)
+            if not np.all(np.isfinite(resistance_eigenvalues)) or float(np.min(resistance_eigenvalues)) <= 1.0e-12:
+                raise ValueError("Delta-loop resistance matrix must be positive definite.")
+            if not any(value != 0j for row in coupling for value in row):
+                raise ValueError("Delta-loop coupling matrix cannot be identically zero.")
+        elif coupling or loop_z:
+            raise ValueError("Delta-loop coupling/impedance data requires loop labels.")
+        object.__setattr__(self, "internal_loop_labels", loop_labels)
+        object.__setattr__(self, "internal_loop_coupling", coupling)
+        object.__setattr__(self, "internal_loop_impedance_ohm", loop_z)
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,6 +328,7 @@ class PhaseDomainShortCircuitSolution:
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
     transformer_terminal_currents_a: Mapping[str, Mapping[str, complex]] | None = None
+    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, complex]] | None = None
 
     def __post_init__(self) -> None:
         residual = float(self.kcl_residual_a)
@@ -317,6 +345,8 @@ class PhaseDomainShortCircuitSolution:
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
         transformer_currents = self.transformer_terminal_currents_a or {}
         object.__setattr__(self, "transformer_terminal_currents_a", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in transformer_currents.items()}))
+        loop_currents = self.transformer_delta_loop_currents_a or {}
+        object.__setattr__(self, "transformer_delta_loop_currents_a", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in loop_currents.items()}))
 
 
 def _reconcile_source_returns(case: PhaseDomainShortCircuitCase, source_currents: Mapping[str, Any], connection_currents: Mapping[str, complex]) -> dict[str, dict[str, Any]]:
@@ -361,8 +391,14 @@ class PhaseDomainShortCircuitSolver:
             raise TypeError("case must be PhaseDomainShortCircuitCase.")
         snapshot = case.admittance
         ids = snapshot.node_ids
-        y = np.asarray(snapshot.admittance_siemens, dtype=complex).copy()
-        rhs = np.zeros(len(ids), dtype=complex)
+        base_size = len(ids)
+        loop_count = sum(len(item.internal_loop_labels) for item in case.transformer_primitives)
+        solve_size = base_size + loop_count
+        y = np.zeros((solve_size, solve_size), dtype=complex)
+        y[:base_size, :base_size] = np.asarray(snapshot.admittance_siemens, dtype=complex)
+        rhs = np.zeros(solve_size, dtype=complex)
+        loop_cursor = base_size
+        transformer_loop_indices = {}
         constraints: list[np.ndarray] = []
         constraint_values: list[complex] = []
 
@@ -402,7 +438,7 @@ class PhaseDomainShortCircuitSolver:
                     for column, global_column in enumerate(indices):
                         y[global_row, global_column] += source_y[row, column]
 
-        # Stamp explicit reciprocal transformer terminal-domain primitives.
+        # Stamp terminal admittance and explicit internal delta-loop MNA states.
         for primitive in case.transformer_primitives:
             indices = [snapshot.source_node_to_index[node_id] for node_id in primitive.node_ids]
             if any(index is None for index in indices) or len(set(indices)) != len(indices):
@@ -411,12 +447,24 @@ class PhaseDomainShortCircuitSolver:
             for row, global_row in enumerate(indices):
                 for column, global_column in enumerate(indices):
                     y[global_row, global_column] += block[row, column]
+            count = len(primitive.internal_loop_labels)
+            if count:
+                loop_indices = tuple(range(loop_cursor, loop_cursor + count))
+                transformer_loop_indices[primitive.transformer_id] = loop_indices
+                coupling = np.asarray(primitive.internal_loop_coupling, dtype=complex)
+                loop_impedance = np.asarray(primitive.internal_loop_impedance_ohm, dtype=complex)
+                for row, terminal_index in enumerate(indices):
+                    for column, loop_index in enumerate(loop_indices):
+                        y[terminal_index, loop_index] += coupling[row, column]
+                        y[loop_index, terminal_index] += coupling[row, column]
+                y[np.ix_(loop_indices, loop_indices)] -= loop_impedance
+                loop_cursor += count
 
         for fault in case.faults:
             i = snapshot.source_node_to_index[fault.from_node_id]
             j = snapshot.source_node_to_index[fault.to_node_id]
             if fault.impedance_ohm == 0j:
-                row = np.zeros(len(ids), dtype=complex)
+                row = np.zeros(solve_size, dtype=complex)
                 if i is not None:
                     row[i] += 1.0
                 if j is not None:
@@ -436,7 +484,7 @@ class PhaseDomainShortCircuitSolver:
                     y[j, i] -= admittance
 
         multipliers = np.zeros(0, dtype=complex)
-        constraint_reaction = np.zeros(len(ids), dtype=complex)
+        constraint_reaction = np.zeros(solve_size, dtype=complex)
         if constraints:
             c = np.vstack(constraints)
             saddle = np.block([
@@ -445,8 +493,8 @@ class PhaseDomainShortCircuitSolver:
             ])
             augmented_rhs = np.concatenate((rhs, np.asarray(constraint_values, dtype=complex)))
             augmented_solution = np.linalg.solve(saddle, augmented_rhs)
-            solution = augmented_solution[:len(ids)]
-            multipliers = augmented_solution[len(ids):]
+            solution = augmented_solution[:solve_size]
+            multipliers = augmented_solution[solve_size:]
             constraint_reaction = c.conjugate().T @ multipliers
         else:
             solution = np.linalg.solve(y, rhs)
@@ -718,9 +766,17 @@ class PhaseDomainShortCircuitSolver:
                 conductor_records[record.record_id] = record
 
         transformer_terminal_currents = {}
+        transformer_delta_loop_currents = {}
         for primitive in case.transformer_primitives:
             terminal_voltages = np.asarray([voltage_by_node[node_id] for node_id in primitive.node_ids], dtype=complex)
             terminal_currents = np.asarray(primitive.admittance_siemens, dtype=complex) @ terminal_voltages
+            loop_indices = transformer_loop_indices.get(primitive.transformer_id, ())
+            loop_values = np.asarray([solution[index] for index in loop_indices], dtype=complex)
+            if loop_indices:
+                terminal_currents = terminal_currents + np.asarray(primitive.internal_loop_coupling, dtype=complex) @ loop_values
+                transformer_delta_loop_currents[primitive.transformer_id] = {
+                    label: complex(current) for label, current in zip(primitive.internal_loop_labels, loop_values)
+                }
             transformer_terminal_currents[primitive.transformer_id] = {
                 label: complex(current) for label, current in zip(primitive.terminal_labels, terminal_currents)
             }
@@ -790,6 +846,7 @@ class PhaseDomainShortCircuitSolver:
             kcl_residual_a=kcl_residual_a,
             diagnostics=tuple(connection_diagnostics),
             transformer_terminal_currents_a=transformer_terminal_currents,
+            transformer_delta_loop_currents_a=transformer_delta_loop_currents,
         )
 
 
