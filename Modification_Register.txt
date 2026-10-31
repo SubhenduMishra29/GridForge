@@ -17707,3 +17707,62 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-SC-D15F-27
+======================================================================
+
+Scope:
+    Construct Line/Cable physical phase-domain conductor connectivity from
+    canonical committed SLD topology and explicit branch conductor inventory.
+
+Correction:
+    - Added build_phase_domain_conductor_network_from_sld() and routed the
+      authoritative Network snapshot API through it.
+    - For each active Line/Cable conductor, the builder creates distinct
+      FROM/TO BRANCH_TERMINAL nodes using the owning branch's explicit
+      conductor ID and role.
+    - Each branch terminal must resolve exactly one EquipmentBusAttachment
+      with a canonical Bus attachment-N slot. Missing or ambiguous SLD
+      attachment identity fails closed.
+    - The builder creates Bus attachment conductor nodes carrying exact
+      TopologyEndpointReference identities and connects branch terminals
+      through explicit zero-ohm CONTINUITY edges.
+    - Bus attachment nodes of the same role connect to a Busbar conductor
+      node. This represents the existing ideal/equipotential Bus model;
+      it does not introduce a busbar impedance model.
+    - Branch conductor IDs remain owner-local. Global admittance validation
+      now checks exact Bus identity and conductor role across the terminal
+      continuity edge rather than incorrectly requiring a Bus-owned
+      conductor ID to equal a Line/Cable-local conductor ID.
+    - Short-circuit preparation now obtains both its initial and
+      independently rebuilt authoritative graph through the Network SLD
+      snapshot API. Existing explicitly configured source, earth, grounding,
+      and fault nodes/connections are merged without replacing their
+      declarations.
+
+Fail-closed boundaries:
+    - Only explicitly inventoried Line/Cable conductors create branch
+      physical paths. No phase, N, PE, screen, pilot, grounding, or earth
+      conductor is synthesized.
+    - Active branch terminals without canonical SimpleWire Bus attachment
+      identity are rejected; direct/legacy attachments are not guessed.
+    - Busbar segments are ideal zero-ohm continuity under the existing Bus
+      abstraction. Physical busbar impedance, bus sectionalizer/pole
+      conductor construction, and bus coupler physical conductor modelling
+      remain separate work.
+    - This does not yet resolve equipment internal conductor paths,
+      transformer winding conductor networks, breaker pole-specific
+      physical switching, CT P1/P2 cuts, or CBCT aperture membership.
+    - No PE/N/screen bonds or earth-return paths are inferred.
+
+Verification:
+    Remote source edits and re-fetch checks only. No tests/CI, syntax/import
+    checks, numerical fixtures, or end-to-end short-circuit execution were
+    run. Runtime behaviour remains unverified.
+
+Status:
+    IMPLEMENTED — STATIC REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
