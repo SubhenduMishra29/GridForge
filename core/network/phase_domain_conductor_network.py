@@ -18,6 +18,7 @@ class PhaseDomainNodeKind(str, Enum):
     BUS_CONDUCTOR = "BUS_CONDUCTOR"
     BRANCH_TERMINAL = "BRANCH_TERMINAL"
     EQUIPMENT_TERMINAL = "EQUIPMENT_TERMINAL"
+    FAULT_NODE = "FAULT_NODE"
     EARTH_NODE = "EARTH_NODE"
     EARTH_REFERENCE = "EARTH_REFERENCE"
 
@@ -75,6 +76,11 @@ class PhaseDomainConductorNode:
                 raise ValueError("Earth-domain nodes must use role EARTH and no conductor_id.")
             if self.equipment_id is not None or self.terminal_role is not None or self.bus_id is not None:
                 raise ValueError("Earth-domain nodes cannot claim equipment terminals or Bus attachments.")
+        elif kind is PhaseDomainNodeKind.FAULT_NODE:
+            if role != "OTHER" or self.conductor_id is not None:
+                raise ValueError("Fault-star nodes must use role OTHER and no physical conductor_id.")
+            if self.equipment_id is not None or self.terminal_role is not None or self.bus_id is not None:
+                raise ValueError("Fault-star nodes cannot claim equipment terminals or Bus attachments.")
         else:
             if role == "EARTH":
                 raise ValueError("EARTH role is reserved for explicit earth-domain nodes.")
