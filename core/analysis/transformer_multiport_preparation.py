@@ -28,6 +28,8 @@ def prepare_transformer_phase_domain_multiport(
     matrix = transformer.phase_domain_terminal_admittance_siemens
     if construction.vector_group is None:
         raise ValueError(f"Transformer {transformer.id!r} requires explicit vector-group configuration for its multiport.")
+    if construction.core_construction is None:
+        raise ValueError(f"Transformer {transformer.id!r} requires explicit core construction for zero-sequence coverage assessment.")
     if matrix is None:
         raise ValueError(
             f"Transformer {transformer.id!r} has no explicit complete terminal-domain admittance matrix. "
@@ -71,6 +73,50 @@ def prepare_transformer_phase_domain_multiport(
                 )
             ordered.append(matches[0].node_id)
             labels.append(f"{winding.winding}:N")
+
+    for winding in (construction.hv, construction.lv):
+        if winding.neutral_terminal_role is None:
+            continue
+        neutral_node_id = next(
+            node_id for node_id, label in zip(ordered, labels)
+            if label == f"{winding.winding}:N"
+        )
+        grounding_edges = tuple(
+            edge for edge in graph.connections
+            if edge.in_service
+            and edge.kind.value == "GROUND_ELECTRODE"
+            and edge.source_reference == transformer.id
+            and neutral_node_id in {edge.from_node_id, edge.to_node_id}
+        )
+        if len(grounding_edges) != 1:
+            raise ValueError(
+                f"Transformer {transformer.id!r} {winding.winding} neutral requires exactly "
+                "one source-referenced physical GROUND_ELECTRODE connection."
+            )
+        edge = grounding_edges[0]
+        if edge.impedance_ohm != winding.neutral_grounding_impedance_ohm:
+            raise ValueError(
+                f"Transformer {transformer.id!r} {winding.winding} neutral electrode "
+                "impedance does not match the winding construction."
+            )
+        earth_node_id = edge.to_node_id if edge.from_node_id == neutral_node_id else edge.from_node_id
+        if not graph.earth_reachable(earth_node_id):
+            raise ValueError(
+                f"Transformer {transformer.id!r} {winding.winding} neutral earth node "
+                "has no explicit path to EARTH_REFERENCE."
+            )
+        return_edges = tuple(
+            item for item in graph.connections
+            if item.in_service
+            and item.kind.value == "EARTH_RETURN"
+            and item.source_reference == f"TRANSFORMER-EARTH-RETURN:{transformer.id}:{winding.winding}"
+            and earth_node_id in {item.from_node_id, item.to_node_id}
+        )
+        if len(return_edges) != 1 or return_edges[0].impedance_ohm != winding.earth_return_impedance_ohm:
+            raise ValueError(
+                f"Transformer {transformer.id!r} {winding.winding} requires exactly one "
+                "matching explicit earth-return impedance path."
+            )
 
     if len(matrix) != len(ordered):
         raise ValueError(
