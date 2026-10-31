@@ -16564,3 +16564,39 @@ Verification:
     Remote source edits committed. No tests/CI, Python syntax/import checks,
     configuration serialization round-trip, or numerical solver execution
     were run.
+
+
+======================================================================
+GF-SC-D15B — IMMUTABLE PHYSICAL CONDUCTOR-CURRENT RESULT CONTRACT
+======================================================================
+
+Files:
+    core/solver/short_circuit/result.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/solver/short_circuit/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Changes:
+    - Added immutable ShortCircuitConductorCurrent, terminal-scoped by
+      physical conductor identity and owning equipment terminal.
+    - Added strict conductor-current record identity, phase/conductor role,
+      finite complex value, explicit current direction, per-unit basis and
+      immutable provenance validation.
+    - Added conductor_currents, independent coverage status and diagnostics
+      to ShortCircuitResult, including immutable mapping validation,
+      composite-key lookup and as_dict exposure.
+    - Integrated an explicit solver UNAVAILABLE status. Aggregate branch
+      phase currents are not silently promoted to physical conductor currents
+      because prepared branch snapshots have no physical conductor inventory
+      or per-conductor electrical parameters.
+
+Engineering boundary:
+    No conductor-current records are emitted in this phase. Neutral current
+    and CBCT aperture aggregation remain fail-closed. A neutral current must
+    not be inferred as the negative phase-current sum unless Core topology
+    and the electrical model prove the neutral is the sole return path.
+
+Verification:
+    Remote source edits only. No tests/CI, Python syntax/import checks,
+    solver execution or numerical conductor-current fixtures were run.
