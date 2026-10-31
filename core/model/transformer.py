@@ -356,8 +356,18 @@ class Transformer(Branch):
         target_in_service = self._in_service if in_service is None else bool(in_service)
         target_hv_connection = self._normalize_winding_connection(self._hv_winding_connection if hv_winding_connection is None else hv_winding_connection)
         target_lv_connection = self._normalize_winding_connection(self._lv_winding_connection if lv_winding_connection is None else lv_winding_connection)
-        target_hv_grounding = self._validate_neutral_grounding(self._hv_neutral_grounding_impedance_ohm if hv_neutral_grounding_impedance_ohm is None else hv_neutral_grounding_impedance_ohm, target_hv_connection, "HV")
-        target_lv_grounding = self._validate_neutral_grounding(self._lv_neutral_grounding_impedance_ohm if lv_neutral_grounding_impedance_ohm is None else lv_neutral_grounding_impedance_ohm, target_lv_connection, "LV")
+        target_hv_grounding_value = (
+            self._hv_neutral_grounding_impedance_ohm
+            if hv_neutral_grounding_impedance_ohm is None and hv_winding_connection is None
+            else hv_neutral_grounding_impedance_ohm
+        )
+        target_lv_grounding_value = (
+            self._lv_neutral_grounding_impedance_ohm
+            if lv_neutral_grounding_impedance_ohm is None and lv_winding_connection is None
+            else lv_neutral_grounding_impedance_ohm
+        )
+        target_hv_grounding = self._validate_neutral_grounding(target_hv_grounding_value, target_hv_connection, "HV")
+        target_lv_grounding = self._validate_neutral_grounding(target_lv_grounding_value, target_lv_connection, "LV")
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
