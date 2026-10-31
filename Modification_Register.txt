@@ -15832,7 +15832,7 @@ Verification:
 - ShortCircuitPreparation preserves physical FROM/TO terminal roles in the detached sequence branch snapshot.
 - ShortCircuitSolver derives independent FROM and TO terminal currents from solved sequence voltages and the prepared series impedance. The TO terminal current is the negative of the FROM-oriented series current under the declared into-equipment convention.
 - Added independent terminal_current_status and terminal_current_diagnostics to ShortCircuitResult. COMPLETE requires both terminal records for every prepared branch; unsupported equipment is reported as PARTIAL/UNAVAILABLE and is never replaced by Branch aggregate current.
-- This increment deliberately supports only series-only Line and Cable primitives. Transformer terminal currents remain unavailable until the model includes tap, winding/vector-group, phase-shift and sequence-grounding behavior. Shunt/mutual models, machine stator terminals, load contributions and Bus-boundary currents remain outstanding.
+- At the D6 stage, terminal-current output supported only series-only Line/Cable primitives. This historical limitation was superseded by D7 tap-aware transformer sequence stamping and D8 balanced three-phase transformer terminal-current equations. Unbalanced transformer sequence paths remain unsupported. Shunt/mutual models, machine stator terminals, load contributions and Bus-boundary currents remain outstanding.
 - Protection CT scenario adapters do not consume the new records yet; no unsupported CT path is enabled by this change.
 - Verification: remote source-level review only. No tests or CI run, per repository workflow. Python syntax/import/runtime checks remain outstanding.
 
