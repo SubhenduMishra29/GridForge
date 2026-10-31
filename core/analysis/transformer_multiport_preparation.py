@@ -132,6 +132,38 @@ def prepare_transformer_phase_domain_multiport(
         delta_windings=delta_windings,
     )
 
+    loop_states = tuple(transformer.phase_domain_delta_loop_states)
+    winding_connections = {
+        "HV": construction.hv.connection,
+        "LV": construction.lv.connection,
+    }
+    for loop in loop_states:
+        if winding_connections[loop.winding] != "DELTA":
+            raise ValueError(
+                f"Transformer {transformer.id!r} delta loop {loop.loop_id!r} "
+                f"belongs to non-delta {loop.winding} winding."
+            )
+        if len(loop.coupling_coefficients) != len(labels):
+            raise ValueError(
+                f"Transformer {transformer.id!r} delta loop {loop.loop_id!r} "
+                "coupling vector must match the exact ordered terminal inventory."
+            )
+    actual_delta_windings = {loop.winding for loop in loop_states}
+    if actual_delta_windings != set(delta_windings):
+        raise ValueError(
+            f"Transformer {transformer.id!r} requires explicit internal loop states "
+            f"for every delta winding; required={sorted(delta_windings)}, "
+            f"supplied={sorted(actual_delta_windings)}."
+        )
+    loop_labels = tuple(f"{loop.winding}:DELTA_LOOP:{loop.loop_id}" for loop in loop_states)
+    loop_coupling = tuple(
+        tuple(loop.coupling_coefficients[row] for loop in loop_states)
+        for row in range(len(labels))
+    ) if loop_states else ()
+    loop_impedance = tuple(
+        tuple(loop_states[row].impedance_ohm if row == column else 0j for column in range(len(loop_states)))
+        for row in range(len(loop_states))
+    )
     if len(matrix) != len(ordered):
         raise ValueError(
             f"Transformer {transformer.id!r} terminal admittance dimension {len(matrix)} "
@@ -142,6 +174,9 @@ def prepare_transformer_phase_domain_multiport(
         node_ids=tuple(ordered),
         terminal_labels=tuple(labels),
         admittance_siemens=matrix,
+        internal_loop_labels=loop_labels,
+        internal_loop_coupling=loop_coupling,
+        internal_loop_impedance_ohm=loop_impedance,
     )
 
 
