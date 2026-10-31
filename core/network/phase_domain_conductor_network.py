@@ -685,7 +685,7 @@ def build_phase_domain_conductor_network_from_sld(
             if winding.neutral_terminal_role is not None:
                 neutral_node_id = stable_id(
                     "transformer-winding-terminal", transformer.id,
-                    winding.winding, winding.neutral_terminal_role, "N",
+                    winding.winding, terminal_by_role[winding.neutral_terminal_role.casefold()].role, "N",
                 )
                 earth_node_id = stable_id("transformer-neutral-earth", transformer.id, winding.winding)
                 earth_reference_id = stable_id("transformer-earth-reference", transformer.id, winding.winding)
