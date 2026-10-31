@@ -413,8 +413,6 @@ class Branch(ElectricalObject):
     def _validate_conductor_system(value: Any) -> BranchConductorSystem | None:
         if value is not None and not isinstance(value, BranchConductorSystem):
             raise TypeError("conductor_system must be BranchConductorSystem or None.")
-        if value is not None:
-            value.__post_init__()
         return value
 
     # ============================================================
