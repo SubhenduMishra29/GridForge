@@ -18165,3 +18165,59 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-35
+======================================================================
+
+Scope:
+    Add explicit transformer grounded-wye neutral electrode and earth
+    return paths to the SLD-derived physical conductor graph.
+
+Corrections:
+    - TransformerWindingConductorConstruction now requires a separate
+      explicit non-zero earth_return_impedance_ohm whenever a grounded-wye
+      neutral is declared.
+    - Neutral grounding impedance and earth-return impedance are distinct
+      physical elements. Both must be finite, passive and non-zero;
+      ideal zero-ohm return paths are rejected because individual current
+      division is not resolved by the current solver contract.
+    - The SLD graph builder creates one local EARTH_NODE and one
+      EARTH_REFERENCE per explicitly grounded transformer winding.
+    - It creates a GROUND_ELECTRODE edge from the exact neutral terminal
+      node using the configured neutral grounding impedance, and an
+      EARTH_RETURN edge from the local earth node to the reference using
+      the separately configured earth-return impedance.
+    - The transformer multiport producer verifies exactly one matching
+      electrode, exact configured impedances, and earth reachability.
+    - Explicit core construction is now required for transformer
+      zero-sequence coverage assessment.
+
+Important boundary:
+    - The supplied terminal-domain admittance matrix remains the only
+      authority for winding incidence, delta circulation, magnetic
+      coupling, turns ratio, vector displacement and core-return physics.
+    - A core construction label (THREE_LIMB, FIVE_LIMB, SHELL_FORM) is
+      metadata only; it does not synthesize a zero-sequence core model.
+    - No automatic delta circulating-current or core zero-sequence
+      correction is derived. Such behaviour must already be encoded in
+      the validated terminal-domain matrix or the study is unavailable.
+    - PE/screen parallel earth-return current division, multiple
+      electrodes, mutual earth impedance and soil frequency dependence
+      remain outside this increment.
+    - No implicit neutral-to-earth connection is created for ungrounded
+      wye or delta windings.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    graph fixtures, current-balance numerical cases or end-to-end
+    transformer earth-fault study were run. Runtime behaviour remains
+    unverified.
+
+Status:
+    EXPLICIT TRANSFORMER NEUTRAL/EARTH RETURN GRAPH PATHS IMPLEMENTED —
+    CORE ZERO-SEQUENCE AND RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
