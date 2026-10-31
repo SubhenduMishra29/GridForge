@@ -16522,3 +16522,42 @@ Verification:
     production-verified.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15A — EXPLICIT NEUTRAL-CT AND CBCT CONSTRUCTION CONTRACTS
+======================================================================
+
+Files:
+    core/protection/residual_current.py
+    core/protection/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Changes:
+    - Added immutable NeutralCTConstruction identifying the monitored
+      neutral conductor, owning equipment terminal, neutral node and
+      explicit positive current direction.
+    - Added immutable CBCTConductor and CBCTWindowConstruction contracts.
+      The CBCT window requires exactly one A, B and C conductor, an
+      explicit neutral-inclusion declaration, unique conductor identities,
+      and explicit signed current references for every enclosed conductor.
+    - NEUTRAL_CT and CBCT residual input configurations now require their
+      matching typed construction. A direct binding ID alone is not treated
+      as a physical measurement source.
+    - Added explicit construction serialization/deserialization to the
+      residual input configuration dictionary contract and exported the
+      new public types.
+
+Boundary:
+    These are physical construction declarations only. They do not create
+    neutral conductor topology, solver current contributions, or CBCT
+    aperture-current aggregation. Direct NEUTRAL_CT and CBCT execution
+    remains fail-closed until canonical conductor topology and immutable
+    solver conductor-current records are implemented and validated against
+    the configured conductor/window membership.
+
+Verification:
+    Remote source edits committed. No tests/CI, Python syntax/import checks,
+    configuration serialization round-trip, or numerical solver execution
+    were run.
