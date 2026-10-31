@@ -144,6 +144,11 @@ class PhaseDomainShortCircuitCase:
         base = float(self.base_mva)
         if not math.isfinite(base) or base <= 0.0:
             raise ValueError("base_mva must be finite and positive.")
+        branch_ids = {item.equipment_id for item in self.impedances.branches}
+        connection_ids = {item.connection_id for item in self.graph.connections}
+        collisions = branch_ids & connection_ids
+        if collisions:
+            raise ValueError(f"Phase-domain connection IDs collide with branch equipment IDs: {sorted(collisions)!r}.")
         known = set(self.graph.node_index)
         for item in sources:
             source_nodes = (item.node_id,) if isinstance(item, PhaseDomainSourceEquivalent) else item.node_ids
