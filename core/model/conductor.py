@@ -60,6 +60,25 @@ def _finite_complex(value: Any, name: str) -> complex:
     return result
 
 
+def _validate_positive_definite_resistance(matrix: tuple[tuple[complex, ...], ...]) -> None:
+    """Require a positive-definite real resistance matrix without NumPy."""
+    size = len(matrix)
+    diagonal_scale = max((abs(matrix[i][i].real) for i in range(size)), default=1.0)
+    tolerance = max(1.0, diagonal_scale) * 1.0e-12
+    lower = [[0.0 for _ in range(size)] for _ in range(size)]
+    for row in range(size):
+        for column in range(row + 1):
+            value = matrix[row][column].real - sum(
+                lower[row][k] * lower[column][k] for k in range(column)
+            )
+            if row == column:
+                if value <= tolerance:
+                    raise ValueError("Series resistance matrix must be positive definite.")
+                lower[row][column] = math.sqrt(value)
+            else:
+                lower[row][column] = value / lower[column][column]
+
+
 @dataclass(frozen=True, slots=True)
 class PhysicalConductor:
     """Stable identity and declared construction of one physical conductor.
@@ -166,9 +185,7 @@ class BranchConductorSystem:
             return normalized
 
         series = normalize_matrix(self.series_impedance_matrix_ohm_per_km, "series_impedance_matrix_ohm_per_km")
-        for index, value in enumerate(series[i][i] for i in range(size)):
-            if value.real <= 0.0:
-                raise ValueError(f"Conductor self-resistance at matrix index {index} must be positive.")
+        _validate_positive_definite_resistance(series)
         shunt = None
         if self.shunt_admittance_matrix_siemens_per_km is not None:
             shunt = normalize_matrix(self.shunt_admittance_matrix_siemens_per_km, "shunt_admittance_matrix_siemens_per_km")
