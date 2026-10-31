@@ -164,8 +164,8 @@ def classify_transformer_zero_sequence(
     Two grounded-wye windings require explicit vector-group/clock, winding-
     polarity and applicable test contracts plus all three measured driving-
     point impedances. The three-test T equivalent is validated before this
-    topology is marked numerically available; network preparation still
-    validates terminal attachment, winding voltage bases and neutral data.
+    topology is marked numerically available; network preparation validates
+    terminal attachment, winding voltage bases, neutral data and tap limits.
 
     Delta-delta and ungrounded-wye combinations have no external grounded
     neutral path in this two-winding model. Delta circulation is reported
