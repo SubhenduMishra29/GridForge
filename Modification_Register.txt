@@ -17882,3 +17882,59 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-30
+======================================================================
+
+Scope:
+    Consolidate equipment-internal conductor construction into one
+    authoritative Core PhysicalConductorConstruction contract and consume
+    it from the SLD-derived phase-domain conductor graph.
+
+Contract:
+    - PhysicalConductorPath identifies one conductor role, its FROM/TO
+      terminal roles and its physical series impedance in ohms.
+    - PhysicalConductorConstruction is immutable, validates non-empty
+      typed paths, rejects duplicate role/terminal path identities, and
+      exposes a canonical conductor-role inventory.
+    - The contract is exported from core.model.
+    - Breaker, Switch, Disconnector and Fuse expose a common
+      physical_conductor_construction property backed by their existing
+      explicit construction fields.
+    - Construction and operating state remain separate authorities.
+      Breaker pole states/global closed/failed, Switch and Disconnector
+      closed state, and Fuse conducts state remain owned by their
+      respective equipment models.
+    - The phase-domain SLD graph builder consumes the common path records
+      for all four switching equipment types, resolves exact terminal
+      roles and canonical Bus attachment slots, and uses each path's
+      declared impedance rather than hard-coding every internal path
+      as zero-ohm.
+
+Fail-closed boundaries:
+    - Missing construction for an in-service switching device is rejected.
+    - Missing terminal mapping, ambiguous/missing canonical Bus attachment,
+      missing Breaker pole state, or failed Breaker is rejected.
+    - No conductor inventory, terminal mapping, grounding, PE, screen,
+      or neutral path is inferred.
+    - This first contract covers two-terminal internal paths only.
+      Transformer winding topology, multi-terminal equipment, parallel
+      conductors, switching transients, fuse arc/melting behaviour,
+      per-pole contact impedance configuration and equipment-specific
+      physical persistence/UI configuration remain outstanding.
+    - Existing equipment construction fields are retained as compatibility
+      inputs; this entry does not claim a full schema migration or
+      configurator implementation.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    model serialization round-trip, numerical fixtures or end-to-end
+    study execution were run. Runtime behaviour remains unverified.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
