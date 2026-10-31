@@ -806,3 +806,35 @@ multi-winding transformers, machine stator terminals, load contributions and
 Bus-boundary injection records are also outside this increment. Protection
 Study does not consume these records yet; its unsupported CT paths remain
 fail-closed pending the terminal adapter and base conversion.
+
+
+## 21. Transformer sequence-network tap primitive — Phase D7
+
+The canonical short-circuit sequence-network preparation stamps a
+two-terminal transformer using the explicit Core Transformer from-side
+complex tap (a=t e^{j\theta}), where (t) is the persisted tap ratio and
+\(\theta\) is the Core phase-shift value in radians. The primitive is:
+
+\[
+Y_{ff}=\frac{y}{|a|^2},\quad
+Y_{ft}=-\frac{y}{a^*},\quad
+Y_{tf}=-\frac{y}{a},\quad
+Y_{tt}=y
+\]
+
+Line/Cable and single-Bus source stamps retain unity-tap behaviour. The
+detached SequenceBranchSnapshot preserves the transformer's tap ratio and
+phase shift so the result layer can use the same primitive rather than
+reconstructing transformer state from live Core.
+
+**Strict scope:** this increment applies only the explicit Core scalar tap and
+phase-shift fields. It does not apply optional plugin VectorGroup clock
+displacement, winding connection mapping, neutral grounding/zero-sequence
+paths, transformer magnetising/shunt admittance, tertiary windings, or
+unbalanced transformer sequence coupling. Consequently, transformer
+short-circuit studies requiring those behaviours remain unsupported and must
+not be represented as complete. Transformer terminal-current output remains
+withheld until its equations consume this exact stamped primitive.
+
+Verification: remote source review and contract reconciliation only. No tests
+or CI run. Python syntax/import/runtime checks remain outstanding.
