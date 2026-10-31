@@ -872,3 +872,38 @@ multi-winding equivalents remain outside this two-terminal series primitive.
 
 Verification: remote source-level review only. No tests or CI run. Python
 syntax/import/runtime checks remain outstanding.
+
+
+## 23. CT measurement conversion from equipment-terminal currents — Phase D9
+
+Protection Study scenario conversion now consumes the detached
+ShortCircuitTerminalCurrent record selected by the engineer's persisted
+ProtectionMeasurementBinding. The binding must identify one equipment
+terminal by equipment ID and terminal role, one CT, one MeasurementChannel,
+one RelayInput, and one explicit phase/sequence quantity.
+
+The converter verifies the terminal record identity, Bus, per-unit basis,
+INTO_EQUIPMENT reference direction, result status, terminal-current
+availability, topology revision, CT association, physical CT polarity,
+secondary channel source/terminal, and configured CT ratio. It converts
+terminal per-unit current to primary amperes using the terminal Bus voltage
+base, applies the P1/P2 orientation and CT polarity, then converts to CT
+secondary amperes. The operation creates a detached scenario sample and
+does not mutate live MeasurementChannel state.
+
+A PARTIAL terminal-current set may still supply a sample when the exact
+configured terminal record is present and valid; missing or unsupported
+records remain blocked. This avoids rejecting a valid configured measurement
+solely because an unrelated equipment terminal elsewhere in the network is
+unsupported. FAILED or UNAVAILABLE terminal-current sets are rejected.
+
+The terminal-current adapter supports only terminal records actually emitted
+by the short-circuit solver (currently Line, Cable, and balanced three-phase
+Transformer series primitives). Bus attachments, PT/CVT voltage conversion,
+unbalanced Transformer terminal currents, unsupported equipment, and
+protection-zone inference remain outside scope. The CT association resolver
+continues to report physical P1/P2 connectivity only; it does not assign a
+protection zone or infer the engineer's measurement target.
+
+Verification: remote source review only. No tests or CI run. Python syntax,
+import integrity and runtime checks remain outstanding.
