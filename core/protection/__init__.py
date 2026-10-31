@@ -10,6 +10,8 @@ from .protection_measurement_binding import ProtectionMeasurementBinding
 from .residual_current import (
     ResidualCurrentInputConfiguration,
     ResidualCurrentSample,
+    ResidualCurrentSourceSample,
+    normalize_residual_current_source,
     resolve_residual_current,
 )
 from .factory import ProtectionFactory
@@ -40,7 +42,7 @@ __all__ = [
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
-    "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "resolve_residual_current",
+    "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "ResidualCurrentSourceSample", "normalize_residual_current_source", "resolve_residual_current",
     "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
     "ProtectionProjectConfiguration",
     "DifferentialRestraintMethod", "DifferentialProtectionSettings",
