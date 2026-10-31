@@ -31,6 +31,13 @@ class ImpedanceBasis(str, Enum):
     ENGINEERING = "engineering"
 
 
+class TransformerWindingConnection(str, Enum):
+    """Physical connection of one transformer winding."""
+    DELTA = "DELTA"
+    WYE_GROUNDED = "WYE_GROUNDED"
+    WYE_UNGROUNDED = "WYE_UNGROUNDED"
+
+
 class Transformer(Branch):
     """Static two-terminal transformer with an explicit impedance basis.
 
@@ -55,6 +62,10 @@ class Transformer(Branch):
         "_impedance_basis",
         "_impedance_base_mva",
         "_impedance_base_voltage_kv",
+        "_hv_winding_connection",
+        "_lv_winding_connection",
+        "_hv_neutral_grounding_impedance_ohm",
+        "_lv_neutral_grounding_impedance_ohm",
     )
 
     def __init__(
@@ -69,6 +80,10 @@ class Transformer(Branch):
         impedance_basis: ImpedanceBasis | str,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -135,7 +150,51 @@ class Transformer(Branch):
         self._impedance_base_voltage_kv = impedance_base_voltage_kv
         self._tap = self._validate_positive(tap, "tap")
         self._shift = self._validate_finite(shift, "shift")
+        self._hv_winding_connection = self._normalize_winding_connection(hv_winding_connection)
+        self._lv_winding_connection = self._normalize_winding_connection(lv_winding_connection)
+        self._hv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(hv_neutral_grounding_impedance_ohm, self._hv_winding_connection, "HV")
+        self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV")
 
+    @property
+    def hv_winding_connection(self) -> TransformerWindingConnection | None:
+        return self._hv_winding_connection
+
+    @property
+    def lv_winding_connection(self) -> TransformerWindingConnection | None:
+        return self._lv_winding_connection
+
+    @property
+    def hv_neutral_grounding_impedance_ohm(self) -> complex | None:
+        return self._hv_neutral_grounding_impedance_ohm
+
+    @property
+    def lv_neutral_grounding_impedance_ohm(self) -> complex | None:
+        return self._lv_neutral_grounding_impedance_ohm
+
+    @staticmethod
+    def _normalize_winding_connection(value: TransformerWindingConnection | str | None) -> TransformerWindingConnection | None:
+        if value is None:
+            return None
+        try:
+            return value if isinstance(value, TransformerWindingConnection) else TransformerWindingConnection(str(value).strip().upper())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Winding connection must be DELTA, WYE_GROUNDED or WYE_UNGROUNDED.") from exc
+
+    @staticmethod
+    def _validate_neutral_grounding(value: complex | None, connection: TransformerWindingConnection | None, side: str) -> complex | None:
+        if connection is not TransformerWindingConnection.WYE_GROUNDED:
+            if value is not None:
+                raise ValueError(f"{side} neutral grounding impedance is only valid for WYE_GROUNDED.")
+            return None
+        if value is None:
+            raise ValueError(f"{side} grounded-wye winding requires explicit neutral grounding impedance; use 0j for solid grounding.")
+        try:
+            impedance = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{side} neutral grounding impedance must be a complex value in ohms.") from exc
+        if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag) or impedance.real < 0.0:
+            raise ValueError(f"{side} neutral grounding impedance must be finite with non-negative resistance.")
+        return impedance
     @property
     def element_type(self) -> str:
         return self.TYPE
@@ -397,4 +456,4 @@ class Transformer(Branch):
         return value
 
 
-__all__ = ["ImpedanceBasis", "Transformer"]
+__all__ = ["ImpedanceBasis", "TransformerWindingConnection", "Transformer"]
