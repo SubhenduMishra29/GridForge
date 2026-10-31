@@ -219,8 +219,9 @@ class SequenceNetworkPreparation:
             # For a passive, static two-winding transformer, the negative-
             # sequence series impedance equals the positive-sequence value.
             # The phase-shifting tap reverses its angle in the negative-
-            # sequence network. Zero sequence remains unavailable until
-            # winding connection and neutral grounding are modelled.
+            # sequence network. Transformer zero sequence is represented
+            # only by an independently validated grounded-side shunt; no
+            # HV-LV zero-sequence series transfer is inferred here.
             return {"positive": z1, "negative": z1, "zero": None}
         raise ValueError(f"Unsupported sequence-network branch type: {type(element).__name__}.")
 
