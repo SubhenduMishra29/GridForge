@@ -169,7 +169,12 @@ class SequenceNetworkPreparation:
                 raise ValueError(f"Bus '{bus.id}' requires nominal_voltage_kv for transformer preparation.")
             scale = (self._require_base() / element.impedance_base_mva) * (element.impedance_base_voltage_kv / study_kv) ** 2
             z1 = complex(element.r, element.x) * scale if element.impedance_basis == "pu" else self._ohm_to_pu(complex(element.r, element.x), study_kv)
-            return {"positive": z1, "negative": None, "zero": None}
+            # For a passive, static two-winding transformer, the negative-
+            # sequence series impedance equals the positive-sequence value.
+            # The phase-shifting tap reverses its angle in the negative-
+            # sequence network. Zero sequence remains unavailable until
+            # winding connection and neutral grounding are modelled.
+            return {"positive": z1, "negative": z1, "zero": None}
         raise ValueError(f"Unsupported sequence-network branch type: {type(element).__name__}.")
 
     @staticmethod
@@ -198,6 +203,9 @@ class SequenceNetworkPreparation:
         """Stamp scalar sources and series/tap two-port branches into Ybus."""
         y = np.zeros((size, size), dtype=complex)
         for i, j, data, element_id, tap in branches:
+            # Negative-sequence phase displacement is opposite to the
+            # positive-sequence displacement for a phase-shifting transformer.
+            sequence_tap = tap.conjugate() if sequence == "negative" else tap
             z = data[sequence]
             if z is None:
                 raise ValueError(f"Element '{element_id}' lacks {sequence}-sequence impedance.")
@@ -207,12 +215,12 @@ class SequenceNetworkPreparation:
             if i == j:
                 y[i, i] += admittance
             else:
-                if not np.isfinite(tap.real) or not np.isfinite(tap.imag) or abs(tap) == 0.0:
+                if not np.isfinite(sequence_tap.real) or not np.isfinite(sequence_tap.imag) or abs(sequence_tap) == 0.0:
                     raise ValueError(f"Element '{element_id}' has an invalid complex tap.")
                 # Standard from-side off-nominal tap convention.
-                y[i, i] += admittance / (abs(tap) ** 2)
-                y[i, j] -= admittance / tap.conjugate()
-                y[j, i] -= admittance / tap
+                y[i, i] += admittance / (abs(sequence_tap) ** 2)
+                y[i, j] -= admittance / sequence_tap.conjugate()
+                y[j, i] -= admittance / sequence_tap
                 y[j, j] += admittance
         if np.any(np.abs(np.diag(y)) == 0.0):
             raise ValueError("Sequence network contains a bus without a connected source or branch.")
