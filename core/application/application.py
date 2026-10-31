@@ -1273,6 +1273,7 @@ class Application:
                         else {"N": residual_configuration.direct_binding_id}
                     )
                     normalized_sources = {}
+                    source_instrument_ids: set[str] = set()
                     for phase, binding_id in expected_sources.items():
                         prefix = (
                             f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
@@ -1328,8 +1329,16 @@ class Application:
                         if (
                             getattr(active_instrument, "TYPE", None) != "CT"
                             or getattr(channel, "source", None) is not active_instrument
+                            or getattr(active_instrument, "in_service", True) is not True
                         ):
-                            diagnostics.append(f"{prefix}: active source is not the canonical CT referenced by the channel.")
+                            diagnostics.append(f"{prefix}: active source is not an in-service canonical CT referenced by the channel.")
+                            continue
+                        source_instrument_ids.add(binding.instrument_id)
+                        if (
+                            provenance.get("terminal_current_reference_direction") != "INTO_EQUIPMENT"
+                            or provenance.get("current_units") != "per_unit"
+                        ):
+                            diagnostics.append(f"{prefix}: source sample lacks the required terminal-current reference direction or per-unit provenance.")
                             continue
                         try:
                             active_ratio = float(active_instrument.ratio)
@@ -1384,7 +1393,13 @@ class Application:
                             channel_scale=channel_scale,
                             channel_polarity=channel_polarity,
                         )
-                    if len(normalized_sources) == len(expected_sources):
+                    if residual_configuration.mode == "THREE_PHASE_SUM" and len(source_instrument_ids) != 3:
+                        diagnostics.append(
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: A/B/C residual summation requires three distinct in-service CT instruments."
+                        )
+                    if len(normalized_sources) == len(expected_sources) and (
+                        residual_configuration.mode != "THREE_PHASE_SUM" or len(source_instrument_ids) == 3
+                    ):
                         try:
                             residual_sample = resolve_residual_current(
                                 residual_configuration,
