@@ -154,6 +154,7 @@ class ProtectionScenarioMeasurementAdapter:
             "base_mva": result.provenance.get("base_mva"),
             "bus_voltage_base_kv": result.provenance.get("bus_voltage_bases_kv", {}).get(bus_id),
             "instrument_ratio": ratio,
+            "ct_positive_current_direction": ct_association.positive_current_direction,
         }
         basis_id = f"CT_SECONDARY_A:{ct_association.ct_id}:{channel.id}:{ratio:.12g}"
         return ProtectionScenarioMeasurementSample(
