@@ -341,6 +341,93 @@ class MeasurementGeneration:
         oriented_primary_current_a = primary_current_a * branch_current_direction
         return self._apply_ct_polarity(oriented_primary_current_a, source) / self._ratio(source, "current")
 
+    def convert_short_circuit_terminal_current(
+        self,
+        context: PreparedMeasurementContext,
+        source: Any,
+        channel: MeasurementChannel,
+        *,
+        equipment_terminal_reference: EndpointReference,
+        quantity_key: str,
+        ct_association: CTMeasurementAssociation,
+    ) -> float | complex:
+        """Convert an explicit equipment-terminal PU current into CT secondary A.
+
+        Terminal current is positive into equipment. The configured endpoint
+        must lie on exactly one CT primary SimpleWire component. P1-side
+        endpoints retain the terminal sign; P2-side endpoints reverse it.
+        """
+        self._validate_source(context, source, expected_types=frozenset({"CT"}))
+        self._validate_channel(channel, MeasurementSignalType.CURRENT, source)
+        result = context.quantity
+        if not isinstance(result, ShortCircuitResult):
+            raise UnsupportedMeasurementQuantity(self._unsupported_message(context, "short-circuit terminal current"))
+        if not isinstance(ct_association, CTMeasurementAssociation) or ct_association.ct_id != context.source_id:
+            raise TypeError("ct_association must be the canonical association for the configured CT.")
+        if not ct_association.in_service:
+            raise UnsupportedMeasurementQuantity("CT association is out of service.")
+        if getattr(getattr(channel, "source", None), "id", None) != source.id:
+            raise UnsupportedMeasurementQuantity("MeasurementChannel physical source does not match the configured CT.")
+        if getattr(channel, "source_terminal", None) not in {ct_association.s1_terminal_reference, ct_association.s2_terminal_reference}:
+            raise UnsupportedMeasurementQuantity("MeasurementChannel must reference the configured CT S1 or S2 terminal.")
+        expected_ct_terminal = {
+            "P1": ct_association.p1_terminal_reference,
+            "P2": ct_association.p2_terminal_reference,
+        }.get(context.source_terminal.terminal_role)
+        if expected_ct_terminal != context.source_terminal:
+            raise UnsupportedMeasurementQuantity("CT source terminal does not match the resolved P1/P2 association.")
+        polarity = getattr(getattr(source, "polarity", None), "value", getattr(source, "polarity", None))
+        expected_direction = {"P1_P2": "P1_TO_P2", "P2_P1": "P2_TO_P1"}.get(polarity)
+        if expected_direction != ct_association.positive_current_direction:
+            raise UnsupportedMeasurementQuantity("Physical CT polarity does not match the resolved association.")
+        if not isinstance(equipment_terminal_reference, EndpointReference) or not equipment_terminal_reference.is_terminal:
+            raise TypeError("equipment_terminal_reference must be an explicit equipment terminal EndpointReference.")
+        if equipment_terminal_reference.object_id == ct_association.ct_id:
+            raise ValueError("A CT cannot be its own measured equipment terminal.")
+        if not result.success or result.status.value != "COMPLETE":
+            raise UnsupportedMeasurementQuantity("Short-circuit scenario is not complete.")
+        if result.terminal_current_status is not ContributionStatus.COMPLETE:
+            raise UnsupportedMeasurementQuantity("Short-circuit terminal-current records are incomplete or unavailable.")
+        if result.provenance.get("current_units") != "per_unit":
+            raise UnsupportedMeasurementQuantity("Short-circuit result does not declare per-unit terminal-current provenance.")
+        if ct_association.topology_revision != result.provenance.get("topology_revision"):
+            raise UnsupportedMeasurementQuantity("CT association topology revision does not match the scenario snapshot.")
+        try:
+            ct_side = ct_association.locate_measurement_endpoint(equipment_terminal_reference)
+        except (TypeError, ValueError) as exc:
+            raise UnsupportedMeasurementQuantity(str(exc)) from exc
+        terminal_key = f"{equipment_terminal_reference.object_id}:{equipment_terminal_reference.terminal_role}"
+        try:
+            terminal = result.terminal_currents[terminal_key]
+        except KeyError as exc:
+            raise UnsupportedMeasurementQuantity(f"No terminal-current record exists for {terminal_key!r}.") from exc
+        if terminal.equipment_id != equipment_terminal_reference.object_id or terminal.terminal_role != equipment_terminal_reference.terminal_role:
+            raise UnsupportedMeasurementQuantity("Terminal-current record identity does not match the configured endpoint.")
+        if terminal.reference_direction != "INTO_EQUIPMENT" or terminal.current_units != "per_unit":
+            raise UnsupportedMeasurementQuantity("Terminal-current reference direction or units are unsupported.")
+        if terminal.bus_id != context.bus_id:
+            raise UnsupportedMeasurementQuantity("Prepared measurement Bus does not match the terminal-current record Bus.")
+        root_key, member_key = self._split_short_circuit_key(quantity_key)
+        if member_key is None:
+            raise UnsupportedMeasurementQuantity("Terminal CT conversion requires an explicit phase/sequence member.")
+        if root_key == "phase_currents":
+            values = terminal.phase_currents
+        elif root_key == "sequence_currents":
+            values = terminal.sequence_currents
+        else:
+            raise UnsupportedMeasurementQuantity("Terminal CT conversion accepts phase_currents or sequence_currents only.")
+        if member_key not in values:
+            raise UnsupportedMeasurementQuantity(f"Terminal-current quantity {quantity_key!r} is unavailable.")
+        try:
+            base_mva = float(result.provenance["base_mva"])
+            voltage_kv = float(result.provenance["bus_voltage_bases_kv"][context.bus_id])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise UnsupportedMeasurementQuantity("Short-circuit result lacks a valid MVA/voltage base for the measured Bus.") from exc
+        if not isfinite(base_mva) or base_mva <= 0.0 or not isfinite(voltage_kv) or voltage_kv <= 0.0:
+            raise UnsupportedMeasurementQuantity("Short-circuit study bases must be finite and positive.")
+        primary_current_a = complex(values[member_key]) * (base_mva * 1000.0 / (sqrt(3.0) * voltage_kv))
+        ct_reference_current_a = primary_current_a if ct_side == "P1_SIDE" else -primary_current_a
+        return self._apply_ct_polarity(ct_reference_current_a, source) / self._ratio(source, "current")
     @staticmethod
     def _current_base_a(prepared_power_flow: Any, bus_id: str) -> float:
         if prepared_power_flow is None:
