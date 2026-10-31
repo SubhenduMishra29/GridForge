@@ -210,6 +210,8 @@ class TransformerModelService(ModelServiceSupport):
             impedance_reference_winding=impedance_reference_winding,
             zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
             zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
+            core_construction=core_construction,
+            zero_sequence_test_basis=zero_sequence_test_basis,
         )
 
         if service_state_changed:
