@@ -211,6 +211,9 @@ class ShortCircuitConductorCurrent:
     bus_id: str
     phase_or_sequence: str
     current: complex
+    topology_revision: int
+    base_mva: float
+    voltage_base_kv: float
     reference_direction: str = "INTO_EQUIPMENT"
     current_units: str = "per_unit"
     provenance: Mapping[str, Any] = field(default_factory=dict)
@@ -223,6 +226,13 @@ class ShortCircuitConductorCurrent:
             raise ValueError("Conductor current phase_or_sequence must be A, B, C, or N.")
         object.__setattr__(self, "phase_or_sequence", phase)
         object.__setattr__(self, "current", _validate_current(self.current, "conductor current"))
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
+            raise ValueError("Conductor current topology_revision must be a non-negative integer.")
+        for name in ("base_mva", "voltage_base_kv"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError("Conductor current {} must be finite and positive.".format(name))
+            object.__setattr__(self, name, value)
         if self.reference_direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
             raise ValueError("Conductor current reference_direction must be explicit.")
         if self.current_units != "per_unit":
@@ -300,6 +310,11 @@ class ShortCircuitResult:
             raise ValueError(f"Unsupported conductor current status: {self.conductor_current_status!r}.") from exc
         object.__setattr__(self, "conductor_current_status", conductor_status)
         object.__setattr__(self, "conductor_current_diagnostics", tuple(str(item) for item in self.conductor_current_diagnostics))
+        if self.conductor_currents and conductor_status is ContributionStatus.UNAVAILABLE:
+            raise ValueError("Conductor-current records cannot be marked UNAVAILABLE.")
+        if not self.conductor_currents and conductor_status is ContributionStatus.COMPLETE:
+            raise ValueError("Conductor-current coverage cannot be COMPLETE without records.")
+
         object.__setattr__(self, "provenance", _freeze_value(self.provenance))
         status = self.status
         if status is None:
