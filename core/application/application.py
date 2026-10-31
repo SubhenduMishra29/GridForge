@@ -1025,6 +1025,7 @@ class Application:
         supervision: Mapping[str, Any] | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
         network_state: TopologySnapshot,
+        protection_runtime: Any | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate one detached study scenario through Application-authorized RelayInput snapshots.
 
@@ -1060,7 +1061,8 @@ class Application:
         lifecycle = self.project_lifecycle
         project = lifecycle.context
         service = self.measurement_channel_service
-        runtime = getattr(self, "protection_runtime", None)
+        active_runtime = getattr(self, "protection_runtime", None)
+        runtime = active_runtime if protection_runtime is None else protection_runtime
         configuration_service = getattr(self, "protection_configuration_service", None)
         if (
             project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE"
@@ -1493,7 +1495,8 @@ class Application:
             or current_lifecycle.context is not project
             or current_lifecycle.network is not lifecycle.network
             or current_lifecycle.activation_generation != lifecycle.activation_generation
-            or getattr(self, "protection_runtime", None) is not runtime
+            or getattr(self, "protection_runtime", None) is not active_runtime
+            or (protection_runtime is None and active_runtime is not runtime)
             or configuration_service.configuration is not configuration
             or not runtime.configuration_matches_composition
             or self.measurement_channel_service is not service
