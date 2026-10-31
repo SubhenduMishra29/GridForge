@@ -14,6 +14,7 @@ from core.analysis.transformer_zero_sequence import (
     build_transformer_zero_sequence_shunt,
 )
 from core.network.topology_snapshot import TopologySnapshot
+from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
 from core.solver.short_circuit.sequence_network import SequenceNetwork
 
 
@@ -169,6 +170,9 @@ class SequenceNetworkPreparation:
         # Detached preparation can verify that this matrix uses the same
         # from-side complex-tap convention as transformer terminal results.
         sequence.transformer_tap_convention = "FROM_SIDE_COMPLEX_TAP_V1"
+        sequence.physical_conductor_topology = build_physical_conductor_topology_snapshot(
+            self.network, self.topology_snapshot
+        )
         return sequence
 
     @staticmethod
