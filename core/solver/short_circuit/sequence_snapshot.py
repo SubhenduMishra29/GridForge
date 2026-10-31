@@ -291,6 +291,8 @@ class SequenceNetworkSnapshot:
                 raise TypeError("physical_conductor_topology must be a PhysicalConductorTopologySnapshot.")
             if conductor_topology.topology_revision < 0:
                 raise ValueError("Physical conductor topology revision must be non-negative.")
+            if conductor_topology.branches and not self.bus_ids:
+                raise ValueError("Sequence snapshot requires canonical bus_ids when physical conductor topology is present.")
             if self.bus_ids:
                 for item in conductor_topology.branches:
                     for bus_id in (item.from_bus_id, item.to_bus_id):
