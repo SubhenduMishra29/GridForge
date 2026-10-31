@@ -1184,3 +1184,10 @@ inferred by the relay element.
 
 This is source-integrated only. No tests/CI, syntax/import checks, or
 end-to-end runtime execution were performed.
+
+
+### D15A — Explicit neutral-CT and CBCT physical construction contracts
+
+The residual-current configuration now requires a typed physical construction declaration for direct-source modes. NEUTRAL_CT identifies the exact neutral conductor, owning equipment terminal, neutral node and positive current reference. CBCT identifies a physical window and explicitly lists the enclosed A/B/C conductors, with optional N conductor membership and an explicit per-conductor current reference direction. The configuration rejects missing construction, duplicate conductor identities, missing phase conductors, ambiguous neutral inclusion and unsupported current-reference directions.
+
+These declarations are construction metadata, not solver evidence. The short-circuit model still has no neutral-conductor network/current primitive and no CBCT window-current assembly from multiple enclosed conductor records. Accordingly, Application and protection input validation continue to reject both direct modes for execution; a complete-looking configuration cannot manufacture a measurement. The next implementation must add canonical Core conductor topology and immutable solver conductor-current records, then validate the configured CT conductor/window against those records before normalization to primary amperes.
