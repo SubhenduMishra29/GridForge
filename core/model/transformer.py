@@ -291,6 +291,7 @@ class Transformer(Branch):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
 
@@ -354,16 +355,22 @@ class Transformer(Branch):
             raise TypeError("name must be a string.")
         target_name = target_name.strip() or self.id
         target_in_service = self._in_service if in_service is None else bool(in_service)
-        target_hv_connection = self._normalize_winding_connection(self._hv_winding_connection if hv_winding_connection is None else hv_winding_connection)
-        target_lv_connection = self._normalize_winding_connection(self._lv_winding_connection if lv_winding_connection is None else lv_winding_connection)
+        target_hv_connection = self._normalize_winding_connection(
+            hv_winding_connection if _replace_winding_configuration
+            else self._hv_winding_connection if hv_winding_connection is None else hv_winding_connection
+        )
+        target_lv_connection = self._normalize_winding_connection(
+            lv_winding_connection if _replace_winding_configuration
+            else self._lv_winding_connection if lv_winding_connection is None else lv_winding_connection
+        )
         target_hv_grounding_value = (
             self._hv_neutral_grounding_impedance_ohm
-            if hv_neutral_grounding_impedance_ohm is None and hv_winding_connection is None
+            if hv_neutral_grounding_impedance_ohm is None and hv_winding_connection is None and not _replace_winding_configuration
             else hv_neutral_grounding_impedance_ohm
         )
         target_lv_grounding_value = (
             self._lv_neutral_grounding_impedance_ohm
-            if lv_neutral_grounding_impedance_ohm is None and lv_winding_connection is None
+            if lv_neutral_grounding_impedance_ohm is None and lv_winding_connection is None and not _replace_winding_configuration
             else lv_neutral_grounding_impedance_ohm
         )
         target_hv_grounding = self._validate_neutral_grounding(target_hv_grounding_value, target_hv_connection, "HV")
