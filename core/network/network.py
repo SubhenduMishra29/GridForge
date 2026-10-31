@@ -23,6 +23,8 @@ from .topology_endpoint_reference import (
     TopologyEndpointReferenceKind,
 )
 
+from .phase_domain_conductor_network import PhaseDomainConductorNode, PhaseDomainConnection, build_phase_domain_conductor_network
+
 
 class Network:
     """Authoritative electrical network aggregate."""
@@ -37,6 +39,8 @@ class Network:
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
+        self._phase_domain_nodes = {}
+        self._phase_domain_connections = {}
         if topology is None:
             self.topology = TopologyManager(self)
         else:
@@ -93,6 +97,13 @@ class Network:
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
     @property
     def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+    @property
+    def phase_domain_nodes(self):
+        return tuple(self._phase_domain_nodes[key] for key in sorted(self._phase_domain_nodes))
+
+    @property
+    def phase_domain_connections(self):
+        return tuple(self._phase_domain_connections[key] for key in sorted(self._phase_domain_connections))
 
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
