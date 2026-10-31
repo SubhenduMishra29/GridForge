@@ -264,6 +264,40 @@ class PhaseDomainShortCircuitSolution:
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
 
 
+def _reconcile_source_returns(case: PhaseDomainShortCircuitCase, source_currents: Mapping[str, Any], connection_currents: Mapping[str, complex]) -> dict[str, dict[str, Any]]:
+    """Validate source-neutral/electrode equality and local earth-node KCL."""
+    results: dict[str, dict[str, Any]] = {}
+    scale = max((abs(value) for value in connection_currents.values()), default=0.0)
+    tolerance = 1.0e-8 * max(scale, 1.0e-9)
+    for source in case.sources:
+        if not isinstance(source, PhaseDomainGroundedMultiConductorSource):
+            continue
+        neutral_current = complex(source_currents[source.source_id][3])
+        edges = [edge for edge in case.graph.connections if edge.in_service and edge.kind is PhaseDomainConnectionKind.GROUND_ELECTRODE and edge.source_reference == source.source_id and source.neutral_node_id in {edge.from_node_id, edge.to_node_id}]
+        if len(edges) != 1:
+            raise ValueError(f"Source {source.source_id!r} requires exactly one source-neutral electrode.")
+        edge = edges[0]
+        if edge.impedance_ohm == 0j or edge.connection_id not in connection_currents:
+            raise ValueError(f"Source {source.source_id!r} has an ideal or unresolved neutral electrode current.")
+        edge_current = connection_currents[edge.connection_id]
+        leaving_neutral = edge_current if edge.from_node_id == source.neutral_node_id else -edge_current
+        residual = abs(neutral_current - leaving_neutral)
+        if residual > tolerance:
+            raise ValueError(f"Source {source.source_id!r} neutral/electrode current mismatch: {residual:.9g} A.")
+        results[source.source_id] = {"status": "RECONCILED", "neutral_current_a": neutral_current, "electrode_connection_id": edge.connection_id, "electrode_current_leaving_neutral_a": leaving_neutral, "residual_a": residual, "tolerance_a": tolerance}
+    for node in (item for item in case.graph.nodes if item.kind is PhaseDomainNodeKind.EARTH_NODE):
+        edges = [edge for edge in case.graph.connections if edge.in_service and node.node_id in {edge.from_node_id, edge.to_node_id}]
+        if not edges:
+            continue
+        if any(edge.impedance_ohm == 0j or edge.connection_id not in connection_currents for edge in edges):
+            raise ValueError(f"Earth node {node.node_id!r} contains an ideal or unresolved path; current division is indeterminate.")
+        net = sum(connection_currents[edge.connection_id] if edge.from_node_id == node.node_id else -connection_currents[edge.connection_id] for edge in edges)
+        residual = abs(net)
+        if residual > tolerance:
+            raise ValueError(f"Earth node {node.node_id!r} violates current continuity: {residual:.9g} A.")
+        results[f"EARTH_NODE:{node.node_id}"] = {"status": "RECONCILED", "net_outgoing_current_a": net, "residual_a": residual, "tolerance_a": tolerance, "incident_connection_ids": tuple(edge.connection_id for edge in edges)}
+    return results
+
 class PhaseDomainShortCircuitSolver:
     """Solve one phase-domain fault using explicit source and fault primitives."""
 
@@ -424,6 +458,8 @@ class PhaseDomainShortCircuitSolver:
                 continue
             delta = voltage_by_node[edge.from_node_id] - voltage_by_node[edge.to_node_id]
             connection_currents[edge.connection_id] = delta / edge.impedance_ohm
+
+        source_return_reconciliation = _reconcile_source_returns(case, source_currents, connection_currents)
 
         conductor_records: dict[str, ShortCircuitConductorCurrent] = {}
         for branch in case.impedances.branches:
@@ -623,6 +659,7 @@ class PhaseDomainShortCircuitSolver:
             fault_currents_a=fault_currents,
             connection_currents_a=connection_currents,
             topology_revision=case.graph.topology_revision,
+            source_return_reconciliation=source_return_reconciliation,
             kcl_residual_a=kcl_residual_a,
             diagnostics=tuple(connection_diagnostics),
         )
