@@ -234,7 +234,7 @@ def classify_transformer_zero_sequence(
                 f"Transformer '{transformer_id}' requires explicit core construction and "
                 "zero-sequence test-data provenance for grounded-wye/grounded-wye transfer."
             )
-        from core.analysis.transformer_zero_sequence_t_equivalent import derive_transformer_zero_sequence_t_equivalent
+        from .transformer_zero_sequence_t_equivalent import derive_transformer_zero_sequence_t_equivalent
         derive_transformer_zero_sequence_t_equivalent(test_data)
         raise ValueError(
             f"Transformer '{transformer_id}' has valid three-test T-equivalent input, but "
