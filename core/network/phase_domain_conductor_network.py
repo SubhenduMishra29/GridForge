@@ -682,6 +682,42 @@ def build_phase_domain_conductor_network_from_sld(
                     ),
                 ))
 
+            if winding.neutral_terminal_role is not None:
+                neutral_node_id = stable_id(
+                    "transformer-winding-terminal", transformer.id,
+                    winding.winding, winding.neutral_terminal_role, "N",
+                )
+                earth_node_id = stable_id("transformer-neutral-earth", transformer.id, winding.winding)
+                earth_reference_id = stable_id("transformer-earth-reference", transformer.id, winding.winding)
+                add_node(PhaseDomainConductorNode(
+                    node_id=earth_node_id,
+                    kind=PhaseDomainNodeKind.EARTH_NODE,
+                    conductor_role="EARTH",
+                    source_reference=f"TRANSFORMER-EARTH:{transformer.id}:{winding.winding}",
+                ))
+                add_node(PhaseDomainConductorNode(
+                    node_id=earth_reference_id,
+                    kind=PhaseDomainNodeKind.EARTH_REFERENCE,
+                    conductor_role="EARTH",
+                    source_reference=f"TRANSFORMER-EARTH-REFERENCE:{transformer.id}:{winding.winding}",
+                ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id("transformer-neutral-ground-electrode", transformer.id, winding.winding),
+                    kind=PhaseDomainConnectionKind.GROUND_ELECTRODE,
+                    from_node_id=neutral_node_id,
+                    to_node_id=earth_node_id,
+                    impedance_ohm=winding.neutral_grounding_impedance_ohm,
+                    source_reference=transformer.id,
+                ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id("transformer-earth-return", transformer.id, winding.winding),
+                    kind=PhaseDomainConnectionKind.EARTH_RETURN,
+                    from_node_id=earth_node_id,
+                    to_node_id=earth_reference_id,
+                    impedance_ohm=winding.earth_return_impedance_ohm,
+                    source_reference=f"TRANSFORMER-EARTH-RETURN:{transformer.id}:{winding.winding}",
+                ))
+
         # No internal conductor connection is created between windings.
         # The coupled terminal-domain multiport is stamped by the solver.
 
