@@ -131,7 +131,31 @@ class ShortCircuitSolver:
             result[names[sequence]] = (internal - voltage) / impedance
         return result
 
+    def _transformer_terminal_current_sequences(
+        self,
+        branch: SequenceBranchSnapshot,
+        voltages: dict[str, np.ndarray],
+    ) -> tuple[dict[str, complex], dict[str, complex]] | None:
+        """Return transformer FROM/TO currents from its stamped two-port primitive."""
+        if self._required_for_fault() != ("positive",):
+            return None
+        impedance = branch.positive
+        if impedance is None:
+            return None
+        tap = branch.tap_ratio * cmath.exp(1j * branch.phase_shift_rad)
+        if not math.isfinite(tap.real) or not math.isfinite(tap.imag) or abs(tap) == 0.0:
+            return None
+        admittance = 1.0 / impedance
+        from_voltage = complex(voltages["positive"][branch.from_bus_index])
+        to_voltage = complex(voltages["positive"][branch.to_bus_index])
+        from_current = (from_voltage / (abs(tap) ** 2) - to_voltage / tap.conjugate()) * admittance
+        to_current = (-from_voltage / tap + to_voltage) * admittance
+        return {"I1": from_current}, {"I1": to_current}
+
     def _branch_current_sequences(self, branch: SequenceBranchSnapshot, voltages: dict[str, np.ndarray]) -> dict[str, complex] | None:
+        if branch.equipment_type == "Transformer":
+            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages)
+            return None if terminal_currents is None else terminal_currents[0]
         required = self._required_for_fault()
         result: dict[str, complex] = {}
         names = {"positive": "I1", "negative": "I2", "zero": "I0"}
@@ -230,25 +254,40 @@ class ShortCircuitSolver:
         records: dict[str, ShortCircuitTerminalCurrent] = {}
         diagnostics: list[str] = []
         for branch in snapshot.branches:
-            if branch.equipment_type not in {"Line", "Cable"}:
+            if branch.equipment_type == "Transformer":
+                transformer_currents = self._transformer_terminal_current_sequences(branch, voltages)
+                if transformer_currents is None:
+                    diagnostics.append(
+                        f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                        "the prepared fault case does not provide the supported positive-sequence two-port primitive."
+                    )
+                    continue
+                from_sequence, to_sequence = transformer_currents
+                terminal_sequence_records = (
+                    (branch.from_terminal_role, branch.from_bus_id, from_sequence),
+                    (branch.to_terminal_role, branch.to_bus_id, to_sequence),
+                )
+            elif branch.equipment_type in {"Line", "Cable"}:
+                sequence_currents = self._branch_current_sequences(branch, voltages)
+                if sequence_currents is None:
+                    diagnostics.append(f"Terminal currents unavailable for {branch.branch_id}: required sequence impedance is missing.")
+                    continue
+                terminal_sequence_records = (
+                    (branch.from_terminal_role, branch.from_bus_id, sequence_currents),
+                    (branch.to_terminal_role, branch.to_bus_id, {name: -value for name, value in sequence_currents.items()}),
+                )
+            else:
                 diagnostics.append(
                     f"Terminal currents unavailable for {branch.equipment_type} '{branch.branch_id}': no supported terminal primitive."
                 )
                 continue
-            sequence_currents = self._branch_current_sequences(branch, voltages)
-            if sequence_currents is None:
-                diagnostics.append(f"Terminal currents unavailable for {branch.branch_id}: required sequence impedance is missing.")
-                continue
-            phase_currents = self._phase_from_sequence(sequence_currents)
-            for role, bus_id, sign in (
-                (branch.from_terminal_role, branch.from_bus_id, 1.0),
-                (branch.to_terminal_role, branch.to_bus_id, -1.0),
-            ):
+            for role, bus_id, signed_sequence in terminal_sequence_records:
+                phase_currents = self._phase_from_sequence(signed_sequence)
                 key = f"{branch.branch_id}:{role}"
                 if key in records:
                     raise ValueError(f"Duplicate equipment terminal current identity '{key}'.")
-                signed_sequence = {name: sign * complex(value) for name, value in sequence_currents.items()}
-                signed_phase = {name: sign * complex(value) for name, value in phase_currents.items()}
+                signed_sequence = {name: complex(value) for name, value in signed_sequence.items()}
+                signed_phase = {name: complex(value) for name, value in phase_currents.items()}
                 records[key] = ShortCircuitTerminalCurrent(
                     equipment_id=branch.branch_id,
                     equipment_type=branch.equipment_type,
