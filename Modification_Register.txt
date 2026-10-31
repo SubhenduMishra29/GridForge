@@ -15960,13 +15960,16 @@ Implementation:
       derived source identity and provenance before RelayInput evaluation.
     - Existing 50N instantaneous pickup and 51N IEC inverse-time logic
       consume the residual phasor without modifying physical channels.
+      Pickup is in primary amperes and the operating quantity is
+      3I0 = Ia + Ib + Ic, not I0 alone.
 
 Configuration contract:
-    Every residual binding declares metadata.measurement_point_id equal
-    to the function's configured measurement point. Direct NEUTRAL_CT or
-    CBCT bindings additionally declare metadata.residual_source_mode as
-    the exact configured mode. THREE_PHASE_SUM requires three distinct
-    CT instruments and phase A/B/C channels.
+    Every THREE_PHASE_SUM source binding declares
+    metadata.measurement_point_id equal to the function's configured
+    measurement point. A/B/C summation requires three distinct CT
+    instruments and phase-specific current channels. NEUTRAL_CT and CBCT
+    remain fail-closed because the current solver has no neutral-conductor
+    or multi-conductor CBCT primary-window terminal-current primitive.
 
 Boundary:
     This enables the short-circuit scenario path only for source types
