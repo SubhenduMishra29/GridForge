@@ -1013,3 +1013,17 @@ All three core constructions are representable. No generic correction factor or 
 Added a Core/Analysis topology classifier that distinguishes (a) no externally grounded zero-sequence path where neither winding is grounded-wye, and (b) a one-sided grounded-wye return candidate where exactly one winding is grounded-wye. It explicitly reports delta internal-circulation possibility without treating that circulation as an external bus path. The one-sided candidate requires explicit Z0 data referred to the grounded winding, explicit core construction and Z0 data provenance; neutral grounding impedance remains separate and must contribute 3Zn in a future equivalent stamp.
 
 The classifier deliberately rejects grounded-wye/grounded-wye transfer because the current transformer contract does not yet include vector-group, clock-number, winding-polarity and applicable test-configuration data. It returns a topology descriptor only: no numerical equivalent impedance, Ybus stamp, transformer terminal current or earth-fault result is produced. SequenceNetworkPreparation therefore remains fail-closed for all transformer zero-sequence stamps at this phase. This avoids representing a one-sided grounded return as a two-terminal series branch or interpreting internal delta circulation as an external terminal path.
+
+
+## D14E — transformer vector-group and zero-sequence test contracts
+
+The Core model now exposes immutable, typed engineering contracts for:
+- IEC vector-group winding notation (Yy, Yd, Dy, Dd);
+- explicit clock number 0–11 and LV-relative-to-HV phase displacement in 30-degree steps;
+- independent HV/LV winding polarity declarations;
+- explicit zero-sequence test energized winding and the non-energized winding condition;
+- explicit declaration of whether the test neutral return is included.
+
+Vector-group connection notation is checked against the configured HV/LV winding connections. A zero-sequence test is rejected when its energized winding does not match the declared Z0 reference winding, or when a delta-connected opposite winding lacks an explicit closed-delta test condition. Polarity is retained as separate physical metadata; it is not silently added to or subtracted from the nameplate clock displacement.
+
+**Scope boundary:** D14E adds typed Core contracts and applicability validation only. These contracts are not yet persisted as Transformer fields or propagated through create/update commands and undo. They do not enable transformer zero-sequence Ybus stamping, numerical equivalent calculation, or terminal-current generation. Existing D14D fail-closed behavior remains. Neutral 3Zn remains separate from the transformer Z0 value.
