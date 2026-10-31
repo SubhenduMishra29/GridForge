@@ -1017,13 +1017,13 @@ The classifier deliberately rejects grounded-wye/grounded-wye transfer because t
 
 ## D14E — transformer vector-group and zero-sequence test contracts
 
-The Core model now exposes immutable, typed engineering contracts for:
-- IEC vector-group winding notation (Yy, Yd, Dy, Dd);
-- explicit clock number 0–11 and LV-relative-to-HV phase displacement in 30-degree steps;
-- independent HV/LV winding polarity declarations;
-- explicit zero-sequence test energized winding and the non-energized winding condition;
-- explicit declaration of whether the test neutral return is included.
+Integration completion:
+- Transformer owns both immutable contract values as authoritative slots and exposes them in summaries.
+- CreateTransformerCommand and UpdateTransformerCommand carry the typed values; ModelCommandHandlers forwards command payloads without dropping fields.
+- TransformerModelService create/update propagates them. Update rollback captures and restores both values atomically.
+- Transformer construction, update validation and restored-state validation enforce vector-group/winding consistency and test applicability whenever Z0 is declared.
+- ModelDTO encodes/decodes frozen dataclass values with explicit type identity, in addition to enum encoding, for the generic model-state persistence path.
+- D14D classification requires and validates these contracts for one-sided grounded-wye candidates. For grounded-wye/grounded-wye, it validates declarations and still fails closed because the numerical two-winding equivalent is not implemented.
+- Test configurations declaring neutral return included are rejected: stored transformer Z0 excludes neutral 3Zn, which remains a separate network contribution.
 
-Vector-group connection notation is checked against the configured HV/LV winding connections. A zero-sequence test is rejected when its energized winding does not match the declared Z0 reference winding, or when a delta-connected opposite winding lacks an explicit closed-delta test condition. Polarity is retained as separate physical metadata; it is not silently added to or subtracted from the nameplate clock displacement.
-
-**Scope boundary:** D14E adds typed Core contracts and applicability validation only. These contracts are not yet persisted as Transformer fields or propagated through create/update commands and undo. They do not enable transformer zero-sequence Ybus stamping, numerical equivalent calculation, or terminal-current generation. Existing D14D fail-closed behavior remains. Neutral 3Zn remains separate from the transformer Z0 value.
+The contracts are model/command/service/persistence integrated. This does not enable transformer zero-sequence Ybus stamping, numerical equivalent calculation, or terminal-current generation. Legacy persisted transformer state lacking these contracts remains unavailable for Z0 classification.
