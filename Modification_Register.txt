@@ -17574,3 +17574,51 @@ Status:
     IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-24
+======================================================================
+
+Scope:
+    Physical source-neutral and earth-return current reconciliation.
+
+Correction:
+    - PhaseDomainShortCircuitSolution now exposes immutable
+      source_return_reconciliation records.
+    - Every grounded ABCN source must reconcile its signed source-neutral
+      current with the current through its unique source-referenced
+      GROUND_ELECTRODE connection. Edge orientation is normalized to
+      current leaving the source neutral.
+    - Every local EARTH_NODE enforces Kirchhoff current continuity across
+      all incident finite-impedance grounding/electrode/earth-return
+      connections. This supports explicit parallel earth-return paths
+      and current division without treating earth as an ideal node.
+    - Ideal or unresolved connections on a source electrode or local
+      earth-return node fail closed; no arbitrary current split is
+      fabricated.
+    - Reconciliation records include signed currents, connection IDs,
+      residuals, tolerances and incident earth-return connection IDs.
+    - Grid/Generator grounding validation diagnostics now use generic
+      source wording.
+
+Fail-closed boundaries:
+    - PE/screen current entering the earth network must still be explicitly
+      represented by graph connections. No implicit PE or screen return
+      path is created.
+    - Current through ideal zero-ohm bonds remains indeterminate and is
+      rejected when needed for source/earth reconciliation.
+    - Global EARTH_REFERENCE is treated as the network reference boundary;
+      local earth-node KCL is enforced, but earth-electrode soil mutual
+      impedance and distributed earth-potential models are not included.
+    - This does not yet complete SLD SimpleWire-to-physical-conductor
+      mapping or end-to-end Neutral CT/CBCT execution.
+
+Verification:
+    - Remote source edits and register entry committed. No tests/CI,
+      syntax/import checks, numerical fixtures, or end-to-end study
+      execution were run.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
+
+======================================================================
