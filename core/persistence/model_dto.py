@@ -94,6 +94,10 @@ def _encode(value: Any, *, terminal_attributes: dict[str, Terminal], path: str) 
         if math.isfinite(value):
             return value
         return {"$float": "nan" if math.isnan(value) else ("inf" if value > 0 else "-inf")}
+    if isinstance(value, complex):
+        if not math.isfinite(value.real) or not math.isfinite(value.imag):
+            raise ModelSerializationError(f"Non-finite complex value at {path}.")
+        return {"$complex": [value.real, value.imag]}
     if isinstance(value, tuple):
         return {"$tuple": [_encode(item, terminal_attributes=terminal_attributes, path=f"{path}[]") for item in value]}
     if isinstance(value, list):
@@ -144,6 +148,11 @@ def _decode(value: Any) -> Any:
             return tuple(_decode(item) for item in value["$tuple"])
         if "$float" in value:
             return float(value["$float"])
+        if "$complex" in value:
+            parts = value["$complex"]
+            if not isinstance(parts, list) or len(parts) != 2:
+                raise ModelSerializationError("Persisted $complex payload must contain real and imaginary parts.")
+            return complex(float(parts[0]), float(parts[1]))
         if "$ref" in value:
             return value
         if "$enum" in value:
