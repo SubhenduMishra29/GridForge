@@ -110,7 +110,10 @@ class ProtectionFaultScenarioResult:
 
     @property
     def measurement_contributions_complete(self) -> bool:
-        """Whether branch/source current contributions are complete enough for mapping."""
+        """Whether the active calculation domain produced complete measurement primitives."""
+        result = self.short_circuit_result
+        if result.provenance.get("calculation_domain") == "PHASE_DOMAIN":
+            return result.conductor_current_status is ContributionStatus.COMPLETE
         return self.contribution_status is ContributionStatus.COMPLETE
 
     @property
