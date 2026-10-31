@@ -195,6 +195,25 @@ class PhaseDomainConductorNetwork:
         if any(not isinstance(x, PhaseDomainConnection) for x in connections):
             raise TypeError("connections must contain PhaseDomainConnection records.")
         node_ids = [x.node_id for x in nodes]
+        bus_conductor_keys: set[tuple[str, str]] = set()
+        equipment_terminal_keys: set[tuple[str, str, str]] = set()
+        branch_terminal_keys: set[tuple[str, str, str]] = set()
+        for node in nodes:
+            if node.kind is PhaseDomainNodeKind.BUS_CONDUCTOR:
+                key = (str(node.bus_id), str(node.conductor_id))
+                if key in bus_conductor_keys:
+                    raise ValueError(f"Duplicate Bus conductor identity {key!r}.")
+                bus_conductor_keys.add(key)
+            elif node.kind is PhaseDomainNodeKind.BRANCH_TERMINAL:
+                key = (str(node.equipment_id), str(node.terminal_role), str(node.conductor_id))
+                if key in branch_terminal_keys:
+                    raise ValueError(f"Duplicate branch terminal conductor identity {key!r}.")
+                branch_terminal_keys.add(key)
+            elif node.kind is PhaseDomainNodeKind.EQUIPMENT_TERMINAL:
+                key = (str(node.equipment_id), str(node.terminal_role), str(node.conductor_id))
+                if key in equipment_terminal_keys:
+                    raise ValueError(f"Duplicate equipment terminal conductor identity {key!r}.")
+                equipment_terminal_keys.add(key)
         if sum(x.kind is PhaseDomainNodeKind.EARTH_REFERENCE for x in nodes) > 1:
             raise ValueError("A phase-domain graph may declare only one global EARTH_REFERENCE node.")
         connection_ids = [x.connection_id for x in connections]
@@ -209,9 +228,21 @@ class PhaseDomainConductorNetwork:
             if not edge.in_service:
                 continue
             left, right = by_id[edge.from_node_id], by_id[edge.to_node_id]
+            if PhaseDomainNodeKind.FAULT_NODE in {left.kind, right.kind}:
+                raise ValueError("FAULT_NODE is reserved for explicit fault connections and cannot join the ordinary conductor graph.")
+            if edge.kind is PhaseDomainConnectionKind.CONTINUITY:
+                earth_kinds = {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}
+                if left.kind in earth_kinds or right.kind in earth_kinds:
+                    raise ValueError("CONTINUITY cannot replace an explicit earth bond or earth-return connection.")
+                if left.conductor_role != right.conductor_role:
+                    raise ValueError("CONTINUITY must join the same physical conductor role.")
             if edge.kind is PhaseDomainConnectionKind.GROUND_ELECTRODE:
-                if PhaseDomainNodeKind.EARTH_NODE not in {left.kind, right.kind}:
-                    raise ValueError("GROUND_ELECTRODE must connect a conductor to an explicit local EARTH_NODE.")
+                if (
+                    (left.kind is PhaseDomainNodeKind.EARTH_NODE) == (right.kind is PhaseDomainNodeKind.EARTH_NODE)
+                    or PhaseDomainNodeKind.EARTH_REFERENCE in {left.kind, right.kind}
+                    or PhaseDomainNodeKind.FAULT_NODE in {left.kind, right.kind}
+                ):
+                    raise ValueError("GROUND_ELECTRODE must join one physical conductor node to one local EARTH_NODE.")
             if edge.kind is PhaseDomainConnectionKind.EARTH_RETURN:
                 earth_kinds = {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}
                 if left.kind not in earth_kinds or right.kind not in earth_kinds or PhaseDomainNodeKind.EARTH_NODE not in {left.kind, right.kind}:
@@ -219,9 +250,17 @@ class PhaseDomainConductorNetwork:
             if edge.kind is PhaseDomainConnectionKind.SCREEN_BOND:
                 if "SHIELD" not in {left.conductor_role, right.conductor_role}:
                     raise ValueError("SCREEN_BOND must include an explicitly identified SHIELD conductor.")
+                other_role = right.conductor_role if left.conductor_role == "SHIELD" else left.conductor_role
+                other_kind = right.kind if left.conductor_role == "SHIELD" else left.kind
+                if other_role != "SHIELD" and other_kind not in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
+                    raise ValueError("SCREEN_BOND must join a SHIELD conductor to another SHIELD conductor or explicit earth node.")
             if edge.kind is PhaseDomainConnectionKind.EQUIPMENT_BOND:
                 if "PE" not in {left.conductor_role, right.conductor_role}:
                     raise ValueError("EQUIPMENT_BOND must include an explicitly identified PE conductor.")
+                other_role = right.conductor_role if left.conductor_role == "PE" else left.conductor_role
+                other_kind = right.kind if left.conductor_role == "PE" else left.kind
+                if other_role not in {"PE", "OTHER", "EARTH"} and other_kind not in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
+                    raise ValueError("EQUIPMENT_BOND must join PE to PE, an equipment case (OTHER), or explicit earth.")
         if nodes != tuple(sorted(nodes, key=lambda x: x.node_id)):
             raise ValueError("Phase-domain nodes must use deterministic node_id ordering.")
         if connections != tuple(sorted(connections, key=lambda x: x.connection_id)):
