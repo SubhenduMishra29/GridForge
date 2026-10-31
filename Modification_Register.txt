@@ -16388,3 +16388,44 @@ Fail-closed boundary:
 Verification:
     Remote source edits committed. No tests/CI, Python syntax/import checks,
     persistence round-trip or numerical end-to-end execution were run.
+
+
+======================================================================
+GF-SC-D14I-01 — GROUNDED-WYE / GROUNDED-WYE THREE-TEST T-EQUIVALENT FOUNDATION
+======================================================================
+
+Files:
+    core/model/transformer_zero_sequence_test_data.py
+    core/model/__init__.py
+    core/analysis/transformer_zero_sequence_t_equivalent.py
+    core/analysis/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added immutable three-test data contract: HV open-circuit Z0, LV
+      open-circuit Z0 explicitly referred to HV, and HV short-circuit Z0.
+    - Requires a common declared test MVA base, explicit HV/LV test voltage
+      bases, non-empty test source reference, explicit LV-to-HV referral,
+      and exclusion of neutral return impedance.
+    - Added pure complex T-equivalent derivation using the three-test
+      equations. The square-root branch is deterministic and reconstruction
+      checks verify all three test impedances are reproduced.
+    - Does not reject a negative fitted individual series-leg resistance;
+      measured driving-point impedances remain finite, non-zero and passive.
+    - Exported the Core test-data contract and Analysis equivalent builder.
+
+Fail-closed boundary:
+    The test-data contract is not yet stored on Transformer or propagated
+    through commands/services/undo/persistence. No neutral 3Zn two-side
+    referral, two-Bus Ybus stamp, zero-sequence component-graph connection,
+    immutable solver snapshot, or two-terminal transformer zero-sequence
+    current calculation is enabled. Grounded-wye/grounded-wye remains
+    unavailable in SequenceNetworkPreparation. D14H one-sided shunt behavior
+    is unchanged.
+
+Verification:
+    Remote source edits only. No tests/CI, Python syntax/import checks,
+    numeric fixtures, persistence round-trip, or solver execution were run.
+
+======================================================================
