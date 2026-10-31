@@ -257,6 +257,15 @@ def classify_transformer_zero_sequence(
         test=test_configuration, reference_winding=reference,
         hv_connection=hv, lv_connection=lv,
     )
+    opposite_connection = lv if grounded_side == "HV" else hv
+    if opposite_connection is TransformerWindingConnection.DELTA:
+        expected_test_condition = "DELTA_CLOSED"
+    elif opposite_connection is TransformerWindingConnection.WYE_UNGROUNDED:
+        expected_test_condition = "OPEN_CIRCUIT"
+    else:
+        raise ValueError("Unsupported opposite winding for a one-sided grounded-wye return.")
+    if test_configuration.other_winding_condition.value != expected_test_condition:
+        raise ValueError("Transformer zero-sequence test condition is not applicable to the one-sided grounded-wye return.")
 
     return TransformerZeroSequenceTopology(
         transformer_id=transformer_id,
