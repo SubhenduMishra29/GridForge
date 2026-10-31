@@ -97,10 +97,24 @@ def classify_transformer_zero_sequence(
         )
 
     if len(grounded) == 2:
+        vector_group = getattr(transformer, "vector_group_configuration", None)
+        test_configuration = getattr(transformer, "zero_sequence_test_configuration", None)
+        reference = getattr(transformer, "impedance_reference_winding", None)
+        if vector_group is None or test_configuration is None:
+            raise ValueError(
+                f"Transformer '{transformer_id}' has grounded-wye on both windings and requires "
+                "explicit vector-group and zero-sequence test-configuration contracts."
+            )
+        vector_group.validate_winding_connections(hv, lv)
+        from core.model.transformer_zero_sequence_contracts import validate_zero_sequence_test_applicability
+        validate_zero_sequence_test_applicability(
+            test=test_configuration, reference_winding=reference,
+            hv_connection=hv, lv_connection=lv,
+        )
         raise ValueError(
-            f"Transformer '{transformer_id}' has grounded-wye on both windings. "
-            "Zero-sequence transfer is not enabled until vector-group, clock-number, "
-            "winding-polarity and applicable Z0 test-configuration contracts are explicit."
+            f"Transformer '{transformer_id}' has validated winding contracts, but grounded-wye "
+            "to grounded-wye zero-sequence transfer remains numerically unavailable until its "
+            "core/test-derived two-winding equivalent is implemented."
         )
 
     grounded_side = grounded[0]
