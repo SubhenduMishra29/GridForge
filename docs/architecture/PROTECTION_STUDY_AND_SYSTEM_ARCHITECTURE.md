@@ -833,8 +833,38 @@ displacement, winding connection mapping, neutral grounding/zero-sequence
 paths, transformer magnetising/shunt admittance, tertiary windings, or
 unbalanced transformer sequence coupling. Consequently, transformer
 short-circuit studies requiring those behaviours remain unsupported and must
-not be represented as complete. Transformer terminal-current output remains
-withheld until its equations consume this exact stamped primitive.
+not be represented as complete. Transformer terminal-current output is supported for balanced three-phase
+fault cases only after the solver consumes this exact stamped primitive.
+Unbalanced transformer terminal currents remain unavailable.
 
 Verification: remote source review and contract reconciliation only. No tests
 or CI run. Python syntax/import/runtime checks remain outstanding.
+
+
+## 22. Transformer terminal-current equations — Phase D8
+
+For a balanced three-phase short-circuit case, the detached solver now
+calculates transformer terminal currents from the same from-side complex tap
+and positive-sequence series admittance used by the canonical Ybus stamp:
+
+\[
+I_f = y\left(\frac{V_f}{|a|^2}-\frac{V_t}{a^*}\right),\qquad
+I_t = y\left(V_t-\frac{V_f}{a}\right)
+\]
+
+Both currents are positive into the transformer at their respective physical
+terminals. The terminal records retain each terminal's Bus identity and
+canonical terminal role. The Branch current contribution is the FROM-terminal
+current, preserving the established branch orientation.
+
+This is deliberately restricted to balanced three-phase faults, for which
+the current model has the positive-sequence transformer primitive. The
+transformer model currently does not provide the negative/zero sequence
+winding-connection, vector-group, and neutral-grounding network required for
+unbalanced fault terminal currents. Those cases remain unavailable rather
+than reusing the positive-sequence current or assuming a grounded-wye path.
+Transformer magnetising/shunt current, tertiary windings and detailed
+multi-winding equivalents remain outside this two-terminal series primitive.
+
+Verification: remote source-level review only. No tests or CI run. Python
+syntax/import/runtime checks remain outstanding.
