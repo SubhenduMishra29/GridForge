@@ -16087,6 +16087,8 @@ Implementation:
       commands and transactional TransformerModelService operations.
     - Added atomic Core configuration updates, exact rollback restoration,
       and winding/grounding values in Transformer summaries.
+    - Revalidates persisted winding/neutral combinations and rejects
+      boolean or non-finite neutral impedance values.
     - Added finite complex-number DTO encoding/decoding so the neutral
       grounding impedances survive canonical project persistence.
     - Sequence preparation now reports the exact unsupported zero-
