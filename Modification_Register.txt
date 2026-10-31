@@ -17387,3 +17387,36 @@ Verification:
     No tests, CI, syntax/import checks, or numerical execution performed.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-19
+======================================================================
+
+Scope:
+    Explicit synchronous Generator short-circuit construction contract.
+
+Correction:
+    Generator now stores optional positive-sequence subtransient, negative-
+    sequence and zero-sequence impedances in per-unit, their original MVA
+    and voltage bases, explicit internal voltage magnitude/angle, and an
+    explicit neutral-grounding state/impedance. The model validates finite
+    passive impedances, paired positive bases, required positive-sequence
+    impedance/internal voltage when sequence data is supplied, and the
+    consistency of grounded-neutral configuration. Solid grounding is
+    represented explicitly by 0j.
+
+Engineering boundary:
+    Load-flow P/Q and V_setpoint are not short-circuit source parameters.
+    Missing z2/z0 remains unavailable and must be rejected by a study that
+    requires those sequence networks. This change does not yet derive the
+    phase-domain source primitive or validate the physical neutral/earth
+    return path in the conductor graph.
+
+Status:
+    CORRECTED — REMOTE SOURCE VERIFICATION REQUIRED
+
+Verification:
+    Constructor, validation, diagnostics and register changes verified
+    remotely. No tests, CI, syntax/import checks, or numerical execution.
+
+======================================================================
