@@ -909,3 +909,34 @@ protection zone or infer the engineer's measurement target.
 
 Verification: remote source review only. No tests or CI run. Python syntax,
 import integrity and runtime checks remain outstanding.
+
+
+## Protection Study D10 — explicit residual-current input configuration
+
+ANSI 50N/51N residual-current input configuration is represented by
+`ResidualCurrentInputConfiguration`, persisted on the configured protection
+function and restricted to those function codes. The configured source mode
+is exactly one of:
+
+- `THREE_PHASE_SUM`: three distinct, explicitly assigned A/B/C measurement
+  binding IDs at one engineer-declared measurement point.
+- `NEUTRAL_CT`: one explicit neutral CT measurement binding.
+- `CBCT`: one explicit core-balance CT measurement binding.
+
+The Core resolver calculates a complex phasor sum, never a sum of magnitudes.
+For a three-phase sum it requires each source sample to declare canonical
+amperes, its explicit phase, scenario identity, measurement-point identity,
+topology revision, and an identical CT-secondary reference basis. Incompatible
+CT ratios/bases are rejected; the resolver does not silently add unlike
+secondary currents. Dedicated neutral and CBCT modes are not interchangeable
+with the three-phase mode and require source-mode provenance to match the
+persisted configuration.
+
+This increment establishes the persisted source contract and isolated
+fail-closed resolver only. It does not yet connect the resolver to
+ProtectionStudyHandler/Application snapshot creation, populate
+measurement-point/source-mode provenance in D9 samples, normalize unequal CT
+ratios to a common primary-current basis, or enable 50N/51N input contracts.
+Those functions remain fail-closed until that integration is complete.
+No protection zone is inferred from CT placement. No live MeasurementChannel
+state is mutated.
