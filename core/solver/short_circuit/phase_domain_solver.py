@@ -167,6 +167,26 @@ class PhaseDomainShortCircuitCase:
                     PhaseDomainNodeKind.FAULT_NODE,
                 }:
                     raise ValueError(f"Source {item.source_id!r} references an invalid, earth-reference, or fault-star node.")
+            source_terminals = tuple(self.graph.node(node_id) for node_id in source_nodes)
+            if any(node.kind is not PhaseDomainNodeKind.EQUIPMENT_TERMINAL for node in source_terminals):
+                raise ValueError(
+                    f"Source {item.source_id!r} must inject at explicitly modeled equipment-terminal nodes; "
+                    "direct Bus-conductor injection is not accepted as an equipment source."
+                )
+            equipment_ids = {node.equipment_id for node in source_terminals}
+            if len(equipment_ids) != 1:
+                raise ValueError(f"Multi-conductor source {item.source_id!r} spans multiple equipment identities.")
+            equipment_id = next(iter(equipment_ids))
+            if equipment_id != item.source_id and any(
+                node.source_reference != item.source_id for node in source_terminals
+            ):
+                raise ValueError(
+                    f"Source {item.source_id!r} does not match the equipment identity or explicit source_reference "
+                    "of its terminal nodes."
+                )
+            roles = [node.conductor_role for node in source_terminals]
+            if len(set(roles)) != len(roles):
+                raise ValueError(f"Source {item.source_id!r} contains duplicate physical conductor roles.")
         for item in faults:
             if item.from_node_id not in known or item.to_node_id not in known:
                 raise ValueError(f"Fault {item.connection_id!r} references an unknown graph node.")
