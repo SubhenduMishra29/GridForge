@@ -35,6 +35,7 @@ class ShortCircuitInput:
     topology_revision: int | None = None
     base_mva: float | None = None
     bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=dict)
+    phase_domain_case: Any | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
@@ -73,6 +74,17 @@ class ShortCircuitInput:
             if not math.isfinite(base_mva) or base_mva <= 0.0:
                 raise ValueError("Short Circuit base_mva must be finite and positive when supplied.")
             object.__setattr__(self, "base_mva", base_mva)
+        if self.phase_domain_case is not None:
+            from .phase_domain_solver import PhaseDomainShortCircuitCase
+            if not isinstance(self.phase_domain_case, PhaseDomainShortCircuitCase):
+                raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+            case = self.phase_domain_case
+            if (case.graph.project_id, case.graph.activation_generation, case.graph.topology_revision) != (
+                self.project_id, self.activation_generation, self.topology_revision
+            ):
+                raise ValueError("Phase-domain case provenance does not match ShortCircuitInput.")
+            if self.base_mva is None or not math.isclose(case.base_mva, float(self.base_mva), rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("Phase-domain case must use the exact ShortCircuitInput MVA base.")
         if not isinstance(self.bus_voltage_bases_kv, Mapping):
             raise TypeError("bus_voltage_bases_kv must be a mapping.")
         voltage_bases: dict[str, float] = {}
