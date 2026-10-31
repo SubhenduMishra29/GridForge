@@ -8,7 +8,7 @@ basis identity.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -159,6 +159,12 @@ class ProtectionScenarioMeasurementAdapter:
             "ct_positive_current_direction": ct_association.positive_current_direction,
             "positive_current_direction": positive_current_direction,
         }
+        measurement_point_id = binding.metadata.get("measurement_point_id")
+        residual_source_mode = binding.metadata.get("residual_source_mode")
+        if measurement_point_id is not None:
+            provenance["measurement_point_id"] = measurement_point_id
+        if residual_source_mode is not None:
+            provenance["residual_source_mode"] = residual_source_mode
         basis_id = f"CT_SECONDARY_A:{ct_association.ct_id}:{channel.id}:{ratio:.12g}"
         return ProtectionScenarioMeasurementSample(
             scenario_id=scenario_id,
@@ -173,6 +179,105 @@ class ProtectionScenarioMeasurementAdapter:
             unit="A",
             reference_basis_id=basis_id,
             provenance=provenance,
+        )
+
+    def convert_neutral_ct_sample(
+        self,
+        *,
+        scenario_id: str,
+        binding: ProtectionMeasurementBinding,
+        result: ShortCircuitResult,
+        instrument: Any,
+        channel: MeasurementChannel,
+        ct_association: CTMeasurementAssociation,
+        construction: Any,
+    ) -> ProtectionScenarioMeasurementSample:
+        """Execute a direct Neutral CT from its configured physical neutral node."""
+        endpoint = binding.source_endpoint_reference
+        if construction.equipment_id != binding.source_equipment_id or construction.terminal_role != endpoint.terminal_role:
+            raise ValueError("Neutral CT construction equipment/terminal does not match its measurement binding.")
+        sample = self.convert_physical_conductor_ct_sample(
+            scenario_id=scenario_id, binding=binding, result=result, instrument=instrument,
+            channel=channel, ct_association=ct_association,
+            conductor_id=construction.conductor_id,
+            positive_current_direction=construction.positive_current_direction,
+        )
+        if sample.phase_or_sequence.strip().upper() != "N":
+            raise ValueError("Neutral CT construction must resolve to an N conductor-current record.")
+        if sample.provenance.get("physical_node_id") != construction.neutral_node_id:
+            raise ValueError("Configured neutral_node_id does not match the solved physical conductor node.")
+        provenance = dict(sample.provenance)
+        point = binding.metadata.get("measurement_point_id")
+        if not isinstance(point, str) or not point.strip():
+            raise ValueError("Direct Neutral CT binding requires an explicit measurement_point_id.")
+        provenance.update({
+            "residual_source_mode": "NEUTRAL_CT",
+            "measurement_point_id": point.strip(),
+            "neutral_node_id": construction.neutral_node_id,
+        })
+        return ProtectionScenarioMeasurementSample(
+            scenario_id=sample.scenario_id, binding_id=sample.binding_id,
+            protection_element_id=sample.protection_element_id, relay_input_id=sample.relay_input_id,
+            channel_id=sample.channel_id, instrument_id=sample.instrument_id,
+            quantity_key=sample.quantity_key, phase_or_sequence="N", value=sample.value,
+            unit=sample.unit, reference_basis_id=sample.reference_basis_id, provenance=provenance,
+        )
+
+    def convert_cbct_window_sample(
+        self,
+        *,
+        scenario_id: str,
+        binding: ProtectionMeasurementBinding,
+        result: ShortCircuitResult,
+        instrument: Any,
+        channel: MeasurementChannel,
+        ct_association: CTMeasurementAssociation,
+        construction: Any,
+    ) -> ProtectionScenarioMeasurementSample:
+        """Sum only the explicitly enclosed, co-terminal CBCT conductor records."""
+        conductors = tuple(getattr(construction, "conductors", ()))
+        if not conductors or not getattr(construction, "window_id", None):
+            raise ValueError("CBCT requires an explicit physical window and conductor membership.")
+        endpoint = binding.source_endpoint_reference
+        if not endpoint.is_terminal:
+            raise ValueError("CBCT measurement binding must identify one equipment terminal.")
+        if any(item.equipment_id != endpoint.object_id or item.terminal_role != endpoint.terminal_role for item in conductors):
+            raise ValueError("Every CBCT enclosed conductor must belong to the same configured equipment terminal.")
+        samples = []
+        for item in conductors:
+            member_binding = replace(
+                binding,
+                phase_or_sequence=item.phase_or_sequence,
+                result_quantity=f"conductor_currents.{item.conductor_id}",
+            )
+            samples.append(self.convert_physical_conductor_ct_sample(
+                scenario_id=scenario_id, binding=member_binding, result=result,
+                instrument=instrument, channel=channel, ct_association=ct_association,
+                conductor_id=item.conductor_id,
+                positive_current_direction=item.positive_current_direction,
+            ))
+        if len({(x.provenance.get("topology_revision"), x.provenance.get("measurement_bus_id")) for x in samples}) != 1:
+            raise ValueError("CBCT enclosed conductor records do not share one topology revision and measurement Bus.")
+        point = binding.metadata.get("measurement_point_id")
+        if not isinstance(point, str) or not point.strip():
+            raise ValueError("CBCT binding requires an explicit measurement_point_id.")
+        provenance = dict(samples[0].provenance)
+        provenance.update({
+            "residual_source_mode": "CBCT",
+            "measurement_point_id": point.strip(),
+            "cbct_window_id": construction.window_id,
+            "cbct_enclosed_conductor_ids": tuple(item.conductor_id for item in conductors),
+            "cbct_neutral_included": construction.neutral_included,
+            "cbct_member_provenance": tuple(dict(sample.provenance) for sample in samples),
+        })
+        return ProtectionScenarioMeasurementSample(
+            scenario_id=scenario_id, binding_id=binding.binding_id,
+            protection_element_id=binding.protection_element_id, relay_input_id=binding.relay_input_id,
+            channel_id=channel.id, instrument_id=ct_association.ct_id,
+            quantity_key=f"conductor_currents.CBCT:{construction.window_id}",
+            phase_or_sequence="RESIDUAL",
+            value=complex(sum((sample.value for sample in samples), 0j)),
+            unit="A", reference_basis_id=samples[0].reference_basis_id, provenance=provenance,
         )
 
     def convert_terminal_ct_sample(
