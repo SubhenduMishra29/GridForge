@@ -36,7 +36,7 @@ class ShortCircuitPreparation:
         self.base_mva = base_mva
         self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None, phase_domain_sources: Any | None = None, phase_domain_faults: Any | None = None) -> ShortCircuitInput:
         network = self._network
         if topology_snapshot is None:
             network.rebuild_topology()
@@ -54,6 +54,38 @@ class ShortCircuitPreparation:
             if len(set(bus_ids)) != len(bus_ids):
                 raise ValueError("TopologySnapshot bus IDs must be unique for Short Circuit preparation.")
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
+            if phase_domain_sources is not None or phase_domain_faults is not None:
+                if phase_domain_case is not None:
+                    raise ValueError("Supply either phase_domain_case or explicit phase_domain_sources/faults.")
+                sources = tuple(phase_domain_sources or ())
+                faults = tuple(phase_domain_faults or ())
+                if not sources or not faults:
+                    raise ValueError("Phase-domain preparation requires both explicit source equivalents and fault connections.")
+                if self.base_mva is None:
+                    raise ValueError("Phase-domain preparation requires an explicit study MVA base.")
+                from core.network import build_phase_domain_conductor_network
+                from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+                from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
+                from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
+                from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
+                graph = build_phase_domain_conductor_network(
+                    project_id=topology_snapshot.project_id,
+                    activation_generation=topology_snapshot.activation_generation,
+                    topology_revision=topology_snapshot.topology_revision,
+                    nodes=network.phase_domain_nodes,
+                    connections=network.phase_domain_connections,
+                )
+                physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                if not physical_topology.branches:
+                    raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
+                physical_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, physical_topology, base_mva=self.base_mva
+                )
+                admittance = assemble_phase_domain_admittance(graph, physical_impedances)
+                phase_domain_case = PhaseDomainShortCircuitCase(
+                    graph=graph, admittance=admittance, impedances=physical_impedances,
+                    sources=sources, faults=faults, base_mva=self.base_mva,
+                )
             if phase_domain_case is not None:
                 from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
                 if not isinstance(phase_domain_case, PhaseDomainShortCircuitCase):
