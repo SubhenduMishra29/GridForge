@@ -17149,3 +17149,30 @@ Remaining D15F integration:
 
 Status:
     Source changes committed to the PR branch; not production-verified.
+
+======================================================================
+GF-SC-D15F-11 — CT ASSOCIATION / SOLVER TOPOLOGY PROVENANCE GATE
+======================================================================
+
+File:
+    core/measurement/protection_scenario_measurement.py
+
+Correction:
+    - Physical-conductor CT sample conversion now requires the resolved
+      CT primary P1/P2 association topology revision to equal the exact
+      phase-domain short-circuit result topology revision.
+    - Rejects missing or malformed project activation provenance before
+      converting a physical conductor-current record into a CT sample.
+    - Prevents a stale CT association from being reused after a committed
+      topology edit, even if a record identity happens to remain stable.
+
+Boundary:
+    - This closes a provenance-integrity defect in the measurement path.
+      It does not claim automatic SLD SimpleWire-to-physical-conductor
+      cut construction or automatic source/equipment primitive assembly.
+
+Verification:
+    - Static source edit committed; tests/CI and runtime checks were not run.
+
+Status:
+    CORRECTED — INTEGRATION BLOCKERS REMAIN
