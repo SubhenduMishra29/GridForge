@@ -100,13 +100,7 @@ class ShortCircuitPreparation:
                 from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
                 from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
                 from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
-                authoritative_graph = build_phase_domain_conductor_network(
-                    project_id=topology_snapshot.project_id,
-                    activation_generation=topology_snapshot.activation_generation,
-                    topology_revision=topology_snapshot.topology_revision,
-                    nodes=network.phase_domain_nodes,
-                    connections=network.phase_domain_connections,
-                )
+                authoritative_graph = network.build_phase_domain_conductor_snapshot()
                 authoritative_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
                 if not authoritative_topology.branches:
                     raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
