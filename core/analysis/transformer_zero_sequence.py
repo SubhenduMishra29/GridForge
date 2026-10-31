@@ -22,6 +22,7 @@ class TransformerZeroSequencePath(str, Enum):
     """Externally visible zero-sequence path topology."""
 
     GROUNDED_WYE_SIDE_RETURN = "GROUNDED_WYE_SIDE_RETURN"
+    GROUNDED_WYE_TWO_WINDING_TRANSFER = "GROUNDED_WYE_TWO_WINDING_TRANSFER"
     NO_EXTERNAL_ZERO_SEQUENCE_PATH = "NO_EXTERNAL_ZERO_SEQUENCE_PATH"
 
 
@@ -236,10 +237,20 @@ def classify_transformer_zero_sequence(
             )
         from .transformer_zero_sequence_t_equivalent import derive_transformer_zero_sequence_t_equivalent
         derive_transformer_zero_sequence_t_equivalent(test_data)
-        raise ValueError(
-            f"Transformer '{transformer_id}' has valid three-test T-equivalent input, but "
-            "grounded-wye/grounded-wye zero-sequence Ybus stamping and terminal-current "
-            "integration are not yet enabled."
+        if getattr(transformer, "hv_terminal_role", None) not in {"FROM", "TO"} or getattr(transformer, "lv_terminal_role", None) not in {"FROM", "TO"}:
+            raise ValueError(f"Transformer '{transformer_id}' requires explicit HV/LV terminal roles for the two-winding zero-sequence equivalent.")
+        if getattr(transformer, "impedance_reference_winding", None) != "HV":
+            raise ValueError(f"Transformer '{transformer_id}' three-test zero-sequence data must use the HV reference winding.")
+        return TransformerZeroSequenceTopology(
+            transformer_id=transformer_id,
+            path=TransformerZeroSequencePath.GROUNDED_WYE_TWO_WINDING_TRANSFER,
+            grounded_winding_sides=("HV", "LV"),
+            externally_blocked_winding_sides=(),
+            core_construction=getattr(transformer, "core_construction", None),
+            internal_delta_circulation_possible=False,
+            requires_neutral_3zn=True,
+            requires_applicable_test_configuration=True,
+            numerical_equivalent_available=True,
         )
 
     grounded_side = grounded[0]
