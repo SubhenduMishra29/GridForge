@@ -134,6 +134,63 @@ class SequenceTransformerZeroShuntSnapshot:
             object.__setattr__(self, name, value)
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceTransformerZeroTwoBusSnapshot:
+    """Detached Yg-Yg two-terminal zero-sequence T-equivalent stamp."""
+
+    transformer_id: str
+    hv_bus_id: str
+    lv_bus_id: str
+    hv_bus_index: int
+    lv_bus_index: int
+    hv_terminal_role: str
+    lv_terminal_role: str
+    y_hh_pu: complex
+    y_hl_pu: complex
+    y_ll_pu: complex
+    hv_neutral_3zn_ohm: complex
+    lv_neutral_3zn_ohm: complex
+    lv_neutral_3zn_hv_referred_ohm: complex
+    base_mva: float
+    hv_base_voltage_kv: float
+    lv_base_voltage_kv: float
+    test_hv_open_circuit_z0_ohm: complex
+    test_lv_open_circuit_z0_hv_referred_ohm: complex
+    test_hv_short_circuit_z0_ohm: complex
+    test_source_reference: str
+    core_construction: str
+    zero_sequence_test_basis: str
+
+    def __post_init__(self) -> None:
+        for name in ("transformer_id", "hv_bus_id", "lv_bus_id", "test_source_reference", "core_construction", "zero_sequence_test_basis"):
+            value = str(getattr(self, name)).strip()
+            if not value:
+                raise ValueError(f"{name} must be a non-empty provenance value.")
+            object.__setattr__(self, name, value)
+        if self.hv_bus_id == self.lv_bus_id:
+            raise ValueError("Yg-Yg zero-sequence snapshot requires distinct HV/LV Buses.")
+        if self.hv_terminal_role not in {"FROM", "TO"} or self.lv_terminal_role not in {"FROM", "TO"} or self.hv_terminal_role == self.lv_terminal_role:
+            raise ValueError("Yg-Yg snapshot requires distinct canonical HV/LV terminal roles.")
+        for name in ("hv_bus_index", "lv_bus_index"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer.")
+        for name in ("y_hh_pu", "y_hl_pu", "y_ll_pu", "hv_neutral_3zn_ohm", "lv_neutral_3zn_ohm",
+                     "lv_neutral_3zn_hv_referred_ohm", "test_hv_open_circuit_z0_ohm",
+                     "test_lv_open_circuit_z0_hv_referred_ohm", "test_hv_short_circuit_z0_ohm"):
+            value = complex(getattr(self, name))
+            if not np.isfinite(value.real) or not np.isfinite(value.imag):
+                raise ValueError(f"{name} must be finite.")
+            object.__setattr__(self, name, value)
+        for name in ("base_mva", "hv_base_voltage_kv", "lv_base_voltage_kv"):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive.")
+            object.__setattr__(self, name, value)
+
+
 @dataclass(frozen=True, slots=True)
 class SequenceSourceSnapshot:
     """Prepared source identity, bus, sequence impedances and internal voltage."""
@@ -182,6 +239,7 @@ class SequenceNetworkSnapshot:
     sources: tuple[SequenceSourceSnapshot, ...] = ()
     unavailable_bus_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     transformer_zero_shunts: tuple[SequenceTransformerZeroShuntSnapshot, ...] = ()
+    transformer_zero_two_bus_stamps: tuple[SequenceTransformerZeroTwoBusSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -207,6 +265,20 @@ class SequenceNetworkSnapshot:
                 if shunt.bus_index >= len(self.bus_ids) or self.bus_ids[shunt.bus_index] != shunt.bus_id:
                     raise ValueError("Transformer shunt Bus identity does not match bus_ids.")
         object.__setattr__(self, "transformer_zero_shunts", shunts)
+        two_bus_stamps = tuple(self.transformer_zero_two_bus_stamps)
+        seen_two_bus: set[str] = set()
+        for stamp in two_bus_stamps:
+            if not isinstance(stamp, SequenceTransformerZeroTwoBusSnapshot):
+                raise TypeError("transformer_zero_two_bus_stamps must contain SequenceTransformerZeroTwoBusSnapshot records.")
+            if stamp.transformer_id in seen_two_bus or stamp.transformer_id in seen_transformers:
+                raise ValueError("A transformer cannot have both one-sided and two-sided zero-sequence equivalents.")
+            seen_two_bus.add(stamp.transformer_id)
+            if self.bus_ids:
+                if stamp.hv_bus_index >= len(self.bus_ids) or stamp.lv_bus_index >= len(self.bus_ids):
+                    raise ValueError("Yg-Yg transformer Bus index is outside bus_ids.")
+                if self.bus_ids[stamp.hv_bus_index] != stamp.hv_bus_id or self.bus_ids[stamp.lv_bus_index] != stamp.lv_bus_id:
+                    raise ValueError("Yg-Yg transformer Bus identity does not match bus_ids.")
+        object.__setattr__(self, "transformer_zero_two_bus_stamps", two_bus_stamps)
         unavailable: dict[str, tuple[int, ...]] = {}
         for sequence in ("positive", "negative", "zero"):
             raw_indices = tuple(self.unavailable_bus_indices.get(sequence, ()))
@@ -261,6 +333,27 @@ class SequenceNetworkSnapshot:
             branches=branches,
             sources=sources,
             unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
+            transformer_zero_two_bus_stamps=tuple(
+                SequenceTransformerZeroTwoBusSnapshot(
+                    transformer_id=str(item.transformer_id),
+                    hv_bus_id=str(item.hv_bus_id), lv_bus_id=str(item.lv_bus_id),
+                    hv_bus_index=int(item.hv_bus_index), lv_bus_index=int(item.lv_bus_index),
+                    hv_terminal_role=str(item.hv_terminal_role), lv_terminal_role=str(item.lv_terminal_role),
+                    y_hh_pu=complex(item.y_hh_pu), y_hl_pu=complex(item.y_hl_pu), y_ll_pu=complex(item.y_ll_pu),
+                    hv_neutral_3zn_ohm=complex(item.hv_neutral_3zn_ohm),
+                    lv_neutral_3zn_ohm=complex(item.lv_neutral_3zn_ohm),
+                    lv_neutral_3zn_hv_referred_ohm=complex(item.lv_neutral_3zn_hv_referred_ohm),
+                    base_mva=float(item.base_mva), hv_base_voltage_kv=float(item.hv_base_voltage_kv),
+                    lv_base_voltage_kv=float(item.lv_base_voltage_kv),
+                    test_hv_open_circuit_z0_ohm=complex(item.test_data.hv_open_circuit_z0_ohm),
+                    test_lv_open_circuit_z0_hv_referred_ohm=complex(item.test_data.lv_open_circuit_z0_hv_referred_ohm),
+                    test_hv_short_circuit_z0_ohm=complex(item.test_data.hv_short_circuit_z0_ohm),
+                    test_source_reference=str(item.test_data.source_reference),
+                    core_construction=str(getattr(item.core_construction, "value", item.core_construction)),
+                    zero_sequence_test_basis=str(getattr(item.zero_sequence_test_basis, "value", item.zero_sequence_test_basis)),
+                )
+                for item in getattr(sequence_network, "transformer_zero_sequence_two_bus_stamps", ())
+            ),
             transformer_zero_shunts=tuple(
                 SequenceTransformerZeroShuntSnapshot(
                     transformer_id=str(item.transformer_id),
