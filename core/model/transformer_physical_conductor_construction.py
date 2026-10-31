@@ -20,6 +20,7 @@ class TransformerWindingConductorConstruction:
     phase_roles: tuple[str, ...]
     neutral_terminal_role: str | None
     neutral_grounding_impedance_ohm: complex | None
+    earth_return_impedance_ohm: complex | None = None
 
     def __post_init__(self) -> None:
         winding = str(self.winding).strip().upper()
@@ -45,12 +46,20 @@ class TransformerWindingConductorConstruction:
             object.__setattr__(self, "neutral_terminal_role", str(self.neutral_terminal_role).strip())
             if self.neutral_grounding_impedance_ohm is None:
                 raise ValueError("Grounded-wye winding requires explicit neutral grounding impedance.")
+            if self.earth_return_impedance_ohm is None:
+                raise ValueError("Grounded-wye winding requires an explicit earth-return impedance to the study earth reference.")
             z = complex(self.neutral_grounding_impedance_ohm)
             if not math.isfinite(z.real) or not math.isfinite(z.imag) or z.real < 0:
                 raise ValueError("Neutral grounding impedance must be finite and passive.")
+            if z == 0j:
+                raise ValueError("Zero-ohm neutral grounding is not individually resolvable in the physical return-current model.")
             object.__setattr__(self, "neutral_grounding_impedance_ohm", z)
+            earth_z = complex(self.earth_return_impedance_ohm)
+            if not math.isfinite(earth_z.real) or not math.isfinite(earth_z.imag) or earth_z.real < 0 or earth_z == 0j:
+                raise ValueError("Earth-return impedance must be finite, passive and non-zero.")
+            object.__setattr__(self, "earth_return_impedance_ohm", earth_z)
         else:
-            if self.neutral_terminal_role is not None or self.neutral_grounding_impedance_ohm is not None:
+            if self.neutral_terminal_role is not None or self.neutral_grounding_impedance_ohm is not None or self.earth_return_impedance_ohm is not None:
                 raise ValueError("Only grounded-wye windings may declare a neutral terminal or grounding impedance.")
 
 
