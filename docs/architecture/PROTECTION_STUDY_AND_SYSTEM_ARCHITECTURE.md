@@ -957,3 +957,15 @@ Verification: remote source review only. No tests or CI run; Python syntax, impo
 The project configuration aggregate accepts multiple explicitly declared physical measurement bindings for the residual_current input of ANSI 50N/51N only when their binding IDs exactly belong to the persisted ResidualCurrentInputConfiguration. This supports the configured A/B/C source set without relaxing the ordinary one-physical-input/one-binding invariant. Configuration replacement cannot orphan existing source bindings, and removal of a referenced source binding is rejected.
 
 This is a configuration/persistence boundary correction only. It does not compose a derived relay input, assemble Application-authorized residual snapshots, or enable ANSI 50N/51N. Those remain fail-closed pending end-to-end integration and source validation.
+
+
+### D11c — End-to-end ANSI 50N/51N residual-current scenario input
+
+ANSI 50N and 51N now use a first-class `DerivedRelayMeasurement` as the `residual_current` RelayInput source. It is not a physical `MeasurementChannel` and is not inserted into the MeasurementChannel registry. Runtime composition requires a persisted `ResidualCurrentInputConfiguration` and creates this derived source only for 50N/51N.
+
+The canonical input contracts declare a complex-capable current input in amperes. Application validates the exact configured binding set, active in-service CT identity, CT secondary channel identity, phase classification, terminal-current reference direction, per-unit result provenance, project activation and topology revision, CT ratio and physical polarity, channel scale/polarity, and the explicit measurement-point declaration. Each CT-secondary sample is normalized independently to signed primary amperes; three-phase residual is the complex phasor sum `Ia + Ib + Ic`, not a sum of magnitudes. Direct neutral-CT/CBCT mode requires explicit persisted `residual_source_mode` and neutral-phase declarations. The resulting detached snapshot carries source binding IDs, source mode, measurement point, scenario and topology provenance, and a derived-input identity checked by `ProtectionElement` before evaluation.
+
+The existing ANSI 50N instantaneous pickup and ANSI 51N IEC inverse-time/latching/reset algorithms consume the same derived residual phasor through their ordinary RelayInput accessors. No physical MeasurementChannel is mutated, no protection zone is inferred from the CT location, and ordinary single-channel protection inputs retain their existing one-binding contract.
+
+Engineering configuration requirement: every residual source binding must declare `measurement_point_id` equal to the function's configured point. For `NEUTRAL_CT` or `CBCT`, it must additionally declare `residual_source_mode` with the exact configured mode. A/B/C summation requires three distinct CT instruments and three phase-specific current channels.
+
