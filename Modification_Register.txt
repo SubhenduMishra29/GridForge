@@ -16033,3 +16033,34 @@ Verification:
     execution remain unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D13-01 — TRANSFORMER NEGATIVE-SEQUENCE PRIMITIVE
+======================================================================
+
+Files:
+    core/analysis/sequence_network_preparation.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Implementation:
+    - Static two-winding Transformer negative-sequence series impedance
+      uses its positive-sequence series impedance, consistent with the
+      passive transformer sequence equivalent.
+    - The phase-shifting complex tap is conjugated for the negative-
+      sequence network, reversing the phase displacement while retaining
+      the tap magnitude.
+    - Zero-sequence Transformer impedance remains unavailable. No winding
+      connection, vector-group, neutral-grounding or zero-sequence transfer
+      behavior is inferred.
+
+Boundary:
+    This is a negative-sequence primitive only. It does not enable earth-
+    fault current through transformers. Transformer Z0 and winding/neutral
+    connection matrices remain mandatory next work.
+
+Verification:
+    Remote source edits only. No tests or CI run. Python syntax, numerical
+    matrix validation and import integrity remain unverified.
+
+======================================================================
