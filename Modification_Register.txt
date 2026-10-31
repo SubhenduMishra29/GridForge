@@ -16581,8 +16581,9 @@ Changes:
     - Added immutable ShortCircuitConductorCurrent, terminal-scoped by
       physical conductor identity and owning equipment terminal.
     - Added strict conductor-current record identity, phase/conductor role,
-      finite complex value, explicit current direction, per-unit basis and
-      immutable provenance validation.
+      finite complex value, explicit current direction, non-negative topology
+      revision, positive MVA/voltage bases, per-unit basis and immutable
+      provenance validation. Added coverage/record consistency checks.
     - Added conductor_currents, independent coverage status and diagnostics
       to ShortCircuitResult, including immutable mapping validation,
       composite-key lookup and as_dict exposure.
