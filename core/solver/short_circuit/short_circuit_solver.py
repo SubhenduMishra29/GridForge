@@ -384,6 +384,14 @@ class ShortCircuitSolver:
             "base_mva": self.input.base_mva,
             "bus_voltage_bases_kv": dict(self.input.bus_voltage_bases_kv),
             "current_units": "per_unit",
+            "unavailable_sequence_buses": {
+                sequence: tuple(
+                    self.input.bus_ids[index]
+                    for index in indices
+                    if 0 <= index < len(self.input.bus_ids)
+                )
+                for sequence, indices in self.input.sequence_snapshot.unavailable_bus_indices.items()
+            } if self.input.sequence_snapshot is not None else {},
         }
         values = dict(values)
         values.update({
