@@ -183,9 +183,14 @@ class PhaseDomainShortCircuitSolution:
     fault_currents_a: Mapping[str, complex]
     connection_currents_a: Mapping[str, complex]
     topology_revision: int
+    kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        residual = float(self.kcl_residual_a)
+        if not math.isfinite(residual) or residual < 0.0:
+            raise ValueError("kcl_residual_a must be finite and non-negative.")
+        object.__setattr__(self, "kcl_residual_a", residual)
         object.__setattr__(self, "node_voltages_v", MappingProxyType(dict(self.node_voltages_v)))
         object.__setattr__(self, "conductor_currents", MappingProxyType(dict(self.conductor_currents)))
         object.__setattr__(self, "source_currents_a", MappingProxyType(dict(self.source_currents_a)))
@@ -252,6 +257,7 @@ class PhaseDomainShortCircuitSolver:
                     y[j, i] -= admittance
 
         multipliers = np.zeros(0, dtype=complex)
+        constraint_reaction = np.zeros(len(ids), dtype=complex)
         if constraints:
             c = np.vstack(constraints)
             saddle = np.block([
@@ -262,10 +268,32 @@ class PhaseDomainShortCircuitSolver:
             augmented_solution = np.linalg.solve(saddle, augmented_rhs)
             solution = augmented_solution[:len(ids)]
             multipliers = augmented_solution[len(ids):]
+            constraint_reaction = c.conjugate().T @ multipliers
         else:
             solution = np.linalg.solve(y, rhs)
-        if not np.all(np.isfinite(solution.real)) or not np.all(np.isfinite(solution.imag)):
-            raise ValueError("Phase-domain fault solution contains non-finite node voltages.")
+        if (
+            not np.all(np.isfinite(solution.real))
+            or not np.all(np.isfinite(solution.imag))
+            or not np.all(np.isfinite(multipliers.real))
+            or not np.all(np.isfinite(multipliers.imag))
+        ):
+            raise ValueError("Phase-domain fault solution contains non-finite voltages or ideal-constraint currents.")
+        # Verify KCL on every solved (non-reference) node. The saddle-point
+        # reaction term is the exact current through ideal fault constraints.
+        network_injection = y @ solution
+        residual_vector = network_injection + constraint_reaction - rhs
+        kcl_residual_a = float(np.max(np.abs(residual_vector)))
+        residual_scale = max(
+            1.0,
+            float(np.max(np.abs(rhs))),
+            float(np.max(np.abs(network_injection))),
+            float(np.max(np.abs(constraint_reaction))),
+        )
+        if not math.isfinite(kcl_residual_a) or kcl_residual_a > 1.0e-8 * residual_scale:
+            raise ValueError(
+                f"Phase-domain solution violates nodal KCL: residual={kcl_residual_a:.6g} A, "
+                f"scale={residual_scale:.6g} A."
+            )
         voltage_by_node = {
             node_id: (0j if mapped is None else complex(solution[mapped]))
             for node_id, mapped in snapshot.source_node_to_index.items()
@@ -440,6 +468,7 @@ class PhaseDomainShortCircuitSolver:
             fault_currents_a=fault_currents,
             connection_currents_a=connection_currents,
             topology_revision=case.graph.topology_revision,
+            kcl_residual_a=kcl_residual_a,
             diagnostics=tuple(connection_diagnostics),
         )
 
