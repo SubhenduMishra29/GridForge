@@ -1027,3 +1027,37 @@ Integration completion:
 - Test configurations declaring neutral return included are rejected: stored transformer Z0 excludes neutral 3Zn, which remains a separate network contribution.
 
 The contracts are model/command/service/persistence integrated. This does not enable transformer zero-sequence Ybus stamping, numerical equivalent calculation, or terminal-current generation. Legacy persisted transformer state lacking these contracts remains unavailable for Z0 classification.
+
+
+## D14F — One-sided grounded-wye zero-sequence return equivalent
+
+A transformer with exactly one grounded-wye winding may contribute a
+zero-sequence shunt return on that grounded-wye Bus when its explicit Z0
+reference winding, winding connections, vector-group declaration,
+core-construction metadata, data provenance and test configuration are
+applicable. This is not a two-terminal HV-LV series branch.
+
+The numerical equivalent is formed on the grounded-wye winding side:
+
+\[Z_{0,return}=Z_{0,transformer}+3Z_n\]
+
+The stored transformer Z0 is physical ohms referred to the explicitly
+declared grounded winding and excludes neutral return. The corresponding
+neutral impedance is multiplied by three and added exactly once. The total
+is converted to per unit using the grounded Bus line-to-line voltage base
+and the study MVA base, then stamped as a shunt admittance at that Bus in
+the zero-sequence Ybus. No shunt is stamped on the opposite winding Bus.
+
+Test applicability is deliberately narrow: a delta opposite winding
+requires an explicitly DELTA_CLOSED test condition; an ungrounded-wye
+opposite winding requires OPEN_CIRCUIT. A short-circuit test condition is
+not interpreted as this one-sided equivalent. Core construction is retained
+as provenance only; no empirical multiplier is inferred from limb count or
+shell form. Delta circulation remains internal and does not create an
+external zero-sequence path on the delta Bus.
+
+Grounded-wye/grounded-wye transfer remains fail-closed. No transformer
+zero-sequence terminal-current primitive, earth-fault result, or relay
+measurement path is enabled by this phase. A network containing a floating
+or disconnected zero-sequence island remains unsolvable and is rejected by
+the existing matrix singularity checks.
