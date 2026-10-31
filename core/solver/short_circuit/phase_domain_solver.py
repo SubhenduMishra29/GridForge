@@ -16,7 +16,7 @@ import numpy as np
 
 from core.analysis.phase_domain_network_preparation import PhaseDomainAdmittanceSnapshot
 from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
-from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind
+from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind, PhaseDomainConnectionKind
 from .result import ShortCircuitConductorCurrent
 
 
@@ -245,6 +245,7 @@ class PhaseDomainShortCircuitSolution:
     fault_currents_a: Mapping[str, complex]
     connection_currents_a: Mapping[str, complex]
     topology_revision: int
+    source_return_reconciliation: Mapping[str, Mapping[str, Any]] | None = None
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
 
@@ -258,6 +259,8 @@ class PhaseDomainShortCircuitSolution:
         object.__setattr__(self, "source_currents_a", MappingProxyType(dict(self.source_currents_a)))
         object.__setattr__(self, "fault_currents_a", MappingProxyType(dict(self.fault_currents_a)))
         object.__setattr__(self, "connection_currents_a", MappingProxyType(dict(self.connection_currents_a)))
+        reconciliation = self.source_return_reconciliation or {}
+        object.__setattr__(self, "source_return_reconciliation", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in reconciliation.items()}))
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
 
 
