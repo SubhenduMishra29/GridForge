@@ -16396,9 +16396,14 @@ GF-SC-D14I-01 — GROUNDED-WYE / GROUNDED-WYE THREE-TEST T-EQUIVALENT FOUNDATION
 
 Files:
     core/model/transformer_zero_sequence_test_data.py
+    core/model/transformer.py
     core/model/__init__.py
+    core/application/commands/model_commands.py
+    core/application/services/transformer_model_service.py
     core/analysis/transformer_zero_sequence_t_equivalent.py
+    core/analysis/transformer_zero_sequence.py
     core/analysis/__init__.py
+    core/persistence/model_dto.py (existing generic dataclass encoding path)
     docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
     Modification_Register.txt
 
