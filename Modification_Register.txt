@@ -15993,3 +15993,43 @@ Verification:
     in a local runtime.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D12-01 — EXPLICIT LINE ZERO-SEQUENCE IMPEDANCE
+======================================================================
+
+Files:
+    core/model/line.py
+    core/analysis/sequence_network_preparation.py
+    core/application/commands/model_commands.py
+    core/application/services/line_model_service.py
+    core/application/services/model_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Implementation:
+    - Added optional zero_sequence_resistance_ohm and
+      zero_sequence_reactance_ohm to the authoritative Line model.
+      They must be declared together, finite and non-negative, and
+      form a non-zero complex Z0 when present.
+    - Generic ModelDTO state serialization preserves the new model
+      state; old Line payloads without the fields remain compatible
+      because the properties default to None when absent.
+    - Exposed the fields through CreateLineCommand, UpdateLineCommand,
+      LineModelService and the ModelService facade. Updates retain
+      transactional undo/rollback behavior.
+    - SequenceNetworkPreparation converts explicitly declared Z0
+      ohms to the study per-unit base. It does not substitute Z1 when
+      Z0 is missing; unsymmetrical preparation fails closed.
+
+Boundary:
+    This supplies Line Z0 only. Transformer zero-sequence paths,
+    vector groups, winding connections, neutral grounding and CBCT
+    multi-conductor windows remain separate engineering work.
+
+Verification:
+    Remote source updates only. No tests or CI run. Python syntax,
+    import integrity, serialization round-trip and earth-fault numerical
+    execution remain unverified.
+
+======================================================================
