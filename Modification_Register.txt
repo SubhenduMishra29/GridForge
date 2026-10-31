@@ -16251,6 +16251,7 @@ GF-SC-D14F-01 — ONE-SIDED GROUNDED-WYE ZERO-SEQUENCE RETURN
 Files:
     core/analysis/transformer_zero_sequence.py
     core/analysis/sequence_network_preparation.py
+    core/analysis/short_circuit_preparation.py
     core/analysis/__init__.py
     docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
     Modification_Register.txt
@@ -16463,8 +16464,13 @@ Implementation:
     - Requires canonical HV/LV terminal roles, distinct Bus attachments,
       explicit study MVA base, and Bus nominal voltage bases matching the
       declared test winding voltage bases.
+    - Accepts only Yy0 with normal HV/LV winding polarity; unsupported
+      zero-sequence polarity/clock mappings fail closed.
     - Rejects non-unity tap and non-zero phase shift for this path until a
       validated tap-adjusted zero-sequence test model is provided.
+    - Externally supplied sequence matrices must include the matching D14I
+      two-Bus stamp; missing explicit transformer zero-sequence provenance
+      fails preparation.
     - Coupled stamp participates in zero-sequence component connectivity and
       matrix inversion; unrelated floating islands remain independently
       unavailable.
