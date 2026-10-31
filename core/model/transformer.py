@@ -86,6 +86,11 @@ class Transformer(Branch):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
@@ -156,6 +161,62 @@ class Transformer(Branch):
         self._lv_winding_connection = self._normalize_winding_connection(lv_winding_connection)
         self._hv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(hv_neutral_grounding_impedance_ohm, self._hv_winding_connection, "HV")
         self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV")
+        self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(hv_terminal_role, lv_terminal_role)
+        self._impedance_reference_winding = self._normalize_reference_winding(impedance_reference_winding)
+        self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(zero_sequence_resistance_ohm, zero_sequence_reactance_ohm)
+        if self._zero_sequence_resistance_ohm is not None and (self._impedance_reference_winding is None or self._hv_terminal_role is None):
+            raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
+
+    @staticmethod
+    def _validate_terminal_mapping(hv_role: str | None, lv_role: str | None) -> tuple[str | None, str | None]:
+        if hv_role is None and lv_role is None:
+            return None, None
+        hv = str(hv_role).strip().upper() if hv_role is not None else ""
+        lv = str(lv_role).strip().upper() if lv_role is not None else ""
+        if hv not in {"FROM", "TO"} or lv not in {"FROM", "TO"} or hv == lv:
+            raise ValueError("HV/LV terminal mapping must explicitly assign distinct FROM and TO roles.")
+        return hv, lv
+
+    @staticmethod
+    def _normalize_reference_winding(value: str | None) -> str | None:
+        if value is None:
+            return None
+        result = str(value).strip().upper()
+        if result not in {"HV", "LV"}:
+            raise ValueError("impedance_reference_winding must be HV or LV.")
+        return result
+
+    @staticmethod
+    def _validate_zero_sequence_impedance(resistance: float | None, reactance: float | None) -> tuple[float | None, float | None]:
+        if (resistance is None) != (reactance is None):
+            raise ValueError("Transformer zero-sequence resistance and reactance must be declared together.")
+        if resistance is None:
+            return None, None
+        r = Transformer._validate_finite(resistance, "zero_sequence_resistance_ohm")
+        x = Transformer._validate_finite(reactance, "zero_sequence_reactance_ohm")
+        if r < 0.0 or (r == 0.0 and x == 0.0):
+            raise ValueError("Transformer Z0 must be non-zero with non-negative resistance.")
+        return r, x
+
+    @property
+    def hv_terminal_role(self) -> str | None:
+        return self._hv_terminal_role
+
+    @property
+    def lv_terminal_role(self) -> str | None:
+        return self._lv_terminal_role
+
+    @property
+    def impedance_reference_winding(self) -> str | None:
+        return self._impedance_reference_winding
+
+    @property
+    def zero_sequence_resistance_ohm(self) -> float | None:
+        return self._zero_sequence_resistance_ohm
+
+    @property
+    def zero_sequence_reactance_ohm(self) -> float | None:
+        return self._zero_sequence_reactance_ohm
 
     @property
     def hv_winding_connection(self) -> TransformerWindingConnection | None:
