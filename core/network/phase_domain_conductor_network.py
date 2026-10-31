@@ -132,7 +132,7 @@ class PhaseDomainConductorNode:
             raise TypeError("Persisted phase-domain node must be an object.")
         allowed = {"node_id", "kind", "conductor_role", "conductor_id", "equipment_id", "terminal_role", "bus_id", "source_reference", "topology_reference"}
         legacy_allowed = allowed - {"topology_reference"}
-        if set(data) not in {frozenset(allowed), frozenset(legacy_allowed)}:
+        if frozenset(data) not in {frozenset(allowed), frozenset(legacy_allowed)}:
             raise ValueError("Persisted phase-domain node fields are incomplete or unsupported.")
         values = dict(data)
         raw_reference = values.get("topology_reference")
