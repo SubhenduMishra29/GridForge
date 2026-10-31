@@ -129,6 +129,8 @@ class Grid(ElectricalObject, Injection):
         z1_pu: complex | None = None,
         z2_pu: complex | None = None,
         z0_pu: complex | None = None,
+        impedance_base_mva: float | None = None,
+        impedance_base_voltage_kv: float | None = None,
         in_service: bool = True,
         grounded: bool = True,
     ) -> None:
@@ -303,6 +305,13 @@ class Grid(ElectricalObject, Injection):
                 z0_pu,
                 "z0_pu",
             )
+        )
+        # Per-unit source impedances retain their original equipment base.
+        self.impedance_base_mva = self._validate_optional_positive(
+            impedance_base_mva, "impedance_base_mva"
+        )
+        self.impedance_base_voltage_kv = self._validate_optional_positive(
+            impedance_base_voltage_kv, "impedance_base_voltage_kv"
         )
 
         # ========================================================
@@ -778,6 +787,14 @@ class Grid(ElectricalObject, Injection):
                 "z0_pu",
             )
         )
+        self.impedance_base_mva = self._validate_optional_positive(self.impedance_base_mva, "impedance_base_mva")
+        self.impedance_base_voltage_kv = self._validate_optional_positive(self.impedance_base_voltage_kv, "impedance_base_voltage_kv")
+        if (self.impedance_base_mva is None) != (self.impedance_base_voltage_kv is None):
+            raise ValueError("Grid impedance base requires both MVA and voltage bases.")
+        if any(value is not None for value in (self.z1_pu, self.z2_pu, self.z0_pu)) and (
+            self.impedance_base_mva is None or self.impedance_base_voltage_kv is None
+        ):
+            raise ValueError("Grid per-unit sequence impedances require explicit impedance_base_mva and impedance_base_voltage_kv.")
 
         self.in_service = self._validate_bool(
             self.in_service,
@@ -952,6 +969,12 @@ class Grid(ElectricalObject, Injection):
 
             "z0_pu":
                 self.z0_pu,
+
+            "impedance_base_mva":
+                self.impedance_base_mva,
+
+            "impedance_base_voltage_kv":
+                self.impedance_base_voltage_kv,
 
             "in_service":
                 self.in_service,
