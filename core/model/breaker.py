@@ -134,6 +134,7 @@ from typing import Any, Mapping
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .physical_conductor_construction import PhysicalConductorConstruction
 
 
 class Breaker(ElectricalObject):
@@ -770,6 +771,13 @@ class Breaker(ElectricalObject):
         )
 
         return summary
+
+    @property
+    def physical_conductor_construction(self) -> PhysicalConductorConstruction | None:
+        """Common immutable inventory; pole state remains separately authoritative."""
+        if self._phase_domain_pole_states is None:
+            return None
+        return PhysicalConductorConstruction.from_roles(self._phase_domain_pole_states.keys())
 
     # ============================================================
     # REPRESENTATION
