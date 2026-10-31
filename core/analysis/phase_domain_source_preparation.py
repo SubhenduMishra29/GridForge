@@ -72,6 +72,10 @@ def prepare_phase_domain_source_equivalents(
         node for node in graph.nodes
         if node.kind is PhaseDomainNodeKind.EQUIPMENT_TERMINAL
     )
+    for motor in tuple(network.motors):
+        if getattr(motor, "in_service", None) is True and getattr(motor, "running", None) is True:
+            motor_id = str(getattr(motor, "id", "<unknown>"))
+            raise ValueError(f"Running Motor {motor_id!r} has no validated phase-domain source decay model; automatic source preparation fails closed.")
     supported_equipment = tuple(network.grids) + tuple(network.generators)
     sources: list[PhaseDomainMultiConductorSource] = []
     for equipment in supported_equipment:
