@@ -519,6 +519,17 @@ class ShortCircuitSolver:
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
         contribution_status, contribution_diagnostics = self._contribution_status(source_contributions, equipment_currents, branch_currents)
         terminal_currents, terminal_current_status, terminal_current_diagnostics = self._calculate_terminal_currents(typed)
+        conductor_currents = {}
+        if self.input.sequence_snapshot is None or not self.input.sequence_snapshot.branches:
+            conductor_current_diagnostics = (
+                "No prepared branch topology is available for physical conductor-current calculation.",
+            )
+        else:
+            conductor_current_diagnostics = (
+                "Prepared sequence branch snapshots do not carry explicit physical conductor identities or per-conductor electrical parameters. Aggregate phase currents are not promoted to physical conductor currents.",
+                "Neutral-conductor current and CBCT aperture-current aggregation remain unavailable until the Core conductor topology and solver primitive are implemented.",
+            )
+        conductor_current_status = ContributionStatus.UNAVAILABLE
         provenance = {
             "input_contract": "ShortCircuitInput",
             "fault_bus_id": self.input.fault_bus_id,
@@ -529,6 +540,8 @@ class ShortCircuitSolver:
             "branch_ids": tuple(branch_currents.keys()),
             "terminal_current_ids": tuple(terminal_currents.keys()),
             "terminal_current_status": terminal_current_status.value,
+            "conductor_current_status": conductor_current_status.value,
+            "conductor_current_ids": (),
             # Preserve the identity of the immutable Core snapshot through the
             # numerical result boundary. None is retained when a caller creates
             # detached input without project activation metadata; the solver
@@ -577,6 +590,9 @@ class ShortCircuitSolver:
             terminal_currents=terminal_currents,
             terminal_current_status=terminal_current_status,
             terminal_current_diagnostics=terminal_current_diagnostics,
+            conductor_currents=conductor_currents,
+            conductor_current_status=conductor_current_status,
+            conductor_current_diagnostics=conductor_current_diagnostics,
             provenance=provenance,
             contribution_status=contribution_status,
             diagnostics=contribution_diagnostics,
