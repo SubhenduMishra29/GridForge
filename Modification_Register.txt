@@ -17228,3 +17228,38 @@ Verification:
 
 Status:
     CORRECTED — AUTOMATIC SOURCE PREPARATION REMAINS OPEN
+
+======================================================================
+GF-SC-D15F-14 — PHASE-DOMAIN SOURCE OWNER / OPERATING-STATE VALIDATION
+======================================================================
+
+File:
+    core/analysis/short_circuit_preparation.py
+
+Correction:
+    - Every supplied phase-domain source must resolve through the
+      captured authoritative Network to one canonical registered Grid,
+      Generator or Motor object.
+    - Source terminal graph nodes must identify that same equipment
+      owner, use its authoritative terminal role, and inject only into
+      explicitly declared A/B/C phase conductors.
+    - Out-of-service sources are rejected.
+    - A Motor contributes only when its explicit running state is true.
+    - Unsupported source equipment types fail closed.
+
+Boundary:
+    - This binds supplied source equivalents to live Core equipment and
+      service state. It does not derive source impedances, transient
+      motor reactance, sequence bases, internal voltages, or grounding
+      equivalents from incomplete model fields.
+    - Automatic Grid/Generator/Motor Norton-equivalent preparation
+      remains open; missing electrical construction data must not be
+      guessed.
+
+Verification:
+    - Static edits committed. Tests/CI, syntax/import checks and
+      numerical or end-to-end execution were not run.
+
+Status:
+    CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
+
