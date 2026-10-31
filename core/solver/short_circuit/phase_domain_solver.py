@@ -190,7 +190,6 @@ class PhaseDomainShortCircuitSolver:
             raise TypeError("case must be PhaseDomainShortCircuitCase.")
         snapshot = case.admittance
         ids = snapshot.node_ids
-        index = {node_id: i for i, node_id in enumerate(ids)}
         y = np.asarray(snapshot.admittance_siemens, dtype=complex).copy()
         rhs = np.zeros(len(ids), dtype=complex)
         constraints: list[np.ndarray] = []
@@ -215,7 +214,6 @@ class PhaseDomainShortCircuitSolver:
                     for column, global_column in enumerate(indices):
                         y[global_row, global_column] += source_y[row, column]
 
-        fault_finite_admittances: dict[str, complex] = {}
         for fault in case.faults:
             i = snapshot.source_node_to_index[fault.from_node_id]
             j = snapshot.source_node_to_index[fault.to_node_id]
@@ -238,8 +236,8 @@ class PhaseDomainShortCircuitSolver:
                 if i is not None and j is not None:
                     y[i, j] -= admittance
                     y[j, i] -= admittance
-                fault_finite_admittances[fault.connection_id] = admittance
 
+        multipliers = np.zeros(0, dtype=complex)
         if constraints:
             c = np.vstack(constraints)
             saddle = np.block([
@@ -247,7 +245,9 @@ class PhaseDomainShortCircuitSolver:
                 [c, np.zeros((len(constraints), len(constraints)), dtype=complex)],
             ])
             augmented_rhs = np.concatenate((rhs, np.asarray(constraint_values, dtype=complex)))
-            solution = np.linalg.solve(saddle, augmented_rhs)[:len(ids)]
+            augmented_solution = np.linalg.solve(saddle, augmented_rhs)
+            solution = augmented_solution[:len(ids)]
+            multipliers = augmented_solution[len(ids):]
         else:
             solution = np.linalg.solve(y, rhs)
         if not np.all(np.isfinite(solution.real)) or not np.all(np.isfinite(solution.imag)):
@@ -276,9 +276,8 @@ class PhaseDomainShortCircuitSolver:
             else:
                 fault_currents[fault.connection_id] = delta / fault.impedance_ohm
 
-        # Re-solve with multipliers retained to report exact bolted-fault currents.
+        # Lagrange multipliers are the exact currents through bolted-fault constraints.
         if constraints:
-            multipliers = np.linalg.solve(saddle, augmented_rhs)[len(ids):]
             zero_fault_ids = [x.connection_id for x in case.faults if x.impedance_ohm == 0j]
             for fault_id, current in zip(zero_fault_ids, multipliers):
                 fault_currents[fault_id] = complex(current)
