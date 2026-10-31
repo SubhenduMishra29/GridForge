@@ -16646,7 +16646,7 @@ Engineering boundary:
     Neutral, protective earth and screen are distinct. No neutral/earth return
     path or additional Network node is inferred. The conductor system is
     explicit data only; no multi-conductor network stamp or conductor-current
-    calculation is enabled. D15D/D15E and D15F/D15G remain outstanding.
+    calculation is enabled. D15E and D15F/D15G remain outstanding.
     Legacy branches without explicit conductor data remain valid but do not
     qualify for physical conductor-current coverage.
 
