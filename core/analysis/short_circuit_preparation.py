@@ -171,6 +171,39 @@ class ShortCircuitPreparation:
                 else ("positive",)
             )
             sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
+        if self._sequence_network is not None:
+            # External sequence matrices do not own physical-conductor inputs.
+            # Re-prepare this separate product from the authoritative Network
+            # and canonical topology; never infer it from supplied Z1/Z2/Z0.
+            from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+            from core.analysis.physical_conductor_preparation import (
+                PhysicalConductorImpedanceSnapshot,
+                prepare_physical_conductor_impedance_snapshot,
+            )
+            physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+            if not physical_topology.branches:
+                physical_impedances = PhysicalConductorImpedanceSnapshot(
+                    project_id=physical_topology.project_id,
+                    activation_generation=physical_topology.activation_generation,
+                    topology_revision=physical_topology.topology_revision,
+                    branches=(),
+                )
+                physical_diagnostics = ()
+            elif self.base_mva is None:
+                physical_impedances = None
+                physical_diagnostics = ("UNAVAILABLE: explicit study base_mva is required for physical-conductor per-unit preparation.",)
+            else:
+                physical_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, physical_topology, base_mva=self.base_mva
+                )
+                physical_diagnostics = ()
+            try:
+                sequence_network.physical_conductor_topology = physical_topology
+                sequence_network.physical_conductor_impedances = physical_impedances
+                sequence_network.physical_conductor_impedance_diagnostics = physical_diagnostics
+            except (AttributeError, TypeError) as exc:
+                if physical_topology.branches:
+                    raise ValueError("Externally supplied immutable sequence data cannot carry the required D15E physical-conductor snapshot.") from exc
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
             bus_ids=bus_ids,
