@@ -126,6 +126,11 @@ class Network:
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
         self._junctions.validate()
+        for edge in self._phase_domain_connections.values():
+            if edge.from_node_id not in self._phase_domain_nodes or edge.to_node_id not in self._phase_domain_nodes:
+                raise ValueError("Phase-domain graph contains a dangling connection.")
+        if self.topology_snapshot is not None and (self._phase_domain_nodes or self._phase_domain_connections):
+            self.build_phase_domain_conductor_snapshot()
 
         from core.model.base import ElectricalObject
 
@@ -260,6 +265,56 @@ class Network:
     def remove_disconnector(self, disconnector: Any) -> None: self._remove(self.registry.remove_disconnector, disconnector, affects_topology=True)
     def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
+
+    def build_phase_domain_conductor_snapshot(self):
+        """Freeze explicit conductor graph against current canonical topology."""
+        snapshot = self.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Phase-domain conductor graph requires a current rebuilt topology snapshot.")
+        return build_phase_domain_conductor_network(
+            project_id=snapshot.project_id,
+            activation_generation=snapshot.activation_generation,
+            topology_revision=snapshot.topology_revision,
+            nodes=self.phase_domain_nodes,
+            connections=self.phase_domain_connections,
+        )
+
+    def add_phase_domain_node(self, node: PhaseDomainConductorNode) -> None:
+        if not isinstance(node, PhaseDomainConductorNode):
+            raise TypeError("node must be a PhaseDomainConductorNode.")
+        if node.node_id in self._phase_domain_nodes:
+            raise ValueError("Duplicate phase-domain node identity.")
+        self._phase_domain_nodes[node.node_id] = node
+        self._invalidate_topology()
+
+    def remove_phase_domain_node(self, node_id: str) -> PhaseDomainConductorNode:
+        if any(node_id in {edge.from_node_id, edge.to_node_id} for edge in self._phase_domain_connections.values()):
+            raise ValueError("Cannot remove a phase-domain node while connections reference it.")
+        node = self._phase_domain_nodes.pop(node_id)
+        self._invalidate_topology()
+        return node
+
+    def add_phase_domain_connection(self, connection: PhaseDomainConnection) -> None:
+        if not isinstance(connection, PhaseDomainConnection):
+            raise TypeError("connection must be a PhaseDomainConnection.")
+        if connection.connection_id in self._phase_domain_connections:
+            raise ValueError("Duplicate phase-domain connection identity.")
+        if connection.from_node_id not in self._phase_domain_nodes or connection.to_node_id not in self._phase_domain_nodes:
+            raise ValueError("Phase-domain connection references an unregistered node.")
+        candidate = tuple(sorted((*self.phase_domain_connections, connection), key=lambda item: item.connection_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION", activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=self.phase_domain_nodes, connections=candidate,
+        )
+        self._phase_domain_connections[connection.connection_id] = connection
+        self._invalidate_topology()
+
+    def remove_phase_domain_connection(self, connection_id: str) -> PhaseDomainConnection:
+        connection = self._phase_domain_connections.pop(connection_id)
+        self._invalidate_topology()
+        return connection
 
     def add_junction(self, junction: Junction) -> None:
         """Add one Junction through the authoritative Network lifecycle."""
