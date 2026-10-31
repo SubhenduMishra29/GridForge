@@ -17770,3 +17770,54 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-28
+======================================================================
+
+Scope:
+    Explicit breaker physical pole construction and switching-state
+    projection into the phase-domain conductor graph.
+
+Correction:
+    - Breaker accepts an optional explicit phase_domain_pole_states mapping
+      from conductor role A/B/C/N to a boolean pole-closed state.
+    - The mapping is validated, normalized, immutable, and included in the
+      Breaker diagnostic summary. A global Breaker.closed state remains the
+      master switching state; an individual pole conducts only when both
+      the master state and that pole's explicit state are closed.
+    - The SLD phase-domain graph builder creates separate FROM/TO
+      EQUIPMENT_TERMINAL nodes for every declared breaker pole.
+    - Breaker terminal nodes attach to exact canonical SLD Bus attachment
+      slots and same-role Busbar conductor nodes.
+    - An internal zero-ohm CONTINUITY edge is created only for a closed
+      global breaker and an explicitly closed pole.
+    - In-service breakers without explicit pole construction fail closed.
+      Failed breakers fail closed because their physical conduction state
+      is not represented by this model.
+    - Branch terminal attachment lookup is now case-insensitive while the
+      topology reference retains the exact canonical terminal role.
+
+Fail-closed boundaries:
+    - No default three-pole inventory is inferred from the Breaker class.
+    - Neutral switching is represented only by an explicit N pole entry.
+    - PE and screen switching are not accepted as breaker pole roles by
+      this initial contract.
+    - Pole contact resistance, arc/prestrike, pole discrepancy, stuck
+      contacts, failure modes, and time-dependent switching are not modeled.
+    - Switch, disconnector, fuse and transformer internal conductor paths
+      are not covered by this change.
+    - The breaker pole mapping is a Core construction contract; no UI
+      configurator or persistence schema migration is included here.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    serialization round-trip, numerical fixtures, or end-to-end execution
+    were run. Runtime behaviour remains unverified.
+
+Status:
+    IMPLEMENTED — REMOTE SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
