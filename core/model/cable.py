@@ -267,6 +267,7 @@ class Cable(Branch):
             "rated_current_a": self.rated_current_a,
             "thermal_limit_mva": self.thermal_limit_mva,
             "conductor_count": self.conductor_count,
+            "conductor_system": self.conductor_system.summary() if self.conductor_system is not None else None,
             "in_service": self.in_service,
         }
 
