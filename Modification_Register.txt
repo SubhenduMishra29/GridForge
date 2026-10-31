@@ -15835,3 +15835,10 @@ Verification:
 - This increment deliberately supports only series-only Line and Cable primitives. Transformer terminal currents remain unavailable until the model includes tap, winding/vector-group, phase-shift and sequence-grounding behavior. Shunt/mutual models, machine stator terminals, load contributions and Bus-boundary currents remain outstanding.
 - Protection CT scenario adapters do not consume the new records yet; no unsupported CT path is enabled by this change.
 - Verification: remote source-level review only. No tests or CI run, per repository workflow. Python syntax/import/runtime checks remain outstanding.
+
+
+[2026-10-31] Protection Study Phase D7 — transformer tap-aware sequence primitive
+- Corrected canonical short-circuit sequence-network preparation to stamp a two-terminal transformer with the explicit Core from-side complex tap a = tap * exp(j * shift), using the standard four Ybus primitive coefficients. Line/Cable and single-Bus source stamps retain unity-tap behaviour.
+- Extended detached SequenceBranchSnapshot to retain validated tap_ratio and phase_shift_rad; ShortCircuitPreparation copies these values from the canonical Core Transformer.
+- Scope is deliberately limited to the scalar Core tap and phase-shift model. Optional VectorGroup plugin clock displacement, winding connection mapping, zero-sequence grounding, unbalanced sequence coupling, magnetising/shunt admittance and tertiary windings are not applied. Transformer terminal-current records remain withheld until their equations consume the same stamped primitive.
+- Verification: remote source review only. No tests or CI run, per repository workflow. Python syntax/import/runtime checks remain outstanding.
