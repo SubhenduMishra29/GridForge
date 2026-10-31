@@ -17047,3 +17047,25 @@ Changes:
 
 Verification:
     No persistence round-trip or migration fixture was run.
+
+
+======================================================================
+GF-SC-D15F-08 — DIRECT CT CONSTRUCTION SUPPORT BOUNDARY
+======================================================================
+
+Files:
+    core/protection/residual_current.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+
+Changes:
+    - Neutral CT construction now requires a Line/Cable FROM or TO terminal;
+      the neutral conductor is identified separately by conductor_id.
+    - CBCT conductor records normalize and require FROM/TO terminal roles.
+    - CBCT window members must all belong to the same equipment terminal.
+    - Unsupported equipment-neutral terminal configurations fail during
+      construction rather than reaching a runtime adapter that cannot resolve
+      their physical current record.
+
+Remaining:
+    Multi-conductor transformer, generator, motor and load terminal primitives
+    are required before equipment-neutral terminal CT execution can be enabled.
