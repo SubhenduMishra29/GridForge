@@ -75,8 +75,8 @@ class SequenceNetworkPreparation:
                 topology = classify_transformer_zero_sequence(element)
                 if topology.path is TransformerZeroSequencePath.GROUNDED_WYE_SIDE_RETURN:
                     side = topology.grounded_winding_sides[0]
-                    terminal_role_value = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
-                    grounded_terminal_role = str(getattr(terminal_role_value, "value", terminal_role_value)).strip().upper()
+                    declared_terminal_role = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
+                    grounded_terminal_role = str(getattr(declared_terminal_role, "value", declared_terminal_role)).strip().upper()
                     grounded_bus = terminal_bus_by_role.get(grounded_terminal_role)
                     if grounded_bus is None:
                         raise ValueError(
