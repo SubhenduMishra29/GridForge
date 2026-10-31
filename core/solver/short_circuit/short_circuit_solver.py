@@ -216,6 +216,7 @@ class ShortCircuitSolver:
                     "zero_sequence_core_construction": zero_two_bus.core_construction,
                     "zero_sequence_test_basis": zero_two_bus.zero_sequence_test_basis,
                     "zero_sequence_base_mva": zero_two_bus.base_mva,
+                    "zero_sequence_test_mva_base": zero_two_bus.test_mva_base,
                     "zero_sequence_hv_base_voltage_kv": zero_two_bus.hv_base_voltage_kv,
                     "zero_sequence_lv_base_voltage_kv": zero_two_bus.lv_base_voltage_kv,
                 }
