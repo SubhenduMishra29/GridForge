@@ -16177,3 +16177,35 @@ Verification:
     were run. Command dispatch and persistence round-trip remain unverified.
 
 ======================================================================
+
+GF-SC-D14D-01 — TRANSFORMER ZERO-SEQUENCE WINDING-PATH CLASSIFICATION
+
+Files:
+    core/analysis/transformer_zero_sequence.py
+    core/analysis/__init__.py
+    core/model/transformer.py (D14C contract repair)
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added immutable TransformerZeroSequenceTopology and typed path modes.
+    - Classifies no-grounded-neutral winding pairs as externally blocked;
+      reports possible internal delta circulation separately.
+    - Classifies exactly one grounded-wye winding as a candidate one-sided
+      grounded return, requiring explicit Z0 referred to that grounded side,
+      core construction and Z0 data provenance.
+    - Keeps neutral 3Zn separate from transformer Z0.
+    - Rejects grounded-wye/grounded-wye transfer until vector group,
+      clock-number, winding-polarity and applicable test-configuration
+      contracts are explicit.
+    - Exported the classifier through core.analysis.
+    - Repaired D14C model integration: core fields are now actual Transformer
+      slots, constructor inputs, validated state, properties and summary data.
+
+Fail-closed boundary:
+    This is a topology classifier, not a numerical transformer equivalent.
+    No transformer zero-sequence Ybus stamps or terminal-current results are
+    enabled. SequenceNetworkPreparation remains fail-closed for transformer
+    Z0. No tests/CI or Python syntax/import checks were run.
+
+======================================================================
