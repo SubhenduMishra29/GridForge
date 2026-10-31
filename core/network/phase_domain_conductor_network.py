@@ -553,11 +553,135 @@ def build_phase_domain_conductor_network_from_sld(
                 f"In-service Transformer {transformer.id!r} lacks explicit "
                 "HV/LV winding conductor construction and terminal mapping."
             )
-        raise NotImplementedError(
-            f"Transformer {transformer.id!r} has explicit winding construction, "
-            "but coupled transformer winding stamping is not yet supported by "
-            "the phase-domain conductor solver. No galvanic HV-LV path is created."
-        )
+        declared_terminals = tuple(getattr(transformer, "terminals", ()) or ())
+        if not declared_terminals or any(
+            getattr(terminal, "owner", None) is not transformer
+            for terminal in declared_terminals
+        ):
+            raise ValueError(
+                f"Transformer {transformer.id!r} must expose its complete canonical "
+                "Terminal collection owned by the registered Transformer."
+            )
+        terminal_by_role = {}
+        for terminal in declared_terminals:
+            role_key = str(terminal.role).casefold()
+            if role_key in terminal_by_role:
+                raise ValueError(
+                    f"Transformer {transformer.id!r} has duplicate terminal role {terminal.role!r}."
+                )
+            terminal_by_role[role_key] = terminal
+
+        for winding in (construction.hv, construction.lv):
+            terminal_roles = [(role, winding.terminal_role) for role in winding.phase_roles]
+            if winding.neutral_terminal_role is not None:
+                terminal_roles.append(("N", winding.neutral_terminal_role))
+            for conductor_role, terminal_role in terminal_roles:
+                terminal_key = terminal_role.casefold()
+                terminal = terminal_by_role.get(terminal_key)
+                if terminal is None:
+                    raise ValueError(
+                        f"Transformer {transformer.id!r} winding {winding.winding} "
+                        f"maps conductor {conductor_role} to missing Core terminal {terminal_role!r}."
+                    )
+                attachments = tuple(
+                    item for item in topology_snapshot.equipment_bus_attachments
+                    if item.equipment_id == transformer.id
+                    and item.equipment_type == "transformer"
+                    and item.terminal_role.casefold() == terminal_key
+                )
+                if len(attachments) != 1 or attachments[0].bus_attachment_id is None:
+                    raise ValueError(
+                        f"Transformer {transformer.id!r} terminal {terminal_role!r} "
+                        "requires exactly one canonical SLD Bus attachment slot."
+                    )
+                attachment = attachments[0]
+                terminal_ref = EndpointReference.terminal(
+                    equipment_type=EquipmentType("transformer"),
+                    equipment_id=transformer.id,
+                    terminal_role=terminal.role,
+                )
+                equipment_node_id = stable_id(
+                    "transformer-winding-terminal", transformer.id,
+                    winding.winding, terminal.role, conductor_role,
+                )
+                add_node(PhaseDomainConductorNode(
+                    node_id=equipment_node_id,
+                    kind=PhaseDomainNodeKind.EQUIPMENT_TERMINAL,
+                    conductor_role=conductor_role,
+                    conductor_id=stable_id(
+                        "transformer-winding-conductor", transformer.id,
+                        winding.winding, conductor_role,
+                    ),
+                    equipment_id=transformer.id,
+                    terminal_role=terminal.role,
+                    bus_id=attachment.bus_id,
+                    topology_reference=TopologyEndpointReference.from_terminal(terminal_ref),
+                ))
+
+                slot_key = (attachment.bus_id, attachment.bus_attachment_id, conductor_role)
+                bus_node_id = bus_attachment_nodes.get(slot_key)
+                if bus_node_id is None:
+                    bus_node_id = stable_id("bus-attachment", *slot_key)
+                    bus_attachment_nodes[slot_key] = bus_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=bus_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id(
+                            "attachment-conductor", attachment.bus_attachment_id, conductor_role
+                        ),
+                        bus_id=attachment.bus_id,
+                        topology_reference=TopologyEndpointReference.from_bus(
+                            EndpointReference.bus(
+                                bus_id=attachment.bus_id,
+                                attachment_id=attachment.bus_attachment_id,
+                            )
+                        ),
+                    ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id(
+                        "transformer-terminal-continuity", transformer.id,
+                        winding.winding, terminal.role, conductor_role,
+                    ),
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=equipment_node_id,
+                    to_node_id=bus_node_id,
+                    impedance_ohm=0j,
+                    source_reference=(
+                        f"TRANSFORMER-TERMINAL:{transformer.id}:"
+                        f"{winding.winding}:{terminal.role}:{conductor_role}"
+                    ),
+                ))
+
+                busbar_key = (attachment.bus_id, conductor_role)
+                busbar_node_id = busbar_nodes.get(busbar_key)
+                if busbar_node_id is None:
+                    busbar_node_id = stable_id("busbar", attachment.bus_id, conductor_role)
+                    busbar_nodes[busbar_key] = busbar_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=busbar_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id("busbar-conductor", conductor_role),
+                        bus_id=attachment.bus_id,
+                    ))
+                add_connection(PhaseDomainConnection(
+                    connection_id=stable_id(
+                        "busbar-continuity", attachment.bus_id,
+                        attachment.bus_attachment_id, conductor_role,
+                    ),
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=bus_node_id,
+                    to_node_id=busbar_node_id,
+                    impedance_ohm=0j,
+                    source_reference=(
+                        f"BUSBAR:{attachment.bus_id}:"
+                        f"{attachment.bus_attachment_id}:{conductor_role}"
+                    ),
+                ))
+
+        # No internal conductor connection is created between windings.
+        # The coupled terminal-domain multiport is stamped by the solver.
 
     equipment_collections = (
         ("breakers", "breaker"),
