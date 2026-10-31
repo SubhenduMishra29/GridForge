@@ -975,3 +975,10 @@ Each fault scenario is composed against a fresh ProtectionRuntime. This isolates
 
 Engineering configuration requirement: every residual source binding must declare `measurement_point_id` equal to the function's configured point. For the currently executable `THREE_PHASE_SUM` mode, A/B/C source bindings must use three distinct CT instruments, three phase-specific current channels, and the same explicit measurement point. `NEUTRAL_CT` and `CBCT` configurations are persisted but rejected at runtime until their physical source models and solver contributions exist.
 
+
+
+### D12 — Explicit Line zero-sequence impedance for earth-fault studies
+
+The Line Core model now accepts optional `zero_sequence_resistance_ohm` and `zero_sequence_reactance_ohm` as a required pair. These values are physical series impedance data, are persisted by the generic ModelDTO slot/state serializer, and can be created or updated through the Application command and transactional `LineModelService` path. Existing Line projects deserialize with both values absent and remain valid for positive-sequence studies.
+
+`SequenceNetworkPreparation` converts an explicitly supplied Line Z0 to the study per-unit base. Unsymmetrical fault preparation still fails closed when Z0 is absent or zero; it never substitutes Z1 for Z0. The solver then uses the prepared zero-sequence network when calculating SLG/LLG branch terminal-current records. This is a prerequisite for 50N/51N residual-current measurements on line-connected CT locations, not a declaration that every transformer or neutral return path is supported.
