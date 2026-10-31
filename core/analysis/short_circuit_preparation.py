@@ -154,6 +154,8 @@ class ShortCircuitPreparation:
                     negative=negative,
                     zero=zero,
                     equipment_type=type(element).__name__,
+                    from_terminal_role=str(getattr(element.from_terminal, "role", "FROM")),
+                    to_terminal_role=str(getattr(element.to_terminal, "role", "TO")),
                 )
             )
             seen.add(branch_id)
