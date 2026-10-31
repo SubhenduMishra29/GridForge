@@ -145,11 +145,21 @@ class SequenceNetworkSnapshot:
         object.__setattr__(self, "sources", tuple(self.sources))
         unavailable: dict[str, tuple[int, ...]] = {}
         for sequence in ("positive", "negative", "zero"):
-            raw_indices = self.unavailable_bus_indices.get(sequence, ())
+            raw_indices = tuple(self.unavailable_bus_indices.get(sequence, ()))
+            if any(
+                isinstance(index, bool) or not isinstance(index, (int, np.integer))
+                for index in raw_indices
+            ):
+                raise TypeError(f"{sequence}-sequence unavailable Bus indices must be integers.")
             indices = tuple(sorted(set(int(index) for index in raw_indices)))
             if any(index < 0 or (self.bus_ids and index >= len(self.bus_ids)) for index in indices):
                 raise ValueError(f"{sequence}-sequence unavailable Bus index is outside bus_ids.")
             unavailable[sequence] = indices
+        if self.bus_ids:
+            for sequence in ("positive", "negative", "zero"):
+                matrix = getattr(self, f"{sequence}_matrix")
+                if matrix is not None and len(matrix) != len(self.bus_ids):
+                    raise ValueError(f"{sequence}-sequence matrix dimensions must match bus_ids.")
         unknown_sequences = set(self.unavailable_bus_indices) - {"positive", "negative", "zero"}
         if unknown_sequences:
             raise ValueError(f"Unsupported unavailable sequence metadata: {sorted(unknown_sequences)}.")
