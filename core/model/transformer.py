@@ -356,6 +356,11 @@ class Transformer(Branch):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
         _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
