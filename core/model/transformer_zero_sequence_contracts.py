@@ -76,8 +76,9 @@ class TransformerZeroSequenceTestConfiguration:
 class TransformerVectorGroupConfiguration:
     """Explicit nameplate vector group, clock number and winding polarity.
 
-    IEC clock notation is retained literally: clock_number * 30 degrees is
-    the declared LV displacement relative to HV. Polarity metadata is not
+    IEC clock notation is retained literally: the LV winding lags the HV
+    winding by clock_number * 30 electrical degrees (clockwise on the
+    conventional phasor clock). Polarity metadata is not
     silently folded into or added to that displacement; any discrepancy
     between nameplate vector group and physical polarity is an input error
     requiring engineering reconciliation.
@@ -117,8 +118,12 @@ class TransformerVectorGroupConfiguration:
 
     @property
     def phase_displacement_deg(self) -> int:
-        """IEC clock displacement: LV relative to HV, in 30-degree steps."""
-        return self.clock_number * 30
+        """Signed electrical angle of LV relative to HV, in degrees.
+
+        IEC clock numbers describe clockwise lag, while positive electrical
+        angles are counter-clockwise; therefore the signed angle is negative.
+        """
+        return -self.clock_number * 30
 
     def validate_winding_connections(self, hv_connection: object, lv_connection: object) -> None:
         """Reject vector-group notation inconsistent with declared windings."""
