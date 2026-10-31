@@ -140,6 +140,8 @@ class Fuse(ElectricalObject):
         "_rated_current_a",
         "_rated_voltage_v",
         "_interrupting_rating_ka",
+        "_phase_domain_conductor_roles",
+    )
 
     # ============================================================
     # CONSTRUCTION
