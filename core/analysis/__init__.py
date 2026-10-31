@@ -51,6 +51,10 @@ from core.analysis.physical_conductor_preparation import (
     prepare_physical_conductor_impedance_snapshot,
     solve_physical_conductor_branch_currents,
 )
+from core.analysis.phase_domain_network_preparation import (
+    PhaseDomainAdmittanceSnapshot,
+    assemble_phase_domain_admittance,
+)
 from core.analysis.transformer_zero_sequence_t_equivalent import (
     TransformerZeroSequenceTEquivalent,
     derive_transformer_zero_sequence_t_equivalent,
