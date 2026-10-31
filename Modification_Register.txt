@@ -17069,3 +17069,33 @@ Changes:
 Remaining:
     Multi-conductor transformer, generator, motor and load terminal primitives
     are required before equipment-neutral terminal CT execution can be enabled.
+
+
+======================================================================
+GF-SC-D15F-09 — ATOMIC CORE VALIDATION FOR PHASE-DOMAIN NODE INSERTION
+======================================================================
+
+Files:
+    core/network/network.py
+
+Finding:
+    Phase-domain connection insertion validated a candidate graph before
+    mutation, but node insertion only checked the node type and duplicate
+    node_id. An Application create-node command could therefore register a
+    node that referenced a missing Bus/equipment terminal or contradicted a
+    Line/Cable conductor inventory, leaving invalid state in Network until a
+    later full validation or study preparation.
+
+Correction:
+    - Validate the complete candidate phase-domain graph before mutation.
+    - Validate Bus references against the canonical Network registry.
+    - Validate equipment identity and terminal-role references against the
+      registered Core ElectricalObject.
+    - Validate branch-terminal conductor identity and role against the
+      owning Core conductor inventory.
+    - Perform all checks before inserting the node or invalidating topology;
+      failed commands leave the Network graph and revision untouched.
+
+Verification:
+    Static source inspection only. No tests/CI, syntax/import checks, or
+    runtime command/rollback execution were run.
