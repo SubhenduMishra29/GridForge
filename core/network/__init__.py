@@ -282,6 +282,12 @@ __all__ = [
     "PhysicalConductorBranchTopology",
     "PhysicalConductorTopologySnapshot",
     "build_physical_conductor_topology_snapshot",
+    "PhaseDomainNodeKind",
+    "PhaseDomainConnectionKind",
+    "PhaseDomainConductorNode",
+    "PhaseDomainConnection",
+    "PhaseDomainConductorNetwork",
+    "build_phase_domain_conductor_network",
 
     # Base-layer service
     "PerUnitSystem",
