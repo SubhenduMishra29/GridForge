@@ -7,6 +7,11 @@ from .relay_base import RelayBase
 from .protection_element import ProtectionElement, ProtectionElementState
 from .protection_system import ProtectionSystem
 from .protection_measurement_binding import ProtectionMeasurementBinding
+from .residual_current import (
+    ResidualCurrentInputConfiguration,
+    ResidualCurrentSample,
+    resolve_residual_current,
+)
 from .factory import ProtectionFactory
 from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
@@ -35,6 +40,7 @@ __all__ = [
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
+    "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "resolve_residual_current",
     "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
     "ProtectionProjectConfiguration",
     "DifferentialRestraintMethod", "DifferentialProtectionSettings",
