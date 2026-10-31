@@ -175,6 +175,13 @@ class Motor(ElectricalObject, Injection):
         running: bool = False,
         in_service: bool = True,
         name: str = "",
+        locked_rotor_z1_pu: complex | None = None,
+        z2_pu: complex | None = None,
+        z0_pu: complex | None = None,
+        impedance_base_mva: float | None = None,
+        impedance_base_voltage_kv: float | None = None,
+        short_circuit_internal_voltage_pu: float | None = None,
+        short_circuit_internal_angle_deg: float = 0.0,
     ) -> None:
         """
         Construct a Motor.
@@ -323,6 +330,27 @@ class Motor(ElectricalObject, Injection):
 
         self.running = running
         self.in_service = in_service
+
+        # Explicit fault-contribution data. Nameplate and starting-current
+        # values are not treated as a locked-rotor equivalent or source EMF.
+        self.locked_rotor_z1_pu = self._validate_optional_complex_impedance(
+            locked_rotor_z1_pu, "locked_rotor_z1_pu"
+        )
+        self.z2_pu = self._validate_optional_complex_impedance(z2_pu, "z2_pu")
+        self.z0_pu = self._validate_optional_complex_impedance(z0_pu, "z0_pu")
+        self.impedance_base_mva = self._validate_optional_positive(
+            impedance_base_mva, "impedance_base_mva"
+        )
+        self.impedance_base_voltage_kv = self._validate_optional_positive(
+            impedance_base_voltage_kv, "impedance_base_voltage_kv"
+        )
+        self.short_circuit_internal_voltage_pu = self._validate_optional_positive(
+            short_circuit_internal_voltage_pu, "short_circuit_internal_voltage_pu"
+        )
+        self.short_circuit_internal_angle_deg = self._validate_finite(
+            short_circuit_internal_angle_deg, "short_circuit_internal_angle_deg"
+        )
+        self._validate_short_circuit_contract()
 
         # --------------------------------------------------------
         # AUTHORITATIVE TERMINAL
@@ -734,6 +762,35 @@ class Motor(ElectricalObject, Injection):
             )
         )
 
+    @staticmethod
+    def _validate_optional_complex_impedance(value: complex | None, name: str) -> complex | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be a finite complex impedance.")
+        try:
+            result = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be a finite complex impedance.") from exc
+        if not math.isfinite(result.real) or not math.isfinite(result.imag) or result.real < 0.0:
+            raise ValueError(f"{name} must be finite with non-negative resistance.")
+        if result == 0j:
+            raise ValueError(f"{name} must be non-zero when supplied.")
+        return result
+
+    def _validate_short_circuit_contract(self) -> None:
+        sequence_data = any(value is not None for value in (self.locked_rotor_z1_pu, self.z2_pu, self.z0_pu))
+        if not sequence_data:
+            if any(value is not None for value in (self.impedance_base_mva, self.impedance_base_voltage_kv, self.short_circuit_internal_voltage_pu)):
+                raise ValueError("Motor short-circuit bases/internal voltage require declared sequence impedance data.")
+            return
+        if self.locked_rotor_z1_pu is None:
+            raise ValueError("Motor sequence data requires explicit locked_rotor_z1_pu.")
+        if self.impedance_base_mva is None or self.impedance_base_voltage_kv is None:
+            raise ValueError("Motor fault-contribution impedances require explicit MVA and voltage bases.")
+        if self.short_circuit_internal_voltage_pu is None:
+            raise ValueError("Motor fault contribution requires explicit pre-fault internal voltage; rated_kv, power_factor and starting_current_pu are not substitutes.")
+
     # ============================================================
     # VALIDATION
     # ============================================================
@@ -787,6 +844,15 @@ class Motor(ElectricalObject, Injection):
                 "starting_current_pu",
             )
         )
+
+        self.locked_rotor_z1_pu = self._validate_optional_complex_impedance(self.locked_rotor_z1_pu, "locked_rotor_z1_pu")
+        self.z2_pu = self._validate_optional_complex_impedance(self.z2_pu, "z2_pu")
+        self.z0_pu = self._validate_optional_complex_impedance(self.z0_pu, "z0_pu")
+        self.impedance_base_mva = self._validate_optional_positive(self.impedance_base_mva, "impedance_base_mva")
+        self.impedance_base_voltage_kv = self._validate_optional_positive(self.impedance_base_voltage_kv, "impedance_base_voltage_kv")
+        self.short_circuit_internal_voltage_pu = self._validate_optional_positive(self.short_circuit_internal_voltage_pu, "short_circuit_internal_voltage_pu")
+        self.short_circuit_internal_angle_deg = self._validate_finite(self.short_circuit_internal_angle_deg, "short_circuit_internal_angle_deg")
+        self._validate_short_circuit_contract()
 
         if not isinstance(
             self.running,
@@ -874,6 +940,14 @@ class Motor(ElectricalObject, Injection):
             "slip": self.slip,
             "starting_current_pu":
                 self.starting_current_pu,
+
+            "locked_rotor_z1_pu": self.locked_rotor_z1_pu,
+            "z2_pu": self.z2_pu,
+            "z0_pu": self.z0_pu,
+            "impedance_base_mva": self.impedance_base_mva,
+            "impedance_base_voltage_kv": self.impedance_base_voltage_kv,
+            "short_circuit_internal_voltage_pu": self.short_circuit_internal_voltage_pu,
+            "short_circuit_internal_angle_deg": self.short_circuit_internal_angle_deg,
 
             "running": self.running,
             "in_service": self.in_service,
