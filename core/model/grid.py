@@ -131,6 +131,7 @@ class Grid(ElectricalObject, Injection):
         z0_pu: complex | None = None,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
+        neutral_grounding_impedance_ohm: complex | None = None,
         in_service: bool = True,
         grounded: bool = True,
     ) -> None:
@@ -312,6 +313,9 @@ class Grid(ElectricalObject, Injection):
         )
         self.impedance_base_voltage_kv = self._validate_optional_positive(
             impedance_base_voltage_kv, "impedance_base_voltage_kv"
+        )
+        self.neutral_grounding_impedance_ohm = self._validate_optional_impedance(
+            neutral_grounding_impedance_ohm, "neutral_grounding_impedance_ohm"
         )
 
         # ========================================================
@@ -975,6 +979,9 @@ class Grid(ElectricalObject, Injection):
 
             "impedance_base_voltage_kv":
                 self.impedance_base_voltage_kv,
+
+            "neutral_grounding_impedance_ohm":
+                self.neutral_grounding_impedance_ohm,
 
             "in_service":
                 self.in_service,
