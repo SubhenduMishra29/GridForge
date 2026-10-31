@@ -90,6 +90,35 @@ class ShortCircuitPreparation:
                 from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
                 if not isinstance(phase_domain_case, PhaseDomainShortCircuitCase):
                     raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+                # A caller-supplied typed case may carry valid-looking project
+                # revisions while embedding stale graph or impedance data.
+                # Rebuild every Network-derived primitive from this captured
+                # detached Network and require exact value equality; only
+                # source/fault declarations are caller-owned study inputs.
+                from core.network import build_phase_domain_conductor_network
+                from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+                from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
+                from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
+                authoritative_graph = build_phase_domain_conductor_network(
+                    project_id=topology_snapshot.project_id,
+                    activation_generation=topology_snapshot.activation_generation,
+                    topology_revision=topology_snapshot.topology_revision,
+                    nodes=network.phase_domain_nodes,
+                    connections=network.phase_domain_connections,
+                )
+                authoritative_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                authoritative_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, authoritative_topology, base_mva=float(self.base_mva)
+                )
+                authoritative_admittance = assemble_phase_domain_admittance(
+                    authoritative_graph, authoritative_impedances
+                )
+                if phase_domain_case.graph != authoritative_graph:
+                    raise ValueError("Supplied phase-domain case graph does not match the captured authoritative Network graph.")
+                if phase_domain_case.impedances != authoritative_impedances:
+                    raise ValueError("Supplied phase-domain case impedances do not match the captured Line/Cable conductor inventory.")
+                if phase_domain_case.admittance != authoritative_admittance:
+                    raise ValueError("Supplied phase-domain case admittance does not match the captured authoritative Network preparation.")
                 if complex(Zf) != 0j:
                     raise ValueError("Phase-domain fault impedance must be declared on the explicit fault connections, not duplicated in Zf.")
                 if (
