@@ -1360,3 +1360,16 @@ conductor-current records. The existing sequence solver is unchanged.
 Neutral CT and CBCT remain unavailable to protection execution until
 physical current records are produced and validated against their explicit
 construction declarations.
+
+
+## D15F-02 — Global phase-domain admittance and short-circuit execution
+
+The phase-domain preparation layer now assembles a global nodal admittance matrix in SI siemens from the prepared full-coupled Line/Cable conductor matrices, explicit shunt matrices, and declared conductor-network connection impedances. Branch series stamps retain mutual coupling across all conductor roles. Explicit shunt matrices are split into nominal-pi terminal halves; missing shunt data remains absent. The preparation path requires explicit branch terminal conductor nodes and will not synthesize phase/neutral/PE/screen nodes or conductor connections.
+
+Earth-reference nodes are fixed at zero potential. Explicit zero-ohm graph connections are contracted; finite connection impedances are stamped as admittances. No grounding impedance is inserted automatically. The phase-domain short-circuit solver accepts explicit Norton source equivalents and fault connections. Bolted fault constraints use an augmented saddle-point system rather than an arbitrary epsilon impedance. Source and fault quantities are phasors in SI volts, ohms and amperes.
+
+ShortCircuitInput now optionally carries a typed phase-domain case. When present, ShortCircuitSolver routes execution through the phase-domain solver; otherwise the existing sequence solver remains unchanged. Results carry phase-domain node voltages, source/fault currents, physical branch conductor currents, and finite-impedance connection currents. The conductor result contract now preserves PE, SHIELD, PILOT and OTHER roles in addition to A/B/C/N. Ideal zero-ohm connection current division is indeterminate and is reported as such rather than assigned an invented current.
+
+The Measurement Generation boundary now converts one explicit physical conductor current to CT secondary amperes using its stored MVA/voltage base, configured CT association, CT polarity and declared conductor-current direction. The protection scenario adapter adds direct Neutral CT sampling against the configured neutral node and CBCT window aggregation over only the explicitly enclosed conductor identities at one configured equipment terminal. CBCT phase and neutral currents are direction-normalized and summed before the direct residual-current resolver consumes the resulting sample.
+
+**Important execution boundary:** phase-domain studies require an explicit source equivalent for every modeled source and explicit fault-connection records. This path does not yet derive source Norton equivalents from all existing GridForge generator/grid/machine models, nor does it synthesize the legacy sequence source/equipment contribution records. The caller must prepare and supply the phase-domain case. Persistence and Application command workflows for editing the new conductor graph are still required before this is an end-user-complete engineering workflow. No tests/CI or numerical fixtures have been run.
