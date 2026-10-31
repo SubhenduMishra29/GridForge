@@ -153,8 +153,12 @@ class PhaseDomainShortCircuitCase:
         for item in sources:
             source_nodes = (item.node_id,) if isinstance(item, PhaseDomainSourceEquivalent) else item.node_ids
             for node_id in source_nodes:
-                if node_id not in known or self.graph.node(node_id).kind in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
-                    raise ValueError(f"Source {item.source_id!r} references an invalid or earth-reference node.")
+                if node_id not in known or self.graph.node(node_id).kind in {
+                    PhaseDomainNodeKind.EARTH_NODE,
+                    PhaseDomainNodeKind.EARTH_REFERENCE,
+                    PhaseDomainNodeKind.FAULT_NODE,
+                }:
+                    raise ValueError(f"Source {item.source_id!r} references an invalid, earth-reference, or fault-star node.")
         for item in faults:
             if item.from_node_id not in known or item.to_node_id not in known:
                 raise ValueError(f"Fault {item.connection_id!r} references an unknown graph node.")
