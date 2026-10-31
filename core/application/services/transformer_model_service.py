@@ -180,7 +180,10 @@ class TransformerModelService(ModelServiceSupport):
             self._network.invalidate_topology()
 
         def restore() -> None:
-            transformer.update_configuration(**old_state)
+            transformer.update_configuration(
+                **old_state,
+                _replace_winding_configuration=True,
+            )
             if service_state_changed:
                 self._network.invalidate_topology()
 
