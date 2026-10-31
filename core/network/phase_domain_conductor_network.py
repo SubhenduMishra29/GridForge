@@ -392,10 +392,12 @@ def build_phase_domain_conductor_network_from_sld(
     additional_nodes: Iterable[PhaseDomainConductorNode] = (),
     additional_connections: Iterable[PhaseDomainConnection] = (),
 ) -> PhaseDomainConductorNetwork:
-    """Build Line/Cable conductor endpoints from committed SLD topology.
+    """Build branch and transformer winding terminals from committed SLD topology.
 
     Branch conductor inventories are the sole source of phase/neutral/PE/
-    screen roles. Each branch terminal is joined to the exact Bus attachment
+    screen roles. Transformer winding construction explicitly maps HV/LV
+    phase and declared neutral ports to canonical SLD Bus attachment slots;
+    no internal galvanic path is created between the windings. Each branch terminal is joined to the exact Bus attachment
     vertex preserved by TopologySnapshot. Bus attachment vertices of the same
     role are joined through an ideal Busbar node, matching the existing
     equipotential Bus model; no impedance or grounding is invented for N,
