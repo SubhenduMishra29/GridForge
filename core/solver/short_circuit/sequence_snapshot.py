@@ -8,7 +8,7 @@ engineering current interpretation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -129,6 +129,7 @@ class SequenceNetworkSnapshot:
     bus_ids: tuple[str, ...] = ()
     branches: tuple[SequenceBranchSnapshot, ...] = ()
     sources: tuple[SequenceSourceSnapshot, ...] = ()
+    unavailable_bus_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -142,6 +143,17 @@ class SequenceNetworkSnapshot:
             raise ValueError("Sequence snapshot bus IDs must be unique.")
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "sources", tuple(self.sources))
+        unavailable: dict[str, tuple[int, ...]] = {}
+        for sequence in ("positive", "negative", "zero"):
+            raw_indices = self.unavailable_bus_indices.get(sequence, ())
+            indices = tuple(sorted(set(int(index) for index in raw_indices)))
+            if any(index < 0 or (self.bus_ids and index >= len(self.bus_ids)) for index in indices):
+                raise ValueError(f"{sequence}-sequence unavailable Bus index is outside bus_ids.")
+            unavailable[sequence] = indices
+        unknown_sequences = set(self.unavailable_bus_indices) - {"positive", "negative", "zero"}
+        if unknown_sequences:
+            raise ValueError(f"Unsupported unavailable sequence metadata: {sorted(unknown_sequences)}.")
+        object.__setattr__(self, "unavailable_bus_indices", _freeze_mapping(unavailable))
         for record in self.branches:
             if not isinstance(record, SequenceBranchSnapshot):
                 raise TypeError("branches must contain SequenceBranchSnapshot records.")
@@ -174,6 +186,7 @@ class SequenceNetworkSnapshot:
             bus_ids=bus_ids,
             branches=branches,
             sources=sources,
+            unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
         )
 
     @staticmethod
@@ -217,6 +230,15 @@ class SequenceNetworkSnapshot:
 
     def has_matrix(self, sequence: str) -> bool:
         return getattr(self, f"{self._normalize_sequence(sequence)}_matrix") is not None
+
+    def is_bus_available(self, sequence: str, bus_index: int) -> bool:
+        normalized = self._normalize_sequence(sequence)
+        if isinstance(bus_index, bool) or not isinstance(bus_index, (int, np.integer)):
+            raise TypeError("Bus index must be an integer.")
+        index = int(bus_index)
+        if self.bus_ids and not 0 <= index < len(self.bus_ids):
+            raise IndexError("Bus index is outside bus_ids.")
+        return index not in self.unavailable_bus_indices.get(normalized, ())
 
     def get_driving_point_impedance(self, sequence: str, bus_index: int) -> complex:
         matrix = self.get_matrix(sequence)
