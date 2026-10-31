@@ -53,6 +53,7 @@ class TransformerZeroSequenceShunt:
     transformer_id: str
     bus_id: str
     grounded_winding_side: str
+    terminal_role: str
     transformer_z0_ohm: complex
     neutral_3zn_ohm: complex
     total_impedance_ohm: complex
@@ -69,6 +70,7 @@ def build_transformer_zero_sequence_shunt(
     grounded_bus: Any,
     *,
     base_mva: float,
+    grounded_terminal_role: str,
 ) -> TransformerZeroSequenceShunt | None:
     """Build the validated one-sided grounded-wye return equivalent.
 
@@ -79,6 +81,9 @@ def build_transformer_zero_sequence_shunt(
     """
     if grounded_bus is None:
         raise ValueError("A resolved grounded-wye Bus is required for transformer Z0 preparation.")
+    terminal_role = str(grounded_terminal_role).strip().upper()
+    if terminal_role not in {"FROM", "TO"}:
+        raise ValueError("grounded_terminal_role must identify the canonical FROM or TO terminal.")
     if isinstance(base_mva, bool) or not np.isfinite(base_mva) or base_mva <= 0.0:
         raise ValueError("base_mva must be finite and greater than zero.")
 
@@ -134,6 +139,7 @@ def build_transformer_zero_sequence_shunt(
         transformer_id=str(transformer.id),
         bus_id=str(grounded_bus.id),
         grounded_winding_side=side,
+        terminal_role=terminal_role,
         transformer_z0_ohm=z0,
         neutral_3zn_ohm=neutral_3zn,
         total_impedance_ohm=total,
