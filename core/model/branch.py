@@ -403,7 +403,7 @@ class Branch(ElectricalObject):
     @property
     def conductor_system(self) -> BranchConductorSystem | None:
         """Explicit physical conductor inventory and coupled branch parameters."""
-        return self._conductor_system
+        return getattr(self, "_conductor_system", None)
 
     @conductor_system.setter
     def conductor_system(self, value: BranchConductorSystem | None) -> None:
@@ -624,8 +624,8 @@ class Branch(ElectricalObject):
         self._from_terminal.validate()
         self._to_terminal.validate()
 
-        if self._conductor_system is not None:
-            self._validate_conductor_system(self._conductor_system)
+        if self.conductor_system is not None:
+            self._validate_conductor_system(self.conductor_system)
 
         # --------------------------------------------------------
         # Branch rating
@@ -682,7 +682,7 @@ class Branch(ElectricalObject):
                 "b": self._b,
                 "rate_mva": self._rate_mva,
                 "in_service": self._in_service,
-                "conductor_system": self._conductor_system.summary() if self._conductor_system is not None else None,
+                "conductor_system": self.conductor_system.summary() if self.conductor_system is not None else None,
             }
         )
 
