@@ -16438,3 +16438,56 @@ Verification:
     numeric fixtures, persistence round-trip, or solver execution were run.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D14I-02 — GROUNDED-WYE / GROUNDED-WYE TWO-BUS ZERO-SEQUENCE SOLVER PATH
+======================================================================
+
+Files:
+    core/analysis/transformer_zero_sequence.py
+    core/analysis/transformer_zero_sequence_t_equivalent.py
+    core/analysis/sequence_network_preparation.py
+    core/analysis/__init__.py
+    core/solver/short_circuit/sequence_snapshot.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/solver/short_circuit/__init__.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added a reduced two-Bus zero-sequence admittance stamp from the
+      three-test-derived transformer T equivalent.
+    - Adds HV 3Zn to the HV T leg and LV 3Zn to the LV T leg exactly once;
+      LV neutral impedance is referred to HV using (V_H/V_L)^2.
+    - Requires canonical HV/LV terminal roles, distinct Bus attachments,
+      explicit study MVA base, and Bus nominal voltage bases matching the
+      declared test winding voltage bases.
+    - Rejects non-unity tap and non-zero phase shift for this path until a
+      validated tap-adjusted zero-sequence test model is provided.
+    - Coupled stamp participates in zero-sequence component connectivity and
+      matrix inversion; unrelated floating islands remain independently
+      unavailable.
+    - Added immutable SequenceTransformerZeroTwoBusSnapshot provenance with
+      test measurements, neutral impedances, voltage/MVA bases, Bus and
+      terminal identities, core construction and test-data provenance.
+    - Solver calculates both HV and LV terminal I0 from the frozen two-port
+      admittance matrix and carries the values into terminal phase-current
+      records using the existing INTO_EQUIPMENT convention.
+
+Engineering limits:
+    - No vector-group clock/polarity transformation is applied to zero
+      sequence; the Yg-Yg equivalent is the explicit measured two-winding
+      zero-sequence test model. Only Yy is accepted by this implementation.
+    - Non-unity tap/phase shift is rejected. No tap-adjusted Z0 test mapping.
+    - No core-construction multiplier or inferred magnetic return path.
+    - No support for incomplete test set, missing neutral impedance, Bus/test
+      voltage-base mismatch, or missing terminal mapping.
+
+Verification:
+    Remote source edits only. No tests/CI, Python syntax/import checks,
+    numeric fixture, short-circuit execution, CT adapter execution or
+    persistence round-trip were run. Treat as source-integrated but not
+    production-verified.
+
+======================================================================
