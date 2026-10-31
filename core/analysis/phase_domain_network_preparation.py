@@ -139,6 +139,7 @@ def assemble_phase_domain_admittance(
     for branch in impedances.branches:
         from_nodes: dict[str, str] = {}
         to_nodes: dict[str, str] = {}
+        declared_roles = dict(zip(branch.conductor_ids, branch.conductor_roles))
         for conductor_id in branch.matrix_conductor_ids:
             matches_from = [
                 node.node_id for node in graph.nodes
@@ -159,6 +160,28 @@ def assemble_phase_domain_admittance(
                     f"Branch {branch.equipment_id!r} requires exactly one FROM and TO graph node "
                     f"for conductor {conductor_id!r}; got {len(matches_from)} and {len(matches_to)}."
                 )
+            from_node, to_node = nodes[matches_from[0]], nodes[matches_to[0]]
+            expected_role = declared_roles[conductor_id]
+            if from_node.bus_id != branch.from_bus_id or to_node.bus_id != branch.to_bus_id:
+                raise ValueError("Branch terminal graph nodes do not match canonical FROM/TO Bus identities.")
+            if from_node.conductor_role != expected_role or to_node.conductor_role != expected_role:
+                raise ValueError("Graph conductor role contradicts the owning Core branch inventory.")
+            for terminal_node in (from_node, to_node):
+                bus_links = [
+                    edge for edge in graph.connections
+                    if edge.in_service and edge.kind is PhaseDomainConnectionKind.CONTINUITY
+                    and terminal_node.node_id in {edge.from_node_id, edge.to_node_id}
+                    and nodes[edge.to_node_id if edge.from_node_id == terminal_node.node_id else edge.from_node_id].kind is PhaseDomainNodeKind.BUS_CONDUCTOR
+                ]
+                if len(bus_links) != 1:
+                    raise ValueError(f"Branch terminal node {terminal_node.node_id!r} requires exactly one explicit CONTINUITY connection to a Bus conductor node.")
+                edge = bus_links[0]
+                other_id = edge.to_node_id if edge.from_node_id == terminal_node.node_id else edge.from_node_id
+                bus_node = nodes[other_id]
+                if (bus_node.bus_id, bus_node.conductor_id, bus_node.conductor_role) != (
+                    terminal_node.bus_id, terminal_node.conductor_id, terminal_node.conductor_role
+                ):
+                    raise ValueError("Branch terminal continuity reaches a contradictory Bus conductor node.")
             from_nodes[conductor_id], to_nodes[conductor_id] = matches_from[0], matches_to[0]
 
         y_series = np.asarray(branch.series_admittance_pu, dtype=complex) / branch.z_base_ohm
