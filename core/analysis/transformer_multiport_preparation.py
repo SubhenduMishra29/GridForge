@@ -124,15 +124,16 @@ def prepare_transformer_phase_domain_multiport(
         for winding in (construction.hv, construction.lv)
         if winding.connection == "DELTA"
     )
+    loop_states = tuple(transformer.phase_domain_delta_loop_states)
     validate_transformer_zero_sequence_multiport_evidence(
         transformer.zero_sequence_multiport_evidence,
         matrix=matrix,
         terminal_labels=labels,
         core_construction=construction.core_construction,
         delta_windings=delta_windings,
+        delta_loop_states=loop_states,
     )
 
-    loop_states = tuple(transformer.phase_domain_delta_loop_states)
     winding_connections = {
         "HV": construction.hv.connection,
         "LV": construction.lv.connection,
