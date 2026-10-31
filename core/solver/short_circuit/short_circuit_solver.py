@@ -136,6 +136,7 @@ class ShortCircuitSolver:
         branch: SequenceBranchSnapshot,
         voltages: dict[str, np.ndarray],
         zero_shunt: Any | None = None,
+        zero_two_bus: Any | None = None,
     ) -> tuple[dict[str, complex], dict[str, complex], dict[str, Any]] | None:
         """Return transformer terminal sequence currents for supported primitives.
 
@@ -173,6 +174,52 @@ class ShortCircuitSolver:
             "zero_sequence_model": "NOT_REQUIRED" if "zero" not in required else "UNAVAILABLE",
         }
         if "zero" in required:
+            if zero_two_bus is not None:
+                if zero_two_bus.transformer_id != branch.branch_id:
+                    return None
+                if zero_two_bus.hv_bus_id == branch.from_bus_id and zero_two_bus.lv_bus_id == branch.to_bus_id and zero_two_bus.hv_terminal_role == branch.from_terminal_role and zero_two_bus.lv_terminal_role == branch.to_terminal_role:
+                    hv_index, lv_index = branch.from_bus_index, branch.to_bus_index
+                elif zero_two_bus.hv_bus_id == branch.to_bus_id and zero_two_bus.lv_bus_id == branch.from_bus_id and zero_two_bus.hv_terminal_role == branch.to_terminal_role and zero_two_bus.lv_terminal_role == branch.from_terminal_role:
+                    hv_index, lv_index = branch.to_bus_index, branch.from_bus_index
+                else:
+                    return None
+                if (zero_two_bus.hv_bus_index, zero_two_bus.lv_bus_index) != (hv_index, lv_index):
+                    return None
+                vh = complex(voltages["zero"][hv_index])
+                vl = complex(voltages["zero"][lv_index])
+                ih = zero_two_bus.y_hh_pu * vh + zero_two_bus.y_hl_pu * vl
+                il = zero_two_bus.y_hl_pu * vh + zero_two_bus.y_ll_pu * vl
+                if not all(math.isfinite(v.real) and math.isfinite(v.imag) for v in (ih, il)):
+                    return None
+                if hv_index == branch.from_bus_index:
+                    from_currents["I0"], to_currents["I0"] = ih, il
+                else:
+                    from_currents["I0"], to_currents["I0"] = il, ih
+                provenance = {
+                    **provenance,
+                    "zero_sequence_model": "GROUNDED_WYE_GROUNDED_WYE_THREE_TEST_T_EQUIVALENT",
+                    "zero_sequence_transformer_id": zero_two_bus.transformer_id,
+                    "zero_sequence_hv_bus_id": zero_two_bus.hv_bus_id,
+                    "zero_sequence_lv_bus_id": zero_two_bus.lv_bus_id,
+                    "zero_sequence_hv_terminal_role": zero_two_bus.hv_terminal_role,
+                    "zero_sequence_lv_terminal_role": zero_two_bus.lv_terminal_role,
+                    "zero_sequence_y_hh_pu": zero_two_bus.y_hh_pu,
+                    "zero_sequence_y_hl_pu": zero_two_bus.y_hl_pu,
+                    "zero_sequence_y_ll_pu": zero_two_bus.y_ll_pu,
+                    "hv_neutral_3zn_ohm": zero_two_bus.hv_neutral_3zn_ohm,
+                    "lv_neutral_3zn_ohm": zero_two_bus.lv_neutral_3zn_ohm,
+                    "lv_neutral_3zn_hv_referred_ohm": zero_two_bus.lv_neutral_3zn_hv_referred_ohm,
+                    "zero_sequence_test_hv_open_circuit_z0_ohm": zero_two_bus.test_hv_open_circuit_z0_ohm,
+                    "zero_sequence_test_lv_open_circuit_z0_hv_referred_ohm": zero_two_bus.test_lv_open_circuit_z0_hv_referred_ohm,
+                    "zero_sequence_test_hv_short_circuit_z0_ohm": zero_two_bus.test_hv_short_circuit_z0_ohm,
+                    "zero_sequence_test_source_reference": zero_two_bus.test_source_reference,
+                    "zero_sequence_core_construction": zero_two_bus.core_construction,
+                    "zero_sequence_test_basis": zero_two_bus.zero_sequence_test_basis,
+                    "zero_sequence_base_mva": zero_two_bus.base_mva,
+                    "zero_sequence_hv_base_voltage_kv": zero_two_bus.hv_base_voltage_kv,
+                    "zero_sequence_lv_base_voltage_kv": zero_two_bus.lv_base_voltage_kv,
+                }
+                return from_currents, to_currents, provenance
             if zero_shunt is None:
                 return None
             if zero_shunt.transformer_id != branch.branch_id:
