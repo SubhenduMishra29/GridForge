@@ -128,6 +128,42 @@ class PhaseDomainGroundedMultiConductorSource:
         return self.phase_node_ids + (self.neutral_node_id,)
 
 @dataclass(frozen=True, slots=True)
+class PhaseDomainTransformerMultiport:
+    """Reciprocal passive transformer terminal admittance multiport in SI units.
+
+    The supplied matrix must already encode winding incidence, turns ratio,
+    phase displacement, leakage, and any included magnetizing/core branches.
+    The solver does not infer these from scalar transformer r/x fields.
+    """
+    transformer_id: str
+    node_ids: tuple[str, ...]
+    terminal_labels: tuple[str, ...]
+    admittance_siemens: tuple[tuple[complex, ...], ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "transformer_id", _name(self.transformer_id, "transformer_id"))
+        nodes = tuple(_name(x, "transformer terminal node_id") for x in self.node_ids)
+        labels = tuple(_name(x, "transformer terminal label") for x in self.terminal_labels)
+        matrix = tuple(tuple(_finite_complex(x, "transformer terminal admittance") for x in row) for row in self.admittance_siemens)
+        size = len(nodes)
+        if size < 6 or len(set(nodes)) != size or len(labels) != size or len(set(labels)) != size:
+            raise ValueError("Transformer multiport requires at least six unique nodes and labels in matching order.")
+        if len(matrix) != size or any(len(row) != size for row in matrix):
+            raise ValueError("Transformer terminal admittance matrix must be square and match node_ids.")
+        values = np.asarray(matrix, dtype=complex)
+        if not np.allclose(values, values.T, rtol=1e-9, atol=1e-12):
+            raise ValueError("Transformer terminal admittance matrix must be reciprocal (complex symmetric).")
+        conductance = (values.real + values.real.T) * 0.5
+        eigenvalues = np.linalg.eigvalsh(conductance)
+        scale = max(1.0, float(np.max(np.abs(eigenvalues))))
+        if not np.all(np.isfinite(eigenvalues)) or float(np.min(eigenvalues)) < -1e-10 * scale:
+            raise ValueError("Transformer terminal conductance matrix must be positive semidefinite.")
+        object.__setattr__(self, "node_ids", nodes)
+        object.__setattr__(self, "terminal_labels", labels)
+        object.__setattr__(self, "admittance_siemens", matrix)
+
+
+@dataclass(frozen=True, slots=True)
 class PhaseDomainFaultConnection:
     connection_id: str
     from_node_id: str
@@ -153,6 +189,7 @@ class PhaseDomainShortCircuitCase:
     sources: tuple[PhaseDomainSourceEquivalent | PhaseDomainMultiConductorSource | PhaseDomainGroundedMultiConductorSource, ...]
     faults: tuple[PhaseDomainFaultConnection, ...]
     base_mva: float
+    transformer_primitives: tuple[PhaseDomainTransformerMultiport, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.graph, PhaseDomainConductorNetwork):
@@ -171,6 +208,20 @@ class PhaseDomainShortCircuitCase:
         if rebuilt_admittance != self.admittance:
             raise ValueError("Phase-domain admittance does not match its authoritative graph and physical impedance snapshot.")
         sources, faults = tuple(self.sources), tuple(self.faults)
+        transformer_primitives = tuple(self.transformer_primitives)
+        if any(not isinstance(x, PhaseDomainTransformerMultiport) for x in transformer_primitives):
+            raise TypeError("transformer_primitives must contain PhaseDomainTransformerMultiport records.")
+        if len({x.transformer_id for x in transformer_primitives}) != len(transformer_primitives):
+            raise ValueError("Duplicate transformer multiport identity.")
+        known_nodes = set(self.graph.node_index)
+        for primitive in transformer_primitives:
+            if any(node_id not in known_nodes for node_id in primitive.node_ids):
+                raise ValueError(f"Transformer {primitive.transformer_id!r} references an unknown graph node.")
+            terminal_nodes = tuple(self.graph.node(node_id) for node_id in primitive.node_ids)
+            if any(node.kind is not PhaseDomainNodeKind.EQUIPMENT_TERMINAL or node.equipment_id != primitive.transformer_id for node in terminal_nodes):
+                raise ValueError(f"Transformer {primitive.transformer_id!r} multiport nodes must be its own equipment-terminal nodes.")
+            if len({(node.terminal_role.casefold(), node.conductor_role) for node in terminal_nodes}) != len(terminal_nodes):
+                raise ValueError(f"Transformer {primitive.transformer_id!r} contains duplicate terminal/conductor mappings.")
         if not sources:
             raise ValueError("Phase-domain short-circuit case requires explicit source equivalents.")
         if not faults:
@@ -234,6 +285,7 @@ class PhaseDomainShortCircuitCase:
                 raise ValueError(f"Fault {item.connection_id!r} references an unknown graph node.")
         object.__setattr__(self, "sources", sources)
         object.__setattr__(self, "faults", faults)
+        object.__setattr__(self, "transformer_primitives", transformer_primitives)
         object.__setattr__(self, "base_mva", base)
 
 
@@ -248,6 +300,7 @@ class PhaseDomainShortCircuitSolution:
     source_return_reconciliation: Mapping[str, Mapping[str, Any]] | None = None
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
+    transformer_terminal_currents_a: Mapping[str, Mapping[str, complex]] | None = None
 
     def __post_init__(self) -> None:
         residual = float(self.kcl_residual_a)
@@ -262,6 +315,8 @@ class PhaseDomainShortCircuitSolution:
         reconciliation = self.source_return_reconciliation or {}
         object.__setattr__(self, "source_return_reconciliation", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in reconciliation.items()}))
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
+        transformer_currents = self.transformer_terminal_currents_a or {}
+        object.__setattr__(self, "transformer_terminal_currents_a", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in transformer_currents.items()}))
 
 
 def _reconcile_source_returns(case: PhaseDomainShortCircuitCase, source_currents: Mapping[str, Any], connection_currents: Mapping[str, complex]) -> dict[str, dict[str, Any]]:
@@ -346,6 +401,16 @@ class PhaseDomainShortCircuitSolver:
                     rhs[global_row] += source_rhs[row]
                     for column, global_column in enumerate(indices):
                         y[global_row, global_column] += source_y[row, column]
+
+        # Stamp explicit reciprocal transformer terminal-domain primitives.
+        for primitive in case.transformer_primitives:
+            indices = [snapshot.source_node_to_index[node_id] for node_id in primitive.node_ids]
+            if any(index is None for index in indices) or len(set(indices)) != len(indices):
+                raise ValueError(f"Transformer {primitive.transformer_id!r} has fixed-earth or contracted multiport terminals.")
+            block = np.asarray(primitive.admittance_siemens, dtype=complex)
+            for row, global_row in enumerate(indices):
+                for column, global_column in enumerate(indices):
+                    y[global_row, global_column] += block[row, column]
 
         for fault in case.faults:
             i = snapshot.source_node_to_index[fault.from_node_id]
@@ -652,6 +717,14 @@ class PhaseDomainShortCircuitSolver:
                 )
                 conductor_records[record.record_id] = record
 
+        transformer_terminal_currents = {}
+        for primitive in case.transformer_primitives:
+            terminal_voltages = np.asarray([voltage_by_node[node_id] for node_id in primitive.node_ids], dtype=complex)
+            terminal_currents = np.asarray(primitive.admittance_siemens, dtype=complex) @ terminal_voltages
+            transformer_terminal_currents[primitive.transformer_id] = {
+                label: complex(current) for label, current in zip(primitive.terminal_labels, terminal_currents)
+            }
+
         return PhaseDomainShortCircuitSolution(
             node_voltages_v=voltage_by_node,
             conductor_currents=conductor_records,
@@ -662,6 +735,7 @@ class PhaseDomainShortCircuitSolver:
             source_return_reconciliation=source_return_reconciliation,
             kcl_residual_a=kcl_residual_a,
             diagnostics=tuple(connection_diagnostics),
+            transformer_terminal_currents_a=transformer_terminal_currents,
         )
 
 
@@ -670,6 +744,7 @@ __all__ = [
     "PhaseDomainMultiConductorSource",
     "PhaseDomainGroundedMultiConductorSource",
     "PhaseDomainFaultConnection",
+    "PhaseDomainTransformerMultiport",
     "PhaseDomainShortCircuitCase",
     "PhaseDomainShortCircuitSolution",
     "PhaseDomainShortCircuitSolver",
