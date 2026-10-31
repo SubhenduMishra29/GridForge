@@ -517,14 +517,28 @@ class ShortCircuitSolver:
         from .phase_domain_solver import PhaseDomainShortCircuitSolver
         case = self.input.phase_domain_case
         solution = PhaseDomainShortCircuitSolver().solve(case)
-        expected = sum(2 * len(branch.conductor_ids) for branch in case.impedances.branches)
+        expected_branch = sum(2 * len(branch.conductor_ids) for branch in case.impedances.branches)
+        expected_connections = sum(
+            1 for edge in case.graph.connections if edge.in_service and edge.impedance_ohm != 0j
+            for node_id in (edge.from_node_id, edge.to_node_id)
+            if case.graph.node(node_id).kind.value != "EARTH_REFERENCE"
+            and case.graph.node(node_id).conductor_id is not None
+            and case.graph.node(node_id).bus_id is not None
+        )
+        expected = expected_branch + expected_connections
         actual = len(solution.conductor_currents)
-        if actual == expected and expected > 0:
+        unresolved_ideal_bonds = any(
+            edge.in_service and edge.impedance_ohm == 0j for edge in case.graph.connections
+        )
+        if actual == expected and expected > 0 and not unresolved_ideal_bonds and not solution.diagnostics:
             status = ContributionStatus.COMPLETE
             diagnostics: tuple[str, ...] = ()
         elif actual:
             status = ContributionStatus.PARTIAL
-            diagnostics = (f"Physical conductor-current coverage is partial: produced {actual} of {expected} terminal records.",)
+            diagnostics = (
+                f"Physical conductor-current coverage is partial: produced {actual} of {expected} terminal records.",
+                *solution.diagnostics,
+            )
         else:
             status = ContributionStatus.UNAVAILABLE
             diagnostics = ("The phase-domain solve produced no physical conductor-current records.",)
