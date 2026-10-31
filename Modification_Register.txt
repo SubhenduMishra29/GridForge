@@ -16072,6 +16072,7 @@ GF-SC-D14A-01 — TRANSFORMER WINDING / NEUTRAL INPUT CONTRACT
 Files:
     core/model/transformer.py
     core/model/__init__.py
+    core/persistence/model_dto.py
     core/application/commands/model_commands.py
     core/application/services/transformer_model_service.py
     core/analysis/sequence_network_preparation.py
@@ -16084,6 +16085,8 @@ Implementation:
       by explicit 0j; no grounding value is inferred.
     - Exposed the fields through transformer construction command and
       Application TransformerModelService.
+    - Added finite complex-number DTO encoding/decoding so the neutral
+      grounding impedances survive canonical project persistence.
     - Sequence preparation now reports the exact unsupported zero-
       sequence transformer equivalent and fails closed.
 
