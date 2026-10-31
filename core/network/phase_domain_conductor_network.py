@@ -385,6 +385,170 @@ def build_phase_domain_conductor_network(
     )
 
 
+def build_phase_domain_conductor_network_from_sld(
+    network: object,
+    topology_snapshot: object,
+    *,
+    additional_nodes: Iterable[PhaseDomainConductorNode] = (),
+    additional_connections: Iterable[PhaseDomainConnection] = (),
+) -> PhaseDomainConductorNetwork:
+    """Build Line/Cable conductor endpoints from committed SLD topology.
+
+    Branch conductor inventories are the sole source of phase/neutral/PE/
+    screen roles. Each branch terminal is joined to the exact Bus attachment
+    vertex preserved by TopologySnapshot. Bus attachment vertices of the same
+    role are joined through an ideal Busbar node, matching the existing
+    equipotential Bus model; no impedance or grounding is invented for N,
+    PE, screens, or earth. Direct attachments without a canonical SLD slot
+    are unavailable and fail closed.
+    """
+    from core.model.endpoint_reference import EndpointReference, EquipmentType
+    from .physical_conductor_topology import build_physical_conductor_topology_snapshot
+    from .topology_snapshot import TopologySnapshot
+    from .topology_endpoint_reference import TopologyEndpointReference
+
+    if network is None or not hasattr(network, "get_by_identity"):
+        raise TypeError("An authoritative Network is required.")
+    if not isinstance(topology_snapshot, TopologySnapshot):
+        raise TypeError("topology_snapshot must be a canonical TopologySnapshot.")
+    physical = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+
+    def stable_id(*parts: str) -> str:
+        import json
+        return json.dumps(parts, ensure_ascii=True, separators=(",", ":"))
+
+    nodes: dict[str, PhaseDomainConductorNode] = {}
+    connections: dict[str, PhaseDomainConnection] = {}
+
+    def add_node(node: PhaseDomainConductorNode) -> None:
+        existing = nodes.get(node.node_id)
+        if existing is not None and existing != node:
+            raise ValueError(f"Conflicting phase-domain node identity {node.node_id!r}.")
+        nodes[node.node_id] = node
+
+    def add_connection(edge: PhaseDomainConnection) -> None:
+        existing = connections.get(edge.connection_id)
+        if existing is not None and existing != edge:
+            raise ValueError(f"Conflicting phase-domain connection identity {edge.connection_id!r}.")
+        connections[edge.connection_id] = edge
+
+    busbar_nodes: dict[tuple[str, str], str] = {}
+    bus_attachment_nodes: dict[tuple[str, str, str], str] = {}
+
+    for branch in physical.branches:
+        if not branch.in_service:
+            continue
+        attachment_by_terminal: dict[str, object] = {}
+        for role, bus_id in (("FROM", branch.from_bus_id), ("TO", branch.to_bus_id)):
+            matches = tuple(
+                item for item in topology_snapshot.equipment_bus_attachments
+                if item.equipment_id == branch.equipment_id
+                and item.terminal_role == role
+                and item.bus_id == bus_id
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Active conductor branch {branch.equipment_id!r} terminal {role} "
+                    f"requires exactly one canonical topology Bus attachment; found {len(matches)}."
+                )
+            attachment = matches[0]
+            if attachment.bus_attachment_id is None:
+                raise ValueError(
+                    f"Active conductor branch {branch.equipment_id!r} terminal {role} "
+                    "has no canonical SLD Bus attachment slot; physical graph construction is unavailable."
+                )
+            attachment_by_terminal[role] = attachment
+
+        for conductor in branch.conductor_system.conductors:
+            conductor_id = conductor.conductor_id
+            conductor_role = conductor.role.value
+            for terminal_role in ("FROM", "TO"):
+                attachment = attachment_by_terminal[terminal_role]
+                terminal_ref = EndpointReference.terminal(
+                    equipment_type=EquipmentType(branch.equipment_type),
+                    equipment_id=branch.equipment_id,
+                    terminal_role=terminal_role,
+                )
+                bus_ref = EndpointReference.bus(
+                    bus_id=attachment.bus_id,
+                    attachment_id=attachment.bus_attachment_id,
+                )
+                terminal_topology_ref = TopologyEndpointReference.from_terminal(terminal_ref)
+                bus_topology_ref = TopologyEndpointReference.from_bus(bus_ref)
+
+                branch_node_id = stable_id("branch-terminal", branch.equipment_id, terminal_role, conductor_id)
+                branch_node = PhaseDomainConductorNode(
+                    node_id=branch_node_id,
+                    kind=PhaseDomainNodeKind.BRANCH_TERMINAL,
+                    conductor_role=conductor_role,
+                    conductor_id=conductor_id,
+                    equipment_id=branch.equipment_id,
+                    terminal_role=terminal_role,
+                    bus_id=attachment.bus_id,
+                    topology_reference=terminal_topology_ref,
+                )
+                add_node(branch_node)
+
+                slot_key = (attachment.bus_id, attachment.bus_attachment_id, conductor_role)
+                bus_node_id = bus_attachment_nodes.get(slot_key)
+                if bus_node_id is None:
+                    bus_node_id = stable_id("bus-attachment", *slot_key)
+                    bus_attachment_nodes[slot_key] = bus_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=bus_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id("attachment-conductor", attachment.bus_attachment_id, conductor_role),
+                        bus_id=attachment.bus_id,
+                        topology_reference=bus_topology_ref,
+                    ))
+
+                branch_edge_id = stable_id("sld-continuity", branch.equipment_id, terminal_role, conductor_id)
+                add_connection(PhaseDomainConnection(
+                    connection_id=branch_edge_id,
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=branch_node_id,
+                    to_node_id=bus_node_id,
+                    impedance_ohm=0j,
+                    source_reference=f"SLD:{branch.equipment_id}:{terminal_role}:{conductor_id}",
+                ))
+
+                busbar_key = (attachment.bus_id, conductor_role)
+                busbar_node_id = busbar_nodes.get(busbar_key)
+                if busbar_node_id is None:
+                    busbar_node_id = stable_id("busbar", attachment.bus_id, conductor_role)
+                    busbar_nodes[busbar_key] = busbar_node_id
+                    add_node(PhaseDomainConductorNode(
+                        node_id=busbar_node_id,
+                        kind=PhaseDomainNodeKind.BUS_CONDUCTOR,
+                        conductor_role=conductor_role,
+                        conductor_id=stable_id("busbar-conductor", conductor_role),
+                        bus_id=attachment.bus_id,
+                    ))
+                busbar_edge_id = stable_id("busbar-continuity", attachment.bus_id, attachment.bus_attachment_id, conductor_role)
+                add_connection(PhaseDomainConnection(
+                    connection_id=busbar_edge_id,
+                    kind=PhaseDomainConnectionKind.CONTINUITY,
+                    from_node_id=bus_node_id,
+                    to_node_id=busbar_node_id,
+                    impedance_ohm=0j,
+                    source_reference=f"BUSBAR:{attachment.bus_id}:{attachment.bus_attachment_id}:{conductor_role}",
+                ))
+
+    for node in additional_nodes:
+        add_node(node)
+    for edge in additional_connections:
+        add_connection(edge)
+
+    return build_phase_domain_conductor_network(
+        project_id=topology_snapshot.project_id,
+        activation_generation=topology_snapshot.activation_generation,
+        topology_revision=topology_snapshot.topology_revision,
+        nodes=tuple(nodes.values()),
+        connections=tuple(connections.values()),
+    )
+
+
 __all__ = [
     "PhaseDomainNodeKind",
     "PhaseDomainConnectionKind",
@@ -392,4 +556,5 @@ __all__ = [
     "PhaseDomainConnection",
     "PhaseDomainConductorNetwork",
     "build_phase_domain_conductor_network",
+    "build_phase_domain_conductor_network_from_sld",
 ]
