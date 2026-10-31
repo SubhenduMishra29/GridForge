@@ -1147,11 +1147,15 @@ impedances themselves must be finite, non-zero and non-negative-resistance.
 The implementation verifies that the derived T network reconstructs all three
 measured driving-point impedances within stated numerical tolerances.
 
-**Integration boundary:** this pass adds and exports the typed test-data
-contract and pure T-equivalent derivation only. It does not yet attach the
-contract to Transformer construction/update commands or persistence, convert
-neutral impedances into the two winding branches, stamp the two-Bus zero-
-sequence matrix, add the transformer to zero-sequence component connectivity,
-or calculate both terminal zero-sequence currents. Consequently the
-existing grounded-wye/grounded-wye network path remains fail-closed; the new
-calculation must not be interpreted as enabling Yg-Yg earth-fault studies.
+**Integration boundary:** the immutable test-data contract is now stored on
+Transformer, exposed in summaries, propagated through Create/UpdateTransformerCommand
+and TransformerModelService, included in transactional update rollback, and
+handled by the generic model-state dataclass persistence path. The Core model
+requires grounded-wye/grounded-wye winding declarations and a Yy vector group;
+Analysis classification requires explicit core construction, test-data basis,
+and the applicable HV test declaration, then validates the derived T model.
+The two-Bus zero-sequence matrix stamp, neutral 3Zn referral into both winding
+branches, sequence-component connectivity, immutable solver snapshot, and
+both terminal zero-sequence current calculations are not yet enabled.
+Grounded-wye/grounded-wye short-circuit preparation therefore remains
+fail-closed; this phase does not enable Yg-Yg earth-fault studies.
