@@ -189,7 +189,7 @@ class Transformer(Branch):
         self._validate_zero_sequence_contracts(
             self._vector_group_configuration, self._zero_sequence_test_configuration,
             self._impedance_reference_winding, self._hv_winding_connection, self._lv_winding_connection,
-            self._zero_sequence_resistance_ohm,
+            self._zero_sequence_resistance_ohm, self._zero_sequence_two_winding_test_data,
         )
         if self._zero_sequence_resistance_ohm is not None and (self._impedance_reference_winding is None or self._hv_terminal_role is None):
             raise ValueError("Transformer Z0 requires explicit impedance_reference_winding and HV/LV terminal mapping.")
@@ -334,10 +334,17 @@ class Transformer(Branch):
         return value
 
     @staticmethod
-    def _validate_zero_sequence_contracts(vector_group, test_configuration, reference, hv, lv, z0_resistance) -> None:
+    def _validate_zero_sequence_contracts(vector_group, test_configuration, reference, hv, lv, z0_resistance, two_winding_test_data=None) -> None:
         if z0_resistance is None:
+            if two_winding_test_data is not None:
+                if vector_group is None or test_configuration is None or reference != "HV":
+                    raise ValueError("Three-test Yg-Yg data requires a Yy vector group, explicit HV test configuration, and HV reference winding.")
+                vector_group.validate_winding_connections(hv, lv)
+                from .transformer_zero_sequence_contracts import validate_zero_sequence_test_applicability
+                validate_zero_sequence_test_applicability(test=test_configuration, reference_winding=reference, hv_connection=hv, lv_connection=lv)
+                return
             if vector_group is not None or test_configuration is not None:
-                raise ValueError("Vector-group and Z0 test configuration require declared transformer Z0 data.")
+                raise ValueError("Vector-group and Z0 test configuration require declared transformer Z0 data or explicit two-winding test data.")
             return
         if vector_group is None or test_configuration is None:
             raise ValueError("Transformer Z0 requires explicit vector-group and zero-sequence test configuration.")
@@ -588,7 +595,7 @@ class Transformer(Branch):
         self._validate_zero_sequence_two_winding_test_data(target_two_winding_test_data, target_hv_connection, target_lv_connection, target_vector_group)
         self._validate_zero_sequence_contracts(
             target_vector_group, target_test_configuration, target_reference_winding,
-            target_hv_connection, target_lv_connection, target_z0r,
+            target_hv_connection, target_lv_connection, target_z0r, target_two_winding_test_data,
         )
 
         # Validate the complete candidate before mutating any authoritative state.
@@ -698,6 +705,7 @@ class Transformer(Branch):
             getattr(self, "_vector_group_configuration", None), getattr(self, "_zero_sequence_test_configuration", None),
             self._impedance_reference_winding, self._hv_winding_connection,
             self._lv_winding_connection, self._zero_sequence_resistance_ohm,
+            self._zero_sequence_two_winding_test_data,
         )
         return True
 
