@@ -18049,3 +18049,60 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-33
+======================================================================
+
+Scope:
+    Add an explicit Transformer model-to-phase-domain multiport producer.
+
+Corrections:
+    - Transformer accepts an optional complete terminal-domain admittance
+      matrix in SI Siemens. The matrix is immutable, finite, square,
+      reciprocal and has positive-semidefinite terminal conductance.
+    - Matrix input requires explicit tap-ratio and phase-shift snapshots
+      matching the active Transformer tap and phase shift. Changing either
+      operating parameter makes the producer reject stale matrix data.
+    - Matrix data is included in the Transformer diagnostic summary.
+    - Added prepare_transformer_phase_domain_multiport(). It requires an
+      in-service Transformer, explicit HV/LV winding construction and
+      vector group, explicit matrix data and current tap/shift provenance.
+    - The producer resolves ordered HV A/B/C, optional declared neutral,
+      LV A/B/C and optional declared neutral graph nodes by exact equipment,
+      terminal-role and conductor-role identity. Missing or ambiguous
+      nodes fail closed.
+    - The producer checks matrix dimension against the exact physical
+      winding terminal inventory and emits PhaseDomainTransformerMultiport
+      with stable terminal labels and signed current ordering.
+    - Exported the producer through core.analysis.
+
+Important boundary:
+    - The producer consumes a complete externally supplied terminal
+      admittance matrix. It does not derive winding incidence, delta-loop
+      equations, turns ratio, phase displacement, leakage, magnetizing
+      branch or core/zero-sequence behaviour from scalar r/x/b or vector
+      group metadata.
+    - The matrix supplier must construct those effects from validated
+      manufacturer/test data and the declared winding construction.
+    - The SLD graph builder still rejects in-service transformers until
+      physical winding terminal nodes and multiport case integration are
+      added. This producer cannot be used until those exact nodes exist.
+    - Transformer persistence serialization/migration and Application
+      configurator support for the new matrix/provenance fields remain
+      outstanding.
+    - No HV-LV galvanic continuity is introduced.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    serialization round-trip, matrix numerical fixtures or end-to-end
+    transformer fault study were run. Runtime behaviour remains
+    unverified.
+
+Status:
+    MODEL-TO-MULTIPORT PRODUCER IMPLEMENTED — SLD GRAPH AND STUDY
+    PREPARATION INTEGRATION DEFERRED
+
+======================================================================
+
