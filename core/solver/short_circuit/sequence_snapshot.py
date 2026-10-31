@@ -84,6 +84,51 @@ class SequenceBranchSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class SequenceTransformerZeroShuntSnapshot:
+    """Detached grounded-wye transformer zero-sequence shunt and terminal provenance."""
+
+    transformer_id: str
+    bus_id: str
+    bus_index: int
+    terminal_role: str
+    grounded_winding_side: str
+    impedance_pu: complex
+    transformer_z0_ohm: complex
+    neutral_3zn_ohm: complex
+    total_impedance_ohm: complex
+    base_mva: float
+    base_voltage_kv: float
+    core_construction: str
+    zero_sequence_test_basis: str
+
+    def __post_init__(self) -> None:
+        for name in ("transformer_id", "bus_id", "terminal_role", "grounded_winding_side",
+                     "core_construction", "zero_sequence_test_basis"):
+            value = str(getattr(self, name)).strip()
+            if not value:
+                raise ValueError(f"{name} must be a non-empty provenance value.")
+            object.__setattr__(self, name, value)
+        if self.terminal_role not in {"FROM", "TO"}:
+            raise ValueError("Transformer zero-sequence shunt terminal_role must be FROM or TO.")
+        if self.grounded_winding_side not in {"HV", "LV"}:
+            raise ValueError("grounded_winding_side must be HV or LV.")
+        if isinstance(self.bus_index, bool) or not isinstance(self.bus_index, int) or self.bus_index < 0:
+            raise ValueError("Transformer shunt bus_index must be a non-negative integer.")
+        for name in ("impedance_pu", "transformer_z0_ohm", "neutral_3zn_ohm", "total_impedance_ohm"):
+            value = complex(getattr(self, name))
+            if not np.isfinite(value.real) or not np.isfinite(value.imag):
+                raise ValueError(f"{name} must be finite.")
+            if name == "impedance_pu" and abs(value) == 0.0:
+                raise ValueError("Transformer zero-sequence shunt impedance_pu must be non-zero.")
+            object.__setattr__(self, name, value)
+        for name in ("base_mva", "base_voltage_kv"):
+            value = float(getattr(self, name))
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive.")
+            object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True, slots=True)
 class SequenceSourceSnapshot:
     """Prepared source identity, bus, sequence impedances and internal voltage."""
 
@@ -130,6 +175,7 @@ class SequenceNetworkSnapshot:
     branches: tuple[SequenceBranchSnapshot, ...] = ()
     sources: tuple[SequenceSourceSnapshot, ...] = ()
     unavailable_bus_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    transformer_zero_shunts: tuple[SequenceTransformerZeroShuntSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -143,6 +189,18 @@ class SequenceNetworkSnapshot:
             raise ValueError("Sequence snapshot bus IDs must be unique.")
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "sources", tuple(self.sources))
+        shunts = tuple(self.transformer_zero_shunts)
+        seen_transformers: set[str] = set()
+        for shunt in shunts:
+            if not isinstance(shunt, SequenceTransformerZeroShuntSnapshot):
+                raise TypeError("transformer_zero_shunts must contain SequenceTransformerZeroShuntSnapshot records.")
+            if shunt.transformer_id in seen_transformers:
+                raise ValueError("A transformer may have only one supported grounded-side zero-sequence shunt.")
+            seen_transformers.add(shunt.transformer_id)
+            if self.bus_ids:
+                if shunt.bus_index >= len(self.bus_ids) or self.bus_ids[shunt.bus_index] != shunt.bus_id:
+                    raise ValueError("Transformer shunt Bus identity does not match bus_ids.")
+        object.__setattr__(self, "transformer_zero_shunts", shunts)
         unavailable: dict[str, tuple[int, ...]] = {}
         for sequence in ("positive", "negative", "zero"):
             raw_indices = tuple(self.unavailable_bus_indices.get(sequence, ()))
@@ -197,6 +255,24 @@ class SequenceNetworkSnapshot:
             branches=branches,
             sources=sources,
             unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
+            transformer_zero_shunts=tuple(
+                SequenceTransformerZeroShuntSnapshot(
+                    transformer_id=str(item.transformer_id),
+                    bus_id=str(item.bus_id),
+                    bus_index=tuple(str(value) for value in bus_ids).index(str(item.bus_id)),
+                    terminal_role=str(item.terminal_role).strip().upper(),
+                    grounded_winding_side=str(item.grounded_winding_side).strip().upper(),
+                    impedance_pu=complex(item.impedance_pu),
+                    transformer_z0_ohm=complex(item.transformer_z0_ohm),
+                    neutral_3zn_ohm=complex(item.neutral_3zn_ohm),
+                    total_impedance_ohm=complex(item.total_impedance_ohm),
+                    base_mva=float(item.base_mva),
+                    base_voltage_kv=float(item.base_voltage_kv),
+                    core_construction=str(getattr(item.core_construction, "value", item.core_construction)),
+                    zero_sequence_test_basis=str(getattr(item.zero_sequence_test_basis, "value", item.zero_sequence_test_basis)),
+                )
+                for item in getattr(sequence_network, "transformer_zero_sequence_shunts", ())
+            ),
         )
 
     @staticmethod
@@ -272,5 +348,6 @@ class SequenceNetworkSnapshot:
 __all__ = [
     "SequenceBranchSnapshot",
     "SequenceSourceSnapshot",
+    "SequenceTransformerZeroShuntSnapshot",
     "SequenceNetworkSnapshot",
 ]
