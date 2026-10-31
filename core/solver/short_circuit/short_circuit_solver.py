@@ -564,6 +564,7 @@ class ShortCircuitSolver:
             "phase_domain_node_ids": tuple(solution.node_voltages_v),
             "phase_domain_source_ids": tuple(solution.source_currents_a),
             "phase_domain_fault_connection_ids": tuple(solution.fault_currents_a),
+            "phase_domain_kcl_residual_a": solution.kcl_residual_a,
             "conductor_current_ids": tuple(solution.conductor_currents),
             "conductor_current_status": status.value,
         }
@@ -571,6 +572,7 @@ class ShortCircuitSolver:
             "phase_domain_node_voltages_v": dict(solution.node_voltages_v),
             "phase_domain_source_currents_a": dict(solution.source_currents_a),
             "phase_domain_fault_currents_a": dict(solution.fault_currents_a),
+            "phase_domain_kcl_residual_a": solution.kcl_residual_a,
             "conductor_currents": dict(solution.conductor_currents),
             "conductor_current_status": status,
             "conductor_current_diagnostics": diagnostics,
