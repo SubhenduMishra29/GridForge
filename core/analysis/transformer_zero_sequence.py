@@ -267,6 +267,7 @@ def classify_transformer_zero_sequence(
         internal_delta_circulation_possible=delta_present,
         requires_neutral_3zn=True,
         requires_applicable_test_configuration=True,
+        numerical_equivalent_available=True,
     )
 
 
