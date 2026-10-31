@@ -16542,12 +16542,15 @@ Changes:
       The CBCT window requires exactly one A, B and C conductor, an
       explicit neutral-inclusion declaration, unique conductor identities,
       and explicit signed current references for every enclosed conductor.
-    - NEUTRAL_CT and CBCT residual input configurations now require their
-      matching typed construction. A direct binding ID alone is not treated
-      as a physical measurement source.
+    - Direct-mode configurations expose construction completeness and
+      accept only a mode-matched typed construction when one is supplied.
+      Legacy configurations without construction remain deserializable, but
+      input-contract validation rejects them for execution. A direct binding
+      ID alone is not treated as a physical measurement source.
     - Added explicit construction serialization/deserialization to the
       residual input configuration dictionary contract and exported the
-      new public types.
+      new public types. Added fail-closed input-contract diagnostics for
+      missing construction and unavailable solver conductor primitives.
 
 Boundary:
     These are physical construction declarations only. They do not create
