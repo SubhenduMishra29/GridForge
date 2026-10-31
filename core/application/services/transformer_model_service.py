@@ -53,6 +53,11 @@ class TransformerModelService(ModelServiceSupport):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -96,6 +101,11 @@ class TransformerModelService(ModelServiceSupport):
             lv_winding_connection=lv_winding_connection,
             hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
             lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role=hv_terminal_role,
+            lv_terminal_role=lv_terminal_role,
+            impedance_reference_winding=impedance_reference_winding,
+            zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
+            zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
@@ -119,6 +129,11 @@ class TransformerModelService(ModelServiceSupport):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -131,6 +146,8 @@ class TransformerModelService(ModelServiceSupport):
             tap, shift, rate_mva, in_service,
             hv_winding_connection, lv_winding_connection,
             hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role, lv_terminal_role, impedance_reference_winding,
+            zero_sequence_resistance_ohm, zero_sequence_reactance_ohm,
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
@@ -152,6 +169,11 @@ class TransformerModelService(ModelServiceSupport):
             "lv_winding_connection": transformer.lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": transformer.hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": transformer.lv_neutral_grounding_impedance_ohm,
+            "hv_terminal_role": transformer.hv_terminal_role,
+            "lv_terminal_role": transformer.lv_terminal_role,
+            "impedance_reference_winding": transformer.impedance_reference_winding,
+            "zero_sequence_resistance_ohm": transformer.zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": transformer.zero_sequence_reactance_ohm,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -174,6 +196,11 @@ class TransformerModelService(ModelServiceSupport):
             lv_winding_connection=lv_winding_connection,
             hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
             lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role=hv_terminal_role,
+            lv_terminal_role=lv_terminal_role,
+            impedance_reference_winding=impedance_reference_winding,
+            zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
+            zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
         )
 
         if service_state_changed:
