@@ -59,8 +59,8 @@ class ShortCircuitPreparation:
                     raise ValueError("Supply either phase_domain_case or explicit phase_domain_sources/faults.")
                 sources = tuple(phase_domain_sources or ())
                 faults = tuple(phase_domain_faults or ())
-                if not sources or not faults:
-                    raise ValueError("Phase-domain preparation requires both explicit source equivalents and fault connections.")
+                if not faults:
+                    raise ValueError("Phase-domain preparation requires explicit fault connections.")
                 if self.base_mva is None:
                     raise ValueError("Phase-domain preparation requires an explicit study MVA base.")
                 from core.network import build_phase_domain_conductor_network
@@ -75,6 +75,11 @@ class ShortCircuitPreparation:
                     nodes=network.phase_domain_nodes,
                     connections=network.phase_domain_connections,
                 )
+                if phase_domain_sources is None:
+                    from core.analysis.phase_domain_source_preparation import prepare_phase_domain_source_equivalents
+                    sources = prepare_phase_domain_source_equivalents(network, graph)
+                if not sources:
+                    raise ValueError("Phase-domain preparation requires at least one explicit or automatically prepared source equivalent.")
                 physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
                 if not physical_topology.branches:
                     raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
