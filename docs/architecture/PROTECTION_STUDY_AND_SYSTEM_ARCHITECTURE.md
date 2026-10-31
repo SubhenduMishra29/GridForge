@@ -951,3 +951,9 @@ The resulting immutable source sample declares amperes on the `PRIMARY_AMPS` bas
 This increment adds the normalization contract and resolver enforcement only. Application multi-binding RelayInput snapshot assembly, direct neutral/CBCT source-mode population, and ANSI 50N/51N input-contract enablement remain outstanding. 50N/51N therefore remain fail-closed. No protection zone is inferred from CT placement and no live MeasurementChannel state is mutated.
 
 Verification: remote source review only. No tests or CI run; Python syntax, import integrity and runtime execution remain outstanding.
+
+### D11b — Residual-current source binding relation
+
+The project configuration aggregate accepts multiple explicitly declared physical measurement bindings for the residual_current input of ANSI 50N/51N only when their binding IDs exactly belong to the persisted ResidualCurrentInputConfiguration. This supports the configured A/B/C source set without relaxing the ordinary one-physical-input/one-binding invariant. Configuration replacement cannot orphan existing source bindings, and removal of a referenced source binding is rejected.
+
+This is a configuration/persistence boundary correction only. It does not compose a derived relay input, assemble Application-authorized residual snapshots, or enable ANSI 50N/51N. Those remain fail-closed pending end-to-end integration and source validation.
