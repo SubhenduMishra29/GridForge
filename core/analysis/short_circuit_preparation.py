@@ -183,19 +183,25 @@ class ShortCircuitPreparation:
                     # the source node must correspond to a real Core terminal
                     # owned by this exact registered equipment object.
                     declared_terminals = tuple(getattr(equipment, "terminals", ()) or ())
-                    terminal_roles = {
-                        str(getattr(terminal, "role", "")).strip()
+                    if not declared_terminals or any(
+                        getattr(terminal, "owner", None) is not equipment
                         for terminal in declared_terminals
-                        if getattr(terminal, "owner", None) is equipment
-                    }
+                    ):
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} does not expose a complete terminal collection owned by the canonical equipment object."
+                        )
                     for node in source_nodes:
                         if getattr(node.kind, "value", node.kind) != "EQUIPMENT_TERMINAL":
                             raise ValueError(
                                 f"Phase-domain source node {node.node_id!r} must be an EQUIPMENT_TERMINAL, not {getattr(node.kind, 'value', node.kind)!r}."
                             )
-                        if node.terminal_role not in terminal_roles:
+                        matching_terminals = tuple(
+                            terminal for terminal in declared_terminals
+                            if getattr(terminal, "role", None) == node.terminal_role
+                        )
+                        if len(matching_terminals) != 1:
                             raise ValueError(
-                                f"Phase-domain source node {node.node_id!r} does not identify an authoritative terminal owned by equipment {equipment_id!r}."
+                                f"Phase-domain source node {node.node_id!r} must resolve to exactly one authoritative Core terminal role on equipment {equipment_id!r}."
                             )
                     if equipment_type == "motor" and getattr(equipment, "running", None) is not True:
                         raise ValueError(
