@@ -39,6 +39,111 @@ class TransformerZeroSequenceTopology:
     numerical_equivalent_available: bool = False
 
 
+
+@dataclass(frozen=True, slots=True)
+class TransformerZeroSequenceShunt:
+    """Grounded-wye-side zero-sequence shunt, referred to its bus voltage base.
+
+    This is a one-sided return equivalent, not an HV-LV series branch.
+    Transformer test Z0 excludes neutral return; neutral_3zn_ohm is added
+    exactly once and retained separately for provenance.
+    """
+
+    transformer_id: str
+    bus_id: str
+    grounded_winding_side: str
+    transformer_z0_ohm: complex
+    neutral_3zn_ohm: complex
+    total_impedance_ohm: complex
+    base_mva: float
+    base_voltage_kv: float
+    impedance_pu: complex
+    core_construction: TransformerCoreConstruction
+    zero_sequence_test_basis: str
+    test_configuration: Any
+
+
+def build_transformer_zero_sequence_shunt(
+    transformer: Any,
+    grounded_bus: Any,
+    *,
+    base_mva: float,
+) -> TransformerZeroSequenceShunt | None:
+    """Build the validated one-sided grounded-wye return equivalent.
+
+    A delta opposite winding requires DELTA_CLOSED in the Z0 test. An
+    ungrounded-wye opposite winding requires OPEN_CIRCUIT. Short-circuit
+    test configurations are not treated as this one-sided equivalent.
+    Core construction is provenance only; no empirical multiplier applies.
+    """
+    if grounded_bus is None:
+        raise ValueError("A resolved grounded-wye Bus is required for transformer Z0 preparation.")
+    if isinstance(base_mva, bool) or not np.isfinite(base_mva) or base_mva <= 0.0:
+        raise ValueError("base_mva must be finite and greater than zero.")
+
+    topology = classify_transformer_zero_sequence(transformer)
+    if topology.path is TransformerZeroSequencePath.NO_EXTERNAL_ZERO_SEQUENCE_PATH:
+        return None
+    if len(topology.grounded_winding_sides) != 1:
+        raise ValueError("Only a single grounded-wye winding return can be represented by this equivalent.")
+
+    side = topology.grounded_winding_sides[0]
+    opposite = transformer.lv_winding_connection if side == "HV" else transformer.hv_winding_connection
+    test = transformer.zero_sequence_test_configuration
+    if opposite is TransformerWindingConnection.DELTA:
+        expected_condition = "DELTA_CLOSED"
+    elif opposite is TransformerWindingConnection.WYE_UNGROUNDED:
+        expected_condition = "OPEN_CIRCUIT"
+    else:
+        raise ValueError("Unsupported opposite-winding condition for a one-sided grounded-wye return.")
+    if test.other_winding_condition.value != expected_condition:
+        raise ValueError(
+            f"Transformer '{transformer.id}' one-sided Z0 test requires "
+            f"other_winding_condition={expected_condition}."
+        )
+
+    neutral = (
+        transformer.hv_neutral_grounding_impedance_ohm
+        if side == "HV"
+        else transformer.lv_neutral_grounding_impedance_ohm
+    )
+    if neutral is None:
+        raise ValueError(f"Transformer '{transformer.id}' grounded {side} neutral impedance is unavailable.")
+
+    z0 = complex(transformer.zero_sequence_resistance_ohm, transformer.zero_sequence_reactance_ohm)
+    neutral_3zn = 3.0 * complex(neutral)
+    total = z0 + neutral_3zn
+    for label, value in (("Z0", z0), ("3Zn", neutral_3zn), ("Z0 + 3Zn", total)):
+        if not np.isfinite(value.real) or not np.isfinite(value.imag):
+            raise ValueError(f"Transformer '{transformer.id}' {label} must be finite.")
+    if abs(total) == 0.0:
+        raise ValueError(f"Transformer '{transformer.id}' grounded-wye return impedance is zero.")
+
+    voltage_kv = float(getattr(grounded_bus, "nominal_voltage_kv", 0.0))
+    if not np.isfinite(voltage_kv) or voltage_kv <= 0.0:
+        raise ValueError(
+            f"Grounded {side} Bus '{getattr(grounded_bus, 'id', '')}' requires a positive nominal voltage."
+        )
+    z_base = voltage_kv * voltage_kv / float(base_mva)
+    impedance_pu = total / z_base
+    if not np.isfinite(impedance_pu.real) or not np.isfinite(impedance_pu.imag) or abs(impedance_pu) == 0.0:
+        raise ValueError(f"Transformer '{transformer.id}' produced an invalid per-unit zero-sequence shunt.")
+
+    return TransformerZeroSequenceShunt(
+        transformer_id=str(transformer.id),
+        bus_id=str(grounded_bus.id),
+        grounded_winding_side=side,
+        transformer_z0_ohm=z0,
+        neutral_3zn_ohm=neutral_3zn,
+        total_impedance_ohm=total,
+        base_mva=float(base_mva),
+        base_voltage_kv=voltage_kv,
+        impedance_pu=impedance_pu,
+        core_construction=topology.core_construction,
+        zero_sequence_test_basis=str(transformer.zero_sequence_test_basis),
+        test_configuration=test,
+    )
+
 def classify_transformer_zero_sequence(
     transformer: Any,
 ) -> TransformerZeroSequenceTopology:
@@ -167,5 +272,7 @@ def classify_transformer_zero_sequence(
 __all__ = [
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
+    "TransformerZeroSequenceShunt",
+    "build_transformer_zero_sequence_shunt",
     "classify_transformer_zero_sequence",
 ]
