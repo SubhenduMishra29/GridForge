@@ -16,6 +16,7 @@ import math
 from typing import Any
 
 from .branch import Branch
+from .conductor import BranchConductorSystem
 
 
 class Cable(Branch):
@@ -52,6 +53,7 @@ class Cable(Branch):
         thermal_limit_mva: float | None = None,
         conductor_count: int = 1,
         in_service: bool = True,
+        conductor_system: BranchConductorSystem | None = None,
     ) -> None:
         if r0_ohm_per_km is None:
             r0_ohm_per_km = r1_ohm_per_km
@@ -73,6 +75,7 @@ class Cable(Branch):
             name=name,
             rate_mva=thermal_limit_mva,
             in_service=in_service,
+            conductor_system=conductor_system,
         )
 
         self.length_km = self._validate_non_negative(length_km, "length_km")
@@ -113,6 +116,8 @@ class Cable(Branch):
         if conductor_count < 1:
             raise ValueError("conductor_count must be at least 1.")
         self.conductor_count = conductor_count
+        if self.conductor_system is not None and len(self.conductor_system.conductors) != self.conductor_count:
+            raise ValueError("Cable conductor_count must match the explicit physical conductor inventory.")
         self.validate()
 
     @property
@@ -219,6 +224,11 @@ class Cable(Branch):
         self.thermal_limit_mva = self._validate_non_negative(
             self.thermal_limit_mva, "thermal_limit_mva"
         )
+        if self.conductor_system is not None:
+            if len(self.conductor_system.conductors) != self.conductor_count:
+                raise ValueError("Cable conductor_count must match the explicit physical conductor inventory.")
+            if not math.isclose(self.conductor_system.length_km, self.length_km, rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("Cable conductor-system length must match Cable length_km.")
         if self.resistance_ohm == 0.0 and self.reactance_ohm == 0.0:
             raise ValueError(
                 f"Cable '{self.id}' must have non-zero positive-sequence series impedance."
@@ -257,6 +267,7 @@ class Cable(Branch):
             "rated_current_a": self.rated_current_a,
             "thermal_limit_mva": self.thermal_limit_mva,
             "conductor_count": self.conductor_count,
+            "conductor_system": self.conductor_system.summary() if self.conductor_system is not None else None,
             "in_service": self.in_service,
         }
 

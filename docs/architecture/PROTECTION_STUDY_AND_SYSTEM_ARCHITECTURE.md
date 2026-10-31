@@ -712,13 +712,764 @@ and CT-ratio conversion path. The output is detached and carries scenario,
 project, activation, topology, Branch, Bus, CT, base and ratio provenance.
 It never calls `MeasurementChannel.update` and cannot overwrite live values.
 
-**Strict boundary:** this is a CT-secondary sample in amperes
-(`A_secondary`), not a common primary-current reference basis. Each sample
-declares an instrument/channel-specific basis identity so samples from
-different CT ratios cannot accidentally satisfy the differential kernel's
+**Strict boundary:** this is a CT-secondary sample expressed in the canonical
+ampere unit (`A`), not a common primary-current reference basis. Each sample
+declares an instrument/channel-specific CT-secondary basis identity so samples
+from different CT ratios cannot accidentally satisfy the differential kernel's
 common-basis guard. Differential protection still requires an explicit,
 engineering-valid CT normalisation/compensation stage before its samples can
 be evaluated. Bus-attached and equipment-terminal CT contribution adapters,
-PT/CVT fault-voltage conversion, RelayInput snapshot assembly and
-ProtectionSystem scenario evaluation remain pending. No scenario relay
-decision or breaker action is claimed.
+PT/CVT fault-voltage conversion remain pending. Phase D5 now assembles
+detached RelayInput snapshots and evaluates eligible current protection
+functions for explicitly bound Branch FROM/TO CT samples. Unsupported
+instrument/input paths still fail closed, and no breaker action is dispatched.
+
+
+## 21. Detached fault-scenario RelayInput evaluation — Phase D5
+
+Protection Study fault scenarios now have a bounded path from complete
+short-circuit branch contributions to non-actuating protection-function
+evaluation:
+
+`ShortCircuitResult
+→ explicit ProtectionMeasurementBinding
+→ CTMeasurementAssociationService
+→ Branch FROM/TO CT conversion
+→ immutable ProtectionScenarioMeasurementSample
+→ Application validation and snapshot assembly
+→ RelayInput evaluation snapshot
+→ ProtectionSystem
+→ per-scenario ProtectionExecutionResult`
+
+The Application validates the exact binding, element/input/channel identities,
+CT instrument identity and ratio, CT secondary terminal, phase/sequence,
+canonical engineering unit, channel engineering scale/polarity,
+scenario/project/activation/topology provenance, and the declared protection
+input representation before installing any evaluation snapshot. Missing, duplicate, extra, stale, or unsupported inputs
+block the complete scenario evaluation before a protection element executes.
+
+The snapshot is installed only for the duration of the ProtectionElement
+evaluation through the existing Application-authorized snapshot mechanism.
+The underlying MeasurementChannel object and its value, timestamp, quality,
+availability and sample sequence are not modified. Study-derived quantities
+carry no fabricated acquisition timestamp. Their snapshot uses
+`MeasurementQuality.UNKNOWN` to avoid claiming sensor quality and
+`MeasurementValidity.VALID` only after the complete solver result and
+correlation contract have passed.
+
+**Current supported scope:** explicitly bound Branch FROM/TO CT phase-current
+and sequence-current members whose channel units and phase/sequence contracts
+match the protection function. This supports eligible configured current
+functions such as 50/51 and 46 when their full input contracts are satisfied.
+
+**Not yet supported:** Bus-attached or non-Branch equipment-terminal current
+contributions; PT/CVT fault-voltage conversion; ANSI 67 scenario polarising
+voltage/angle snapshots; residual-current semantics for 50N/51N; transformer
+differential compensation and shared primary-current normalisation; and
+automatic output/action dispatch. Unsupported inputs fail closed. Differential
+protection remains outside this D5 relay-snapshot path until CT normalisation
+and function-specific compensation are implemented.
+
+Each `ProtectionFaultScenarioResult` now retains its own
+`ProtectionExecutionResult` and an explicit `relay_evaluation_completed`
+flag. A completed evaluation with no ProtectionDecision is a valid
+no-operation result and is not confused with a scenario where relay evaluation
+never ran. The Study result exposes combined decision/diagnostic views while
+retaining per-scenario records. No breaker command is dispatched and no live
+measurement channel is injected.
+
+
+## 22. Short-circuit terminal-current result contract — Phase D6 foundation
+
+The detached `ShortCircuitResult` distinguishes aggregate Branch current from
+current at a physical equipment terminal. Each immutable terminal-current
+record is keyed by exact equipment ID and terminal role and identifies the
+equipment type, canonical Bus attachment, complex phase/sequence currents,
+per-unit current basis, and a fixed reference direction of positive current
+INTO the equipment. For a series-only Branch primitive, the FROM terminal
+current is the Branch current and the TO terminal current is its negative.
+Both values are calculated from solved sequence voltages and prepared series
+impedance; they are not inferred from SLD geometry or CT P1/P2 orientation.
+
+Terminal-current status is independent of source/Branch contribution status.
+COMPLETE requires both terminal records for every prepared Branch; PARTIAL
+reports incomplete coverage; UNAVAILABLE means no supported terminal records
+could be produced. Diagnostics identify unsupported equipment rather than
+silently treating an equipment aggregate as a terminal measurement.
+
+At the time of Phase D6, terminal-current records were supported only
+for series-only Line and Cable primitives. The transformer gap identified
+here was subsequently narrowed by Phase D7 (tap-aware sequence-network
+stamping) and Phase D8 (balanced three-phase transformer terminal currents).
+Unbalanced transformer terminal currents remain unavailable until winding
+connection/vector-group and neutral-grounding sequence models are implemented.
+Shunt charging, mutual coupling, multi-winding transformers, machine stator
+terminals, load contributions and Bus-boundary injection records remain
+outside the implemented terminal-current scope. Protection Study CT adapters
+still do not consume the generic terminal-current records.
+
+
+## 21. Transformer sequence-network tap primitive — Phase D7
+
+The canonical short-circuit sequence-network preparation stamps a
+two-terminal transformer using the explicit Core Transformer from-side
+complex tap a = t * exp(j * theta), where t is the persisted tap ratio and
+\(\theta\) is the Core phase-shift value in radians. The primitive is:
+
+\[
+Y_{ff}=\frac{y}{|a|^2},\quad
+Y_{ft}=-\frac{y}{a^*},\quad
+Y_{tf}=-\frac{y}{a},\quad
+Y_{tt}=y
+\]
+
+Line/Cable and single-Bus source stamps retain unity-tap behaviour. The
+detached SequenceBranchSnapshot preserves the transformer's tap ratio and
+phase shift so the result layer can use the same primitive rather than
+reconstructing transformer state from live Core.
+
+**Strict scope:** this increment applies only the explicit Core scalar tap and
+phase-shift fields. It does not apply optional plugin VectorGroup clock
+displacement, winding connection mapping, neutral grounding/zero-sequence
+paths, transformer magnetising/shunt admittance, tertiary windings, or
+unbalanced transformer sequence coupling. Consequently, unbalanced
+transformer short-circuit studies requiring those behaviours remain
+unsupported and must not be represented as complete. Phase D8 implements
+transformer terminal-current output for balanced three-phase fault cases only.
+Unbalanced transformer terminal currents remain unavailable. When a caller
+supplies an external SequenceNetwork alongside a transformer with non-unity
+tap or non-zero phase shift, the matrix must explicitly declare the
+FROM_SIDE_COMPLEX_TAP_V1 convention; otherwise preparation rejects it.
+
+Verification: remote source review and contract reconciliation only. No tests
+or CI run. Python syntax/import/runtime checks remain outstanding.
+
+
+## 22. Transformer terminal-current equations — Phase D8
+
+For a balanced three-phase short-circuit case, the detached solver now
+calculates transformer terminal currents from the same from-side complex tap
+and positive-sequence series admittance used by the canonical Ybus stamp:
+
+\[
+I_f = y\left(\frac{V_f}{|a|^2}-\frac{V_t}{a^*}\right),\qquad
+I_t = y\left(V_t-\frac{V_f}{a}\right)
+\]
+
+Both currents are positive into the transformer at their respective physical
+terminals. The terminal records retain each terminal's Bus identity and
+canonical terminal role. The Branch current contribution is the FROM-terminal
+current, preserving the established branch orientation.
+
+This is deliberately restricted to balanced three-phase faults, for which
+the current model has the positive-sequence transformer primitive. The
+transformer model currently does not provide the negative/zero sequence
+winding-connection, vector-group, and neutral-grounding network required for
+unbalanced fault terminal currents. Those cases remain unavailable rather
+than reusing the positive-sequence current or assuming a grounded-wye path.
+Transformer magnetising/shunt current, tertiary windings and detailed
+multi-winding equivalents remain outside this two-terminal series primitive.
+
+Verification: remote source-level review only. No tests or CI run. Python
+syntax/import/runtime checks remain outstanding.
+
+
+## 23. CT measurement conversion from equipment-terminal currents — Phase D9
+
+Protection Study scenario conversion now consumes the detached
+ShortCircuitTerminalCurrent record selected by the engineer's persisted
+ProtectionMeasurementBinding. The binding must identify one equipment
+terminal by equipment ID and terminal role, one CT, one MeasurementChannel,
+one RelayInput, and one explicit phase/sequence quantity.
+
+The converter verifies the terminal record identity, Bus, per-unit basis,
+INTO_EQUIPMENT reference direction, result status, terminal-current
+availability, topology revision, CT association, physical CT polarity,
+secondary channel source/terminal, and configured CT ratio. It converts
+terminal per-unit current to primary amperes using the terminal Bus voltage
+base. Because terminal current is positive into equipment, a measured endpoint
+on the CT P1-side component reverses that sign relative to P1-to-P2, while an
+endpoint on the P2-side component retains it. The configured CT polarity is
+then applied before conversion to CT secondary amperes. The operation creates a detached scenario sample and
+does not mutate live MeasurementChannel state.
+
+A PARTIAL terminal-current set may still supply a sample when the exact
+configured terminal record is present and valid; missing or unsupported
+records remain blocked. This avoids rejecting a valid configured measurement
+solely because an unrelated equipment terminal elsewhere in the network is
+unsupported. FAILED or UNAVAILABLE terminal-current sets are rejected.
+
+The terminal-current adapter supports only terminal records actually emitted
+by the short-circuit solver (currently Line, Cable, and balanced three-phase
+Transformer series primitives). Bus attachments, PT/CVT voltage conversion,
+unbalanced Transformer terminal currents, unsupported equipment, and
+protection-zone inference remain outside scope. The CT association resolver
+continues to report physical P1/P2 connectivity only; it does not assign a
+protection zone or infer the engineer's measurement target.
+
+Verification: remote source review only. No tests or CI run. Python syntax,
+import integrity and runtime checks remain outstanding.
+
+
+## Protection Study D10 — explicit residual-current input configuration
+
+ANSI 50N/51N residual-current input configuration is represented by
+`ResidualCurrentInputConfiguration`, persisted on the configured protection
+function and restricted to those function codes. The configured source mode
+is exactly one of:
+
+- `THREE_PHASE_SUM`: three distinct, explicitly assigned A/B/C measurement
+  binding IDs at one engineer-declared measurement point.
+- `NEUTRAL_CT`: one explicit neutral CT measurement binding.
+- `CBCT`: one explicit core-balance CT measurement binding.
+
+The Core resolver calculates a complex phasor sum, never a sum of magnitudes.
+For a three-phase sum it requires each source sample to declare canonical
+amperes, its explicit phase, scenario identity, measurement-point identity,
+topology revision, and an identical CT-secondary reference basis. Incompatible
+CT ratios/bases are rejected; the resolver does not silently add unlike
+secondary currents. Dedicated neutral and CBCT modes are not interchangeable
+with the three-phase mode and require source-mode provenance to match the
+persisted configuration.
+
+This increment establishes the persisted source contract and isolated
+fail-closed resolver only. It does not yet connect the resolver to
+ProtectionStudyHandler/Application snapshot creation, populate
+measurement-point/source-mode provenance in D9 samples, normalize unequal CT
+ratios to a common primary-current basis, or enable 50N/51N input contracts.
+Those functions remain fail-closed until that integration is complete.
+No protection zone is inferred from CT placement. No live MeasurementChannel
+state is mutated.
+
+
+## Protection Study D11a — residual-current primary-current normalization
+
+Residual-current source samples are normalized independently to a common primary-current basis before phasor combination. The normalization boundary consumes a validated detached CT-secondary sample and the active binding's CT ratio plus MeasurementChannel scale and polarity. It applies channel scale, channel polarity and CT ratio exactly once. The measurement adapter has already applied CT primary-side P1/P2 orientation and physical CT polarity; those operations must not be repeated.
+
+The resulting immutable source sample declares amperes on the `PRIMARY_AMPS` basis and carries provenance confirming normalization, the engineer-configured measurement point, topology revision, CT ratio and channel scale/polarity. Three-phase residual current remains the complex phasor sum Ia + Ib + Ic. Different CT ratios are valid only after independent normalization to primary amperes.
+
+This increment adds the normalization contract and resolver enforcement only. Application multi-binding RelayInput snapshot assembly, direct neutral/CBCT source-mode population, and ANSI 50N/51N input-contract enablement remain outstanding. 50N/51N therefore remain fail-closed. No protection zone is inferred from CT placement and no live MeasurementChannel state is mutated.
+
+Verification: remote source review only. No tests or CI run; Python syntax, import integrity and runtime execution remain outstanding.
+
+### D11b — Residual-current source binding relation
+
+The project configuration aggregate accepts multiple explicitly declared physical measurement bindings for the residual_current input of ANSI 50N/51N only when their binding IDs exactly belong to the persisted ResidualCurrentInputConfiguration. This supports the configured A/B/C source set without relaxing the ordinary one-physical-input/one-binding invariant. Configuration replacement cannot orphan existing source bindings, and removal of a referenced source binding is rejected.
+
+This is a configuration/persistence boundary correction only. It does not compose a derived relay input, assemble Application-authorized residual snapshots, or enable ANSI 50N/51N. Those remain fail-closed pending end-to-end integration and source validation.
+
+
+### D11c — End-to-end ANSI 50N/51N residual-current scenario input
+
+ANSI 50N and 51N now use a first-class `DerivedRelayMeasurement` as the `residual_current` RelayInput source. It is not a physical `MeasurementChannel` and is not inserted into the MeasurementChannel registry. Runtime composition requires a persisted `ResidualCurrentInputConfiguration` and creates this derived source only for 50N/51N.
+
+The canonical input contracts declare a complex-capable current input in amperes. Application validates the exact configured binding set, active in-service CT identity, CT secondary channel identity, phase classification, terminal-current reference direction, per-unit result provenance, project activation and topology revision, CT ratio and physical polarity, channel scale/polarity, and the explicit measurement-point declaration. Each CT-secondary sample is normalized independently to signed primary amperes; three-phase residual is the complex phasor sum `Ia + Ib + Ic`, not a sum of magnitudes. Direct neutral-CT/CBCT modes remain fail-closed: the current short-circuit terminal-current model has no dedicated neutral-conductor primitive or multi-conductor CBCT source model. The resulting detached snapshot carries source binding IDs, source mode, measurement point, scenario and topology provenance, and a derived-input identity checked by `ProtectionElement` before evaluation.
+
+The existing ANSI 50N instantaneous pickup and ANSI 51N IEC inverse-time/latching/reset algorithms consume the same derived residual phasor through their ordinary RelayInput accessors. No physical MeasurementChannel is mutated, no protection zone is inferred from the CT location, and ordinary single-channel protection inputs retain their existing one-binding contract.
+
+Both ANSI 50N and 51N pickups are interpreted in primary amperes because the derived residual snapshot is normalized to PRIMARY_AMPS. The operating quantity is residual current 3I0 = Ia + Ib + Ic; it is not the zero-sequence component I0 alone.
+
+Each fault scenario is composed against a fresh ProtectionRuntime. This isolates ANSI 51N pickup timing/latching state between independent fault cases and prevents scenario evaluation from mutating the active live protection runtime.
+
+
+
+Engineering configuration requirement: every residual source binding must declare `measurement_point_id` equal to the function's configured point. For the currently executable `THREE_PHASE_SUM` mode, A/B/C source bindings must use three distinct CT instruments, three phase-specific current channels, and the same explicit measurement point. `NEUTRAL_CT` and `CBCT` configurations are persisted but rejected at runtime until their physical source models and solver contributions exist.
+
+
+
+### D12 — Explicit Line zero-sequence impedance for earth-fault studies
+
+The Line Core model now accepts optional `zero_sequence_resistance_ohm` and `zero_sequence_reactance_ohm` as a required pair. These values are physical series impedance data, are persisted by the generic ModelDTO slot/state serializer, and can be created or updated through the Application command and transactional `LineModelService` path. Existing Line projects deserialize with both values absent and remain valid for positive-sequence studies.
+
+`SequenceNetworkPreparation` converts an explicitly supplied Line Z0 to the study per-unit base. Unsymmetrical fault preparation still fails closed when Z0 is absent or zero; it never substitutes Z1 for Z0. The solver then uses the prepared zero-sequence network when calculating SLG/LLG branch terminal-current records. This is a prerequisite for 50N/51N residual-current measurements on line-connected CT locations, not a declaration that every transformer or neutral return path is supported.
+
+
+### D13 — Transformer negative-sequence primitive
+
+For the existing passive, static two-winding Transformer model, the negative-sequence series impedance is prepared from the same physical series impedance as positive sequence. The negative-sequence complex tap uses the conjugate phase displacement, reversing the phase-shift angle while retaining the tap ratio. This does not infer transformer zero-sequence behavior: winding connections, vector group, neutral grounding and zero-sequence transfer remain unsupported, and earth-fault preparation through a transformer must still fail closed.
+
+### D14A — Transformer winding and neutral-grounding input contract
+
+The Transformer model now records explicit HV/LV winding connections (`DELTA`, `WYE_GROUNDED`, `WYE_UNGROUNDED`) and explicit complex neutral grounding impedance in ohms for grounded-wye windings. A solidly grounded neutral must be declared as `0j`; absent values are never interpreted as solid grounding. The create/update commands and transactional Application TransformerModelService carry these inputs. Updates validate the complete candidate atomically, support changing winding connection with corresponding grounding changes, and restore the exact prior configuration on transaction rollback. Transformer summaries expose the configured winding and neutral values. Core validation also rechecks restored/persisted winding and neutral combinations and rejects boolean or non-finite neutral impedance values.
+
+This phase establishes engineering configuration only. It does **not** yet stamp a transformer zero-sequence equivalent. Delta circulating paths, grounded-wye transfer/blocking, winding-pair coupling, vector-group clock mapping and the `3Zn` neutral contribution remain unimplemented. Sequence preparation therefore fails closed with a transformer-specific diagnostic when zero sequence is requested.
+
+### D14B — Transformer zero-sequence input and terminal-reference contract
+
+Transformer configuration now has explicit HV/LV terminal-role mapping (FROM or TO), an explicit impedance_reference_winding (HV or LV), and paired physical zero-sequence resistance/reactance in ohms. A declared transformer Z0 is rejected unless the HV/LV terminal mapping and reference winding are also declared. The Application create/update command payloads and transactional TransformerModelService now carry these fields; update rollback captures and restores the complete prior D14B state. The generic ModelDTO slot serializer persists the scalar and enum-valued fields without a second persistence representation.
+
+The Z0 pair is physical series impedance referred to the explicitly named winding. It is not the transformer neutral impedance and does not include either neutral's 3Zn contribution. Sequence preparation remains fail-closed: this contract does not establish zero-sequence transfer, delta circulating current, winding-pair equivalent circuits, core-return paths, vector-group clock behavior, or transformer terminal-current provenance. No earth-fault path through a transformer is enabled by D14B.
+
+
+### D14C — Explicit transformer magnetic-core construction and Z0 data provenance
+
+Transformer models now accept an explicit magnetic-core construction: THREE_LIMB, FIVE_LIMB, or SHELL_FORM. Transformer Z0 input additionally requires a declared data provenance basis: MEASURED_ZERO_SEQUENCE_TEST or MANUFACTURER_ZERO_SEQUENCE_DATA. These are persisted as normal typed model state, exposed through create/update commands and TransformerModelService, included in transactional rollback, and surfaced in Transformer summaries. The construction declaration is not a substitute for measured Z0; the physical Z0 pair remains explicit and referred to its declared winding.
+
+All three core constructions are representable. No generic correction factor or default return-path assumption is applied from core type alone. The zero-sequence sequence-network result remains unavailable for every transformer construction until the winding-pair primitive can represent grounding, delta circulation/blocking, magnetic return paths, and supported test-data applicability. Missing core construction or Z0 provenance rejects a transformer Z0 declaration. A declared construction without valid Z0 data does not make the transformer zero-sequence equivalent available.
+
+
+### D14D — Transformer zero-sequence winding-path classification
+
+Added a Core/Analysis topology classifier that distinguishes (a) no externally grounded zero-sequence path where neither winding is grounded-wye, and (b) a one-sided grounded-wye return candidate where exactly one winding is grounded-wye. It explicitly reports delta internal-circulation possibility without treating that circulation as an external bus path. The one-sided candidate requires explicit Z0 data referred to the grounded winding, explicit core construction and Z0 data provenance; neutral grounding impedance remains separate and must contribute 3Zn in a future equivalent stamp.
+
+The classifier deliberately rejects grounded-wye/grounded-wye transfer because the current transformer contract does not yet include vector-group, clock-number, winding-polarity and applicable test-configuration data. It returns a topology descriptor only: no numerical equivalent impedance, Ybus stamp, transformer terminal current or earth-fault result is produced. SequenceNetworkPreparation therefore remains fail-closed for all transformer zero-sequence stamps at this phase. This avoids representing a one-sided grounded return as a two-terminal series branch or interpreting internal delta circulation as an external terminal path.
+
+
+## D14E — transformer vector-group and zero-sequence test contracts
+
+Integration completion:
+- Transformer owns both immutable contract values as authoritative slots and exposes them in summaries.
+- CreateTransformerCommand and UpdateTransformerCommand carry the typed values; ModelCommandHandlers forwards command payloads without dropping fields.
+- TransformerModelService create/update propagates them. Update rollback captures and restores both values atomically.
+- Transformer construction, update validation and restored-state validation enforce vector-group/winding consistency and test applicability whenever Z0 is declared.
+- ModelDTO encodes/decodes frozen dataclass values with explicit type identity, in addition to enum encoding, for the generic model-state persistence path.
+- D14D classification requires and validates these contracts for one-sided grounded-wye candidates. For grounded-wye/grounded-wye, it validates declarations and still fails closed because the numerical two-winding equivalent is not implemented.
+- Test configurations declaring neutral return included are rejected: stored transformer Z0 excludes neutral 3Zn, which remains a separate network contribution.
+
+The contracts are model/command/service/persistence integrated. This does not enable transformer zero-sequence Ybus stamping, numerical equivalent calculation, or terminal-current generation. Legacy persisted transformer state lacking these contracts remains unavailable for Z0 classification.
+
+
+## D14F — One-sided grounded-wye zero-sequence return equivalent
+
+A transformer with exactly one grounded-wye winding may contribute a
+zero-sequence shunt return on that grounded-wye Bus when its explicit Z0
+reference winding, winding connections, vector-group declaration,
+core-construction metadata, data provenance and test configuration are
+applicable. This is not a two-terminal HV-LV series branch.
+
+The numerical equivalent is formed on the grounded-wye winding side:
+
+\[Z_{0,return}=Z_{0,transformer}+3Z_n\]
+
+The stored transformer Z0 is physical ohms referred to the explicitly
+declared grounded winding and excludes neutral return. The corresponding
+neutral impedance is multiplied by three and added exactly once. The total
+is converted to per unit using the grounded Bus line-to-line voltage base
+and the study MVA base, then stamped as a shunt admittance at that Bus in
+the zero-sequence Ybus. No shunt is stamped on the opposite winding Bus.
+
+Test applicability is deliberately narrow: a delta opposite winding
+requires an explicitly DELTA_CLOSED test condition; an ungrounded-wye
+opposite winding requires OPEN_CIRCUIT. A short-circuit test condition is
+not interpreted as this one-sided equivalent. Core construction is retained
+as provenance only; no empirical multiplier is inferred from limb count or
+shell form. Delta circulation remains internal and does not create an
+external zero-sequence path on the delta Bus.
+
+Grounded-wye/grounded-wye transfer remains fail-closed. No transformer
+zero-sequence terminal-current primitive, earth-fault result, or relay
+measurement path is enabled by this phase. A network containing a floating
+or disconnected zero-sequence island remains unsolvable and is rejected by
+the existing matrix singularity checks.
+
+
+## D14G — Component-aware sequence-network solvability
+
+Sequence-network preparation partitions each sequence network by its actual
+sequence-conducting branches. A transformer without a supported zero-sequence
+transfer primitive does not connect its HV and LV Buses in the zero-sequence
+graph. Explicit source impedances and supported grounding shunts anchor
+components; an island without a valid reference/return remains unavailable
+rather than receiving a fictitious ground or pseudo-inverse.
+
+Each grounded, numerically invertible component is independently reduced to
+its own Zbus block. Floating or singular components are retained as explicit
+unavailable Bus-index metadata in the immutable sequence snapshot. They do
+not prevent unrelated grounded components from being prepared. A fault is
+rejected only when its required sequence network is unavailable at the fault
+Bus. LL faults require positive and negative sequence; LG and LLG faults also
+require an available zero-sequence return. Contribution and terminal-current
+records are suppressed for equipment whose required sequence endpoints lie
+in unavailable components, and coverage diagnostics remain partial rather
+than fabricating zero currents.
+
+No Moore-Penrose inverse or arbitrary grounding impedance is introduced.
+A blocked delta-side Bus therefore remains electrically isolated in Z0, while
+a grounded-wye-side shunt can independently establish the grounded-side
+return. This phase does not implement grounded-wye/grounded-wye transformer
+transfer or transformer zero-sequence terminal-current primitives.
+
+
+## D14H — Grounded-wye transformer zero-sequence terminal-current integration
+
+The one-sided grounded-wye return shunt is now carried from sequence-network
+preparation into the immutable short-circuit execution snapshot with explicit
+transformer identity, grounded Bus index, winding side, terminal role,
+per-unit impedance, physical Z0, separate neutral 3Zn, base values, core
+construction and test-data provenance.
+
+For LL studies, transformer terminal currents are composed from positive- and negative-sequence two-port currents. For LG/LLG studies, transformer terminal currents are composed from:
+- the tap-aware positive-sequence two-port current at each physical terminal;
+- the tap-aware negative-sequence two-port current at each physical terminal,
+  using the conjugated complex tap;
+- the zero-sequence grounded-side shunt current, calculated as
+  `I0 = V0 / (Z0,transformer + 3Zn)` on the prepared per-unit base and
+  assigned only to the explicitly grounded-wye terminal.
+
+The opposite winding receives no externally reported zero-sequence terminal
+current. Internal delta circulation is not represented as an external Bus
+terminal current. Terminal records retain the `INTO_EQUIPMENT` reference
+direction and include immutable sequence-model provenance. The existing CT
+terminal adapter consumes the resulting phase/sequence values and now carries
+that terminal derivation provenance into the detached CT sample; CT orientation
+and physical polarity are still applied exactly once.
+
+The solver fails closed when the immutable snapshot lacks the grounded-wye
+shunt identity, when its Bus/terminal mapping does not match the transformer
+branch, or when the required sequence component is unavailable. It does not
+infer a zero-sequence path from a transformer Z0 value alone. Grounded-wye /
+grounded-wye transfer remains unsupported, and no opposite-delta external
+zero-sequence path is created.
+
+Verification boundary: source changes are committed remotely on the feature
+branch. No tests/CI, Python syntax/import checks, persistence round-trip or
+numerical short-circuit runtime execution have been run.
+
+
+## D14I — grounded-wye / grounded-wye three-test T-equivalent foundation
+
+Added an immutable Core input contract for the three zero-sequence driving-point
+measurements required to identify a two-winding grounded-wye T equivalent:
+HV open-circuit Z0, LV open-circuit Z0 explicitly referred to the HV winding,
+and HV short-circuit Z0. All values are physical ohms on one declared test
+MVA basis. The contract records HV/LV test voltage bases, requires a non-empty
+source reference, and rejects data that has not explicitly been referred to
+HV or that includes neutral return impedance. Neutral 3Zn remains a separate
+network contribution and must not be embedded in the measured transformer
+T parameters.
+
+The Analysis layer now derives the T parameters using the three-test
+relations: ZM = sqrt(Z2' * (Z1 - Z3)), ZH = Z1 - ZM, and
+ZX' = Z2' - ZM. The complex square-root branch is selected deterministically;
+individual fitted series-leg resistances are not forced positive because a
+valid fitted equivalent can contain a negative individual leg. The measured
+impedances themselves must be finite, non-zero and non-negative-resistance.
+The implementation verifies that the derived T network reconstructs all three
+measured driving-point impedances within stated numerical tolerances.
+
+**Integration boundary:** the immutable test-data contract is now stored on
+Transformer, exposed in summaries, propagated through Create/UpdateTransformerCommand
+and TransformerModelService, included in transactional update rollback, and
+handled by the generic model-state dataclass persistence path. The Core model
+requires grounded-wye/grounded-wye winding declarations and a Yy vector group;
+Analysis classification requires explicit core construction, test-data basis,
+and the applicable HV test declaration, then validates the derived T model.
+D14I solver integration now builds the reduced two-Bus zero-sequence
+admittance stamp from the three-test T equivalent. HV and LV neutral 3Zn are
+added once to their respective T series legs; LV neutral impedance is referred
+to HV by the square of the explicit test voltage ratio. The builder requires
+both Bus nominal voltage bases to match the declared HV/LV test bases and
+rejects non-unity tap or phase shift until a tap-adjusted zero-sequence test
+model is implemented. The coupled admittance stamp joins the two Bus sequence
+components, is inverted with the rest of the zero-sequence component, and is
+copied into an immutable SequenceNetworkSnapshot. The solver calculates both
+transformer terminal I0 values from the frozen two-port admittance matrix,
+retains test/neutral/base provenance, and emits the normal INTO_EQUIPMENT
+terminal-current records for the downstream CT adapter.
+
+
+### D14I-03 — Three-phase CT measurement-point coherence
+
+For `THREE_PHASE_SUM` residual-current configuration, the Application
+scenario aggregator now requires all three configured A/B/C CT samples to
+refer to the same canonical measured equipment terminal, identified by the
+same equipment ID and terminal role. This check supplements the explicit
+persisted measurement-point ID and the existing project, activation generation,
+topology revision, CT identity, CT polarity, instrument ratio, channel, and
+phase-member checks. A configuration that combines phase currents from
+different equipment terminals is rejected rather than producing a plausible
+but electrically incoherent residual phasor. CT placement and endpoint
+association remain engineer-configured; no protection zone or endpoint is
+inferred by the relay element.
+
+This is source-integrated only. No tests/CI, syntax/import checks, or
+end-to-end runtime execution were performed.
+
+
+### D15A — Explicit neutral-CT and CBCT physical construction contracts
+
+The residual-current configuration now requires a typed physical construction declaration for direct-source modes. NEUTRAL_CT identifies the exact neutral conductor, owning equipment terminal, neutral node and positive current reference. CBCT identifies a physical window and explicitly lists the enclosed A/B/C conductors, with optional N conductor membership and an explicit per-conductor current reference direction. The configuration rejects missing construction, duplicate conductor identities, missing phase conductors, ambiguous neutral inclusion and unsupported current-reference directions.
+
+These declarations are construction metadata, not solver evidence. The short-circuit model still has no neutral-conductor network/current primitive and no CBCT window-current assembly from multiple enclosed conductor records. Accordingly, Application and protection input validation continue to reject both direct modes for execution; a complete-looking configuration cannot manufacture a measurement. The next implementation must add canonical Core conductor topology and immutable solver conductor-current records, then validate the configured CT conductor/window against those records before normalization to primary amperes.
+
+
+### D15B — Immutable physical conductor-current result boundary
+
+Added a typed ShortCircuitConductorCurrent record to the short-circuit result
+contract. Each record identifies one physical conductor at one owning
+equipment terminal and carries conductor ID, equipment/type, terminal role,
+Bus, phase/conductor role, complex current, explicit terminal reference
+direction, topology revision, MVA/voltage bases, per-unit basis and derivation
+provenance. A physical conductor at
+opposite ends of a branch is represented by two terminal-scoped records.
+ShortCircuitResult now exposes an immutable conductor_currents mapping,
+strict composite-key validation, a typed lookup helper, independent coverage
+status and diagnostics.
+
+The solver now reports conductor-current coverage as UNAVAILABLE rather than
+promoting aggregate branch phase currents to physical conductor currents.
+Current SequenceBranchSnapshot records do not carry explicit physical
+conductor inventories or per-conductor electrical parameters. Therefore this
+phase deliberately emits no conductor-current records. Neutral current and
+CBCT aperture-current summation remain unavailable. This is an explicit
+result contract and fail-closed integration point, not a claim that the
+neutral or CBCT solver primitive is complete.
+
+Next work must add persisted physical conductor identities to Core branch
+models and commands, carry those identities into immutable prepared branch
+snapshots, and calculate per-conductor current only where the electrical
+model contains the required conductor impedance/return path. In particular,
+a neutral conductor must not be assigned the negative sum of phase currents
+unless the network model explicitly proves that it is the sole return path.
+
+
+## D15C — Canonical Core physical-conductor inventory
+
+GridForge now has an explicit Core value model for physical conductors carried by
+two-terminal Branch equipment. `PhysicalConductor` provides a stable
+branch-local conductor identity and a distinct physical role: A, B, C, neutral,
+protective earth, screen, pilot, or other. Material, designation, cross-section,
+and rated current are explicit optional construction data; none is inferred
+from a phase label or conductor count.
+
+`BranchConductorSystem` owns the ordered conductor inventory, physical length,
+and a full reciprocal series-impedance matrix in ohms per kilometre. Matrix
+rows and columns are bound to an explicit `matrix_conductor_ids` ordering.
+Diagonal entries represent self impedance and off-diagonal entries represent
+mutual impedance. The real resistance matrix must be positive definite.
+Optional shunt-admittance matrix data is preserved separately; absence is not
+rewritten as a measured zero.
+
+The Branch Core model owns the immutable conductor-system value. Line and Cable
+constructors accept it; Cable additionally requires the declared physical
+inventory count and conductor-system length to agree with Cable configuration.
+Generic ModelDTO slot/dataclass persistence preserves the contracts without a
+parallel persistence schema. Application Line/Cable services and immutable
+create/update command payloads accept the same typed value. Removal is explicit
+through `clear_conductor_system`; omission on update preserves the existing
+inventory. Transaction rollback restores the previous conductor system.
+
+Engineering boundary:
+- Conductor IDs are unique within their owning Branch; project identity is the
+  equipment ID plus conductor ID.
+- Neutral, protective earth, and screen remain separate physical conductors.
+- A conductor spans the owning Branch FROM/TO terminal pair. D15C does not
+  create additional Network nodes or infer terminal-to-earth/neutral return
+  connectivity.
+- Existing Cable `conductor_count` is only a count and never synthesizes
+  identities or electrical parameters.
+- The full impedance matrix is explicit and reciprocal. No uncoupled/zero
+  mutual impedance is invented.
+- This phase does not calculate conductor currents, stamp a multi-conductor
+  network, derive neutral current from phase-current sum, or enable neutral CT
+  and CBCT measurements. Those remain D15E/D15F-D15G work.
+- Legacy Line/Cable models without a conductor system remain loadable, but
+  cannot be promoted to physical conductor-current coverage.
+
+Verification:
+Remote GitHub source edits only. No tests/CI, Python syntax/import checks,
+persistence round-trip, or numerical matrix fixtures were run.
+
+
+## D15D — Physical conductor branch-topology association
+
+The Network layer now resolves each explicit Line/Cable `BranchConductorSystem`
+against the canonical `TopologySnapshot`. It produces immutable
+`PhysicalConductorTopologySnapshot` and
+`PhysicalConductorBranchTopology` records containing project/activation/
+topology provenance, equipment identity/type, canonical FROM/TO terminal
+roles, resolved FROM/TO Bus IDs, in-service state, and the complete immutable
+conductor-system data.
+
+Every physical conductor identity is exposed as a
+`PhysicalConductorBranchAssociation` tied to its owning branch and that
+branch's resolved FROM/TO Bus attachment pair. This association explicitly
+does not claim separate phase/neutral/PE terminal nodes or conductor-to-earth
+bonds. A Line/Cable branch has one canonical FROM and one canonical TO terminal;
+the individual conductor inventory is carried inside that branch boundary.
+
+Fail-closed behavior:
+- The snapshot must match the current Network topology revision and a valid,
+  rebuilt topology.
+- An in-service conductor-equipped branch must have exactly one canonical Bus
+  attachment at FROM and TO.
+- Multiple Bus attachments, same-Bus endpoints, invalid terminal ownership,
+  non-canonical terminal roles, or missing active endpoints are rejected.
+- Out-of-service branches may retain incomplete endpoint associations; they
+  are not promoted to active physical paths.
+- No neutral, PE, screen, or ground bond is synthesized. No SLD symbol or
+  graphics item participates in resolution.
+
+`SequenceNetworkPreparation` attaches the immutable physical-conductor
+topology snapshot to its prepared sequence network. The short-circuit
+`SequenceNetworkSnapshot` preserves and validates that detached topology
+against its Bus identity set. This is provenance/topology integration only:
+the existing sequence-domain matrix builder does not yet consume the
+multi-conductor impedance matrix and no physical conductor currents are
+calculated.
+
+D15E remains responsible for the multi-conductor numerical preparation and
+current solution; explicit neutral/PE grounding and CBCT window semantics
+remain subsequent work.
+
+Verification:
+Remote source edits and static source review only. No tests/CI, Python syntax/
+import checks, topology runtime fixture, persistence round-trip, or numerical
+conductor-current calculation was run.
+
+
+## D15E — Physical conductor impedance preparation and branch-local current solution
+
+D15E adds a separate physical multi-conductor numerical preparation product. It converts explicit Line/Cable series impedance matrices from ohm/km to total ohms and per-unit on the declared three-phase MVA and line-line voltage base. Full mutual coupling is retained by matrix inversion. Explicit shunt-admittance matrices are converted from S/km to total siemens and per-unit; missing shunt data remains unavailable.
+
+The immutable prepared snapshot carries conductor matrix order and roles, branch and Bus identities, project/activation/topology provenance, physical length, study bases and source reference. FROM/TO Bus voltage bases must match for a Line/Cable primitive. Stale inventory, stale topology, missing study base, unsupported voltage-level transition or singular matrix fails closed.
+
+The branch-local current solver accepts complete explicit conductor-voltage vectors at both terminals and solves the full coupled series impedance equation. When shunt data exists it also calculates the two nominal-pi half-shunt terminal contributions. Without explicit shunt data it returns series current only; it does not treat missing shunt as zero.
+
+This phase does not create conductor nodes or infer neutral, earth, PE or screen return paths. Existing sequence-network fault results do not provide all conductor terminal potentials, so no physical conductor-current, neutral-CT or CBCT result is synthesized. Global phase-domain conductor-node network stamping and integration into fault-current execution remain subsequent work. NEUTRAL_CT and CBCT remain fail-closed.
+
+
+## D15F-01 — Authoritative phase-domain conductor graph foundation
+
+The Core Network aggregate now owns explicit phase-domain conductor graph
+contracts. A graph node identifies one physical conductor node or one
+explicit earth-reference node. A connection identifies a declared continuity,
+bond, equipment bond, screen bond, grounding-electrode connection, or
+earth-return impedance. Each connection carries its own complex impedance
+in ohms; an ideal connection is represented only by an explicitly supplied
+zero-ohm value.
+
+The graph is detached and deterministic. Its snapshot carries project,
+activation-generation, and topology-revision provenance. Duplicate identities,
+dangling endpoints, non-finite/negative-resistance impedances, self-links,
+and invalid connection semantics are rejected. Ground-electrode connections
+must terminate at an explicit EARTH_REFERENCE node. Screen bonding requires
+a SHIELD conductor, and equipment bonding requires a PE conductor.
+Earth reachability is a graph property only; it does not imply zero-ohm earth
+or a valid fault-current return without the declared connection impedances.
+
+The authoritative `Network` aggregate now owns the registered node and
+connection records. Mutations invalidate derived topology, and removal of a
+node is rejected while connections still reference it. The graph remains
+headless and independent of SLD graphics.
+
+**Not yet enabled:** branch conductor terminal-to-node binding, global
+phase-domain admittance assembly, source and fault boundary stamping,
+phase-domain short-circuit execution, and solver-produced physical
+conductor-current records. The existing sequence solver is unchanged.
+Neutral CT and CBCT remain unavailable to protection execution until
+physical current records are produced and validated against their explicit
+construction declarations.
+
+
+## D15F-02 — Global phase-domain admittance and short-circuit execution
+
+The phase-domain preparation layer now assembles a global nodal admittance matrix in SI siemens from the prepared full-coupled Line/Cable conductor matrices, explicit shunt matrices, and declared conductor-network connection impedances. Branch series stamps retain mutual coupling across all conductor roles. Explicit shunt matrices are split into nominal-pi terminal halves; missing shunt data remains absent. The preparation path requires explicit branch terminal conductor nodes and will not synthesize phase/neutral/PE/screen nodes or conductor connections.
+
+Earth-reference nodes are fixed at zero potential. Explicit zero-ohm graph connections are contracted; finite connection impedances are stamped as admittances. No grounding impedance is inserted automatically. The phase-domain short-circuit solver accepts explicit Norton source equivalents and fault connections. Bolted fault constraints use an augmented saddle-point system rather than an arbitrary epsilon impedance. Source and fault quantities are phasors in SI volts, ohms and amperes.
+
+ShortCircuitInput now optionally carries a typed phase-domain case. When present, ShortCircuitSolver routes execution through the phase-domain solver; otherwise the existing sequence solver remains unchanged. Results carry phase-domain node voltages, source/fault currents, physical branch conductor currents, and finite-impedance connection currents. The conductor result contract now preserves PE, SHIELD, PILOT and OTHER roles in addition to A/B/C/N. Ideal zero-ohm connection current division is indeterminate and is reported as such rather than assigned an invented current.
+
+The Measurement Generation boundary now converts one explicit physical conductor current to CT secondary amperes using its stored MVA/voltage base, configured CT association, CT polarity and declared conductor-current direction. The protection scenario adapter adds direct Neutral CT sampling against the configured neutral node and CBCT window aggregation over only the explicitly enclosed conductor identities at one configured equipment terminal. CBCT phase and neutral currents are direction-normalized and summed before the direct residual-current resolver consumes the resulting sample.
+
+**Important execution boundary:** phase-domain studies require an explicit source equivalent for every modeled source and explicit fault-connection records. This path does not yet derive source Norton equivalents from all existing GridForge generator/grid/machine models, nor does it synthesize the legacy sequence source/equipment contribution records. The caller must prepare and supply the phase-domain case. Persistence and Application command workflows for editing the new conductor graph are still required before this is an end-user-complete engineering workflow. No tests/CI or numerical fixtures have been run.
+
+
+## D15F-03 — Persisted graph and Protection Study execution route
+
+The Network aggregate validates phase-domain node references against canonical Bus/equipment membership and checks branch-terminal conductor IDs/roles against the owning Line/Cable conductor inventory. The physical graph has strict node/connection dictionary codecs and is now included in canonical Network persistence. Connectivity serialization advances to schema 3. Migration from schemas 1 and 2 preserves existing junction/SimpleWire data and adds empty phase-domain graph arrays; schema-3 canonical project validation requires both arrays.
+
+ShortCircuitStudyConfiguration can carry either a typed phase-domain case or explicit source and fault declarations. In the latter form, ShortCircuitPreparation builds the graph snapshot from the detached Network, prepares the physical Line/Cable impedance matrices, assembles the global admittance matrix, and creates the immutable phase-domain case. ProtectionStudyHandler forwards these declarations through the ordinary Study execution boundary. Direct Neutral CT and CBCT bindings are routed to their dedicated physical-conductor measurement adapters; Application residual-input validation recognizes CBCT's derived RESIDUAL sample while preserving the configured N channel, CT association, polarity, ratio, measurement point and topology checks.
+
+**Remaining production gaps:** source equivalents are still explicit study inputs rather than automatically derived from GridForge Grid/Generator/Motor models. The phase-domain network currently stamps Line/Cable branches and explicit graph connections; dedicated multi-conductor transformer, machine, load, arc-fault and switching primitives are not yet implemented. Application now exposes reversible create/remove commands for phase-domain graph nodes and connections. The commands are registered in the composition root, execute through Application transactions, participate in topology revision tracking, and restore exact typed snapshots on undo/redo. A dedicated UI configuration workflow remains outstanding. The branch is not production-verified; no tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end Protection Study run have been performed.
+
+
+### D15F-04 — Local earth nodes are not ideal global earth
+
+The physical graph distinguishes a local EARTH_NODE from the single global EARTH_REFERENCE datum. Local soil/earth nodes remain unknown-potential nodes in the global admittance matrix. Only the one explicitly declared global reference is fixed at zero potential. A GROUND_ELECTRODE connects a conductor to a local EARTH_NODE; EARTH_RETURN connects local earth nodes to other earth-domain nodes or to the global reference through its declared impedance. Earth reachability requires an explicit graph path to the global reference. This prevents separate electrodes from being silently treated as an equipotential ideal-earth network.
+
+
+### D15F-05 — Transactional Application graph editing and fault-type contracts
+
+The phase-domain conductor graph is editable through Application-owned
+reversible commands. Create/remove commands exist for graph nodes and
+connections, are registered by the Application composition root, execute
+against the active canonical Network inside a Transaction, and register
+inverse operations. These command types advance the project topology revision.
+Core remains authoritative for node/connection identities and electrical
+connection semantics.
+
+The phase-domain fault boundary validates the declared fault type against the
+explicit fault-connection topology. LG requires one phase-to-earth leg with
+an explicit earth-return path; LL requires one distinct phase-to-phase leg;
+LLG requires two distinct phases connected to one common reachable earth
+node; 3PH requires A/B/C legs connected to one explicit non-earth FAULT_NODE.
+Fault-star nodes cannot be reused as source attachment nodes or connected
+into the ordinary conductor graph.
+
+Direct Neutral CT and CBCT configuration validation accepts only a complete,
+mode-matched construction and exact measurement binding. Direct physical
+conductor measurement execution requires a successful phase-domain result
+with COMPLETE conductor-current coverage. Phase-domain Protection Study
+completeness is determined from that physical result coverage rather than
+from intentionally absent sequence-domain contribution records. Ideal
+zero-ohm continuity bonds remain contracted electrical nodes; their
+indeterminate individual current does not downgrade otherwise complete
+branch/finite-connection current coverage.
+
+Ordinary Application Study preparation now forwards phase-domain case,
+source and fault declarations to ShortCircuitPreparation. A caller-supplied
+typed case is accepted only when its graph, physical impedance snapshot and
+assembled admittance exactly match freshly prepared values from the captured
+authoritative Network and topology revision.
+
+The Application command path is available for programmatic configuration.
+A dedicated UI editor, automatic source Norton-equivalent derivation from all
+supported GridForge source models, and multi-conductor transformer/machine/
+load/switching primitives remain outstanding. No tests/CI, syntax/import
+checks, persistence round-trip, numerical fixture, or end-to-end protection
+execution was run.
+
+
+### D15F-06 — Nodal KCL verification and physical result integrity
+
+The phase-domain solver now evaluates the nodal current-balance residual after
+solving the augmented system. The residual includes the exact Lagrange
+multiplier reactions for ideal fault constraints. Non-finite ideal-constraint
+currents or a KCL residual above the scaled numerical tolerance fail the
+calculation rather than producing a successful Protection Study input.
+The maximum absolute KCL residual is retained in the phase-domain solution
+and ShortCircuitResult values/provenance in amperes.
+
+Detached Application study snapshots now restore project_id and
+activation_generation runtime provenance before rebuilding their canonical
+TopologySnapshot. This is required for physical conductor preparation to
+validate its graph and impedance snapshots against the captured project
+activation rather than the detached Network's default runtime identity.
+
+No tests/CI or numerical fixtures were run; the new KCL gate has not yet been
+exercised against reference fault cases.
+
+
+### D15F-07 — Connectivity persistence schema 4
+
+The explicit FAULT_NODE kind is part of the persisted phase-domain conductor
+graph vocabulary. Connectivity serialization is therefore advanced from
+schema 3 to schema 4. Migration preserves and validates the existing schema-3
+SimpleWire, Junction and phase-domain graph collections while updating the
+schema marker. Schema 1 and 2 migrations continue to initialize the
+phase-domain collections as empty. The network deserializer retains
+read-compatibility for schemas 1, 2 and 3 during migration.
+
+
+### D15F-08 — Direct CT construction support boundary
+
+Direct Neutral CT and CBCT construction contracts now require a supported
+Line/Cable FROM or TO terminal. A Neutral CT identifies the neutral conductor
+by conductor_id; the terminal role remains the owning branch terminal role.
+Every CBCT window conductor must belong to the same equipment terminal.
+Equipment-neutral terminals (for example, transformer neutral terminals)
+remain fail-closed until the corresponding multi-conductor equipment
+primitive and terminal-current result contract are implemented. This avoids
+accepting a construction that the current Line/Cable phase-domain solver
+cannot execute.

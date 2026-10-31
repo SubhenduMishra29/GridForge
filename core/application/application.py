@@ -1012,6 +1012,523 @@ class Application:
         )
         return execution.execute(decisions)
 
+
+    def _evaluate_protection_scenario(
+        self,
+        *,
+        scenario_id: str,
+        samples: tuple[Any, ...],
+        evaluation_time: float,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot,
+        protection_runtime: Any | None = None,
+    ) -> ProtectionExecutionResult:
+        """Evaluate one detached study scenario through Application-authorized RelayInput snapshots.
+
+        Scenario values are calculated study quantities, not live sensor
+        telemetry. Their snapshot validity is established from complete
+        solver/result provenance and binding correlation; sensor quality and
+        acquisition timestamps are deliberately not fabricated.
+        """
+        from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementSample
+        from core.protection.residual_current import (
+            normalize_residual_current_source,
+            resolve_residual_current,
+        )
+
+        if not isinstance(scenario_id, str) or not scenario_id.strip():
+            raise ValueError("scenario_id must be a non-empty string.")
+        if not isinstance(samples, (tuple, list)):
+            raise TypeError("samples must be a tuple or list of detached scenario measurement samples.")
+        if any(not isinstance(item, ProtectionScenarioMeasurementSample) for item in samples):
+            raise TypeError("samples must contain only ProtectionScenarioMeasurementSample values.")
+        if len({item.binding_id for item in samples}) != len(samples):
+            raise ValueError("A scenario may contain only one sample per measurement binding.")
+        if isinstance(evaluation_time, bool):
+            raise TypeError("evaluation_time must be a finite non-negative number.")
+        evaluation_time = float(evaluation_time)
+        if not isfinite(evaluation_time) or evaluation_time < 0.0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+        if not isinstance(network_state, TopologySnapshot):
+            raise TypeError("network_state must be the captured TopologySnapshot for this scenario.")
+        if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
+            raise TypeError("evaluation_metadata must be a mapping or None.")
+
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        service = self.measurement_channel_service
+        active_runtime = getattr(self, "protection_runtime", None)
+        runtime = active_runtime if protection_runtime is None else protection_runtime
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if (
+            project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE"
+            or runtime is None or configuration_service is None
+        ):
+            raise RuntimeError("Scenario protection evaluation requires an active project and composed protection runtime.")
+        configuration = configuration_service.configuration
+        if (
+            configuration is None or runtime.configuration is not configuration
+            or runtime.network is not lifecycle.network
+            or runtime.project_id != project.project_id
+            or runtime.activation_generation != lifecycle.activation_generation
+            or not runtime.configuration_matches_composition
+        ):
+            raise RuntimeError("Scenario protection runtime/configuration provenance is stale.")
+        if (
+            service.project_id != project.project_id
+            or service.activation_generation != lifecycle.activation_generation
+            or service.network is not lifecycle.network
+        ):
+            raise RuntimeError("Scenario measurement-channel authority is stale.")
+        if network_state.topology_revision != lifecycle.network.state.topology_revision:
+            raise RuntimeError("Scenario topology snapshot does not match the active network revision.")
+
+        channels = service.channels
+        runtime_channels = runtime.channels
+        if runtime_channels.keys() != channels.keys() or any(
+            runtime_channels[channel_id] is not channel for channel_id, channel in channels.items()
+        ):
+            raise RuntimeError("Protection runtime retains stale MeasurementChannel objects.")
+
+        diagnostics = list(validate_protection_input_contracts(configuration, channels))
+        samples_by_binding = {item.binding_id: item for item in samples}
+        bindings_by_input: dict[tuple[str, str], list[Any]] = {}
+        bindings_by_id = {
+            binding.binding_id: binding
+            for binding in configuration.measurement_bindings
+        }
+        for binding in configuration.measurement_bindings:
+            bindings_by_input.setdefault(
+                (binding.protection_element_id, binding.relay_input_id), []
+            ).append(binding)
+
+        expected_samples: set[str] = set()
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {
+            item.element_id: MappingProxyType({})
+            for item in configuration.elements if item.enabled
+        }
+        for element_configuration in configuration.elements:
+            if not element_configuration.enabled:
+                continue
+            element_snapshots: dict[str, Any] = {}
+            for input_name, channel_id in element_configuration.input_channel_ids.items():
+                key = (element_configuration.element_id, input_name)
+                matching_bindings = bindings_by_input.get(key, ())
+                prefix = (
+                    f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                    f"input={input_name!r}"
+                )
+                if len(matching_bindings) != 1:
+                    diagnostics.append(
+                        f"{prefix}: exactly one canonical ProtectionMeasurementBinding is required; "
+                        f"found {len(matching_bindings)}."
+                    )
+                    continue
+                binding = matching_bindings[0]
+                expected_samples.add(binding.binding_id)
+                sample = samples_by_binding.get(binding.binding_id)
+                if sample is None:
+                    diagnostics.append(f"{prefix}, binding={binding.binding_id!r}: scenario sample is missing.")
+                    continue
+                channel = channels.get(channel_id)
+                if channel is None or runtime_channels.get(channel_id) is not channel:
+                    diagnostics.append(f"{prefix}, channel={channel_id!r}: authoritative runtime channel is unavailable.")
+                    continue
+                if (
+                    sample.scenario_id != scenario_id
+                    or sample.protection_element_id != element_configuration.element_id
+                    or sample.relay_input_id != input_name
+                    or sample.binding_id != binding.binding_id
+                    or sample.channel_id != channel_id
+                    or binding.channel_id != channel_id
+                    or sample.instrument_id != binding.instrument_id
+                    or binding.measurement_type.strip().lower() != "current"
+                    or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
+                    or getattr(channel, "source_id", None) != binding.instrument_id
+                ):
+                    diagnostics.append(f"{prefix}: sample, binding, channel or physical CT identity does not agree.")
+                    continue
+                source_terminal = getattr(channel, "source_terminal", None)
+                if (
+                    source_terminal is None
+                    or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                    or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                ):
+                    diagnostics.append(f"{prefix}: channel does not originate from the configured CT secondary terminal.")
+                    continue
+                try:
+                    active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                except (KeyError, TypeError, ValueError):
+                    diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                    continue
+                if getattr(channel, "source", None) is not active_instrument:
+                    diagnostics.append(f"{prefix}: MeasurementChannel does not reference the active canonical CT object.")
+                    continue
+                try:
+                    active_ratio = float(getattr(active_instrument, "ratio"))
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    active_ratio = float("nan")
+                if (
+                    not isfinite(active_ratio)
+                    or active_ratio <= 0.0
+                    or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: active canonical CT ratio does not match the persisted measurement binding.")
+                    continue
+                active_polarity = getattr(
+                    getattr(active_instrument, "polarity", None),
+                    "value",
+                    getattr(active_instrument, "polarity", None),
+                )
+                expected_ct_direction = {
+                    "P1_P2": "P1_TO_P2",
+                    "P2_P1": "P2_TO_P1",
+                }.get(active_polarity)
+                if expected_ct_direction is None:
+                    diagnostics.append(f"{prefix}: active canonical CT has an unsupported primary polarity.")
+                    continue
+                channel_phase = getattr(getattr(channel, "phase", None), "value", None)
+                if (
+                    sample.phase_or_sequence != binding.phase_or_sequence
+                    or sample.phase_or_sequence != channel_phase
+                    or sample.quantity_key != binding.result_quantity
+                    or sample.unit != getattr(channel, "unit", None)
+                ):
+                    diagnostics.append(
+                        f"{prefix}: phase/sequence, result member or engineering unit does not match the binding/channel."
+                    )
+                    continue
+                provenance = sample.provenance
+                expected_provenance = {
+                    "project_id": project.project_id,
+                    "activation_generation": lifecycle.activation_generation,
+                    "topology_revision": network_state.topology_revision,
+                    "ct_topology_revision": network_state.topology_revision,
+                    "ct_id": binding.instrument_id,
+                    "branch_id": binding.source_equipment_id,
+                    "branch_side": binding.electrical_side.strip().lower(),
+                }
+                if any(provenance.get(name) != value for name, value in expected_provenance.items()):
+                    diagnostics.append(f"{prefix}: scenario sample provenance does not match the captured project/topology/binding.")
+                    continue
+                if provenance.get("ct_positive_current_direction") != expected_ct_direction:
+                    diagnostics.append(f"{prefix}: detached CT polarity provenance does not match the active canonical CT.")
+                    continue
+                try:
+                    ratio = float(provenance.get("instrument_ratio"))
+                except (TypeError, ValueError, OverflowError):
+                    ratio = float("nan")
+                if (
+                    not isfinite(ratio) or ratio <= 0.0
+                    or abs(ratio - binding.instrument_ratio) > max(1e-9, ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: sample CT ratio does not match the persisted measurement binding.")
+                    continue
+                requirement = input_contract_for(configuration, element_configuration, input_name)
+                if requirement is None:
+                    diagnostics.append(f"{prefix}: no supported canonical protection input contract is available.")
+                    continue
+                try:
+                    channel_scale = float(getattr(channel, "scale"))
+                    channel_polarity = float(getattr(channel, "polarity"))
+                    if not isfinite(channel_scale) or not isfinite(channel_polarity):
+                        raise ValueError("channel scale/polarity must be finite.")
+                    engineering_value = sample.value * channel_scale * channel_polarity
+                except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                    diagnostics.append(f"{prefix}: channel engineering scale/polarity is invalid: {exc}")
+                    continue
+                rejected = validate_sample_representation(engineering_value, requirement)
+                if rejected is not None:
+                    diagnostics.append(f"{prefix}: scenario engineering value violates the protection input contract: {rejected}")
+                    continue
+                element_snapshots[input_name] = MappingProxyType({
+                    "channel_id": channel_id,
+                    "channel_identity": id(channel),
+                    "value": engineering_value,
+                    "source_value": sample.value,
+                    "channel_scale": channel_scale,
+                    "channel_polarity": channel_polarity,
+                    "timestamp": None,
+                    # UNKNOWN is intentional: this is a calculated study
+                    # quantity, not a GOOD-quality field measurement.
+                    "quality": MeasurementQuality.UNKNOWN,
+                    "available": True,
+                    "usable": True,
+                    "validity": MeasurementValidity.VALID,
+                    "sample_sequence": None,
+                    "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                    "scenario_id": scenario_id,
+                    "binding_id": binding.binding_id,
+                    "reference_basis_id": sample.reference_basis_id,
+                    "provenance": provenance,
+                })
+            if element_configuration.function_code in {"50N", "51N"}:
+                residual_configuration = element_configuration.residual_current_input
+                if residual_configuration is None:
+                    diagnostics.append(
+                        f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: explicit residual-current configuration is missing."
+                    )
+                else:
+                    expected_sources = (
+                        dict(residual_configuration.phase_binding_ids or {})
+                        if residual_configuration.mode == "THREE_PHASE_SUM"
+                        else {"N": residual_configuration.direct_binding_id}
+                    )
+                    normalized_sources = {}
+                    source_instrument_ids: set[str] = set()
+                    three_phase_terminal_identity: tuple[str, str] | None = None
+                    for phase, binding_id in expected_sources.items():
+                        prefix = (
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                            f"residual_source={phase!r}, binding={binding_id!r}"
+                        )
+                        binding = bindings_by_id.get(binding_id)
+                        expected_samples.add(binding_id)
+                        if binding is None:
+                            diagnostics.append(f"{prefix}: configured residual source binding is absent from the project configuration aggregate.")
+                            continue
+                        sample = samples_by_binding.get(binding_id)
+                        if sample is None:
+                            diagnostics.append(f"{prefix}: detached scenario sample is missing.")
+                            continue
+                        channel = channels.get(binding.channel_id)
+                        if channel is None or runtime_channels.get(binding.channel_id) is not channel:
+                            diagnostics.append(f"{prefix}: authoritative physical MeasurementChannel is unavailable.")
+                            continue
+                        if (
+                            not binding.source_endpoint_reference.is_terminal
+                            or binding.source_endpoint_reference.object_id != binding.source_equipment_id
+                            or binding.protection_element_id != element_configuration.element_id
+                            or binding.relay_input_id != "residual_current"
+                            or sample.protection_element_id != element_configuration.element_id
+                            or sample.relay_input_id != "residual_current"
+                            or sample.binding_id != binding_id
+                            or sample.channel_id != binding.channel_id
+                            or sample.instrument_id != binding.instrument_id
+                            or binding.measurement_type.strip().lower() != "current"
+                            or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
+                            or getattr(channel, "source_id", None) != binding.instrument_id
+                        ):
+                            diagnostics.append(f"{prefix}: residual source, binding, sample, channel or CT identity does not agree.")
+                            continue
+                        sample_phase = sample.phase_or_sequence.strip().upper()
+                        sample_phase_valid = (
+                            sample_phase == phase
+                            or (
+                                residual_configuration.mode == "CBCT"
+                                and sample_phase == "RESIDUAL"
+                            )
+                        )
+                        if (
+                            binding.phase_or_sequence.strip().upper() != phase
+                            or not sample_phase_valid
+                            or getattr(getattr(channel, "phase", None), "value", None) != phase
+                            or sample.quantity_key != binding.result_quantity
+                            or sample.unit != "A"
+                            or getattr(channel, "unit", None) != "A"
+                        ):
+                            diagnostics.append(f"{prefix}: source phase/sequence, result member or ampere unit is inconsistent.")
+                            continue
+                        source_terminal = getattr(channel, "source_terminal", None)
+                        if (
+                            source_terminal is None
+                            or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                            or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                        ):
+                            diagnostics.append(f"{prefix}: channel is not sourced from the configured CT secondary terminal.")
+                            continue
+                        try:
+                            active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                        except (KeyError, TypeError, ValueError):
+                            diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                            continue
+                        if (
+                            getattr(active_instrument, "TYPE", None) != "CT"
+                            or getattr(channel, "source", None) is not active_instrument
+                            or getattr(active_instrument, "in_service", True) is not True
+                        ):
+                            diagnostics.append(f"{prefix}: active source is not an in-service canonical CT referenced by the channel.")
+                            continue
+                        source_instrument_ids.add(binding.instrument_id)
+                        provenance = sample.provenance
+                        if (
+                            provenance.get("terminal_current_reference_direction") != "INTO_EQUIPMENT"
+                            or provenance.get("current_units") != "per_unit"
+                        ):
+                            diagnostics.append(f"{prefix}: source sample lacks the required terminal-current reference direction or per-unit provenance.")
+                            continue
+                        try:
+                            active_ratio = float(active_instrument.ratio)
+                            channel_scale = float(channel.scale)
+                            channel_polarity = float(channel.polarity)
+                        except (AttributeError, TypeError, ValueError, OverflowError):
+                            active_ratio = channel_scale = channel_polarity = float("nan")
+                        if (
+                            not isfinite(active_ratio) or active_ratio <= 0.0
+                            or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                            or not isfinite(channel_scale) or not isfinite(channel_polarity)
+                        ):
+                            diagnostics.append(f"{prefix}: active CT ratio or channel scale/polarity is invalid or stale.")
+                            continue
+                        expected_source_provenance = {
+                            "project_id": project.project_id,
+                            "activation_generation": lifecycle.activation_generation,
+                            "topology_revision": network_state.topology_revision,
+                            "ct_topology_revision": network_state.topology_revision,
+                            "ct_id": binding.instrument_id,
+                            "equipment_id": binding.source_equipment_id,
+                            "equipment_terminal_role": binding.source_endpoint_reference.terminal_role,
+                            "instrument_ratio": binding.instrument_ratio,
+                            "measurement_point_id": residual_configuration.measurement_point_id,
+                        }
+                        if provenance.get("ct_primary_side") not in {"P1_SIDE", "P2_SIDE"}:
+                            diagnostics.append(f"{prefix}: CT association provenance does not identify exactly one primary side.")
+                            continue
+                        if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
+                            diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
+                            continue
+                        if residual_configuration.mode == "THREE_PHASE_SUM":
+                            terminal_identity = (
+                                str(provenance.get("equipment_id")),
+                                str(provenance.get("equipment_terminal_role")),
+                            )
+                            if three_phase_terminal_identity is None:
+                                three_phase_terminal_identity = terminal_identity
+                            elif terminal_identity != three_phase_terminal_identity:
+                                diagnostics.append(
+                                    f"{prefix}: A/B/C residual sources do not monitor the same canonical equipment terminal."
+                                )
+                                continue
+                        if residual_configuration.mode in {"NEUTRAL_CT", "CBCT"}:
+                            expected_direct_phase = "N" if residual_configuration.mode == "NEUTRAL_CT" else "RESIDUAL"
+                            if (
+                                binding.metadata.get("residual_source_mode") != residual_configuration.mode
+                                or provenance.get("residual_source_mode") != residual_configuration.mode
+                                or phase != "N"
+                                or sample_phase != expected_direct_phase
+                            ):
+                                diagnostics.append(f"{prefix}: direct Neutral CT/CBCT sample must declare its configured mode and correct derived phase.")
+                                continue
+                        elif binding.metadata.get("residual_source_mode") is not None:
+                            diagnostics.append(f"{prefix}: three-phase sum source cannot declare a direct neutral/CBCT mode.")
+                            continue
+                        expected_direction = {
+                            "P1_P2": "P1_TO_P2",
+                            "P2_P1": "P2_TO_P1",
+                        }.get(getattr(getattr(active_instrument, "polarity", None), "value", getattr(active_instrument, "polarity", None)))
+                        if expected_direction is None or provenance.get("ct_positive_current_direction") != expected_direction:
+                            diagnostics.append(f"{prefix}: CT physical polarity provenance does not match the active CT.")
+                            continue
+                        normalized_sources[binding_id] = normalize_residual_current_source(
+                            sample,
+                            measurement_point_id=residual_configuration.measurement_point_id,
+                            instrument_ratio=active_ratio,
+                            channel_scale=channel_scale,
+                            channel_polarity=channel_polarity,
+                        )
+                    if residual_configuration.mode == "THREE_PHASE_SUM" and len(source_instrument_ids) != 3:
+                        diagnostics.append(
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: A/B/C residual summation requires three distinct in-service CT instruments."
+                        )
+                    if len(normalized_sources) == len(expected_sources) and (
+                        residual_configuration.mode != "THREE_PHASE_SUM" or len(source_instrument_ids) == 3
+                    ):
+                        try:
+                            residual_sample = resolve_residual_current(
+                                residual_configuration,
+                                normalized_sources,
+                            )
+                            relay_input = runtime.system.get_element(
+                                element_configuration.element_id
+                            ).function.get_input("residual_current")
+                            derived_source = relay_input.channel
+                            element_snapshots["residual_current"] = MappingProxyType({
+                                "channel_id": derived_source.id,
+                                "channel_identity": id(derived_source),
+                                "input_kind": "DERIVED_RESIDUAL_CURRENT",
+                                "value": residual_sample.value,
+                                "source_value": residual_sample.value,
+                                "timestamp": None,
+                                "quality": MeasurementQuality.UNKNOWN,
+                                "available": True,
+                                "usable": True,
+                                "validity": MeasurementValidity.VALID,
+                                "sample_sequence": None,
+                                "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                                "scenario_id": scenario_id,
+                                "binding_id": None,
+                                "source_binding_ids": residual_sample.source_binding_ids,
+                                "source_mode": residual_sample.source_mode,
+                                "measurement_point_id": residual_sample.measurement_point_id,
+                                "reference_basis_id": residual_sample.reference_basis_id,
+                                "provenance": MappingProxyType({
+                                    "project_id": project.project_id,
+                                    "activation_generation": lifecycle.activation_generation,
+                                    "topology_revision": residual_sample.topology_revision,
+                                    "scenario_id": scenario_id,
+                                    "measurement_point_id": residual_sample.measurement_point_id,
+                                    "source_mode": residual_sample.source_mode,
+                                    "source_binding_ids": residual_sample.source_binding_ids,
+                                    "reference_basis_id": residual_sample.reference_basis_id,
+                                    "primary_current_basis": "PRIMARY_AMPS",
+                                }),
+                            })
+                        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                            diagnostics.append(
+                                f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: residual-current composition failed closed: {exc}"
+                            )
+            snapshots_by_element[element_configuration.element_id] = MappingProxyType(element_snapshots)
+
+        unexpected = set(samples_by_binding) - expected_samples
+        if unexpected:
+            diagnostics.append(
+                "Scenario supplied samples for bindings that are not required by enabled protection inputs: "
+                + ", ".join(sorted(unexpected))
+            )
+        if diagnostics:
+            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+
+        context_metadata = dict(evaluation_metadata or {})
+        context_metadata.update({
+            "project_id": project.project_id,
+            "activation_generation": lifecycle.activation_generation,
+            "study_type": "protection",
+            "scenario_id": scenario_id,
+            "scenario_measurement_snapshot_kind": "CALCULATED_FAULT_SCENARIO",
+            "validated_measurement_snapshots_by_element": MappingProxyType(snapshots_by_element),
+            "validated_measurement_snapshot_authority": APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY,
+        })
+        context = ProtectionContext(
+            time=evaluation_time,
+            timestep=evaluation_timestep,
+            event_id=event_id,
+            event_type=event_type,
+            network_state=network_state,
+            supervision=supervision if supervision is not None else {},
+            metadata=context_metadata,
+        )
+        decisions = runtime.system.evaluate(context)
+        current_lifecycle = self.project_lifecycle
+        if (
+            current_lifecycle.state != "ACTIVE"
+            or current_lifecycle.context is not project
+            or current_lifecycle.network is not lifecycle.network
+            or current_lifecycle.activation_generation != lifecycle.activation_generation
+            or getattr(self, "protection_runtime", None) is not active_runtime
+            or (protection_runtime is None and active_runtime is not runtime)
+            or configuration_service.configuration is not configuration
+            or not runtime.configuration_matches_composition
+            or self.measurement_channel_service is not service
+        ):
+            raise StaleProtectionExecutionError(
+                "Project, topology, protection runtime/configuration or measurement authority changed during scenario evaluation."
+            )
+        return ProtectionExecutionResult(decisions=decisions)
+
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
             self._command_manager.register_handler(command_type, handler)
@@ -1327,6 +1844,12 @@ class Application:
         revision_before = self.revision
         active_network = lifecycle.network
         network_snapshot = deserialize_network(serialize_network(active_network))
+        # Project scope and activation generation are runtime provenance, not
+        # persisted Network engineering state. Restore them on the detached
+        # study copy before rebuilding its TopologySnapshot so phase-domain
+        # preparation can verify its provenance against the captured project.
+        network_snapshot.project_id = project_id
+        network_snapshot.activation_generation = activation_generation
         # Canonical persistence omits runtime topology revision counters. A
         # detached study snapshot must retain the exact active Network revision;
         # reconstruction can replay attachment mutations and change its counter.

@@ -529,7 +529,7 @@ class ProjectPersistenceMigration:
 
     @staticmethod
     def _migrate_network_connectivity(project: dict[str, Any]) -> dict[str, Any]:
-        """Normalize legacy Core connectivity schema 1 to canonical schema 2."""
+        """Normalize legacy Core connectivity schemas to the current canonical schema."""
         network = project.get("network")
         if not isinstance(network, Mapping):
             raise ProjectMigrationError("Project network payload must be an object.")
@@ -556,6 +556,30 @@ class ProjectPersistenceMigration:
             migrated = deepcopy(dict(connectivity))
             migrated["schema"] = CONNECTIVITY_SERIALIZATION_VERSION
             migrated["junctions"] = []
+            migrated["phase_domain_nodes"] = []
+            migrated["phase_domain_connections"] = []
+            network_copy = deepcopy(dict(network))
+            network_copy["connectivity"] = migrated
+            project["network"] = network_copy
+            return project
+        if schema == 2:
+            migrated = deepcopy(dict(connectivity))
+            migrated["schema"] = CONNECTIVITY_SERIALIZATION_VERSION
+            migrated["phase_domain_nodes"] = []
+            migrated["phase_domain_connections"] = []
+            network_copy = deepcopy(dict(network))
+            network_copy["connectivity"] = migrated
+            project["network"] = network_copy
+            return project
+        if schema == 3:
+            migrated = deepcopy(dict(connectivity))
+            if not isinstance(migrated.get("junctions", []), list):
+                raise ProjectMigrationError("Connectivity schema 3 junctions must be an array.")
+            if not isinstance(migrated.get("simple_wires", []), list):
+                raise ProjectMigrationError("Connectivity schema 3 simple_wires must be an array.")
+            if not isinstance(migrated.get("phase_domain_nodes"), list) or not isinstance(migrated.get("phase_domain_connections"), list):
+                raise ProjectMigrationError("Connectivity schema 3 phase-domain graph collections must be arrays.")
+            migrated["schema"] = CONNECTIVITY_SERIALIZATION_VERSION
             network_copy = deepcopy(dict(network))
             network_copy["connectivity"] = migrated
             project["network"] = network_copy
@@ -565,6 +589,8 @@ class ProjectPersistenceMigration:
                 raise ProjectMigrationError("Canonical connectivity.junctions must be an array.")
             if not isinstance(connectivity.get("simple_wires", []), list):
                 raise ProjectMigrationError("Canonical connectivity.simple_wires must be an array.")
+            if not isinstance(connectivity.get("phase_domain_nodes"), list) or not isinstance(connectivity.get("phase_domain_connections"), list):
+                raise ProjectMigrationError("Canonical phase-domain conductor graph collections must be arrays.")
             return project
         raise ProjectMigrationError(f"Unsupported connectivity schema {schema!r}.")
 

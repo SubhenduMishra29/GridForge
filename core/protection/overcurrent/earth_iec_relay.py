@@ -34,7 +34,10 @@ class EarthIECOvercurrentRelay(IECOvercurrentRelay):
 
     Residual current is consumed exclusively through the explicit
     ``residual_current`` RelayInput. The inherited IEC 51 timing,
-    pickup, validation, latching, and reset semantics are retained.
+    pickup, validation, latching, and reset semantics are retained. The
+    derived input is signed primary amperes, so pickup is interpreted in
+    primary amperes and the characteristic operates on
+    ``|Ia + Ib + Ic| = |3I0|``.
     """
 
     CURRENT_INPUT = RESIDUAL_CURRENT_INPUT

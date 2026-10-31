@@ -23,6 +23,8 @@ from .topology_endpoint_reference import (
     TopologyEndpointReferenceKind,
 )
 
+from .phase_domain_conductor_network import PhaseDomainConductorNode, PhaseDomainConnection, build_phase_domain_conductor_network, build_phase_domain_conductor_network_from_sld
+
 
 class Network:
     """Authoritative electrical network aggregate."""
@@ -37,6 +39,8 @@ class Network:
         self.state = state or NetworkState()
         self.index = index or BusIndex()
         self.connectivity = connectivity or ConnectivityStore()
+        self._phase_domain_nodes = {}
+        self._phase_domain_connections = {}
         if topology is None:
             self.topology = TopologyManager(self)
         else:
@@ -93,6 +97,13 @@ class Network:
     def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
     @property
     def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+    @property
+    def phase_domain_nodes(self):
+        return tuple(self._phase_domain_nodes[key] for key in sorted(self._phase_domain_nodes))
+
+    @property
+    def phase_domain_connections(self):
+        return tuple(self._phase_domain_connections[key] for key in sorted(self._phase_domain_connections))
 
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
@@ -115,6 +126,49 @@ class Network:
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
         self._junctions.validate()
+        conductor_node_keys: set[tuple[str, str, str]] = set()
+        bus_conductor_keys: set[tuple[str, str]] = set()
+        equipment_terminal_conductor_keys: set[tuple[str, str, str]] = set()
+        for node in self._phase_domain_nodes.values():
+            if node.bus_id is not None:
+                bus = registered.get(node.bus_id)
+                if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'.")
+            if node.kind.value == "BUS_CONDUCTOR":
+                if node.bus_id is None or node.conductor_id is None:
+                    raise ValueError(f"Bus conductor node '{node.node_id}' lacks canonical Bus/conductor identity.")
+                key = (node.bus_id, node.conductor_id)
+                if key in bus_conductor_keys:
+                    raise ValueError(f"Duplicate Bus conductor node identity {key!r}.")
+                bus_conductor_keys.add(key)
+            if node.kind.value == "EQUIPMENT_TERMINAL":
+                key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                if key in equipment_terminal_conductor_keys:
+                    raise ValueError(f"Duplicate equipment terminal conductor node {key!r}.")
+                equipment_terminal_conductor_keys.add(key)
+            if node.equipment_id is not None:
+                owner = registered.get(node.equipment_id)
+                if owner is None:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'.")
+                roles = {str(getattr(item, "role", "")).strip().upper() for item in getattr(owner, "terminals", ())}
+                if node.terminal_role not in roles:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'.")
+                if node.kind.value == "BRANCH_TERMINAL":
+                    system = getattr(owner, "conductor_system", None)
+                    if system is None:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory.")
+                    declared = {item.conductor_id: item.role.value for item in system.conductors}
+                    if declared.get(node.conductor_id) != node.conductor_role:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory.")
+                    key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                    if key in conductor_node_keys:
+                        raise ValueError(f"Duplicate branch terminal conductor node {key!r}.")
+                    conductor_node_keys.add(key)
+        for edge in self._phase_domain_connections.values():
+            if edge.from_node_id not in self._phase_domain_nodes or edge.to_node_id not in self._phase_domain_nodes:
+                raise ValueError("Phase-domain graph contains a dangling connection.")
+        if self.topology_snapshot is not None and (self._phase_domain_nodes or self._phase_domain_connections):
+            self.build_phase_domain_conductor_snapshot()
 
         from core.model.base import ElectricalObject
 
@@ -249,6 +303,106 @@ class Network:
     def remove_disconnector(self, disconnector: Any) -> None: self._remove(self.registry.remove_disconnector, disconnector, affects_topology=True)
     def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
+
+    def build_phase_domain_conductor_snapshot(self):
+        """Freeze explicit conductor graph against current canonical topology."""
+        snapshot = self.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Phase-domain conductor graph requires a current rebuilt topology snapshot.")
+        return build_phase_domain_conductor_network_from_sld(
+            self,
+            snapshot,
+            additional_nodes=self.phase_domain_nodes,
+            additional_connections=self.phase_domain_connections,
+        )
+
+    def add_phase_domain_node(self, node: PhaseDomainConductorNode) -> None:
+        """Register one physical-conductor node after validating its Core ownership.
+
+        Validate the complete candidate graph and all canonical Bus/equipment
+        references before mutating Network state. This keeps invalid graph
+        records from entering the authoritative aggregate through an
+        Application command and makes transaction rollback deterministic.
+        """
+        if not isinstance(node, PhaseDomainConductorNode):
+            raise TypeError("node must be a PhaseDomainConductorNode.")
+        if node.node_id in self._phase_domain_nodes:
+            raise ValueError("Duplicate phase-domain node identity.")
+
+        candidate_nodes = tuple(sorted((*self.phase_domain_nodes, node), key=lambda item: item.node_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION",
+            activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=candidate_nodes,
+            connections=self.phase_domain_connections,
+        )
+
+        registered = {element.id: element for element in self.registry._objects.values()}
+        if node.bus_id is not None:
+            bus = registered.get(node.bus_id)
+            if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'."
+                )
+        if node.equipment_id is not None:
+            owner = registered.get(node.equipment_id)
+            if owner is None:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'."
+                )
+            roles = {
+                str(getattr(item, "role", "")).strip().upper()
+                for item in getattr(owner, "terminals", ())
+            }
+            if node.terminal_role not in roles:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'."
+                )
+            if node.kind.value == "BRANCH_TERMINAL":
+                system = getattr(owner, "conductor_system", None)
+                if system is None:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory."
+                    )
+                declared = {item.conductor_id: item.role.value for item in system.conductors}
+                if declared.get(node.conductor_id) != node.conductor_role:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory."
+                    )
+
+        self._phase_domain_nodes[node.node_id] = node
+        self._invalidate_topology()
+
+    def remove_phase_domain_node(self, node_id: str) -> PhaseDomainConductorNode:
+        if any(node_id in {edge.from_node_id, edge.to_node_id} for edge in self._phase_domain_connections.values()):
+            raise ValueError("Cannot remove a phase-domain node while connections reference it.")
+        node = self._phase_domain_nodes.pop(node_id)
+        self._invalidate_topology()
+        return node
+
+    def add_phase_domain_connection(self, connection: PhaseDomainConnection) -> None:
+        if not isinstance(connection, PhaseDomainConnection):
+            raise TypeError("connection must be a PhaseDomainConnection.")
+        if connection.connection_id in self._phase_domain_connections:
+            raise ValueError("Duplicate phase-domain connection identity.")
+        if connection.from_node_id not in self._phase_domain_nodes or connection.to_node_id not in self._phase_domain_nodes:
+            raise ValueError("Phase-domain connection references an unregistered node.")
+        candidate = tuple(sorted((*self.phase_domain_connections, connection), key=lambda item: item.connection_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION", activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=self.phase_domain_nodes, connections=candidate,
+        )
+        self._phase_domain_connections[connection.connection_id] = connection
+        self._invalidate_topology()
+
+    def remove_phase_domain_connection(self, connection_id: str) -> PhaseDomainConnection:
+        connection = self._phase_domain_connections.pop(connection_id)
+        self._invalidate_topology()
+        return connection
 
     def add_junction(self, junction: Junction) -> None:
         """Add one Junction through the authoritative Network lifecycle."""

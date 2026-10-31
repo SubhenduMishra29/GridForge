@@ -12,6 +12,7 @@ import math
 from typing import Any
 
 from .branch import Branch
+from .conductor import BranchConductorSystem
 
 
 class Line(Branch):
@@ -40,11 +41,16 @@ class Line(Branch):
         resistance_ohm: float = 0.0,
         reactance_ohm: float = 0.0,
         shunt_susceptance_siemens: float = 0.0,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
         name: str | None = None,
         rate_mva: float | None = None,
         in_service: bool = True,
+        conductor_system: BranchConductorSystem | None = None,
     ) -> None:
         """Construct a Line from explicit engineering electrical quantities."""
+        if (zero_sequence_resistance_ohm is None) != (zero_sequence_reactance_ohm is None):
+            raise ValueError("Line zero-sequence resistance and reactance must be supplied together.")
         super().__init__(
             id=id,
             endpoint_from=endpoint_from,
@@ -55,7 +61,10 @@ class Line(Branch):
             name=name,
             rate_mva=rate_mva,
             in_service=in_service,
+            conductor_system=conductor_system,
         )
+        self.zero_sequence_resistance_ohm = zero_sequence_resistance_ohm
+        self.zero_sequence_reactance_ohm = zero_sequence_reactance_ohm
 
     @property
     def resistance_ohm(self) -> float:
@@ -83,6 +92,36 @@ class Line(Branch):
     @shunt_susceptance_siemens.setter
     def shunt_susceptance_siemens(self, value: float) -> None:
         self.b = value
+
+    @property
+    def zero_sequence_resistance_ohm(self) -> float | None:
+        """Explicit zero-sequence series resistance in ohms, or None if unknown."""
+        return getattr(self, "_zero_sequence_resistance_ohm", None)
+
+    @zero_sequence_resistance_ohm.setter
+    def zero_sequence_resistance_ohm(self, value: float | None) -> None:
+        if value is None:
+            self._zero_sequence_resistance_ohm = None
+            return
+        normalized = float(value)
+        if not math.isfinite(normalized) or normalized < 0.0:
+            raise ValueError("Line zero_sequence_resistance_ohm must be finite and non-negative.")
+        self._zero_sequence_resistance_ohm = normalized
+
+    @property
+    def zero_sequence_reactance_ohm(self) -> float | None:
+        """Explicit zero-sequence series reactance in ohms, or None if unknown."""
+        return getattr(self, "_zero_sequence_reactance_ohm", None)
+
+    @zero_sequence_reactance_ohm.setter
+    def zero_sequence_reactance_ohm(self, value: float | None) -> None:
+        if value is None:
+            self._zero_sequence_reactance_ohm = None
+            return
+        normalized = float(value)
+        if not math.isfinite(normalized) or normalized < 0.0:
+            raise ValueError("Line zero_sequence_reactance_ohm must be finite and non-negative.")
+        self._zero_sequence_reactance_ohm = normalized
 
     @property
     def series_impedance(self) -> complex:
@@ -127,6 +166,12 @@ class Line(Branch):
 
         if self.series_impedance == 0.0 + 0.0j:
             raise ValueError("Line series impedance cannot be zero.")
+        zero_r = self.zero_sequence_resistance_ohm
+        zero_x = self.zero_sequence_reactance_ohm
+        if (zero_r is None) != (zero_x is None):
+            raise ValueError("Line zero-sequence resistance and reactance must be supplied together.")
+        if zero_r is not None and complex(zero_r, zero_x) == 0.0 + 0.0j:
+            raise ValueError("Line zero-sequence series impedance cannot be zero.")
 
         return True
 

@@ -120,6 +120,7 @@ from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .conductor import BranchConductorSystem
 
 
 class Branch(ElectricalObject):
@@ -142,6 +143,7 @@ class Branch(ElectricalObject):
         "_b",
         "_rate_mva",
         "_in_service",
+        "_conductor_system",
     )
 
     def __init__(
@@ -156,6 +158,7 @@ class Branch(ElectricalObject):
         name: str | None = None,
         rate_mva: float | None = None,
         in_service: bool = True,
+        conductor_system: BranchConductorSystem | None = None,
     ) -> None:
         """
         Construct a two-terminal Branch.
@@ -248,6 +251,7 @@ class Branch(ElectricalObject):
 
         self._rate_mva = rate_mva
         self._in_service = bool(in_service)
+        self._conductor_system = self._validate_conductor_system(conductor_system)
 
         # --------------------------------------------------------
         # Optional initial endpoint references
@@ -395,6 +399,21 @@ class Branch(ElectricalObject):
         """
         self._from_terminal.detach()
         self._to_terminal.detach()
+
+    @property
+    def conductor_system(self) -> BranchConductorSystem | None:
+        """Explicit physical conductor inventory and coupled branch parameters."""
+        return getattr(self, "_conductor_system", None)
+
+    @conductor_system.setter
+    def conductor_system(self, value: BranchConductorSystem | None) -> None:
+        self._conductor_system = self._validate_conductor_system(value)
+
+    @staticmethod
+    def _validate_conductor_system(value: Any) -> BranchConductorSystem | None:
+        if value is not None and not isinstance(value, BranchConductorSystem):
+            raise TypeError("conductor_system must be BranchConductorSystem or None.")
+        return value
 
     # ============================================================
     # ELECTRICAL PARAMETERS
@@ -605,6 +624,9 @@ class Branch(ElectricalObject):
         self._from_terminal.validate()
         self._to_terminal.validate()
 
+        if self.conductor_system is not None:
+            self._validate_conductor_system(self.conductor_system)
+
         # --------------------------------------------------------
         # Branch rating
         # --------------------------------------------------------
@@ -660,6 +682,7 @@ class Branch(ElectricalObject):
                 "b": self._b,
                 "rate_mva": self._rate_mva,
                 "in_service": self._in_service,
+                "conductor_system": self.conductor_system.summary() if self.conductor_system is not None else None,
             }
         )
 

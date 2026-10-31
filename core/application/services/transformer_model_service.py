@@ -17,7 +17,9 @@ from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.model.terminal import Terminal
-from core.model.transformer import Transformer
+from core.model.transformer import Transformer, TransformerWindingConnection
+from core.model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
+from core.model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
 from core.network.network import Network
 
 
@@ -49,6 +51,20 @@ class TransformerModelService(ModelServiceSupport):
         rate_mva: float | None = None,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
+        core_construction: Any | None = None,
+        zero_sequence_test_basis: str | None = None,
+        vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+        zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -88,6 +104,20 @@ class TransformerModelService(ModelServiceSupport):
             rate_mva=rate_mva,
             impedance_base_mva=impedance_base_mva,
             impedance_base_voltage_kv=impedance_base_voltage_kv,
+            hv_winding_connection=hv_winding_connection,
+            lv_winding_connection=lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
+            lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role=hv_terminal_role,
+            lv_terminal_role=lv_terminal_role,
+            impedance_reference_winding=impedance_reference_winding,
+            zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
+            zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
+            core_construction=core_construction,
+            zero_sequence_test_basis=zero_sequence_test_basis,
+            vector_group_configuration=vector_group_configuration,
+            zero_sequence_test_configuration=zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
@@ -107,6 +137,20 @@ class TransformerModelService(ModelServiceSupport):
         shift: float | None = None,
         rate_mva: float | None = None,
         in_service: bool | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_terminal_role: str | None = None,
+        lv_terminal_role: str | None = None,
+        impedance_reference_winding: str | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
+        core_construction: Any | None = None,
+        zero_sequence_test_basis: str | None = None,
+        vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+        zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -117,6 +161,13 @@ class TransformerModelService(ModelServiceSupport):
         values = (
             name, r, x, b, impedance_basis, impedance_base_mva,
             tap, shift, rate_mva, in_service,
+            hv_winding_connection, lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role, lv_terminal_role, impedance_reference_winding,
+            zero_sequence_resistance_ohm, zero_sequence_reactance_ohm,
+            core_construction, zero_sequence_test_basis,
+            vector_group_configuration, zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data,
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
@@ -134,6 +185,20 @@ class TransformerModelService(ModelServiceSupport):
             "shift": transformer.shift,
             "rate_mva": transformer.rate_mva,
             "in_service": transformer.in_service,
+            "hv_winding_connection": transformer.hv_winding_connection,
+            "lv_winding_connection": transformer.lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": transformer.hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": transformer.lv_neutral_grounding_impedance_ohm,
+            "hv_terminal_role": transformer.hv_terminal_role,
+            "lv_terminal_role": transformer.lv_terminal_role,
+            "impedance_reference_winding": transformer.impedance_reference_winding,
+            "zero_sequence_resistance_ohm": transformer.zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": transformer.zero_sequence_reactance_ohm,
+            "core_construction": transformer.core_construction,
+            "zero_sequence_test_basis": transformer.zero_sequence_test_basis,
+            "vector_group_configuration": transformer.vector_group_configuration,
+            "zero_sequence_test_configuration": transformer.zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": transformer.zero_sequence_two_winding_test_data,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -152,13 +217,30 @@ class TransformerModelService(ModelServiceSupport):
             shift=shift,
             rate_mva=rate_mva,
             in_service=in_service,
+            hv_winding_connection=hv_winding_connection,
+            lv_winding_connection=lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
+            lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
+            hv_terminal_role=hv_terminal_role,
+            lv_terminal_role=lv_terminal_role,
+            impedance_reference_winding=impedance_reference_winding,
+            zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
+            zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
+            core_construction=core_construction,
+            zero_sequence_test_basis=zero_sequence_test_basis,
+            vector_group_configuration=vector_group_configuration,
+            zero_sequence_test_configuration=zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
         )
 
         if service_state_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
-            transformer.update_configuration(**old_state)
+            transformer.update_configuration(
+                **old_state,
+                _replace_winding_configuration=True,
+            )
             if service_state_changed:
                 self._network.invalidate_topology()
 

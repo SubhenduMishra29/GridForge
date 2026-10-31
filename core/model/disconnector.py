@@ -100,6 +100,7 @@ from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .physical_conductor_construction import PhysicalConductorConstruction
 
 
 class Disconnector(ElectricalObject):
@@ -123,6 +124,7 @@ class Disconnector(ElectricalObject):
         "_voltage_kv",
         "_rated_current_a",
         "_operating_time",
+        "_phase_domain_conductor_roles",
     )
 
     # ============================================================
@@ -142,6 +144,7 @@ class Disconnector(ElectricalObject):
         voltage_kv: float | None = None,
         rated_current_a: float | None = None,
         operating_time: float | None = None,
+        phase_domain_conductor_roles: tuple[str, ...] | None = None,
     ) -> None:
         """
         Construct a Disconnector.
@@ -263,6 +266,10 @@ class Disconnector(ElectricalObject):
                 operating_time,
                 "operating_time",
             )
+        )
+
+        self._phase_domain_conductor_roles = self._normalize_phase_domain_conductor_roles(
+            phase_domain_conductor_roles
         )
 
     # ============================================================
@@ -647,6 +654,7 @@ class Disconnector(ElectricalObject):
         summary.update(
             {
                 "type": self.TYPE,
+                "phase_domain_conductor_roles": self._phase_domain_conductor_roles,
                 "closed": self._closed,
                 "in_service": self._in_service,
                 "normally_closed": self._normally_closed,
@@ -664,6 +672,34 @@ class Disconnector(ElectricalObject):
         )
 
         return summary
+
+    @property
+    def phase_domain_conductor_roles(self) -> tuple[str, ...] | None:
+        """Explicit phase/neutral conductor roles physically carried by this device."""
+        return self._phase_domain_conductor_roles
+
+    @staticmethod
+    def _normalize_phase_domain_conductor_roles(value):
+        if value is None:
+            return None
+        if not isinstance(value, (tuple, list)) or not value:
+            raise TypeError("phase_domain_conductor_roles must be a non-empty tuple or list.")
+        normalized = []
+        for raw in value:
+            role = str(getattr(raw, "value", raw)).strip().upper()
+            if role not in {"A", "B", "C", "N"}:
+                raise ValueError("Switching device conductor roles are limited to explicit A, B, C and N poles.")
+            if role in normalized:
+                raise ValueError(f"Duplicate physical conductor role {role!r}.")
+            normalized.append(role)
+        return tuple(normalized)
+
+    @property
+    def physical_conductor_construction(self) -> PhysicalConductorConstruction | None:
+        """Common immutable inventory; operating state remains separately authoritative."""
+        if self._phase_domain_conductor_roles is None:
+            return None
+        return PhysicalConductorConstruction.from_roles(self._phase_domain_conductor_roles)
 
     # ============================================================
     # REPRESENTATION

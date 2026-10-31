@@ -150,7 +150,28 @@ class TopologyManager:
                     raise EndpointCompatibilityError(
                         f"Equipment '{e.id}' terminal '{t.role}' has no canonical equipment type."
                     )
-                key=(e.id,equipment_type.value,t.role,bus.id)
+                # Preserve the exact Bus attachment vertex when the terminal
+                # reaches one through committed SimpleWire/Junction connectivity.
+                # A direct Terminal.endpoint -> Bus attachment has no SLD slot
+                # identity and therefore remains explicitly unavailable here.
+                from .topology_endpoint_reference import TopologyEndpointReference
+                component = ConnectivityResolver(self.network).topology_component(
+                    TopologyEndpointReference.from_terminal(reference)
+                )
+                bus_endpoints = tuple(
+                    endpoint for endpoint in component
+                    if endpoint.is_bus and str(endpoint.bus_reference.object_id) == str(bus.id)
+                )
+                if len(bus_endpoints) > 1:
+                    raise EndpointCompatibilityError(
+                        f"Equipment '{e.id}' terminal '{t.role}' reaches multiple "
+                        f"attachment slots on Bus '{bus.id}'; physical attachment is ambiguous."
+                    )
+                bus_attachment_id = (
+                    bus_endpoints[0].bus_reference.attachment_id
+                    if bus_endpoints else None
+                )
+                key=(e.id,equipment_type.value,t.role,bus.id,bus_attachment_id)
                 if key not in seen:
                     seen.add(key)
                     out.append(EquipmentBusAttachment(*key))
