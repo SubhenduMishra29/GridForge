@@ -55,7 +55,7 @@ class UnsymmetricalFault:
         elements: Iterable[Any] | None = None,
         *,
         required_sequences: tuple[str, ...] = ("positive", "negative", "zero"),
-    ) -> tuple[complex, complex, complex]:
+    ) -> tuple[complex, complex, complex | None]:
         index = self._validate_bus_index(required_sequences)
         values = {
             sequence: self.sequence_snapshot.get_driving_point_impedance(sequence, index)
@@ -64,7 +64,7 @@ class UnsymmetricalFault:
         return (
             values.get("positive", 0.0j),
             values.get("negative", 0.0j),
-            values.get("zero", 0.0j),
+            values.get("zero"),
         )
 
     @staticmethod
