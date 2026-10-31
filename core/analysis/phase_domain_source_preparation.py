@@ -141,10 +141,10 @@ def prepare_phase_domain_source_equivalents(
         if isinstance(equipment, (Grid, Generator)):
             zn = equipment.neutral_grounding_impedance_ohm
             if zn is None:
-                raise ValueError(f"Grounded Generator {equipment_id!r} requires explicit neutral grounding impedance.")
+                raise ValueError(f"Grounded source {equipment_id!r} requires explicit neutral grounding impedance.")
             zn = complex(zn)
             if not math.isfinite(zn.real) or not math.isfinite(zn.imag) or zn.real < 0.0 or zn == 0j:
-                raise ValueError(f"Generator {equipment_id!r} neutral grounding impedance must be finite and non-zero; ideal grounding current is not individually resolvable.")
+                raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must be finite and non-zero; ideal grounding current is not individually resolvable.")
             neutral_matches = [node for node in nodes if node.equipment_id == equipment_id and node.terminal_role == "terminal" and node.conductor_role == "N"]
             if len(neutral_matches) != 1:
                 raise ValueError(f"Grounded source {equipment_id!r} requires exactly one explicit N equipment-terminal graph node.")
