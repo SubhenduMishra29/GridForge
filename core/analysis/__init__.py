@@ -47,6 +47,8 @@ from core.analysis.sequence_network_preparation import SequenceNetworkPreparatio
 from core.analysis.transformer_zero_sequence import (
     TransformerZeroSequencePath,
     TransformerZeroSequenceTopology,
+    TransformerZeroSequenceShunt,
+    build_transformer_zero_sequence_shunt,
     classify_transformer_zero_sequence,
 )
 from core.analysis.contingency import (
@@ -86,6 +88,8 @@ __all__ = [
     "SequenceNetworkPreparation",
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
+    "TransformerZeroSequenceShunt",
+    "build_transformer_zero_sequence_shunt",
     "classify_transformer_zero_sequence",
     "FaultType",
     "ContingencyAnalysis",
