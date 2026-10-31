@@ -19,6 +19,7 @@ from core.model.bus import Bus
 from core.model.terminal import Terminal
 from core.model.transformer import Transformer, TransformerWindingConnection
 from core.model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
+from core.model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
 from core.network.network import Network
 
 
@@ -63,6 +64,7 @@ class TransformerModelService(ModelServiceSupport):
         zero_sequence_test_basis: str | None = None,
         vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
         zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -115,6 +117,7 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_test_basis=zero_sequence_test_basis,
             vector_group_configuration=vector_group_configuration,
             zero_sequence_test_configuration=zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
@@ -147,6 +150,7 @@ class TransformerModelService(ModelServiceSupport):
         zero_sequence_test_basis: str | None = None,
         vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
         zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+        zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -163,6 +167,7 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_resistance_ohm, zero_sequence_reactance_ohm,
             core_construction, zero_sequence_test_basis,
             vector_group_configuration, zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data,
         )
         if all(value is None for value in values):
             raise ValueError("At least one Transformer configuration field must be specified.")
@@ -193,6 +198,7 @@ class TransformerModelService(ModelServiceSupport):
             "zero_sequence_test_basis": transformer.zero_sequence_test_basis,
             "vector_group_configuration": transformer.vector_group_configuration,
             "zero_sequence_test_configuration": transformer.zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": transformer.zero_sequence_two_winding_test_data,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -224,6 +230,7 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_test_basis=zero_sequence_test_basis,
             vector_group_configuration=vector_group_configuration,
             zero_sequence_test_configuration=zero_sequence_test_configuration,
+            zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
         )
 
         if service_state_changed:
