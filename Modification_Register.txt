@@ -16851,3 +16851,57 @@ Verification:
     Remote GitHub source edits only. No tests/CI, syntax/import checks,
     numerical fixtures, persistence round-trip or end-to-end protection
     scenario execution were run.
+
+
+======================================================================
+GF-SC-D15F-03 — PERSISTED GRAPH AND PROTECTION STUDY EXECUTION ROUTE
+======================================================================
+
+Files:
+    core/network/network.py
+    core/network/phase_domain_conductor_network.py
+    core/persistence/network_serializer.py
+    core/persistence/project_package.py
+    core/persistence/migration.py
+    core/persistence/project_persistence.py
+    core/analysis/short_circuit_configuration.py
+    core/analysis/short_circuit_preparation.py
+    core/application/protection_study.py
+    core/application/application.py
+    core/measurement/measurement_generation.py
+    core/measurement/protection_scenario_measurement.py
+
+Changes:
+    - Network validation now checks phase-domain Bus/equipment references,
+      branch conductor inventory identity and duplicate terminal conductor
+      nodes. Network owns graph mutation methods and a provenance-bound
+      immutable graph snapshot.
+    - Added strict node/connection persistence codecs. Connectivity schema
+      advanced to version 3; schemas 1 and 2 migrate to version 3 with empty
+      phase-domain collections. Canonical project validation requires both
+      graph arrays, and NetworkSerializer restores nodes before connections.
+    - ShortCircuitStudyConfiguration accepts either a typed phase-domain
+      case or explicit source/fault declarations. ShortCircuitPreparation
+      builds the current graph snapshot, physical impedance snapshot and
+      global admittance matrix from the detached Network when source/fault
+      declarations are supplied.
+    - ProtectionStudyHandler forwards the phase-domain declarations through
+      ShortCircuitPreparation and ShortCircuitSolver. Direct Neutral CT and
+      CBCT bindings are routed to their dedicated measurement adapters.
+    - Application residual-input validation distinguishes the direct CBCT
+      RESIDUAL sample from the configured N channel while retaining strict
+      binding, CT, polarity, measurement-point and topology provenance checks.
+
+Remaining integration constraints:
+    - Phase-domain source equivalents are explicit study inputs; automatic
+      conversion of GridForge Grid/Generator/Motor source models into coupled
+      conductor-domain source matrices is not implemented.
+    - The phase-domain network primitive currently stamps prepared Line/Cable
+      branches and explicit graph connections. Dedicated multi-conductor
+      transformer, machine, load, arc-fault and switching primitives remain
+      to be integrated before this can represent every network element.
+    - Application commands/undo-redo for editing graph nodes and connections
+      are not yet implemented. Core Network API and project persistence are
+      available, but no UI editing workflow is enabled.
+    - No tests/CI, syntax/import checks, persistence round-trip, numerical
+      fixture or end-to-end Protection Study execution was run.
