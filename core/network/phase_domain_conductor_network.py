@@ -571,7 +571,7 @@ def build_phase_domain_conductor_network_from_sld(
             for terminal_role in ("FROM", "TO"):
                 terminal, attachment = terminal_attachments[terminal_role]
                 terminal_ref = EndpointReference.terminal(
-                    equipment_type=EquipmentType("BREAKER"),
+                    equipment_type=EquipmentType("breaker"),
                     equipment_id=breaker.id,
                     terminal_role=terminal.role,
                 )
