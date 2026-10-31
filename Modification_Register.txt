@@ -17622,3 +17622,41 @@ Status:
     IMPLEMENTED — REMOTE SOURCE VERIFICATION REQUIRED; NOT PRODUCTION-VERIFIED
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-25
+======================================================================
+
+Scope:
+    Canonical SLD topology identity on physical phase-domain conductor nodes.
+
+Finding:
+    The SimpleWire CT association graph and the physical phase-domain
+    conductor graph did not share a typed endpoint identity. Equipment IDs
+    and Bus IDs alone cannot distinguish conductor roles or Bus attachments.
+
+Correction:
+    PhaseDomainConductorNode now optionally carries a canonical
+    TopologyEndpointReference. Bus-conductor references must identify the
+    same Bus; equipment/branch terminal references must identify the exact
+    equipment ID and terminal role. Earth/fault nodes cannot claim SLD
+    endpoint identity. Persistence writes the typed reference and reads
+    legacy node mappings without it. The graph exposes exact endpoint-plus
+    conductor-role lookup and an exactly-one resolver for fail-closed use.
+
+Boundary:
+    This is the shared identity contract only. Existing graph builders do
+    not yet populate references automatically; CT P1/P2-to-physical-path
+    mapping and CBCT aperture membership remain outstanding. A missing
+    reference is unavailable, never inferred from equipment or Bus identity.
+
+Status:
+    IMPLEMENTED — STATIC SOURCE CHECK ONLY; RUNTIME VERIFICATION DEFERRED
+
+Verification:
+    Remote source re-fetch confirms the new field, identity validation,
+    backward-compatible deserialization, exact lookup methods and register
+    entry. No tests, CI, syntax/import checks or numerical/end-to-end
+    verification were run.
+
+======================================================================
