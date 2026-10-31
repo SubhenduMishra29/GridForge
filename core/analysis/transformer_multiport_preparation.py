@@ -37,7 +37,7 @@ def prepare_transformer_phase_domain_multiport(
         )
     if transformer.phase_domain_multiport_tap_ratio is None or transformer.phase_domain_multiport_phase_shift_rad is None:
         raise ValueError(f"Transformer {transformer.id!r} lacks multiport tap/phase-shift provenance.")
-    if transformer._phase_domain_multiport_tap_ratio != transformer.tap or transformer._phase_domain_multiport_phase_shift_rad != transformer.shift:
+    if transformer.phase_domain_multiport_tap_ratio != transformer.tap or transformer.phase_domain_multiport_phase_shift_rad != transformer.shift:
         raise ValueError(f"Transformer {transformer.id!r} multiport matrix is stale after tap or phase-shift change.")
 
     ordered = []
