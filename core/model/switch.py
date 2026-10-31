@@ -127,6 +127,8 @@ class Switch(ElectricalObject):
         "_normally_closed",
         "_rated_voltage_kv",
         "_rated_current_a",
+        "_phase_domain_conductor_roles",
+    )
 
     # ============================================================
     # CONSTRUCTION
