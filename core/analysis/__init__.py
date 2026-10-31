@@ -55,6 +55,7 @@ from core.analysis.phase_domain_network_preparation import (
     PhaseDomainAdmittanceSnapshot,
     assemble_phase_domain_admittance,
 )
+from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
 from core.analysis.transformer_zero_sequence_t_equivalent import (
     TransformerZeroSequenceTEquivalent,
     derive_transformer_zero_sequence_t_equivalent,
@@ -110,6 +111,7 @@ __all__ = [
     "solve_physical_conductor_branch_currents",
     "PhaseDomainAdmittanceSnapshot",
     "assemble_phase_domain_admittance",
+    "prepare_transformer_phase_domain_multiport",
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
     "TransformerZeroSequenceShunt",
