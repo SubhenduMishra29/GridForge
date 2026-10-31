@@ -13,6 +13,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Iterable, Mapping
 
+from .topology_endpoint_reference import TopologyEndpointReference
+
 
 class PhaseDomainNodeKind(str, Enum):
     BUS_CONDUCTOR = "BUS_CONDUCTOR"
@@ -59,6 +61,7 @@ class PhaseDomainConductorNode:
     terminal_role: str | None = None
     bus_id: str | None = None
     source_reference: str | None = None
+    topology_reference: TopologyEndpointReference | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "node_id", _identity(self.node_id, "node_id"))
@@ -94,6 +97,20 @@ class PhaseDomainConductorNode:
                 raise ValueError("Equipment-terminal nodes require equipment_id and terminal_role.")
         if kind is PhaseDomainNodeKind.BUS_CONDUCTOR and self.bus_id is None:
             raise ValueError("Bus-conductor nodes require an explicit bus_id.")
+        if self.topology_reference is not None:
+            if not isinstance(self.topology_reference, TopologyEndpointReference):
+                raise TypeError("topology_reference must be a canonical TopologyEndpointReference.")
+            if kind is PhaseDomainNodeKind.BUS_CONDUCTOR:
+                if not self.topology_reference.is_bus or self.topology_reference.bus_reference.object_id != self.bus_id:
+                    raise ValueError("Bus-conductor topology_reference must identify its canonical Bus.")
+            elif kind in {PhaseDomainNodeKind.BRANCH_TERMINAL, PhaseDomainNodeKind.EQUIPMENT_TERMINAL}:
+                if not self.topology_reference.is_terminal:
+                    raise ValueError("Equipment conductor topology_reference must identify a canonical Terminal.")
+                endpoint = self.topology_reference.terminal_reference
+                if endpoint.equipment_id != self.equipment_id or endpoint.terminal_role != self.terminal_role:
+                    raise ValueError("Topology reference equipment identity/terminal role must match the conductor node.")
+            else:
+                raise ValueError("Earth and fault nodes cannot claim SLD topology endpoint references.")
 
 
     def to_dict(self) -> dict[str, object]:
@@ -106,16 +123,22 @@ class PhaseDomainConductorNode:
             "terminal_role": self.terminal_role,
             "bus_id": self.bus_id,
             "source_reference": self.source_reference,
+            "topology_reference": None if self.topology_reference is None else dict(self.topology_reference.to_mapping()),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> "PhaseDomainConductorNode":
         if not isinstance(data, Mapping):
             raise TypeError("Persisted phase-domain node must be an object.")
-        allowed = {"node_id", "kind", "conductor_role", "conductor_id", "equipment_id", "terminal_role", "bus_id", "source_reference"}
-        if set(data) != allowed:
+        allowed = {"node_id", "kind", "conductor_role", "conductor_id", "equipment_id", "terminal_role", "bus_id", "source_reference", "topology_reference"}
+        legacy_allowed = allowed - {"topology_reference"}
+        if set(data) not in {frozenset(allowed), frozenset(legacy_allowed)}:
             raise ValueError("Persisted phase-domain node fields are incomplete or unsupported.")
-        return cls(**dict(data))
+        values = dict(data)
+        raw_reference = values.get("topology_reference")
+        if raw_reference is not None:
+            values["topology_reference"] = TopologyEndpointReference.from_mapping(raw_reference)
+        return cls(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +310,38 @@ class PhaseDomainConductorNetwork:
             if item.node_id == node_id:
                 return item
         raise KeyError(node_id)
+
+    def nodes_for_topology_reference(
+        self,
+        reference: TopologyEndpointReference,
+        *,
+        conductor_role: str,
+    ) -> tuple[PhaseDomainConductorNode, ...]:
+        """Resolve exact SLD endpoint/conductor matches; never infer missing mappings."""
+        if not isinstance(reference, TopologyEndpointReference):
+            raise TypeError("reference must be a canonical TopologyEndpointReference.")
+        role = _identity(conductor_role, "conductor_role").upper()
+        if role not in {"A", "B", "C", "N", "PE", "SHIELD", "PILOT", "OTHER"}:
+            raise ValueError("Unsupported physical conductor role.")
+        return tuple(
+            node for node in self.nodes
+            if node.topology_reference == reference and node.conductor_role == role
+        )
+
+    def require_unique_topology_node(
+        self,
+        reference: TopologyEndpointReference,
+        *,
+        conductor_role: str,
+    ) -> PhaseDomainConductorNode:
+        """Require exactly one endpoint/role match for measurement association."""
+        matches = self.nodes_for_topology_reference(reference, conductor_role=conductor_role)
+        if len(matches) != 1:
+            raise ValueError(
+                f"Expected exactly one phase-domain node for topology endpoint "
+                f"{reference!s} and conductor role {conductor_role!r}; found {len(matches)}."
+            )
+        return matches[0]
 
     def connections_for_node(self, node_id: str) -> tuple[PhaseDomainConnection, ...]:
         self.node(node_id)
