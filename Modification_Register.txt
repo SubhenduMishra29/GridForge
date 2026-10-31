@@ -18106,3 +18106,62 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-34
+======================================================================
+
+Scope:
+    Integrate Transformer winding terminals into the SLD-derived
+    phase-domain conductor graph and automatically prepare the
+    Transformer multiports for phase-domain short-circuit studies.
+
+Corrections:
+    - Removed the unconditional NotImplementedError for in-service
+      Transformers with explicit physical winding construction.
+    - The graph builder now validates canonical Transformer Terminal
+      ownership, unique terminal roles, exact HV/LV winding terminal
+      mappings and one canonical SLD Bus attachment slot per declared
+      phase/neutral terminal conductor.
+    - Adds separate EQUIPMENT_TERMINAL nodes for HV A/B/C and LV A/B/C,
+      plus only the neutral ports explicitly declared by grounded-wye
+      winding construction.
+    - Connects each winding terminal conductor to its exact Bus
+      attachment and Busbar conductor vertex using explicit zero-ohm
+      topology continuity. It does not connect HV and LV windings
+      galvanically and does not invent neutral/earth paths.
+    - ShortCircuitPreparation now invokes the Transformer multiport
+      producer for every in-service Transformer and places the resulting
+      primitives into PhaseDomainShortCircuitCase automatically.
+    - Caller-supplied phase-domain cases are checked against regenerated
+      authoritative Transformer primitives and graph terminal mappings;
+      stale or substituted multiport data is rejected.
+
+Important boundary:
+    - A complete explicit terminal-domain admittance matrix remains
+      mandatory for every in-service Transformer in this study path.
+    - The matrix must already encode winding incidence, turns ratio,
+      phase displacement, leakage and supported magnetizing/core effects.
+      This change does not synthesize those from scalar r/x/b or vector
+      group labels.
+    - Grounded-wye neutral ports are graph terminals only. A physical
+      neutral-to-earth path still requires explicit grounding/electrode
+      graph connections; no neutral grounding impedance is silently
+      stamped by this integration.
+    - Delta-loop and zero-sequence core return behaviour remain the
+      responsibility of the supplied validated multiport matrix.
+    - Persistence migration and Application configurator support remain
+      outstanding.
+
+Verification:
+    Remote source re-fetch only. No tests/CI, syntax/import checks,
+    serialization round-trip, graph fixture or end-to-end transformer
+    fault study were run. Runtime behaviour remains unverified.
+
+Status:
+    SLD TRANSFORMER TERMINAL GRAPH AND AUTOMATIC STUDY MULTIPORT
+    INTEGRATION IMPLEMENTED — RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
