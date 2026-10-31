@@ -188,6 +188,8 @@ class Transformer(Branch):
             return None
         if value is None:
             raise ValueError(f"{side} grounded-wye winding requires explicit neutral grounding impedance; use 0j for solid grounding.")
+        if isinstance(value, bool):
+            raise TypeError(f"{side} neutral grounding impedance must be a complex value in ohms.")
         try:
             impedance = complex(value)
         except (TypeError, ValueError) as exc:
@@ -440,6 +442,14 @@ class Transformer(Branch):
         )
         self._tap = self._validate_positive(self._tap, "tap")
         self._shift = self._validate_finite(self._shift, "shift")
+        self._hv_winding_connection = self._normalize_winding_connection(self._hv_winding_connection)
+        self._lv_winding_connection = self._normalize_winding_connection(self._lv_winding_connection)
+        self._hv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(
+            self._hv_neutral_grounding_impedance_ohm, self._hv_winding_connection, "HV"
+        )
+        self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(
+            self._lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV"
+        )
         return True
 
     def summary(self) -> dict[str, Any]:
