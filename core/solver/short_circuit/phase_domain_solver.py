@@ -109,7 +109,7 @@ class PhaseDomainShortCircuitCase:
     graph: PhaseDomainConductorNetwork
     admittance: PhaseDomainAdmittanceSnapshot
     impedances: PhysicalConductorImpedanceSnapshot
-    sources: tuple[PhaseDomainSourceEquivalent, ...]
+    sources: tuple[PhaseDomainSourceEquivalent | PhaseDomainMultiConductorSource, ...]
     faults: tuple[PhaseDomainFaultConnection, ...]
     base_mva: float
 
@@ -130,8 +130,8 @@ class PhaseDomainShortCircuitCase:
             raise ValueError("Phase-domain short-circuit case requires explicit source equivalents.")
         if not faults:
             raise ValueError("Phase-domain short-circuit case requires explicit fault connections.")
-        if any(not isinstance(x, PhaseDomainSourceEquivalent) for x in sources):
-            raise TypeError("sources must contain PhaseDomainSourceEquivalent records.")
+        if any(not isinstance(x, (PhaseDomainSourceEquivalent, PhaseDomainMultiConductorSource)) for x in sources):
+            raise TypeError("sources must contain explicit scalar or multi-conductor source equivalents.")
         if any(not isinstance(x, PhaseDomainFaultConnection) for x in faults):
             raise TypeError("faults must contain PhaseDomainFaultConnection records.")
         if len({x.source_id for x in sources}) != len(sources):
@@ -143,8 +143,10 @@ class PhaseDomainShortCircuitCase:
             raise ValueError("base_mva must be finite and positive.")
         known = set(self.graph.node_index)
         for item in sources:
-            if item.node_id not in known or self.graph.node(item.node_id).kind is PhaseDomainNodeKind.EARTH_REFERENCE:
-                raise ValueError(f"Source {item.source_id!r} references an invalid or earth-reference node.")
+            source_nodes = (item.node_id,) if isinstance(item, PhaseDomainSourceEquivalent) else item.node_ids
+            for node_id in source_nodes:
+                if node_id not in known or self.graph.node(node_id).kind is PhaseDomainNodeKind.EARTH_REFERENCE:
+                    raise ValueError(f"Source {item.source_id!r} references an invalid or earth-reference node.")
         for item in faults:
             if item.from_node_id not in known or item.to_node_id not in known:
                 raise ValueError(f"Fault {item.connection_id!r} references an unknown graph node.")
@@ -157,7 +159,7 @@ class PhaseDomainShortCircuitCase:
 class PhaseDomainShortCircuitSolution:
     node_voltages_v: Mapping[str, complex]
     conductor_currents: Mapping[str, ShortCircuitConductorCurrent]
-    source_currents_a: Mapping[str, complex]
+    source_currents_a: Mapping[str, Any]
     fault_currents_a: Mapping[str, complex]
     connection_currents_a: Mapping[str, complex]
     topology_revision: int
@@ -187,12 +189,23 @@ class PhaseDomainShortCircuitSolver:
         constraint_values: list[complex] = []
 
         for source in case.sources:
-            i = snapshot.source_node_to_index[source.node_id]
-            if i is None:
-                raise ValueError(f"Source {source.source_id!r} is connected to the fixed earth reference.")
-            admittance = 1.0 / source.impedance_ohm
-            y[i, i] += admittance
-            rhs[i] += source.internal_voltage_v * admittance
+            if isinstance(source, PhaseDomainSourceEquivalent):
+                i = snapshot.source_node_to_index[source.node_id]
+                if i is None:
+                    raise ValueError(f"Source {source.source_id!r} is connected to the fixed earth reference.")
+                admittance = 1.0 / source.impedance_ohm
+                y[i, i] += admittance
+                rhs[i] += source.internal_voltage_v * admittance
+            else:
+                indices = [snapshot.source_node_to_index[node_id] for node_id in source.node_ids]
+                if any(index is None for index in indices):
+                    raise ValueError(f"Multi-conductor source {source.source_id!r} is connected to a fixed earth node.")
+                source_y = np.linalg.inv(np.asarray(source.impedance_matrix_ohm, dtype=complex))
+                source_rhs = source_y @ np.asarray(source.internal_voltage_v, dtype=complex)
+                for row, global_row in enumerate(indices):
+                    rhs[global_row] += source_rhs[row]
+                    for column, global_column in enumerate(indices):
+                        y[global_row, global_column] += source_y[row, column]
 
         fault_finite_admittances: dict[str, complex] = {}
         for fault in case.faults:
@@ -236,10 +249,15 @@ class PhaseDomainShortCircuitSolver:
             for node_id, mapped in snapshot.source_node_to_index.items()
         }
 
-        source_currents = {
-            source.source_id: (source.internal_voltage_v - voltage_by_node[source.node_id]) / source.impedance_ohm
-            for source in case.sources
-        }
+        source_currents = {}
+        for source in case.sources:
+            if isinstance(source, PhaseDomainSourceEquivalent):
+                source_currents[source.source_id] = (source.internal_voltage_v - voltage_by_node[source.node_id]) / source.impedance_ohm
+            else:
+                source_voltage = np.asarray(source.internal_voltage_v, dtype=complex)
+                solved_voltage = np.asarray([voltage_by_node[node_id] for node_id in source.node_ids], dtype=complex)
+                source_current = np.linalg.solve(np.asarray(source.impedance_matrix_ohm, dtype=complex), source_voltage - solved_voltage)
+                source_currents[source.source_id] = tuple(complex(value) for value in source_current.tolist())
         fault_currents: dict[str, complex] = {}
         for fault in case.faults:
             delta = voltage_by_node[fault.from_node_id] - voltage_by_node[fault.to_node_id]
