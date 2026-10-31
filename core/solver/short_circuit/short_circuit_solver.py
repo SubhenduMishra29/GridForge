@@ -568,6 +568,9 @@ class ShortCircuitSolver:
             "source_contributions": source_contributions,
             "equipment_currents": equipment_currents,
             "branch_currents": branch_currents,
+            "conductor_currents": conductor_currents,
+            "conductor_current_status": conductor_current_status,
+            "conductor_current_diagnostics": conductor_current_diagnostics,
             "contribution_status": contribution_status,
             "contribution_diagnostics": contribution_diagnostics,
         })
