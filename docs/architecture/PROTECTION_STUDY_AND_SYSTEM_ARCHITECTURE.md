@@ -887,8 +887,10 @@ INTO_EQUIPMENT reference direction, result status, terminal-current
 availability, topology revision, CT association, physical CT polarity,
 secondary channel source/terminal, and configured CT ratio. It converts
 terminal per-unit current to primary amperes using the terminal Bus voltage
-base, applies the P1/P2 orientation and CT polarity, then converts to CT
-secondary amperes. The operation creates a detached scenario sample and
+base. Because terminal current is positive into equipment, a measured endpoint
+on the CT P1-side component reverses that sign relative to P1-to-P2, while an
+endpoint on the P2-side component retains it. The configured CT polarity is
+then applied before conversion to CT secondary amperes. The operation creates a detached scenario sample and
 does not mutate live MeasurementChannel state.
 
 A PARTIAL terminal-current set may still supply a sample when the exact
