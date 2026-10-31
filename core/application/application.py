@@ -1297,7 +1297,9 @@ class Application:
                             diagnostics.append(f"{prefix}: authoritative physical MeasurementChannel is unavailable.")
                             continue
                         if (
-                            binding.protection_element_id != element_configuration.element_id
+                            not binding.source_endpoint_reference.is_terminal
+                            or binding.source_endpoint_reference.object_id != binding.source_equipment_id
+                            or binding.protection_element_id != element_configuration.element_id
                             or binding.relay_input_id != "residual_current"
                             or sample.protection_element_id != element_configuration.element_id
                             or sample.relay_input_id != "residual_current"
@@ -1371,6 +1373,7 @@ class Application:
                             "equipment_terminal_role": binding.source_endpoint_reference.terminal_role,
                             "instrument_ratio": binding.instrument_ratio,
                             "measurement_point_id": residual_configuration.measurement_point_id,
+                            "ct_primary_side": provenance.get("ct_primary_side"),
                         }
                         if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
                             diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
