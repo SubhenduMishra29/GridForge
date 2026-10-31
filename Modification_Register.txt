@@ -16800,3 +16800,54 @@ Engineering boundary:
 Verification:
     Remote GitHub source edits only. No tests/CI, syntax/import checks,
     persistence round-trip, or numerical solve were run.
+
+
+======================================================================
+GF-SC-D15F-02 — GLOBAL PHASE-DOMAIN STAMPING AND FAULT SOLVER
+======================================================================
+
+Files:
+    core/analysis/phase_domain_network_preparation.py
+    core/analysis/__init__.py
+    core/solver/short_circuit/phase_domain_solver.py
+    core/solver/short_circuit/input.py
+    core/solver/short_circuit/short_circuit_solver.py
+    core/solver/short_circuit/result.py
+    core/solver/short_circuit/__init__.py
+
+Changes:
+    - Added global nodal admittance assembly for coupled Line/Cable
+      conductor impedance matrices, explicit shunt matrices, and declared
+      connection impedances. Assembly is in SI siemens and does not assume
+      a common per-unit base for grounding/bonding edges.
+    - Explicit earth-reference nodes are fixed at zero potential. Explicit
+      zero-ohm graph connections are contracted; non-zero connections are
+      stamped using their declared complex impedance.
+    - Added explicit phase-domain Norton source equivalents and fault
+      connections. The solver uses an augmented constraint formulation for
+      bolted faults rather than substituting epsilon impedances.
+    - Added optional phase-domain execution to ShortCircuitInput and routed
+      it through ShortCircuitSolver when a typed PhaseDomainShortCircuitCase
+      is supplied. Existing sequence execution remains the default path.
+    - Produces physical conductor current records for Line/Cable A/B/C/N,
+      PE, screen, pilot and other declared conductor roles. It also exposes
+      finite-impedance continuity/bond/grounding connection currents in the
+      result values. Ideal zero-ohm bond current division is explicitly
+      reported indeterminate rather than fabricated.
+    - Added direct physical conductor CT conversion and Neutral CT/CBCT
+      window sample assembly. CBCT sums only explicitly configured conductor
+      IDs at one equipment terminal, with each declared reference direction.
+
+Engineering boundary:
+    Phase-domain cases require explicit graph nodes, branch-terminal to Bus
+    conductor continuity, impedance matrices, Norton source equivalents and
+    fault connections. No source, earth return, conductor or CBCT membership
+    is inferred. Sequence-domain source/equipment contribution records are
+    not synthesized by this path. Protection direct-current conversion is
+    record-specific; overall conductor-current coverage may remain PARTIAL
+    when ideal bond current division is indeterminate.
+
+Verification:
+    Remote GitHub source edits only. No tests/CI, syntax/import checks,
+    numerical fixtures, persistence round-trip or end-to-end protection
+    scenario execution were run.
