@@ -15,6 +15,7 @@ from ..command import Command
 from core.model import EndpointReference
 from ...model.transformer import ImpedanceBasis, TransformerWindingConnection
 from ...model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
+from ...model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
 
 CREATE_BUS = "model.create_bus"
 UPDATE_BUS = "model.update_bus"
@@ -229,6 +230,7 @@ class CreateTransformerCommand(Command):
                  core_construction: str | None = None, zero_sequence_test_basis: str | None = None,
                  vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
                  zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+                 zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
         _endpoint(endpoint_to, "endpoint_to")
@@ -263,6 +265,7 @@ class CreateTransformerCommand(Command):
             "zero_sequence_test_basis": zero_sequence_test_basis,
             "vector_group_configuration": vector_group_configuration,
             "zero_sequence_test_configuration": zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
             "tap": tap,
             "shift": shift,
             "name": name,
@@ -287,9 +290,10 @@ class UpdateTransformerCommand(Command):
                  core_construction: str | None = None, zero_sequence_test_basis: str | None = None,
                  vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
                  zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+                 zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
                  command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration)
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
         if all(value is None for value in values):
             raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
         normalized_basis = None
@@ -314,6 +318,7 @@ class UpdateTransformerCommand(Command):
             "zero_sequence_test_basis": zero_sequence_test_basis,
             "vector_group_configuration": vector_group_configuration,
             "zero_sequence_test_configuration": zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
