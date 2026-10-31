@@ -107,6 +107,7 @@ from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .physical_conductor_construction import PhysicalConductorConstruction
 
 
 class Switch(ElectricalObject):
@@ -650,6 +651,13 @@ class Switch(ElectricalObject):
                 raise ValueError(f"Duplicate physical conductor role {role!r}.")
             normalized.append(role)
         return tuple(normalized)
+
+    @property
+    def physical_conductor_construction(self) -> PhysicalConductorConstruction | None:
+        """Common immutable inventory; operating state remains separately authoritative."""
+        if self._phase_domain_conductor_roles is None:
+            return None
+        return PhysicalConductorConstruction.from_roles(self._phase_domain_conductor_roles)
 
     # ============================================================
     # REPRESENTATION
