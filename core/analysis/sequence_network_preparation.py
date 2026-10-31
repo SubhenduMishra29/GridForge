@@ -173,6 +173,29 @@ class SequenceNetworkPreparation:
         sequence.physical_conductor_topology = build_physical_conductor_topology_snapshot(
             self.network, self.topology_snapshot
         )
+        # D15E: retain the physical multi-conductor primitive separately from scalar sequence networks.
+        from core.analysis.physical_conductor_preparation import (
+            PhysicalConductorImpedanceSnapshot,
+            prepare_physical_conductor_impedance_snapshot,
+        )
+        if not sequence.physical_conductor_topology.branches:
+            sequence.physical_conductor_impedances = PhysicalConductorImpedanceSnapshot(
+                project_id=sequence.physical_conductor_topology.project_id,
+                activation_generation=sequence.physical_conductor_topology.activation_generation,
+                topology_revision=sequence.physical_conductor_topology.topology_revision,
+                branches=(),
+            )
+            sequence.physical_conductor_impedance_diagnostics = ()
+        elif self.base_mva is None:
+            sequence.physical_conductor_impedances = None
+            sequence.physical_conductor_impedance_diagnostics = (
+                "UNAVAILABLE: explicit study base_mva is required for physical-conductor per-unit preparation.",
+            )
+        else:
+            sequence.physical_conductor_impedances = prepare_physical_conductor_impedance_snapshot(
+                self.network, sequence.physical_conductor_topology, base_mva=self.base_mva
+            )
+            sequence.physical_conductor_impedance_diagnostics = ()
         return sequence
 
     @staticmethod
