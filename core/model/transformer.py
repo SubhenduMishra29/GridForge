@@ -74,6 +74,8 @@ class Transformer(Branch):
         "_lv_winding_connection",
         "_hv_neutral_grounding_impedance_ohm",
         "_lv_neutral_grounding_impedance_ohm",
+        "_hv_neutral_terminal_role",
+        "_lv_neutral_terminal_role",
         "_hv_terminal_role", "_lv_terminal_role", "_impedance_reference_winding",
         "_zero_sequence_resistance_ohm", "_zero_sequence_reactance_ohm",
         "_core_construction", "_zero_sequence_test_basis",
@@ -97,6 +99,8 @@ class Transformer(Branch):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
+        hv_neutral_terminal_role: str | None = None,
+        lv_neutral_terminal_role: str | None = None,
         hv_terminal_role: str | None = None,
         lv_terminal_role: str | None = None,
         impedance_reference_winding: str | None = None,
@@ -177,6 +181,12 @@ class Transformer(Branch):
         self._lv_winding_connection = self._normalize_winding_connection(lv_winding_connection)
         self._hv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(hv_neutral_grounding_impedance_ohm, self._hv_winding_connection, "HV")
         self._lv_neutral_grounding_impedance_ohm = self._validate_neutral_grounding(lv_neutral_grounding_impedance_ohm, self._lv_winding_connection, "LV")
+        self._hv_neutral_terminal_role = self._validate_neutral_terminal_role(
+            hv_neutral_terminal_role, self._hv_winding_connection, "HV"
+        )
+        self._lv_neutral_terminal_role = self._validate_neutral_terminal_role(
+            lv_neutral_terminal_role, self._lv_winding_connection, "LV"
+        )
         self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(hv_terminal_role, lv_terminal_role)
         self._impedance_reference_winding = self._normalize_reference_winding(impedance_reference_winding)
         self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(zero_sequence_resistance_ohm, zero_sequence_reactance_ohm)
@@ -258,6 +268,62 @@ class Transformer(Branch):
     @property
     def lv_winding_connection(self) -> TransformerWindingConnection | None:
         return self._lv_winding_connection
+
+    @staticmethod
+    def _validate_neutral_terminal_role(value: str | None, connection, side: str) -> str | None:
+        if connection is TransformerWindingConnection.WYE_GROUNDED:
+            if value is None or not str(value).strip():
+                raise ValueError(
+                    f"{side} grounded-wye winding requires an explicit neutral terminal role; "
+                    "the SLD must represent the neutral connection."
+                )
+            return str(value).strip()
+        if value is not None:
+            raise ValueError(f"{side} neutral terminal role is only valid for WYE_GROUNDED.")
+        return None
+
+    @property
+    def hv_neutral_terminal_role(self) -> str | None:
+        return self._hv_neutral_terminal_role
+
+    @property
+    def lv_neutral_terminal_role(self) -> str | None:
+        return self._lv_neutral_terminal_role
+
+    @property
+    def physical_conductor_construction(self):
+        """Explicit HV/LV winding topology; never a galvanic HV-to-LV path."""
+        from .transformer_physical_conductor_construction import (
+            TransformerPhysicalConductorConstruction,
+            TransformerWindingConductorConstruction,
+        )
+        if (
+            self._hv_winding_connection is None
+            or self._lv_winding_connection is None
+            or self._hv_terminal_role is None
+            or self._lv_terminal_role is None
+        ):
+            return None
+        return TransformerPhysicalConductorConstruction(
+            hv=TransformerWindingConductorConstruction(
+                winding="HV",
+                terminal_role=self._hv_terminal_role,
+                connection=self._hv_winding_connection,
+                phase_roles=("A", "B", "C"),
+                neutral_terminal_role=self._hv_neutral_terminal_role,
+                neutral_grounding_impedance_ohm=self._hv_neutral_grounding_impedance_ohm,
+            ),
+            lv=TransformerWindingConductorConstruction(
+                winding="LV",
+                terminal_role=self._lv_terminal_role,
+                connection=self._lv_winding_connection,
+                phase_roles=("A", "B", "C"),
+                neutral_terminal_role=self._lv_neutral_terminal_role,
+                neutral_grounding_impedance_ohm=self._lv_neutral_grounding_impedance_ohm,
+            ),
+            vector_group=self._vector_group_configuration,
+            core_construction=self._core_construction,
+        )
 
     @property
     def hv_neutral_grounding_impedance_ohm(self) -> complex | None:
