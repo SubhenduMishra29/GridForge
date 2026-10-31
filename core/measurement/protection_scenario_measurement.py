@@ -152,6 +152,7 @@ class ProtectionScenarioMeasurementAdapter:
             "bus_voltage_base_kv": result.provenance.get("bus_voltage_bases_kv", {}).get(terminal.bus_id),
             "instrument_ratio": ratio,
             "ct_positive_current_direction": ct_association.positive_current_direction,
+            "terminal_sequence_provenance": dict(terminal.sequence_provenance),
         }
         # Residual-current mode and measurement point are persisted binding
         # declarations, never inferred from CT location or channel phase.
