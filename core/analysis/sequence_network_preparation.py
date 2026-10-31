@@ -75,15 +75,17 @@ class SequenceNetworkPreparation:
                 topology = classify_transformer_zero_sequence(element)
                 if topology.path is TransformerZeroSequencePath.GROUNDED_WYE_SIDE_RETURN:
                     side = topology.grounded_winding_sides[0]
-                    terminal_role = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
-                    grounded_bus = terminal_bus_by_role.get(str(terminal_role))
+                    terminal_role_value = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
+                    grounded_terminal_role = str(getattr(terminal_role_value, "value", terminal_role_value)).strip().upper()
+                    grounded_bus = terminal_bus_by_role.get(grounded_terminal_role)
                     if grounded_bus is None:
                         raise ValueError(
                             f"Transformer '{element_id}' grounded {side} terminal does not resolve "
                             "to a Bus through the canonical topology snapshot."
                         )
                     equivalent = build_transformer_zero_sequence_shunt(
-                        element, grounded_bus, base_mva=self._require_base()
+                        element, grounded_bus, base_mva=self._require_base(),
+                        grounded_terminal_role=grounded_terminal_role,
                     )
                     if equivalent is None:
                         raise ValueError(f"Transformer '{element_id}' grounded-wye return equivalent was unexpectedly unavailable.")
