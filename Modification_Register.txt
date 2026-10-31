@@ -18339,3 +18339,10 @@ Status:
 
 ======================================================================
 
+
+D15F-37 evidence-binding correction:
+    Delta-loop test evidence now includes delta_loop_sha256. The digest
+    covers ordered loop ids, winding identities, terminal coupling
+    coefficients and loop impedances. Multiport preparation verifies the
+    digest against the active model loop-state tuple, so changing an
+    internal loop parameter invalidates its evidence association.
