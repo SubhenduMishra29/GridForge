@@ -409,6 +409,72 @@ class PhaseDomainShortCircuitSolver:
                         },
                     )
                     conductor_records[record.record_id] = record
+        # Emit signed currents at explicitly modeled equipment terminals as well
+        # as at Line/Cable branch terminals. An equipment-terminal current is
+        # defined only when every incident physical path has a finite, known
+        # impedance; ideal-bond current division is not fabricated.
+        for node in case.graph.nodes:
+            if node.kind is not PhaseDomainNodeKind.EQUIPMENT_TERMINAL:
+                continue
+            if not node.bus_id:
+                connection_diagnostics.append(
+                    f"Equipment terminal {node.equipment_id}:{node.terminal_role}:{node.conductor_id} "
+                    "has no explicit Bus voltage-base reference; terminal current omitted."
+                )
+                continue
+            incident = [
+                edge for edge in case.graph.connections
+                if edge.in_service and node.node_id in {edge.from_node_id, edge.to_node_id}
+            ]
+            if not incident or any(edge.impedance_ohm == 0j for edge in incident):
+                connection_diagnostics.append(
+                    f"Equipment terminal {node.equipment_id}:{node.terminal_role}:{node.conductor_id} "
+                    "has no uniquely resolvable finite-impedance terminal-current cut."
+                )
+                continue
+            base_candidates = {
+                branch.base_voltage_kv for branch in case.impedances.branches
+                if node.bus_id in {branch.from_bus_id, branch.to_bus_id}
+            }
+            if len(base_candidates) != 1:
+                connection_diagnostics.append(
+                    f"Equipment terminal {node.equipment_id}:{node.terminal_role}:{node.conductor_id} "
+                    "has no unique voltage base; terminal current omitted."
+                )
+                continue
+            current_into_terminal_a = 0j
+            for edge in incident:
+                edge_current = connection_currents[edge.connection_id]
+                current_into_terminal_a += (
+                    edge_current if edge.to_node_id == node.node_id else -edge_current
+                )
+            voltage_base_kv = next(iter(base_candidates))
+            current_base_a = case.base_mva * 1e6 / (math.sqrt(3.0) * voltage_base_kv * 1e3)
+            record = ShortCircuitConductorCurrent(
+                conductor_id=node.conductor_id,
+                equipment_id=node.equipment_id,
+                equipment_type="EQUIPMENT_TERMINAL",
+                terminal_role=node.terminal_role,
+                bus_id=node.bus_id,
+                phase_or_sequence=node.conductor_role,
+                current=current_into_terminal_a / current_base_a,
+                topology_revision=case.graph.topology_revision,
+                base_mva=case.base_mva,
+                voltage_base_kv=voltage_base_kv,
+                reference_direction="INTO_EQUIPMENT",
+                current_units="per_unit",
+                provenance={
+                    "domain": "PHASE_DOMAIN_EQUIPMENT_TERMINAL",
+                    "current_a": complex(current_into_terminal_a),
+                    "conductor_role": node.conductor_role,
+                    "physical_node_id": node.node_id,
+                    "incident_connection_ids": tuple(edge.connection_id for edge in incident),
+                    "project_id": case.graph.project_id,
+                    "activation_generation": case.graph.activation_generation,
+                },
+            )
+            conductor_records[record.record_id] = record
+
         for edge in case.graph.connections:
             if not edge.in_service or edge.impedance_ohm == 0j:
                 continue
