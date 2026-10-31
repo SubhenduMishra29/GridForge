@@ -9,7 +9,7 @@ from .bus import Bus
 from .branch import Branch
 from .line import Line
 from .cable import Cable
-from .transformer import ImpedanceBasis, Transformer
+from .transformer import ImpedanceBasis, TransformerWindingConnection, Transformer
 from .switch import Switch
 from .breaker import Breaker
 from .disconnector import Disconnector
@@ -52,7 +52,7 @@ ElectricalObject.register(Relay)
 from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 __all__ = (
-    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "Transformer", "Switch",
+    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "TransformerWindingConnection", "Transformer", "Switch",
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
     "PotentialTransformer", "CVT", "Relay", "EndpointReference", "EndpointReferenceKind", "EquipmentType",
