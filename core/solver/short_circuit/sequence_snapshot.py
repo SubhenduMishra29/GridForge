@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from core.network.physical_conductor_topology import PhysicalConductorTopologySnapshot
+from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
 
 import numpy as np
 
@@ -246,6 +247,7 @@ class SequenceNetworkSnapshot:
     transformer_zero_shunts: tuple[SequenceTransformerZeroShuntSnapshot, ...] = ()
     transformer_zero_two_bus_stamps: tuple[SequenceTransformerZeroTwoBusSnapshot, ...] = ()
     physical_conductor_topology: PhysicalConductorTopologySnapshot | None = None
+    physical_conductor_impedances: PhysicalConductorImpedanceSnapshot | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -298,6 +300,18 @@ class SequenceNetworkSnapshot:
                     for bus_id in (item.from_bus_id, item.to_bus_id):
                         if bus_id is not None and bus_id not in self.bus_ids:
                             raise ValueError("Physical conductor branch references a Bus outside the sequence snapshot.")
+        conductor_impedances = self.physical_conductor_impedances
+        if conductor_impedances is not None:
+            if not isinstance(conductor_impedances, PhysicalConductorImpedanceSnapshot):
+                raise TypeError("physical_conductor_impedances must be a PhysicalConductorImpedanceSnapshot.")
+            if conductor_topology is None:
+                raise ValueError("Physical conductor impedance snapshot requires its topology snapshot.")
+            if (conductor_impedances.project_id, conductor_impedances.activation_generation, conductor_impedances.topology_revision) != (conductor_topology.project_id, conductor_topology.activation_generation, conductor_topology.topology_revision):
+                raise ValueError("Physical conductor impedance and topology provenance do not match.")
+            expected_ids = {item.equipment_id for item in conductor_topology.branches if item.in_service}
+            actual_ids = {item.equipment_id for item in conductor_impedances.branches}
+            if expected_ids != actual_ids:
+                raise ValueError("Physical conductor impedance coverage does not match active conductor-equipped branches.")
         unavailable: dict[str, tuple[int, ...]] = {}
         for sequence in ("positive", "negative", "zero"):
             raw_indices = tuple(self.unavailable_bus_indices.get(sequence, ()))
@@ -353,6 +367,7 @@ class SequenceNetworkSnapshot:
             sources=sources,
             unavailable_bus_indices=dict(getattr(sequence_network, "unavailable_bus_indices", {})),
             physical_conductor_topology=getattr(sequence_network, "physical_conductor_topology", None),
+            physical_conductor_impedances=getattr(sequence_network, "physical_conductor_impedances", None),
             transformer_zero_two_bus_stamps=tuple(
                 SequenceTransformerZeroTwoBusSnapshot(
                     transformer_id=str(item.transformer_id),
