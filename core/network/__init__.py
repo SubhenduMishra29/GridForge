@@ -278,6 +278,7 @@ __all__ = [
     "SimpleWireConnection",
     "TopologyEndpointReference",
     "TopologyEndpointReferenceKind",
+    "PhysicalConductorBranchAssociation",
     "PhysicalConductorBranchTopology",
     "PhysicalConductorTopologySnapshot",
     "build_physical_conductor_topology_snapshot",
@@ -298,6 +299,7 @@ __version__ = "2.0.0"
 from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
 from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot
 from .physical_conductor_topology import (
+    PhysicalConductorBranchAssociation,
     PhysicalConductorBranchTopology,
     PhysicalConductorTopologySnapshot,
     build_physical_conductor_topology_snapshot,
