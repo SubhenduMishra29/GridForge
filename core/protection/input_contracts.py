@@ -192,6 +192,9 @@ def validate_protection_input_contracts(
             diagnostics.append(f"{prefix}: no defensible input contract: {contract.unsupported_reason}.")
             continue
         if code in {"50N", "51N"}:
+            if getattr(element, "input_channel_ids", {}):
+                diagnostics.append(f"{prefix}: ANSI 50N/51N must use only the derived residual_current input; physical input_channel_ids are forbidden.")
+                continue
             residual = getattr(element, "residual_current_input", None)
             if residual is None:
                 diagnostics.append(f"{prefix}: explicit residual_current_input configuration is required.")
