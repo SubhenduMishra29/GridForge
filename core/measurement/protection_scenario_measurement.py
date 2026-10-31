@@ -148,6 +148,7 @@ class ProtectionScenarioMeasurementAdapter:
             "equipment_terminal_role": endpoint.terminal_role,
             "conductor_id": conductor_id,
             "conductor_role": record.phase_or_sequence,
+            "physical_node_id": record.provenance.get("physical_node_id"),
             "conductor_current_reference_direction": record.reference_direction,
             "conductor_current_units": record.current_units,
             "terminal_current_reference_direction": record.reference_direction,
