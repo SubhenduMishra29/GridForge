@@ -452,6 +452,8 @@ class Transformer(Branch):
         impedance_reference_winding: str | None = None,
         zero_sequence_resistance_ohm: float | None = None,
         zero_sequence_reactance_ohm: float | None = None,
+        core_construction: TransformerCoreConstruction | str | None = None,
+        zero_sequence_test_basis: str | None = None,
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
         _replace_winding_configuration: bool = False,
