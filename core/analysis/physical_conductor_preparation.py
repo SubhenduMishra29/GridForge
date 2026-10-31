@@ -252,7 +252,7 @@ def prepare_physical_conductor_impedance_snapshot(
             from_bus_id=item.from_bus_id,
             to_bus_id=item.to_bus_id,
             conductor_ids=tuple(conductor.conductor_id for conductor in system.conductors),
-            conductor_roles=tuple(conductor.role.value for conductor in system.conductors),
+            conductor_roles=tuple(system.conductor(conductor_id).role.value for conductor_id in order),
             matrix_conductor_ids=tuple(order),
             length_km=length,
             base_mva=base_mva,
