@@ -17176,3 +17176,26 @@ Verification:
 
 Status:
     CORRECTED — INTEGRATION BLOCKERS REMAIN
+
+======================================================================
+GF-SC-D15F-12 — PHYSICAL CURRENT PROJECT / ACTIVATION PROVENANCE
+======================================================================
+
+File:
+    core/measurement/measurement_generation.py
+
+Correction:
+    - Physical conductor-current CT conversion now compares the
+      conductor record's project identity and activation generation
+      against the solved ShortCircuitResult provenance.
+    - Rejects records whose embedded topology revision disagrees with
+      their typed topology_revision field.
+    - Prevents a conductor record from another project activation from
+      being reused when equipment/conductor IDs and topology revision
+      happen to collide.
+
+Verification:
+    - Static source edit committed. Tests/CI and runtime checks were not run.
+
+Status:
+    CORRECTED — AUTOMATIC PRIMITIVE / PHYSICAL CUT INTEGRATION REMAINS OPEN
