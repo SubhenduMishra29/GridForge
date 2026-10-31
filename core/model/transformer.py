@@ -76,7 +76,8 @@ class Transformer(Branch):
         "_lv_neutral_grounding_impedance_ohm",
         "_hv_neutral_terminal_role",
         "_lv_neutral_terminal_role",
-        "_hv_terminal_role", "_lv_terminal_role", "_impedance_reference_winding",
+        "_hv_terminal_role", "_lv_terminal_role",
+        "_hv_phase_roles", "_lv_phase_roles", "_impedance_reference_winding",
         "_zero_sequence_resistance_ohm", "_zero_sequence_reactance_ohm",
         "_core_construction", "_zero_sequence_test_basis",
         "_vector_group_configuration", "_zero_sequence_test_configuration",
@@ -101,6 +102,8 @@ class Transformer(Branch):
         lv_neutral_grounding_impedance_ohm: complex | None = None,
         hv_neutral_terminal_role: str | None = None,
         lv_neutral_terminal_role: str | None = None,
+        hv_phase_roles: tuple[str, ...] | None = None,
+        lv_phase_roles: tuple[str, ...] | None = None,
         hv_terminal_role: str | None = None,
         lv_terminal_role: str | None = None,
         impedance_reference_winding: str | None = None,
@@ -187,6 +190,8 @@ class Transformer(Branch):
         self._lv_neutral_terminal_role = self._validate_neutral_terminal_role(
             lv_neutral_terminal_role, self._lv_winding_connection, "LV"
         )
+        self._hv_phase_roles = self._validate_winding_phase_roles(hv_phase_roles, "HV")
+        self._lv_phase_roles = self._validate_winding_phase_roles(lv_phase_roles, "LV")
         self._hv_terminal_role, self._lv_terminal_role = self._validate_terminal_mapping(hv_terminal_role, lv_terminal_role)
         self._impedance_reference_winding = self._normalize_reference_winding(impedance_reference_winding)
         self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = self._validate_zero_sequence_impedance(zero_sequence_resistance_ohm, zero_sequence_reactance_ohm)
@@ -290,6 +295,17 @@ class Transformer(Branch):
     def lv_neutral_terminal_role(self) -> str | None:
         return self._lv_neutral_terminal_role
 
+    @staticmethod
+    def _validate_winding_phase_roles(value: tuple[str, ...] | None, side: str) -> tuple[str, ...] | None:
+        if value is None:
+            return None
+        if isinstance(value, (str, bytes)):
+            raise TypeError(f"{side} phase roles must be an explicit tuple/list, not a string.")
+        roles = tuple(str(role).strip().upper() for role in value)
+        if roles != ("A", "B", "C"):
+            raise ValueError(f"{side} winding phase roles must explicitly be ('A', 'B', 'C') in order.")
+        return roles
+
     @property
     def physical_conductor_construction(self):
         """Explicit HV/LV winding topology; never a galvanic HV-to-LV path."""
@@ -302,6 +318,8 @@ class Transformer(Branch):
             or self._lv_winding_connection is None
             or self._hv_terminal_role is None
             or self._lv_terminal_role is None
+            or self._hv_phase_roles is None
+            or self._lv_phase_roles is None
         ):
             return None
         return TransformerPhysicalConductorConstruction(
@@ -309,7 +327,7 @@ class Transformer(Branch):
                 winding="HV",
                 terminal_role=self._hv_terminal_role,
                 connection=self._hv_winding_connection,
-                phase_roles=("A", "B", "C"),
+                phase_roles=self._hv_phase_roles,
                 neutral_terminal_role=self._hv_neutral_terminal_role,
                 neutral_grounding_impedance_ohm=self._hv_neutral_grounding_impedance_ohm,
             ),
@@ -317,7 +335,7 @@ class Transformer(Branch):
                 winding="LV",
                 terminal_role=self._lv_terminal_role,
                 connection=self._lv_winding_connection,
-                phase_roles=("A", "B", "C"),
+                phase_roles=self._lv_phase_roles,
                 neutral_terminal_role=self._lv_neutral_terminal_role,
                 neutral_grounding_impedance_ohm=self._lv_neutral_grounding_impedance_ohm,
             ),
