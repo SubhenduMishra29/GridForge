@@ -90,6 +90,44 @@ class PhaseDomainMultiConductorSource:
 
 
 @dataclass(frozen=True, slots=True)
+class PhaseDomainGroundedMultiConductorSource:
+    """Three phase source with a distinct physical neutral terminal."""
+    source_id: str
+    phase_node_ids: tuple[str, str, str]
+    neutral_node_id: str
+    internal_phase_voltage_v: tuple[complex, complex, complex]
+    phase_impedance_matrix_ohm: tuple[tuple[complex, ...], ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_id", _name(self.source_id, "source_id"))
+        phases = tuple(_name(x, "source phase node_id") for x in self.phase_node_ids)
+        neutral = _name(self.neutral_node_id, "source neutral node_id")
+        voltages = tuple(_finite_complex(x, "source internal phase voltage") for x in self.internal_phase_voltage_v)
+        matrix = tuple(tuple(_finite_complex(x, "source phase impedance matrix") for x in row) for row in self.phase_impedance_matrix_ohm)
+        if len(phases) != 3 or len(set(phases + (neutral,))) != 4 or len(voltages) != 3:
+            raise ValueError("Grounded source requires unique A/B/C and neutral nodes and three phase voltages.")
+        if len(matrix) != 3 or any(len(row) != 3 for row in matrix):
+            raise ValueError("Grounded source phase impedance matrix must be 3x3.")
+        for i in range(3):
+            for j in range(3):
+                if not math.isclose(matrix[i][j].real, matrix[j][i].real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(matrix[i][j].imag, matrix[j][i].imag, rel_tol=1e-9, abs_tol=1e-12):
+                    raise ValueError("Grounded source phase impedance matrix must be reciprocal.")
+        z = np.asarray(matrix, dtype=complex)
+        eigenvalues = np.linalg.eigvalsh((z.real + z.real.T) * 0.5)
+        if not np.all(np.isfinite(eigenvalues)) or float(np.min(eigenvalues)) <= 1e-12:
+            raise ValueError("Grounded source phase resistance matrix must be positive definite.")
+        if not math.isfinite(float(np.linalg.cond(z))) or float(np.linalg.cond(z)) > 1e12:
+            raise ValueError("Grounded source phase impedance matrix is singular or ill-conditioned.")
+        object.__setattr__(self, "phase_node_ids", phases)
+        object.__setattr__(self, "neutral_node_id", neutral)
+        object.__setattr__(self, "internal_phase_voltage_v", voltages)
+        object.__setattr__(self, "phase_impedance_matrix_ohm", matrix)
+
+    @property
+    def node_ids(self) -> tuple[str, ...]:
+        return self.phase_node_ids + (self.neutral_node_id,)
+
+@dataclass(frozen=True, slots=True)
 class PhaseDomainFaultConnection:
     connection_id: str
     from_node_id: str
@@ -112,7 +150,7 @@ class PhaseDomainShortCircuitCase:
     graph: PhaseDomainConductorNetwork
     admittance: PhaseDomainAdmittanceSnapshot
     impedances: PhysicalConductorImpedanceSnapshot
-    sources: tuple[PhaseDomainSourceEquivalent | PhaseDomainMultiConductorSource, ...]
+    sources: tuple[PhaseDomainSourceEquivalent | PhaseDomainMultiConductorSource | PhaseDomainGroundedMultiConductorSource, ...]
     faults: tuple[PhaseDomainFaultConnection, ...]
     base_mva: float
 
@@ -137,7 +175,7 @@ class PhaseDomainShortCircuitCase:
             raise ValueError("Phase-domain short-circuit case requires explicit source equivalents.")
         if not faults:
             raise ValueError("Phase-domain short-circuit case requires explicit fault connections.")
-        if any(not isinstance(x, (PhaseDomainSourceEquivalent, PhaseDomainMultiConductorSource)) for x in sources):
+        if any(not isinstance(x, (PhaseDomainSourceEquivalent, PhaseDomainMultiConductorSource, PhaseDomainGroundedMultiConductorSource)) for x in sources):
             raise TypeError("sources must contain explicit scalar or multi-conductor source equivalents.")
         if any(not isinstance(x, PhaseDomainFaultConnection) for x in faults):
             raise TypeError("faults must contain PhaseDomainFaultConnection records.")
@@ -242,6 +280,21 @@ class PhaseDomainShortCircuitSolver:
                 admittance = 1.0 / source.impedance_ohm
                 y[i, i] += admittance
                 rhs[i] += source.internal_voltage_v * admittance
+            elif isinstance(source, PhaseDomainGroundedMultiConductorSource):
+                indices = [snapshot.source_node_to_index[node_id] for node_id in source.node_ids]
+                if any(index is None for index in indices) or len(set(indices)) != 4:
+                    raise ValueError(f"Grounded source {source.source_id!r} has fixed-earth or ideally contracted terminals.")
+                incidence = np.zeros((3, 4), dtype=complex)
+                incidence[0, 0], incidence[0, 3] = 1.0, -1.0
+                incidence[1, 1], incidence[1, 3] = 1.0, -1.0
+                incidence[2, 2], incidence[2, 3] = 1.0, -1.0
+                phase_y = np.linalg.inv(np.asarray(source.phase_impedance_matrix_ohm, dtype=complex))
+                source_y = incidence.conjugate().T @ phase_y @ incidence
+                source_rhs = incidence.conjugate().T @ phase_y @ np.asarray(source.internal_phase_voltage_v, dtype=complex)
+                for row, global_row in enumerate(indices):
+                    rhs[global_row] += source_rhs[row]
+                    for column, global_column in enumerate(indices):
+                        y[global_row, global_column] += source_y[row, column]
             else:
                 indices = [snapshot.source_node_to_index[node_id] for node_id in source.node_ids]
                 if any(index is None for index in indices):
@@ -325,6 +378,14 @@ class PhaseDomainShortCircuitSolver:
         for source in case.sources:
             if isinstance(source, PhaseDomainSourceEquivalent):
                 source_currents[source.source_id] = (source.internal_voltage_v - voltage_by_node[source.node_id]) / source.impedance_ohm
+            elif isinstance(source, PhaseDomainGroundedMultiConductorSource):
+                incidence = np.zeros((3, 4), dtype=complex)
+                incidence[0, 0], incidence[0, 3] = 1.0, -1.0
+                incidence[1, 1], incidence[1, 3] = 1.0, -1.0
+                incidence[2, 2], incidence[2, 3] = 1.0, -1.0
+                solved_voltage = np.asarray([voltage_by_node[node_id] for node_id in source.node_ids], dtype=complex)
+                phase_current = np.linalg.solve(np.asarray(source.phase_impedance_matrix_ohm, dtype=complex), np.asarray(source.internal_phase_voltage_v, dtype=complex) - incidence @ solved_voltage)
+                source_currents[source.source_id] = tuple(complex(value) for value in phase_current.tolist()) + (-complex(np.sum(phase_current)),)
             else:
                 source_voltage = np.asarray(source.internal_voltage_v, dtype=complex)
                 solved_voltage = np.asarray([voltage_by_node[node_id] for node_id in source.node_ids], dtype=complex)
