@@ -17292,3 +17292,31 @@ Verification:
 
 Status:
     CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
+
+
+======================================================================
+GF-SC-D15F-16 — AMBIGUOUS SOURCE TERMINAL ROLE REJECTION
+======================================================================
+
+File:
+    core/analysis/short_circuit_preparation.py
+
+Correction:
+    - The canonical source equipment must expose a non-empty terminal
+      collection whose Terminal.owner is the exact registered equipment.
+    - Each phase-domain source node must resolve to exactly one Terminal
+      with its declared terminal_role.
+    - Duplicate or ambiguous terminal-role matches are rejected instead
+      of being collapsed into a set and accepted.
+
+Boundary:
+    - This is a source-terminal identity hardening change. It does not
+      derive Grid/Generator/Motor source impedances or internal voltages,
+      and does not establish physical conductor cut mapping.
+
+Verification:
+    - Remote source edit committed. No tests/CI, syntax/import checks,
+      numerical fixtures, or end-to-end study execution were run.
+
+Status:
+    CORRECTED — AUTOMATIC SOURCE PRIMITIVE DERIVATION REMAINS OPEN
