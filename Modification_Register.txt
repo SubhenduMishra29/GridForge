@@ -16140,3 +16140,40 @@ Verification:
     round-trip remain unverified.
 
 ======================================================================
+
+GF-SC-D14C-01 — TRANSFORMER CORE CONSTRUCTION AND Z0 DATA PROVENANCE
+
+Files:
+    core/model/transformer.py
+    core/model/__init__.py
+    core/application/commands/model_commands.py
+    core/application/services/transformer_model_service.py
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    Modification_Register.txt
+
+Implementation:
+    - Added TransformerCoreConstruction: THREE_LIMB, FIVE_LIMB,
+      SHELL_FORM. No core type is inferred.
+    - Added explicit zero_sequence_test_basis values:
+      MEASURED_ZERO_SEQUENCE_TEST or MANUFACTURER_ZERO_SEQUENCE_DATA.
+    - Transformer Z0 declaration now requires terminal mapping, impedance
+      reference winding, explicit core construction and Z0 data provenance.
+    - Propagated both fields through create/update command payloads,
+      Application service creation/update, transactional old-state restore,
+      Core validation, persistence state and Transformer summary.
+    - No empirical Z0 multiplier is inferred from core construction. A
+      declared core type is metadata, not a zero-sequence network primitive.
+
+Fail-closed boundary:
+    Transformer zero-sequence Ybus stamping remains unavailable for all
+    three core constructions. Winding connection transfer/blocking, neutral
+    3Zn stamps, delta circulation, core-return equivalent, vector-group
+    behavior, and terminal-current provenance remain outstanding. Z0 data
+    provenance does not by itself prove the test configuration is applicable
+    to every winding pair.
+
+Verification:
+    Remote source edits only. No tests/CI or Python syntax/import checks
+    were run. Command dispatch and persistence round-trip remain unverified.
+
+======================================================================
