@@ -1150,6 +1150,37 @@ class Application:
                 ):
                     diagnostics.append(f"{prefix}: channel does not originate from the configured CT secondary terminal.")
                     continue
+                try:
+                    active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                except (KeyError, TypeError, ValueError):
+                    diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                    continue
+                if getattr(channel, "source", None) is not active_instrument:
+                    diagnostics.append(f"{prefix}: MeasurementChannel does not reference the active canonical CT object.")
+                    continue
+                try:
+                    active_ratio = float(getattr(active_instrument, "ratio"))
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    active_ratio = float("nan")
+                if (
+                    not isfinite(active_ratio)
+                    or active_ratio <= 0.0
+                    or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: active canonical CT ratio does not match the persisted measurement binding.")
+                    continue
+                active_polarity = getattr(
+                    getattr(active_instrument, "polarity", None),
+                    "value",
+                    getattr(active_instrument, "polarity", None),
+                )
+                expected_ct_direction = {
+                    "P1_P2": "P1_TO_P2",
+                    "P2_P1": "P2_TO_P1",
+                }.get(active_polarity)
+                if expected_ct_direction is None:
+                    diagnostics.append(f"{prefix}: active canonical CT has an unsupported primary polarity.")
+                    continue
                 channel_phase = getattr(getattr(channel, "phase", None), "value", None)
                 if (
                     sample.phase_or_sequence != binding.phase_or_sequence
@@ -1173,6 +1204,9 @@ class Application:
                 }
                 if any(provenance.get(name) != value for name, value in expected_provenance.items()):
                     diagnostics.append(f"{prefix}: scenario sample provenance does not match the captured project/topology/binding.")
+                    continue
+                if provenance.get("ct_positive_current_direction") != expected_ct_direction:
+                    diagnostics.append(f"{prefix}: detached CT polarity provenance does not match the active canonical CT.")
                     continue
                 try:
                     ratio = float(provenance.get("instrument_ratio"))
