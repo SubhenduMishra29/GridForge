@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -74,6 +74,9 @@ class PhaseDomainMultiConductorSource:
                 if not math.isclose(matrix[i][j].real, matrix[j][i].real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(matrix[i][j].imag, matrix[j][i].imag, rel_tol=1e-9, abs_tol=1e-12):
                     raise ValueError("Multi-conductor source impedance matrix must be reciprocal.")
         z = np.asarray(matrix, dtype=complex)
+        resistance_eigenvalues = np.linalg.eigvalsh((z.real + z.real.T) * 0.5)
+        if not np.all(np.isfinite(resistance_eigenvalues)) or float(np.min(resistance_eigenvalues)) <= 1.0e-12:
+            raise ValueError("Multi-conductor source resistance matrix must be positive definite.")
         try:
             condition = float(np.linalg.cond(z))
             if not math.isfinite(condition) or condition > 1.0e12:
