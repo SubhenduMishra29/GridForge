@@ -17,7 +17,7 @@ from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.model.terminal import Terminal
-from core.model.transformer import Transformer
+from core.model.transformer import Transformer, TransformerWindingConnection
 from core.network.network import Network
 
 
@@ -49,6 +49,10 @@ class TransformerModelService(ModelServiceSupport):
         rate_mva: float | None = None,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
+        hv_winding_connection: TransformerWindingConnection | str | None = None,
+        lv_winding_connection: TransformerWindingConnection | str | None = None,
+        hv_neutral_grounding_impedance_ohm: complex | None = None,
+        lv_neutral_grounding_impedance_ohm: complex | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -88,6 +92,10 @@ class TransformerModelService(ModelServiceSupport):
             rate_mva=rate_mva,
             impedance_base_mva=impedance_base_mva,
             impedance_base_voltage_kv=impedance_base_voltage_kv,
+            hv_winding_connection=hv_winding_connection,
+            lv_winding_connection=lv_winding_connection,
+            hv_neutral_grounding_impedance_ohm=hv_neutral_grounding_impedance_ohm,
+            lv_neutral_grounding_impedance_ohm=lv_neutral_grounding_impedance_ohm,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
