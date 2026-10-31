@@ -277,11 +277,13 @@ class Transformer(Branch):
     @staticmethod
     def _validate_neutral_terminal_role(value: str | None, connection, side: str) -> str | None:
         if connection is TransformerWindingConnection.WYE_GROUNDED:
-            if value is None or not str(value).strip():
-                raise ValueError(
-                    f"{side} grounded-wye winding requires an explicit neutral terminal role; "
-                    "the SLD must represent the neutral connection."
-                )
+            if value is None:
+                # Preserve legacy transformer construction. The physical
+                # winding contract remains unavailable until the SLD/Core
+                # terminal model exposes this neutral port explicitly.
+                return None
+            if not str(value).strip():
+                raise ValueError(f"{side} neutral terminal role cannot be blank.")
             return str(value).strip()
         if value is not None:
             raise ValueError(f"{side} neutral terminal role is only valid for WYE_GROUNDED.")
@@ -320,6 +322,14 @@ class Transformer(Branch):
             or self._lv_terminal_role is None
             or self._hv_phase_roles is None
             or self._lv_phase_roles is None
+            or (
+                self._hv_winding_connection is TransformerWindingConnection.WYE_GROUNDED
+                and self._hv_neutral_terminal_role is None
+            )
+            or (
+                self._lv_winding_connection is TransformerWindingConnection.WYE_GROUNDED
+                and self._lv_neutral_terminal_role is None
+            )
         ):
             return None
         return TransformerPhysicalConductorConstruction(
