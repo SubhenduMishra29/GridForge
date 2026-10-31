@@ -23,7 +23,7 @@ from .topology_endpoint_reference import (
     TopologyEndpointReferenceKind,
 )
 
-from .phase_domain_conductor_network import PhaseDomainConductorNode, PhaseDomainConnection, build_phase_domain_conductor_network
+from .phase_domain_conductor_network import PhaseDomainConductorNode, PhaseDomainConnection, build_phase_domain_conductor_network, build_phase_domain_conductor_network_from_sld
 
 
 class Network:
@@ -309,12 +309,11 @@ class Network:
         snapshot = self.topology_snapshot
         if snapshot is None:
             raise ValueError("Phase-domain conductor graph requires a current rebuilt topology snapshot.")
-        return build_phase_domain_conductor_network(
-            project_id=snapshot.project_id,
-            activation_generation=snapshot.activation_generation,
-            topology_revision=snapshot.topology_revision,
-            nodes=self.phase_domain_nodes,
-            connections=self.phase_domain_connections,
+        return build_phase_domain_conductor_network_from_sld(
+            self,
+            snapshot,
+            additional_nodes=self.phase_domain_nodes,
+            additional_connections=self.phase_domain_connections,
         )
 
     def add_phase_domain_node(self, node: PhaseDomainConductorNode) -> None:
