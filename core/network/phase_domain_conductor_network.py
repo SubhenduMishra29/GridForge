@@ -18,6 +18,7 @@ class PhaseDomainNodeKind(str, Enum):
     BUS_CONDUCTOR = "BUS_CONDUCTOR"
     BRANCH_TERMINAL = "BRANCH_TERMINAL"
     EQUIPMENT_TERMINAL = "EQUIPMENT_TERMINAL"
+    EARTH_NODE = "EARTH_NODE"
     EARTH_REFERENCE = "EARTH_REFERENCE"
 
 
@@ -69,14 +70,14 @@ class PhaseDomainConductorNode:
         allowed = {"A", "B", "C", "N", "PE", "SHIELD", "PILOT", "OTHER", "EARTH"}
         if role not in allowed:
             raise ValueError(f"Unsupported physical conductor role {role!r}.")
-        if kind is PhaseDomainNodeKind.EARTH_REFERENCE:
+        if kind in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
             if role != "EARTH" or self.conductor_id is not None:
-                raise ValueError("Earth-reference nodes must use role EARTH and no conductor_id.")
+                raise ValueError("Earth-domain nodes must use role EARTH and no conductor_id.")
             if self.equipment_id is not None or self.terminal_role is not None or self.bus_id is not None:
-                raise ValueError("Earth-reference nodes cannot claim equipment terminals or Bus attachments.")
+                raise ValueError("Earth-domain nodes cannot claim equipment terminals or Bus attachments.")
         else:
             if role == "EARTH":
-                raise ValueError("EARTH role is reserved for explicit earth-reference nodes.")
+                raise ValueError("EARTH role is reserved for explicit earth-domain nodes.")
             object.__setattr__(self, "conductor_id", _identity(self.conductor_id, "conductor_id"))
         for name in ("equipment_id", "terminal_role", "bus_id", "source_reference"):
             value = getattr(self, name)
@@ -188,6 +189,8 @@ class PhaseDomainConductorNetwork:
         if any(not isinstance(x, PhaseDomainConnection) for x in connections):
             raise TypeError("connections must contain PhaseDomainConnection records.")
         node_ids = [x.node_id for x in nodes]
+        if sum(x.kind is PhaseDomainNodeKind.EARTH_REFERENCE for x in nodes) > 1:
+            raise ValueError("A phase-domain graph may declare only one global EARTH_REFERENCE node.")
         connection_ids = [x.connection_id for x in connections]
         if len(node_ids) != len(set(node_ids)):
             raise ValueError("Phase-domain graph contains duplicate node identities.")
@@ -201,8 +204,12 @@ class PhaseDomainConductorNetwork:
                 continue
             left, right = by_id[edge.from_node_id], by_id[edge.to_node_id]
             if edge.kind is PhaseDomainConnectionKind.GROUND_ELECTRODE:
-                if PhaseDomainNodeKind.EARTH_REFERENCE not in {left.kind, right.kind}:
-                    raise ValueError("GROUND_ELECTRODE must explicitly connect to an EARTH_REFERENCE node.")
+                if PhaseDomainNodeKind.EARTH_NODE not in {left.kind, right.kind}:
+                    raise ValueError("GROUND_ELECTRODE must connect a conductor to an explicit local EARTH_NODE.")
+            if edge.kind is PhaseDomainConnectionKind.EARTH_RETURN:
+                earth_kinds = {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}
+                if left.kind not in earth_kinds or right.kind not in earth_kinds or PhaseDomainNodeKind.EARTH_NODE not in {left.kind, right.kind}:
+                    raise ValueError("EARTH_RETURN must connect an explicit local EARTH_NODE to another earth-domain node.")
             if edge.kind is PhaseDomainConnectionKind.SCREEN_BOND:
                 if "SHIELD" not in {left.conductor_role, right.conductor_role}:
                     raise ValueError("SCREEN_BOND must include an explicitly identified SHIELD conductor.")
