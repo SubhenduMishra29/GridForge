@@ -79,6 +79,14 @@ class ShortCircuitInput:
             if not isinstance(self.phase_domain_case, PhaseDomainShortCircuitCase):
                 raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
             case = self.phase_domain_case
+            fault_bus_ids = {
+                node.bus_id
+                for fault in case.faults
+                for node in (case.graph.node(fault.from_node_id), case.graph.node(fault.to_node_id))
+                if node.kind.value != "EARTH_REFERENCE" and node.bus_id is not None
+            }
+            if fault_bus_ids != {str(self.fault_bus_id)}:
+                raise ValueError("Every phase-domain fault connection must be located at the ShortCircuitInput fault Bus.")
             if (case.graph.project_id, case.graph.activation_generation, case.graph.topology_revision) != (
                 self.project_id, self.activation_generation, self.topology_revision
             ):
