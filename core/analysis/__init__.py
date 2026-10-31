@@ -108,6 +108,8 @@ __all__ = [
     "PhysicalConductorBranchCurrentSolution",
     "prepare_physical_conductor_impedance_snapshot",
     "solve_physical_conductor_branch_currents",
+    "PhaseDomainAdmittanceSnapshot",
+    "assemble_phase_domain_admittance",
     "TransformerZeroSequencePath",
     "TransformerZeroSequenceTopology",
     "TransformerZeroSequenceShunt",
