@@ -18284,3 +18284,58 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-SC-D15F-37
+======================================================================
+
+Scope:
+    Solve and report explicit internal transformer delta circulating-loop
+    currents rather than exposing only a reduced terminal equivalent.
+
+Corrections:
+    - Added TransformerDeltaLoopState with explicit HV/LV winding,
+      unique loop identity, terminal coupling coefficient vector and
+      non-zero passive loop impedance.
+    - Transformer model accepts typed internal loop states only alongside
+      its complete terminal-domain admittance matrix.
+    - Transformer multiport preparation requires at least one explicit
+      loop state for every delta-connected winding, rejects loop states
+      on non-delta windings, and binds each coupling vector to the exact
+      ordered terminal inventory.
+    - PhaseDomainTransformerMultiport now carries internal loop labels,
+      reciprocal coupling coefficients and a passive loop impedance
+      matrix.
+    - Solver stamps the internal loops as modified-nodal-analysis current
+      unknowns coupled to the terminal voltage equations. The resulting
+      loop currents are solved simultaneously with network voltages,
+      sources, faults and transformer terminal currents.
+    - PhaseDomainShortCircuitSolution exposes immutable
+      transformer_delta_loop_currents_a by transformer and loop label.
+    - Terminal current reporting includes the solved internal-loop
+      coupling contribution, preserving terminal/loop reciprocity.
+
+Engineering boundary:
+    - Coupling coefficients and loop impedances must come from explicit
+      manufacturer/test-derived internal-loop data. No delta branch
+      impedance, winding turns ratio, or loop coupling is inferred.
+    - The MNA loop state is a reduced internal-current coordinate; it is
+      not yet an individually placeable SLD conductor or a thermal
+      conductor segment with geometry and skin/proximity effects.
+    - A delta winding without explicit loop state fails closed.
+    - Core zero-sequence response remains encoded in the evidence-bound
+      terminal matrix; core limb flux/current states are not yet exposed.
+
+Verification:
+    Remote source re-fetch and static source assertions only. No tests/CI,
+    syntax/import checks, MNA numerical fixture, current-balance fixture,
+    or end-to-end transformer fault study was run. Runtime behaviour
+    remains unverified.
+
+Status:
+    EXPLICIT DELTA-LOOP MNA STATES AND CURRENT REPORTING IMPLEMENTED —
+    NUMERICAL/RUNTIME VERIFICATION DEFERRED
+
+======================================================================
+
