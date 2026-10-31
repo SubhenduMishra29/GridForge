@@ -17697,11 +17697,13 @@ Boundary:
     any consumer requiring an SLD attachment vertex.
 
 Verification:
-    Remote source edits committed. No tests/CI, syntax/import checks,
-    numerical fixtures, or end-to-end study execution were run.
+    Remote re-fetch confirms the optional canonical attachment field,
+    range validation, topology-component lookup in the snapshot producer,
+    ambiguity rejection, and this register entry. No tests/CI, syntax/import
+    checks, numerical fixtures, or end-to-end study execution were run.
 
 Status:
-    IMPLEMENTED — REMOTE SOURCE RE-FETCH REQUIRED; NOT PRODUCTION-VERIFIED
+    IMPLEMENTED — REMOTE SOURCE CHECKED; RUNTIME VERIFICATION DEFERRED
 
 ======================================================================
 
