@@ -153,7 +153,7 @@ class PhaseDomainShortCircuitCase:
         for item in sources:
             source_nodes = (item.node_id,) if isinstance(item, PhaseDomainSourceEquivalent) else item.node_ids
             for node_id in source_nodes:
-                if node_id not in known or self.graph.node(node_id).kind is PhaseDomainNodeKind.EARTH_REFERENCE:
+                if node_id not in known or self.graph.node(node_id).kind in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
                     raise ValueError(f"Source {item.source_id!r} references an invalid or earth-reference node.")
         for item in faults:
             if item.from_node_id not in known or item.to_node_id not in known:
@@ -378,7 +378,7 @@ class PhaseDomainShortCircuitSolver:
                 ("TO", edge.to_node_id, -current_a),
             ):
                 node = case.graph.node(node_id)
-                if node.kind is PhaseDomainNodeKind.EARTH_REFERENCE:
+                if node.kind in {PhaseDomainNodeKind.EARTH_NODE, PhaseDomainNodeKind.EARTH_REFERENCE}:
                     continue
                 if node.conductor_id is None or node.bus_id is None:
                     connection_diagnostics.append(
