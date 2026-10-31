@@ -987,3 +987,9 @@ The Line Core model now accepts optional `zero_sequence_resistance_ohm` and `zer
 ### D13 — Transformer negative-sequence primitive
 
 For the existing passive, static two-winding Transformer model, the negative-sequence series impedance is prepared from the same physical series impedance as positive sequence. The negative-sequence complex tap uses the conjugate phase displacement, reversing the phase-shift angle while retaining the tap ratio. This does not infer transformer zero-sequence behavior: winding connections, vector group, neutral grounding and zero-sequence transfer remain unsupported, and earth-fault preparation through a transformer must still fail closed.
+
+### D14A — Transformer winding and neutral-grounding input contract
+
+The Transformer model now records explicit HV/LV winding connections (`DELTA`, `WYE_GROUNDED`, `WYE_UNGROUNDED`) and explicit complex neutral grounding impedance in ohms for grounded-wye windings. A solidly grounded neutral must be declared as `0j`; absent values are never interpreted as solid grounding. The create command and Application TransformerModelService carry these inputs.
+
+This phase establishes engineering configuration only. It does **not** yet stamp a transformer zero-sequence equivalent. Delta circulating paths, grounded-wye transfer/blocking, winding-pair coupling, vector-group clock mapping and the `3Zn` neutral contribution remain unimplemented. Sequence preparation therefore fails closed with a transformer-specific diagnostic when zero sequence is requested.
