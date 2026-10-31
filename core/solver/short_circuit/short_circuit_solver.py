@@ -16,6 +16,7 @@ from .result import (
     ShortCircuitEquipmentCurrent,
     ShortCircuitResult,
     ShortCircuitSourceContribution,
+    ShortCircuitTerminalCurrent,
 )
 from .sequence_snapshot import SequenceBranchSnapshot, SequenceSourceSnapshot
 from .symmetrical_fault import SymmetricalFault
@@ -215,6 +216,54 @@ class ShortCircuitSolver:
             )
         return sources, equipment, branches
 
+    def _calculate_terminal_currents(
+        self,
+        typed: dict[str, Any],
+    ) -> tuple[dict[str, ShortCircuitTerminalCurrent], ContributionStatus, tuple[str, ...]]:
+        """Calculate terminal currents for supported series-only primitives."""
+        snapshot = self.input.sequence_snapshot
+        if snapshot is None or not snapshot.branches:
+            return {}, ContributionStatus.UNAVAILABLE, ("No prepared branch terminal primitives are available.",)
+        voltages = self._bus_voltages(typed)
+        if voltages is None:
+            return {}, ContributionStatus.UNAVAILABLE, ("Solved sequence Bus voltages are unavailable for terminal-current calculation.",)
+        records: dict[str, ShortCircuitTerminalCurrent] = {}
+        diagnostics: list[str] = []
+        for branch in snapshot.branches:
+            if branch.equipment_type not in {"Line", "Cable"}:
+                diagnostics.append(
+                    f"Terminal currents unavailable for {branch.equipment_type} '{branch.branch_id}': no supported terminal primitive."
+                )
+                continue
+            sequence_currents = self._branch_current_sequences(branch, voltages)
+            if sequence_currents is None:
+                diagnostics.append(f"Terminal currents unavailable for {branch.branch_id}: required sequence impedance is missing.")
+                continue
+            phase_currents = self._phase_from_sequence(sequence_currents)
+            for role, bus_id, sign in (
+                (branch.from_terminal_role, branch.from_bus_id, 1.0),
+                (branch.to_terminal_role, branch.to_bus_id, -1.0),
+            ):
+                key = f"{branch.branch_id}:{role}"
+                if key in records:
+                    raise ValueError(f"Duplicate equipment terminal current identity '{key}'.")
+                signed_sequence = {name: sign * complex(value) for name, value in sequence_currents.items()}
+                signed_phase = {name: sign * complex(value) for name, value in phase_currents.items()}
+                records[key] = ShortCircuitTerminalCurrent(
+                    equipment_id=branch.branch_id,
+                    equipment_type=branch.equipment_type,
+                    terminal_role=role,
+                    bus_id=bus_id,
+                    current=signed_phase["Ia"],
+                    sequence_currents=signed_sequence,
+                    phase_currents=signed_phase,
+                )
+        if len(records) == 2 * len(snapshot.branches):
+            return records, ContributionStatus.COMPLETE, ()
+        if records:
+            return records, ContributionStatus.PARTIAL, tuple(diagnostics)
+        return records, ContributionStatus.UNAVAILABLE, tuple(diagnostics) or ("No supported equipment terminal-current records were produced.",)
+
     def _contribution_status(
         self,
         sources: dict[str, ShortCircuitSourceContribution],
@@ -253,6 +302,7 @@ class ShortCircuitSolver:
         typed = self._fault_typed_quantities(values)
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
         contribution_status, contribution_diagnostics = self._contribution_status(source_contributions, equipment_currents, branch_currents)
+        terminal_currents, terminal_current_status, terminal_current_diagnostics = self._calculate_terminal_currents(typed)
         provenance = {
             "input_contract": "ShortCircuitInput",
             "fault_bus_id": self.input.fault_bus_id,
@@ -261,6 +311,8 @@ class ShortCircuitSolver:
             "source_ids": tuple(source_contributions.keys()),
             "equipment_ids": tuple(equipment_currents.keys()),
             "branch_ids": tuple(branch_currents.keys()),
+            "terminal_current_ids": tuple(terminal_currents.keys()),
+            "terminal_current_status": terminal_current_status.value,
             # Preserve the identity of the immutable Core snapshot through the
             # numerical result boundary. None is retained when a caller creates
             # detached input without project activation metadata; the solver
@@ -298,6 +350,9 @@ class ShortCircuitSolver:
             source_contributions=source_contributions,
             equipment_currents=equipment_currents,
             branch_currents=branch_currents,
+            terminal_currents=terminal_currents,
+            terminal_current_status=terminal_current_status,
+            terminal_current_diagnostics=terminal_current_diagnostics,
             provenance=provenance,
             contribution_status=contribution_status,
             diagnostics=contribution_diagnostics,
