@@ -7,6 +7,7 @@ scalar r/x/b, rated MVA, vector-group names, or core labels.
 from __future__ import annotations
 
 from core.model.transformer import Transformer
+from core.model.transformer_zero_sequence_multiport_evidence import validate_transformer_zero_sequence_multiport_evidence
 from core.solver.short_circuit.phase_domain_solver import PhaseDomainTransformerMultiport
 from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind
 
@@ -117,6 +118,19 @@ def prepare_transformer_phase_domain_multiport(
                 f"Transformer {transformer.id!r} {winding.winding} requires exactly one "
                 "matching explicit earth-return impedance path."
             )
+
+    delta_windings = tuple(
+        winding.winding
+        for winding in (construction.hv, construction.lv)
+        if winding.connection == "DELTA"
+    )
+    validate_transformer_zero_sequence_multiport_evidence(
+        transformer.zero_sequence_multiport_evidence,
+        matrix=matrix,
+        terminal_labels=labels,
+        core_construction=construction.core_construction,
+        delta_windings=delta_windings,
+    )
 
     if len(matrix) != len(ordered):
         raise ValueError(
