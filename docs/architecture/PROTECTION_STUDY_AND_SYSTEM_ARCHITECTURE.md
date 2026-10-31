@@ -835,7 +835,10 @@ unbalanced transformer sequence coupling. Consequently, transformer
 short-circuit studies requiring those behaviours remain unsupported and must
 not be represented as complete. Transformer terminal-current output is supported for balanced three-phase
 fault cases only after the solver consumes this exact stamped primitive.
-Unbalanced transformer terminal currents remain unavailable.
+Unbalanced transformer terminal currents remain unavailable. When a caller
+supplies an external SequenceNetwork alongside a transformer with non-unity
+tap or non-zero phase shift, the matrix must explicitly declare the
+FROM_SIDE_COMPLEX_TAP_V1 convention; otherwise preparation rejects it.
 
 Verification: remote source review and contract reconciliation only. No tests
 or CI run. Python syntax/import/runtime checks remain outstanding.
