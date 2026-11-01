@@ -13,6 +13,7 @@ from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
     ProtectionChanged, ProjectClosed, ProjectLoaded,
+    StudyCompleted, StudyFailed, StudyCancelled,
 )
 from ui.canvas.canvas_framework import CanvasStateMachine
 from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteractionAdapter
@@ -28,6 +29,7 @@ from .protection_engineering_panels import (
     ProtectionAnalysisCoveragePanel,
     ProtectionFunctionCatalogPanel,
     ProtectionTCCPanel,
+    ProtectionCoordinationStudyPanel,
 )
 
 
@@ -424,6 +426,7 @@ class ProtectionWorkspace(QWidget):
     _EVENT_TYPES = (
         ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
         ProtectionChanged, ProjectLoaded, ProjectClosed,
+        StudyCompleted, StudyFailed, StudyCancelled,
     )
 
     def __init__(self, *, application: Any, selection_manager: SelectionManager | None = None,
@@ -475,6 +478,10 @@ class ProtectionWorkspace(QWidget):
         self._inspector_tabs.addTab(self._tcc_panel, "TCC")
         self._analysis_coverage = ProtectionAnalysisCoveragePanel(self)
         self._inspector_tabs.addTab(self._analysis_coverage, "Analysis Coverage")
+        self._coordination_study = ProtectionCoordinationStudyPanel(
+            application=application, parent=self
+        )
+        self._inspector_tabs.addTab(self._coordination_study, "Coordination Study")
 
         self._toolbar = ProtectionToolbar(
             self._interaction,
@@ -539,6 +546,7 @@ class ProtectionWorkspace(QWidget):
         self._function_catalog.refresh()
         self._tcc_panel.refresh()
         self._analysis_coverage.refresh()
+        self._coordination_study.refresh()
         self._toolbar.set_active(self._interaction.active_tool)
 
     def _on_application_event(self, event: Any) -> None:
