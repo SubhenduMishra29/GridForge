@@ -6,6 +6,7 @@ or issue equipment commands.
 """
 from __future__ import annotations
 
+from math import log10
 from typing import Any
 
 from core.protection import (
@@ -15,10 +16,14 @@ from core.protection import (
     list_protection_functions,
 )
 from ui.core.qt import (
+    QChart,
+    QChartView,
     QGroupBox,
     QLabel,
+    QLineSeries,
     QTableWidget,
     QTableWidgetItem,
+    QValueAxis,
     QVBoxLayout,
     QWidget,
 )
@@ -88,17 +93,32 @@ class ProtectionTCCPanel(QGroupBox):
         self._selection_manager = selection_manager
         self._summary = QLabel("Select an ANSI 51 or 51N relay with complete settings.", self)
         self._summary.setWordWrap(True)
+        self._chart = QChart()
+        self._chart.setTitle("IEC 60255 / IEEE C37.112 inverse-time characteristics")
+        self._chart.legend().setVisible(True)
+        self._chart_x_axis = QValueAxis()
+        self._chart_y_axis = QValueAxis()
+        self._chart_x_axis.setTitleText("Current (A) · logarithmic decades")
+        self._chart_y_axis.setTitleText("Operating time (s) · logarithmic decades")
+        self._chart_x_axis.setLabelFormat("10^%.0f")
+        self._chart_y_axis.setLabelFormat("10^%.0f")
+        self._chart.addAxis(self._chart_x_axis, 0x2)  # Qt.AlignBottom
+        self._chart.addAxis(self._chart_y_axis, 0x1)  # Qt.AlignLeft
+        self._chart_view = QChartView(self._chart, self)
+        self._chart_view.setMinimumHeight(260)
         self._table = QTableWidget(0, 5, self)
         self._table.setHorizontalHeaderLabels(("Function element", "Curve", "Current multiple", "Current (A)", "Operating time (s)"))
         self._table.setWordWrap(True)
         layout = QVBoxLayout(self)
         layout.addWidget(self._summary)
+        layout.addWidget(self._chart_view, 2)
         layout.addWidget(self._table, 1)
         selection_manager.selection_changed.connect(lambda _ids: self.refresh())
         self.refresh()
 
     def refresh(self) -> None:
         self._table.setRowCount(0)
+        self._chart.removeAllSeries()
         selected = self._selection_manager.selected_ids
         if not selected:
             self._summary.setText("Select a relay to inspect its configured inverse-time function TCCs.")
@@ -178,9 +198,44 @@ class ProtectionTCCPanel(QGroupBox):
                     "∞" if point.time == float("inf") else f"{point.time:.6g}",
                 ))
         self._table.setRowCount(len(rows))
+        series_by_element: dict[str, QLineSeries] = {}
+        chart_x: list[float] = []
+        chart_y: list[float] = []
         for row, values in enumerate(rows):
             for column, value in enumerate(values):
                 self._table.setItem(row, column, QTableWidgetItem(value))
+            element_id, curve_label, _multiple, current_text, time_text = values
+            try:
+                current_a = float(current_text)
+                operating_time_s = float(time_text)
+            except (TypeError, ValueError):
+                continue
+            if current_a <= 0.0 or operating_time_s <= 0.0:
+                continue
+            # The chart uses log10 coordinates on both axes. The table retains
+            # the original engineering values and units without transformation.
+            series = series_by_element.get(element_id)
+            if series is None:
+                series = QLineSeries()
+                series.setName(f"{element_id} · {curve_label}")
+                series_by_element[element_id] = series
+                self._chart.addSeries(series)
+                series.attachAxis(self._chart_x_axis)
+                series.attachAxis(self._chart_y_axis)
+            x_value = log10(current_a)
+            y_value = log10(operating_time_s)
+            series.append(x_value, y_value)
+            chart_x.append(x_value)
+            chart_y.append(y_value)
+        if chart_x and chart_y:
+            x_min, x_max = min(chart_x), max(chart_x)
+            y_min, y_max = min(chart_y), max(chart_y)
+            self._chart_x_axis.setRange(
+                x_min - 0.1, x_max + 0.1 if x_max > x_min else x_max + 0.5
+            )
+            self._chart_y_axis.setRange(
+                y_min - 0.1, y_max + 0.1 if y_max > y_min else y_max + 0.5
+            )
         self._table.resizeColumnsToContents()
         if rows:
             summary = (
