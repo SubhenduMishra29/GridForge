@@ -18882,3 +18882,22 @@ Status:
     AND RELAY-SPECIFIC DYNAMIC VALIDATION REMAIN OPEN.
 
 ======================================================================
+
+GF-PROT-056 — Fail-Closed Overshoot Gate for Transient CTI
+======================================================================
+
+File:
+    core/protection/transient_coordination.py
+
+Correction:
+    - Transient pair CTI is now NOT_EVALUABLE unless overshoot is explicitly
+      assessed for both downstream and upstream relay functions.
+    - A numerically positive nominal CTI can no longer be labelled
+      COORDINATED while overshoot remains NOT_ASSESSED.
+    - No generic overshoot timing margin or correction is synthesized.
+
+Status:
+    TRANSIENT CTI FAILS CLOSED PENDING VALIDATED OVERSHOOT SEMANTICS AND
+    EVIDENCE INTEGRATION.
+
+======================================================================
