@@ -298,10 +298,22 @@ class DraftNetwork:
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
         equipment = self._equipment.pop(draft_id)
-        for cid, connection in tuple(self._connections.items()):
-            if connection.source.object_id == draft_id or connection.target.object_id == draft_id:
-                self._connections.pop(cid)
-        self.validation_state = {}; return equipment
+
+        # DraftEndpointReference identity includes scope. A committed Core
+        # endpoint may legitimately carry the same object_id string as a
+        # transient draft item; removing that draft item must not erase a
+        # connection to the independent Core object.
+        def belongs_to_removed_draft(endpoint: DraftEndpointReference) -> bool:
+            return endpoint.scope == "draft" and endpoint.object_id == draft_id
+
+        for connection_id, connection in tuple(self._connections.items()):
+            if (
+                belongs_to_removed_draft(connection.source)
+                or belongs_to_removed_draft(connection.target)
+            ):
+                self._connections.pop(connection_id)
+        self.validation_state = {}
+        return equipment
 
     def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None, network: Any | None = None) -> None:
         prefix = f"{connection_id}: " if connection_id else ""
