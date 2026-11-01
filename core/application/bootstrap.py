@@ -60,6 +60,11 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
+from .synchronism_check import (
+    ProjectScopedSynchronismAuditSink,
+    create_project_synchronism_guard,
+    validate_synchronism_instrument_topology,
+)
 from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
@@ -116,10 +121,25 @@ def create_application(
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     application: Application | None = None
+    synchronism_guard: Any = None
+
+    def authorize_breaker_close(breaker, operation: str) -> bool:
+        guard = synchronism_guard
+        if guard is None:
+            raise PermissionError(
+                "Breaker energization denied: no active, audited ANSI 25 synchronism guard is composed."
+            )
+        decision = guard.authorize_close(breaker)
+        if getattr(decision, "permitted", None) is not True:
+            raise PermissionError("Breaker energization denied by ANSI 25.")
+        return True
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
-        model_service = ModelService(network=active_network)
+        model_service = ModelService(
+            network=active_network,
+            breaker_close_authorizer=authorize_breaker_close,
+        )
         handlers: dict[str, Any] = {}
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
@@ -253,6 +273,7 @@ def create_application(
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
         """Install project-scoped protection/dynamic runtime state transactionally."""
         previous_configuration = protection_configuration_service.configuration
+        previous_synchronism_guard = synchronism_guard
         previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
@@ -281,6 +302,8 @@ def create_application(
             application.configure_control_signal_mapping(previous_control_signal_mapping)
 
         def restore_project_state() -> None:
+            nonlocal synchronism_guard
+            synchronism_guard = previous_synchronism_guard
             measurement_channel_service.restore_state(previous_measurement_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
@@ -375,6 +398,45 @@ def create_application(
                     activation_generation=generation,
                 )
                 candidate_protection_runtime.compose(measurement_channel_service.channels)
+                # Compose ANSI 25 only when this candidate has an explicit
+                # policy, a trusted channel clock/domain, and a durable saved
+                # project location. Otherwise the authorizer remains closed.
+                synchronism_guard = None
+                synchronism_policy = configuration.synchronism_check_configuration
+                project_path = getattr(context, "path", None)
+                if (
+                    synchronism_policy is not None
+                    and measurement_clock is not None
+                    and isinstance(measurement_clock_domain, str)
+                    and measurement_clock_domain.strip()
+                    and project_path is not None
+                ):
+                    audit_sink = ProjectScopedSynchronismAuditSink(
+                        project_id=context.project_id,
+                        activation_generation=generation,
+                        project_path=project_path,
+                        clock=measurement_clock,
+                        clock_domain=measurement_clock_domain,
+                    )
+                    synchronism_guard = create_project_synchronism_guard(
+                        project_id=context.project_id,
+                        activation_generation=generation,
+                        project_configuration_provider=lambda: (
+                            protection_configuration_service.configuration.synchronism_check_configuration
+                        ),
+                        measurement_channel_service=measurement_channel_service,
+                        audit_sink=audit_sink,
+                        clock=measurement_clock,
+                        clock_domain=measurement_clock_domain,
+                        topology_validator=lambda breaker, policy, channels: (
+                            validate_synchronism_instrument_topology(
+                                network=network,
+                                breaker=breaker,
+                                configuration=policy,
+                                channels=channels,
+                            )
+                        ),
+                    )
                 application.protection_runtime = candidate_protection_runtime
                 application.protection_presentation = getattr(loaded, "protection_presentation", None) if loaded is not None else None
                 application._study_cases = {
