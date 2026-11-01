@@ -239,6 +239,31 @@ def _result_lines(result: Any) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _study_event_matches_active_project(application: Any, payload: Any) -> bool:
+    """Reject lifecycle events emitted by a different project activation."""
+    if not hasattr(payload, "get"):
+        return False
+    project_id = payload.get("project_id")
+    generation = payload.get("activation_generation")
+    if project_id is None or generation is None:
+        return False
+    try:
+        lifecycle = application.project_lifecycle
+        context = lifecycle.context
+        active = (
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+        )
+        return bool(
+            active
+            and str(project_id) == str(context.project_id)
+            and int(generation) == int(lifecycle.activation_generation)
+        )
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+
+
 class StudyProjection:
     """Project Application-owned study lifecycle and results into the Study Cases UI."""
 
@@ -354,8 +379,13 @@ class StudyProjection:
             return
 
         payload = getattr(event, "payload", {})
-        study_id = payload.get("study_id") if hasattr(payload, "get") else None
-        study_type = payload.get("study_type") if hasattr(payload, "get") else None
+        # Study lifecycle metadata carries project identity and activation
+        # generation. Ignore late events from a prior activation before
+        # touching the current Study Case/result projection.
+        if not _study_event_matches_active_project(self._application, payload):
+            return
+        study_id = payload.get("study_id")
+        study_type = payload.get("study_type")
         if study_id is None:
             return
 
