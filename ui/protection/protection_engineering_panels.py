@@ -271,16 +271,11 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
     """Project actual Protection Study coordination grades as a read-only table."""
 
     _COLUMNS = (
-        "Study / Scenario", "Downstream function", "Downstream current (A)",
+        "Scenario", "Downstream function", "Downstream current (A)",
         "Downstream time (s)", "Upstream function", "Upstream current (A)",
         "Upstream time (s)", "Breaker clearing (s)", "Available CTI (s)",
         "Required CTI (s)", "Nominal grade", "Tolerance CTI (s)",
         "Tolerance grade", "Tolerance assessment reason",
-        "Downstream envelope current (A)", "Downstream minimum time (s)",
-        "Downstream maximum time (s)", "Downstream evidence reference",
-        "Upstream envelope current (A)", "Upstream minimum time (s)",
-        "Upstream maximum time (s)", "Upstream evidence reference",
-        "Maximum breaker clearing (s)",
         "Maximum breaker clearing (s)", "Downstream timing envelope (min–max s)",
         "Upstream timing envelope (min–max s)", "Timing evidence references",
     )
