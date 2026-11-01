@@ -60,6 +60,7 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
+from .synchronism_check import ProjectScopedSynchronismAuditSink, create_project_synchronism_guard, validate_synchronism_instrument_topology
 from .synchronism_check import (
     ProjectScopedSynchronismAuditSink,
     create_project_synchronism_guard,
