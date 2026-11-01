@@ -140,7 +140,6 @@ def create_application(
         if (
             active_context is not None
             and active_network is not None
-            and active_policy is not None
             and measurement_clock is not None
             and isinstance(measurement_clock_domain, str)
             and measurement_clock_domain.strip()
