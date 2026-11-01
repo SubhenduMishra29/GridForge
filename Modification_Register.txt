@@ -18444,3 +18444,32 @@ Status:
     FULL FUNCTIONAL CLOSURE REMAINS OPEN
 
 ======================================================================
+
+
+GF-PROT-056 — Continuation: IEEE C37.112 Numerical Curve Engine
+
+Implemented on protection/gf-prot-056-operational-closure:
+    - Added core/protection/ieee_curves.py with immutable IEEE curve
+      definitions for Moderately Inverse, Very Inverse and Extremely
+      Inverse characteristics.
+    - Added validated IEEE inverse-time calculation using the
+      C37.112-style t = TD * (A / (M^p - 1) + B) characteristic.
+    - Uses expm1(p * log(M)) for numerical stability near pickup.
+    - Added log-spaced IEEE TCC point generation as headless numerical
+      data; plotting remains a presentation-layer responsibility.
+    - Exported the numerical API from core.protection.
+
+Limitations / integration still open:
+    - The existing ANSI 51 / 51N relay settings and runtime currently
+      normalize IEC curve names. This IEEE numerical engine is not yet
+      selectable through relay settings or persisted project configuration.
+    - Manufacturer-specific curve tolerances, timing accuracy bands,
+      reset characteristics and coordination validation are not implied
+      by these ideal curve equations.
+    - ANSI 21, 46, 49, 67 and 87 remain incomplete as documented above.
+
+Verification:
+    - Source-level review only; no tests or CI run, per project rules.
+    - Python syntax/import integrity and independent reference-point
+      comparison remain outstanding. This numerical engine is not yet
+      production-validated or relay-runtime integrated.
