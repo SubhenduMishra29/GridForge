@@ -284,7 +284,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         self._plot.legend().setVisible(True)
         self._plot_x_axis = QValueAxis()
         self._plot_y_axis = QValueAxis()
-        self._plot_x_axis.setTitleText("log10(Primary current / A)")
+        self._plot_x_axis.setTitleText("log10(Function current / A)")
         self._plot_y_axis.setTitleText("log10(Time / s)")
         self._plot_x_axis.setLabelFormat("%.2f")
         self._plot_y_axis.setLabelFormat("%.2f")
@@ -409,7 +409,6 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             for column, value in enumerate(values):
                 self._table.setItem(row_index, column, QTableWidgetItem(value))
         self._table.resizeColumnsToContents()
-        self._refresh_coordination_plot(plot_records)
         self._summary.setText(
             f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
             f"completed Protection Study report(s). {stale_rows} non-current or "
@@ -420,6 +419,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             "No current, completed Protection Study contains a static coordination report. "
             f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
         )
+        self._refresh_coordination_plot(plot_records)
 
     def _refresh_coordination_plot(self, records: list[dict[str, Any]]) -> None:
         """Plot exact-scenario grade data; never extrapolate a TCC from one point."""
@@ -439,6 +439,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                 return
             series = QLineSeries()
             series.setName(name)
+            series.setPointsVisible(True)
             self._plot.addSeries(series)
             series.attachAxis(self._plot_x_axis)
             series.attachAxis(self._plot_y_axis)
@@ -450,14 +451,27 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
 
         for record in records:
             tag = f'{record["study_id"]} / {record["scenario_id"]}'
+            grade_label = (
+                f'CTI {self._number(record["cti_s"])} / '
+                f'{self._number(record["required_cti_s"])} s · '
+                f'{record["status"]} · {record["tolerance_status"]}'
+            )
+            tag = f"{tag} · {grade_label}"
             down_current, up_current = record["downstream_current_a"], record["upstream_current_a"]
             down_time, up_time = record["downstream_time_s"], record["upstream_time_s"]
             add_series(f'{tag} · downstream {record["downstream_id"]}', [(down_current, down_time)])
             add_series(f'{tag} · upstream {record["upstream_id"]}', [(up_current, up_time)])
             if down_time is not None and record["breaker_s"] is not None:
+                clearing_points = [
+                    (down_current, float(down_time) + float(record["breaker_s"]))
+                ]
+                if record["breaker_max_s"] is not None:
+                    clearing_points.append(
+                        (down_current, float(down_time) + float(record["breaker_max_s"]))
+                    )
                 add_series(
-                    f'{tag} · downstream + breaker clearing',
-                    [(down_current, float(down_time) + float(record["breaker_s"]))],
+                    f'{tag} · downstream + breaker clearing bound(s)',
+                    clearing_points,
                 )
             for role, current_key, envelope_key in (
                 ("downstream", "downstream_current_a", "downstream_envelope"),
@@ -502,8 +516,10 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             self._summary.setText(
                 self._summary.text()
                 + "\n\nPlot shows exact-scenario operating points, exact-current supplied timing "
-                "bounds, and the downstream-plus-breaker-clearing endpoint. It does not synthesize "
-                "continuous TCC curves, interpolation, or missing manufacturer envelopes."
+                "bounds, and nominal/maximum downstream breaker-clearing endpoints. Current is "
+                "shown in each function's supplied ampere basis; no cross-CT normalization is "
+                "inferred. It does not synthesize continuous TCC curves, interpolation, or missing "
+                "manufacturer envelopes."
             )
 
 
