@@ -15780,3 +15780,44 @@ Verification:
 - The primary-side PreparedMeasurementContext remains distinct from the secondary-side MeasurementChannel source terminal.
 - This correction does not infer CT measurement location, protected equipment, protection zone, or scheme membership.
 - No tests or CI were run. Python syntax/import/runtime execution remains unverified.
+
+
+======================================================================
+GF-PROT-043 — ANSI 25 fail-closed breaker mutation boundary
+======================================================================
+
+Date:
+    2026-11-01
+
+Files:
+    core/application/services/switching_model_service.py
+    core/application/services/model_service.py
+
+Finding:
+    Current main allowed Breaker creation with closed=True, update_breaker
+    to transition an open breaker to closed, and close_breaker to mutate
+    breaker state without any synchronism authorization boundary.
+
+Correction:
+    - Added an injectable Application-layer breaker_close_authorizer.
+    - Closed breaker creation, open-to-closed updates, and close_breaker
+      now require an explicit positive authorization before mutation.
+    - Missing authorizer, a negative/non-True decision, or an authorizer
+      exception denies the operation before Core state changes.
+    - ModelService exposes the injection point without introducing Qt or
+      UI dependencies into Core.
+    - Opening, tripping, and non-closing updates remain available.
+
+Safety boundary:
+    The current production composition does not yet supply the complete
+    project-scoped ANSI 25 guard. Therefore breaker closing is deliberately
+    unavailable through this composition until approved project policy,
+    live six-channel measurement ingestion, timestamp-domain provenance,
+    durable audit, and project/activation provenance are composed.
+    This is fail-closed containment, not full ANSI 25 completion.
+
+Verification:
+    Static source review only. No tests or CI were run. Python syntax/import
+    and runtime authorization-path verification remain outstanding.
+
+======================================================================
