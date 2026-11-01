@@ -18531,3 +18531,45 @@ Limitations:
 
 ======================================================================
 
+======================================================================
+GF-PROT-052 — Durable single-use ANSI 25 bypass consumption
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    Project-scoped ANSI 25 bypass replay protection
+
+Files:
+    core/application/synchronism_check.py
+    Modification_Register.txt
+
+Finding:
+    The Application authorization callback reconstructs the ANSI 25 guard
+    for each breaker-close attempt so that current policy and Save As paths
+    are always used. A consumed-token set owned by an individual guard was
+    therefore reset on every attempt, allowing a still-valid bypass token
+    to be presented again.
+
+Correction:
+    ProjectScopedSynchronismAuditSink now claims each bypass authorization
+    using a hashed sibling marker created atomically with O_CREAT|O_EXCL.
+    The marker contains the authorization identity and project/generation/
+    breaker scope, is fsync-backed, and survives guard reconstruction and
+    process restarts. Existing markers, scope mismatches, write errors, or
+    any consumer result other than literal True deny bypass. Generic
+    non-persistent audit sinks retain guard-local replay protection only.
+
+Safety:
+    Token consumption is recorded before the authorization decision audit.
+    If the subsequent decision audit or breaker mutation fails, the token
+    remains consumed. This deliberately prefers a non-replayable denied
+    attempt over possible token reuse.
+
+Limitations:
+    Persistent marker guarantees depend on the durability and access-control
+    properties of the project directory's filesystem. No tests or CI were run.
+
+======================================================================
+
