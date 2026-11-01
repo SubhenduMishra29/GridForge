@@ -13,7 +13,7 @@ from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
     ProtectionChanged, ProjectClosed, ProjectLoaded,
-    StudyCompleted, StudyFailed, StudyCancelled,
+    StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
 )
 from ui.canvas.canvas_framework import CanvasStateMachine
 from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteractionAdapter
@@ -426,7 +426,7 @@ class ProtectionWorkspace(QWidget):
     _EVENT_TYPES = (
         ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
         ProtectionChanged, ProjectLoaded, ProjectClosed,
-        StudyCompleted, StudyFailed, StudyCancelled,
+        StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
     )
 
     def __init__(self, *, application: Any, selection_manager: SelectionManager | None = None,
@@ -551,9 +551,20 @@ class ProtectionWorkspace(QWidget):
 
     def _on_application_event(self, event: Any) -> None:
         if isinstance(event, ProjectClosed):
+            self._coordination_study.clear_in_progress()
             self._interaction.cancel()
             self._presentation.clear()
             self._selection_manager.clear()
+        elif isinstance(event, StudyStarted):
+            payload = getattr(event, "payload", {})
+            study_id = payload.get("study_id") if hasattr(payload, "get") else None
+            if study_id is not None:
+                self._coordination_study.set_study_in_progress(study_id, True)
+        elif isinstance(event, (StudyCompleted, StudyFailed, StudyCancelled)):
+            payload = getattr(event, "payload", {})
+            study_id = payload.get("study_id") if hasattr(payload, "get") else None
+            if study_id is not None:
+                self._coordination_study.set_study_in_progress(study_id, False)
         elif isinstance(event, ProjectLoaded):
             loaded = getattr(self._application, "protection_presentation", None)
             if isinstance(loaded, dict):
