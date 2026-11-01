@@ -273,6 +273,7 @@ def create_application(
 
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
         """Install project-scoped protection/dynamic runtime state transactionally."""
+        nonlocal synchronism_guard
         previous_configuration = protection_configuration_service.configuration
         previous_synchronism_guard = synchronism_guard
         previous_measurement_state = measurement_channel_service.snapshot_state()
