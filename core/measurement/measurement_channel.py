@@ -852,31 +852,7 @@ class MeasurementChannel:
         available: Optional[bool] = None,
         sample_sequence: Optional[int] = None,
     ) -> None:
-        """
-        Update the channel with a new raw measurement value.
-
-        Parameters
-        ----------
-        value:
-            Raw value supplied by the measurement-generation layer.
-
-        timestamp:
-            Optional sample timestamp.
-
-        quality:
-            Optional quality update.
-
-        available:
-            Optional availability update.
-
-        sample_sequence:
-            Optional sample/update sequence number.
-
-        Notes
-        -----
-        Physical CT/PT/CVT transformation is not performed here.
-        """
-
+        """Update one sample; project-managed channels require their service capability."""
         authority = self._sample_update_authority
         if authority is not None and _authority is not authority:
             raise PermissionError(
@@ -885,52 +861,29 @@ class MeasurementChannel:
         validated_value = self._validate_value(value)
         validated_timestamp = self._validate_timestamp(timestamp) if timestamp is not None else None
         validated_domain = self._validate_timestamp_domain(timestamp_domain) if timestamp is not None else None
-        if timestamp is not None and validated_domain is None and authority is not None:
-            raise ValueError("Project-managed measurement samples require timestamp_domain.")
+        if authority is not None and (
+            timestamp is None or validated_domain is None or sample_sequence is None
+        ):
+            raise ValueError(
+                "Project-managed samples require timestamp, timestamp_domain and sample_sequence."
+            )
         if quality is not None and not isinstance(quality, MeasurementQuality):
             raise TypeError("quality must be a MeasurementQuality.")
         validated_sequence = self._validate_sample_sequence(sample_sequence) if sample_sequence is not None else None
         self._sample_write_authority = authority
         try:
             self.raw_value = validated_value
-            self.timestamp = validated_timestamp
-            self.timestamp_domain = validated_domain
-            self.sample_sequence = validated_sequence
+            if timestamp is not None:
+                self.timestamp = validated_timestamp
+                self.timestamp_domain = validated_domain
             if quality is not None:
                 self.quality = quality
             if available is not None:
                 self.available = bool(available)
+            if sample_sequence is not None:
+                self.sample_sequence = validated_sequence
         finally:
             self._sample_write_authority = None
-
-        if timestamp is not None:
-            self.timestamp = self._validate_timestamp(
-                timestamp
-            )
-
-        if quality is not None:
-
-            if not isinstance(
-                quality,
-                MeasurementQuality,
-            ):
-                raise TypeError(
-                    "quality must be a MeasurementQuality."
-                )
-
-            self.quality = quality
-
-        if available is not None:
-            self.available = bool(
-                available
-            )
-
-        if sample_sequence is not None:
-            self.sample_sequence = (
-                self._validate_sample_sequence(
-                    sample_sequence
-                )
-            )
 
     # =================================================================
     # SIGNAL QUALITY / VALIDITY
