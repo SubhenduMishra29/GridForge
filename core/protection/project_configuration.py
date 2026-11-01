@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import math
+import json
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -297,10 +298,40 @@ class ProtectionProjectConfiguration:
         self._elements: dict[str, ProtectionFunctionConfiguration] = {}
         self._bindings: dict[str, ProtectionMeasurementBinding] = {}
         self._differential_schemes: dict[str, DifferentialProtectionSchemeConfiguration] = {}
+        self._synchronism_check_configuration: Mapping[str, Any] | None = None
 
     @property
     def project_id(self) -> str:
         return self._project_id
+
+    @property
+    def synchronism_check_configuration(self) -> Mapping[str, Any] | None:
+        """Detached immutable ANSI 25 policy payload persisted with protection configuration."""
+        return self._synchronism_check_configuration
+
+    def set_synchronism_check_configuration(self, configuration: Mapping[str, Any] | None) -> None:
+        """Store explicit schema-2 ANSI 25 breaker policies without an Application dependency."""
+        if configuration is None:
+            self._synchronism_check_configuration = None
+            return
+        if not isinstance(configuration, Mapping):
+            raise TypeError("ANSI 25 project configuration must be a mapping.")
+        if set(configuration) != {"schema", "breakers"} or configuration.get("schema") != 2:
+            raise ValueError("ANSI 25 project configuration requires exactly schema=2 and breakers.")
+        breakers = configuration["breakers"]
+        if not isinstance(breakers, Mapping):
+            raise TypeError("ANSI 25 breaker policies must be a mapping.")
+        for breaker_id, policy in breakers.items():
+            if not isinstance(breaker_id, str) or not breaker_id.strip() or breaker_id != breaker_id.strip():
+                raise ValueError("ANSI 25 breaker IDs must be canonical non-empty strings.")
+            if not isinstance(policy, Mapping):
+                raise TypeError(f"ANSI 25 policy for breaker {breaker_id!r} must be a mapping.")
+        detached = _thaw_value(configuration)
+        try:
+            json.dumps(detached, allow_nan=False, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"ANSI 25 project configuration is not finite JSON data: {exc}") from exc
+        self._synchronism_check_configuration = _freeze_value(detached)
 
     @property
     def elements(self) -> tuple[ProtectionFunctionConfiguration, ...]:
@@ -441,12 +472,15 @@ class ProtectionProjectConfiguration:
             raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "project_id": self.project_id,
             "elements": [item.to_dict() for item in self.elements],
             "measurement_bindings": [item.to_dict() for item in self.measurement_bindings],
             "differential_schemes": [item.to_dict() for item in self.differential_schemes],
         }
+        if self._synchronism_check_configuration is not None:
+            result["synchronism_check_configuration"] = _thaw_value(self._synchronism_check_configuration)
+        return result
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionProjectConfiguration":
@@ -469,6 +503,9 @@ class ProtectionProjectConfiguration:
             raise TypeError("differential_schemes must be a list or tuple.")
         for item in schemes:
             result.add_differential_scheme(DifferentialProtectionSchemeConfiguration.from_dict(item))
+        synchronism_configuration = data.get("synchronism_check_configuration")
+        if synchronism_configuration is not None:
+            result.set_synchronism_check_configuration(synchronism_configuration)
         return result
 
 
