@@ -203,8 +203,9 @@ class MeasurementChannelService:
                 channel = self._provision_definition(context, network, definition)
                 if channel.id in next_channels:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
-                channel._bind_sample_update_authority(self._sample_update_authority)
+                # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
+                channel._bind_sample_update_authority(self._sample_update_authority)
                 next_channels[channel.id] = channel
 
         previous = self.snapshot_state()
