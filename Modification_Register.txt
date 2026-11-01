@@ -18779,3 +18779,60 @@ Status:
     RUNTIME / COORDINATION INTEGRATION / ENGINEERING VALIDATION OPEN
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-056 — Continuation: Time-Series Transient CTI Evaluation
+======================================================================
+
+Files:
+    core/protection/transient_coordination.py
+    core/protection/__init__.py
+    Modification_Register.txt
+
+Correction:
+    - Added typed RelayCurrentSample / RelayCurrentTrace contracts for
+      piecewise-constant current trajectories with strictly increasing,
+      finite, non-negative timestamps and current magnitudes.
+    - Added a Core transient evaluator for IEC/IEEE inverse-time functions.
+      It integrates characteristic-normalized operating progress over each
+      explicit current interval and calculates relay operation timestamps
+      within the interval when progress reaches unity.
+    - On current dropout, the evaluator retains the pre-dropout progress and
+      applies only a reset-memory curve matching the exact last above-pickup
+      current multiple. Reset interpolation is bounded to the supplied
+      interruption-duration points. Missing exact-current evidence or an
+      out-of-domain duration fails closed when current returns.
+    - Added immutable relay outcomes, transient pair CTI grades, and an
+      aggregate report. Pair grading requires both operation times to be
+      observed and subtracts the explicitly configured downstream breaker
+      clearing time before comparing against required CTI.
+    - Paired traces must share the same observation-window start and end.
+      Function/pair/trace/evidence identities and duplicate records are
+      validated. The API is exported through core.protection.
+    - Relay overshoot is explicitly reported NOT_ASSESSED. Although overshoot
+      evidence contracts exist, this increment does not apply them because
+      relay-specific overshoot semantics/test protocol have not yet been
+      integrated.
+
+Model boundary / limitations:
+    - The dt / t_operating(I) progress accumulation is a characteristic-
+      normalized model assumption, not a universal electromechanical relay
+      disk law. It is suitable only where the relay model/manufacturer
+      confirms this accumulation convention. It must not be presented as
+      validated dynamic behaviour for arbitrary relay technologies.
+    - Current traces and reset evidence are supplied to the Core API; the
+      Application ProtectionStudyHandler / Study Case configuration does
+      not yet ingest transient solver traces or persist transient reports.
+    - Breaker operation sequences, pole scatter, relay output contact delay,
+      overshoot application, dynamic reset during continuously varying
+      currents, and multi-fault-location event orchestration remain open.
+    - Evidence references are provenance labels and are not authenticated.
+    - No tests/CI run. Syntax/import and numerical engineering verification
+      remain outstanding.
+
+Status:
+    CORE TIME-SERIES TRANSIENT CTI / RESET-MEMORY EVALUATOR IMPLEMENTED —
+    APPLICATION STUDY WIRING / OVERSHOOT / RELAY-MODEL VALIDATION OPEN
+
+======================================================================
