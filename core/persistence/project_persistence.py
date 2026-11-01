@@ -694,6 +694,8 @@ class ProjectPersistenceService:
             )
         if not isinstance(connectivity.get("simple_wires"), list):
             raise ProjectPersistenceError("Canonical simple_wires must be an array.")
+        if not isinstance(connectivity.get("phase_domain_nodes"), list) or not isinstance(connectivity.get("phase_domain_connections"), list):
+            raise ProjectPersistenceError("Canonical phase-domain conductor graph collections must be arrays.")
 
         collection = project.get("presentations")
         if not isinstance(collection, Mapping):

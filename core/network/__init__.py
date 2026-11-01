@@ -278,6 +278,17 @@ __all__ = [
     "SimpleWireConnection",
     "TopologyEndpointReference",
     "TopologyEndpointReferenceKind",
+    "PhysicalConductorBranchAssociation",
+    "PhysicalConductorBranchTopology",
+    "PhysicalConductorTopologySnapshot",
+    "build_physical_conductor_topology_snapshot",
+    "PhaseDomainNodeKind",
+    "PhaseDomainConnectionKind",
+    "PhaseDomainConductorNode",
+    "PhaseDomainConnection",
+    "PhaseDomainConductorNetwork",
+    "build_phase_domain_conductor_network",
+    "build_phase_domain_conductor_network_from_sld",
 
     # Base-layer service
     "PerUnitSystem",
@@ -294,8 +305,24 @@ __version__ = "2.0.0"
 
 from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
 from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot
+from .physical_conductor_topology import (
+    PhysicalConductorBranchAssociation,
+    PhysicalConductorBranchTopology,
+    PhysicalConductorTopologySnapshot,
+    build_physical_conductor_topology_snapshot,
+)
 
 from .ct_measurement_association import (
     CTMeasurementAssociation,
     CTMeasurementAssociationResolver,
+)
+
+from .phase_domain_conductor_network import (
+    PhaseDomainNodeKind,
+    PhaseDomainConnectionKind,
+    PhaseDomainConductorNode,
+    PhaseDomainConnection,
+    PhaseDomainConductorNetwork,
+    build_phase_domain_conductor_network,
+    build_phase_domain_conductor_network_from_sld,
 )

@@ -7,6 +7,7 @@ from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.model.line import Line
+from core.model.conductor import BranchConductorSystem
 from core.model.terminal import Terminal
 from core.network.network import Network
 
@@ -32,6 +33,9 @@ class LineModelService(ModelServiceSupport):
         resistance_ohm: float = 0.0,
         reactance_ohm: float = 0.0,
         shunt_susceptance_siemens: float = 0.0,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
+        conductor_system: BranchConductorSystem | None = None,
         name: str | None = None,
         rate_mva: float | None = None,
         transaction: Transaction,
@@ -58,6 +62,9 @@ class LineModelService(ModelServiceSupport):
             resistance_ohm=resistance_ohm,
             reactance_ohm=reactance_ohm,
             shunt_susceptance_siemens=shunt_susceptance_siemens,
+            zero_sequence_resistance_ohm=zero_sequence_resistance_ohm,
+            zero_sequence_reactance_ohm=zero_sequence_reactance_ohm,
+            conductor_system=conductor_system,
             name="" if name is None else name,
             rate_mva=rate_mva,
         )
@@ -73,6 +80,10 @@ class LineModelService(ModelServiceSupport):
         resistance_ohm: float | None = None,
         reactance_ohm: float | None = None,
         shunt_susceptance_siemens: float | None = None,
+        zero_sequence_resistance_ohm: float | None = None,
+        zero_sequence_reactance_ohm: float | None = None,
+        conductor_system: BranchConductorSystem | None = None,
+        clear_conductor_system: bool = False,
         rate_mva: float | None = None,
         in_service: bool | None = None,
         transaction: Transaction,
@@ -81,8 +92,12 @@ class LineModelService(ModelServiceSupport):
         self._require_id(line_id, "line_id")
         line = self._get_required("line", line_id, "Line")
         self._require_type(line, Line, line_id, "Line")
-        values = (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, rate_mva, in_service)
-        if all(value is None for value in values):
+        values = (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, conductor_system, rate_mva, in_service)
+        if not isinstance(clear_conductor_system, bool):
+            raise TypeError("clear_conductor_system must be bool.")
+        if clear_conductor_system and conductor_system is not None:
+            raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
+        if all(value is None for value in values) and not clear_conductor_system:
             raise ValueError("At least one mutable Line field must be specified.")
 
         old = {
@@ -90,16 +105,22 @@ class LineModelService(ModelServiceSupport):
             "resistance_ohm": line.resistance_ohm,
             "reactance_ohm": line.reactance_ohm,
             "shunt_susceptance_siemens": line.shunt_susceptance_siemens,
+            "zero_sequence_resistance_ohm": line.zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": line.zero_sequence_reactance_ohm,
             "rate_mva": line.rate_mva,
             "in_service": line.in_service,
+            "conductor_system": line.conductor_system,
         }
         candidate = {
             "name": old["name"] if name is None else name,
             "resistance_ohm": old["resistance_ohm"] if resistance_ohm is None else resistance_ohm,
             "reactance_ohm": old["reactance_ohm"] if reactance_ohm is None else reactance_ohm,
             "shunt_susceptance_siemens": old["shunt_susceptance_siemens"] if shunt_susceptance_siemens is None else shunt_susceptance_siemens,
+            "zero_sequence_resistance_ohm": old["zero_sequence_resistance_ohm"] if zero_sequence_resistance_ohm is None else zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": old["zero_sequence_reactance_ohm"] if zero_sequence_reactance_ohm is None else zero_sequence_reactance_ohm,
             "rate_mva": old["rate_mva"] if rate_mva is None else rate_mva,
             "in_service": old["in_service"] if in_service is None else in_service,
+            "conductor_system": None if clear_conductor_system else (old["conductor_system"] if conductor_system is None else conductor_system),
         }
 
         def apply(state: dict[str, Any]) -> None:
@@ -107,8 +128,11 @@ class LineModelService(ModelServiceSupport):
             line.resistance_ohm = state["resistance_ohm"]
             line.reactance_ohm = state["reactance_ohm"]
             line.shunt_susceptance_siemens = state["shunt_susceptance_siemens"]
+            line.zero_sequence_resistance_ohm = state["zero_sequence_resistance_ohm"]
+            line.zero_sequence_reactance_ohm = state["zero_sequence_reactance_ohm"]
             line.rate_mva = state["rate_mva"]
             line.set_in_service(state["in_service"])
+            line.conductor_system = state["conductor_system"]
             line.validate()
 
         try:

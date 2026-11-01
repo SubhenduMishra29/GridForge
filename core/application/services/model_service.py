@@ -116,6 +116,7 @@ class ModelService(ModelServiceSupport):
     def put_capacitor_in_service(self, **kwargs): return self._shunt_service.put_capacitor_in_service(**kwargs)
     def take_capacitor_out_of_service(self, **kwargs): return self._shunt_service.take_capacitor_out_of_service(**kwargs)
     def create_line(self, **kwargs): return self._line_service.create_line(**kwargs)
+    def update_line(self, **kwargs): return self._line_service.update_line(**kwargs)
     def delete_line(self, **kwargs): return self._line_service.delete_line(**kwargs)
     def create_transformer(self, **kwargs): return self._transformer_service.create_transformer(**kwargs)
     def update_transformer(self, **kwargs): return self._transformer_service.update_transformer(**kwargs)

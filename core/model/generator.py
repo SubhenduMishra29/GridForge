@@ -186,6 +186,15 @@ class Generator(ElectricalObject, Injection):
         bus: Any = None,
         terminal: Terminal | None = None,
         in_service: bool = True,
+        z1_subtransient_pu: complex | None = None,
+        z2_pu: complex | None = None,
+        z0_pu: complex | None = None,
+        impedance_base_mva: float | None = None,
+        impedance_base_voltage_kv: float | None = None,
+        short_circuit_internal_voltage_pu: float | None = None,
+        short_circuit_internal_angle_deg: float = 0.0,
+        neutral_grounded: bool = False,
+        neutral_grounding_impedance_ohm: complex | None = None,
     ) -> None:
         """
         Construct a Generator.
@@ -326,6 +335,32 @@ class Generator(ElectricalObject, Injection):
             in_service,
             "in_service",
         )
+
+        # Explicit short-circuit construction data. Load-flow P/Q and
+        # V_setpoint are deliberately not substituted for machine data.
+        self.z1_subtransient_pu = self._validate_optional_complex_impedance(
+            z1_subtransient_pu, "z1_subtransient_pu"
+        )
+        self.z2_pu = self._validate_optional_complex_impedance(z2_pu, "z2_pu")
+        self.z0_pu = self._validate_optional_complex_impedance(z0_pu, "z0_pu")
+        self.impedance_base_mva = self._validate_optional_positive(
+            impedance_base_mva, "impedance_base_mva"
+        )
+        self.impedance_base_voltage_kv = self._validate_optional_positive(
+            impedance_base_voltage_kv, "impedance_base_voltage_kv"
+        )
+        self.short_circuit_internal_voltage_pu = self._validate_optional_positive(
+            short_circuit_internal_voltage_pu, "short_circuit_internal_voltage_pu"
+        )
+        self.short_circuit_internal_angle_deg = self._validate_finite(
+            short_circuit_internal_angle_deg, "short_circuit_internal_angle_deg"
+        )
+        self.neutral_grounded = self._validate_bool(neutral_grounded, "neutral_grounded")
+        self.neutral_grounding_impedance_ohm = self._validate_optional_complex_impedance(
+            neutral_grounding_impedance_ohm, "neutral_grounding_impedance_ohm",
+            allow_zero=True
+        )
+        self._validate_short_circuit_contract()
 
         # --------------------------------------------------------
         # Optional plugin references
@@ -784,6 +819,40 @@ class Generator(ElectricalObject, Injection):
             None,
         )
 
+
+    @staticmethod
+    def _validate_optional_complex_impedance(value: complex | None, name: str, *, allow_zero: bool = False) -> complex | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be a finite complex impedance.")
+        try:
+            result = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be a finite complex impedance.") from exc
+        if not math.isfinite(result.real) or not math.isfinite(result.imag) or result.real < 0.0:
+            raise ValueError(f"{name} must be finite with non-negative resistance.")
+        if not allow_zero and result == 0j:
+            raise ValueError(f"{name} must be non-zero when supplied.")
+        return result
+
+    def _validate_short_circuit_contract(self) -> None:
+        sequence_data = any(value is not None for value in (self.z1_subtransient_pu, self.z2_pu, self.z0_pu))
+        if not sequence_data:
+            if any(value is not None for value in (self.impedance_base_mva, self.impedance_base_voltage_kv, self.short_circuit_internal_voltage_pu)):
+                raise ValueError("Generator short-circuit bases/internal voltage require declared sequence impedance data.")
+        else:
+            if self.z1_subtransient_pu is None:
+                raise ValueError("Generator sequence data requires positive-sequence subtransient impedance z1_subtransient_pu.")
+            if self.impedance_base_mva is None or self.impedance_base_voltage_kv is None:
+                raise ValueError("Generator sequence impedances require explicit impedance_base_mva and impedance_base_voltage_kv.")
+            if self.short_circuit_internal_voltage_pu is None:
+                raise ValueError("Generator sequence impedances require explicit short_circuit_internal_voltage_pu; V_setpoint is not a substitute.")
+        if self.neutral_grounded and self.neutral_grounding_impedance_ohm is None:
+            raise ValueError("A grounded Generator neutral requires explicit neutral_grounding_impedance_ohm; use 0j for solid grounding.")
+        if not self.neutral_grounded and self.neutral_grounding_impedance_ohm is not None:
+            raise ValueError("neutral_grounding_impedance_ohm is invalid unless neutral_grounded is true.")
+
     # ============================================================
     # VALIDATION
     # ============================================================
@@ -827,6 +896,16 @@ class Generator(ElectricalObject, Injection):
             self.in_service,
             "in_service",
         )
+        self.z1_subtransient_pu = self._validate_optional_complex_impedance(self.z1_subtransient_pu, "z1_subtransient_pu")
+        self.z2_pu = self._validate_optional_complex_impedance(self.z2_pu, "z2_pu")
+        self.z0_pu = self._validate_optional_complex_impedance(self.z0_pu, "z0_pu")
+        self.impedance_base_mva = self._validate_optional_positive(self.impedance_base_mva, "impedance_base_mva")
+        self.impedance_base_voltage_kv = self._validate_optional_positive(self.impedance_base_voltage_kv, "impedance_base_voltage_kv")
+        self.short_circuit_internal_voltage_pu = self._validate_optional_positive(self.short_circuit_internal_voltage_pu, "short_circuit_internal_voltage_pu")
+        self.short_circuit_internal_angle_deg = self._validate_finite(self.short_circuit_internal_angle_deg, "short_circuit_internal_angle_deg")
+        self.neutral_grounded = self._validate_bool(self.neutral_grounded, "neutral_grounded")
+        self.neutral_grounding_impedance_ohm = self._validate_optional_complex_impedance(self.neutral_grounding_impedance_ohm, "neutral_grounding_impedance_ohm", allow_zero=True)
+        self._validate_short_circuit_contract()
 
         if not isinstance(
             self._terminal,
@@ -898,6 +977,16 @@ class Generator(ElectricalObject, Injection):
 
             "in_service":
                 self.in_service,
+
+            "z1_subtransient_pu": self.z1_subtransient_pu,
+            "z2_pu": self.z2_pu,
+            "z0_pu": self.z0_pu,
+            "impedance_base_mva": self.impedance_base_mva,
+            "impedance_base_voltage_kv": self.impedance_base_voltage_kv,
+            "short_circuit_internal_voltage_pu": self.short_circuit_internal_voltage_pu,
+            "short_circuit_internal_angle_deg": self.short_circuit_internal_angle_deg,
+            "neutral_grounded": self.neutral_grounded,
+            "neutral_grounding_impedance_ohm": self.neutral_grounding_impedance_ohm,
 
             "injection":
                 self.get_power(),

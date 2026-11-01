@@ -16,6 +16,7 @@ from .result import (
     ShortCircuitEquipmentCurrent,
     ShortCircuitResult,
     ShortCircuitSourceContribution,
+    ShortCircuitTerminalCurrent,
 )
 from .sequence_snapshot import SequenceBranchSnapshot, SequenceSourceSnapshot
 from .symmetrical_fault import SymmetricalFault
@@ -98,7 +99,7 @@ class ShortCircuitSolver:
             return None
         fault_index = self.input.fault_bus_index
         voltages: dict[str, np.ndarray] = {}
-        sequences = ("positive",) if self.input.fault_type is FaultType.THREE_PHASE else ("positive", "negative", "zero")
+        sequences = self._required_for_fault()
         fault_currents = typed["sequence_currents"]
         names = {"positive": "I1", "negative": "I2", "zero": "I0"}
         for sequence in sequences:
@@ -130,7 +131,152 @@ class ShortCircuitSolver:
             result[names[sequence]] = (internal - voltage) / impedance
         return result
 
+    def _transformer_terminal_current_sequences(
+        self,
+        branch: SequenceBranchSnapshot,
+        voltages: dict[str, np.ndarray],
+        zero_shunt: Any | None = None,
+        zero_two_bus: Any | None = None,
+    ) -> tuple[dict[str, complex], dict[str, complex], dict[str, Any]] | None:
+        """Return transformer terminal sequence currents for supported primitives.
+
+        Positive/negative sequence use the transformer two-port. Zero sequence
+        uses either the explicitly grounded-side D14F shunt or the measured,
+        neutral-aware D14I Yg-Yg two-Bus T equivalent frozen in the snapshot.
+        """
+        required = self._required_for_fault()
+        from_currents: dict[str, complex] = {}
+        to_currents: dict[str, complex] = {}
+        names = {"positive": "I1", "negative": "I2"}
+        for sequence in ("positive", "negative"):
+            if sequence not in required:
+                continue
+            impedance = getattr(branch, sequence)
+            if impedance is None:
+                return None
+            tap = branch.tap_ratio * cmath.exp(1j * branch.phase_shift_rad)
+            if sequence == "negative":
+                tap = tap.conjugate()
+            if not math.isfinite(tap.real) or not math.isfinite(tap.imag) or abs(tap) == 0.0:
+                return None
+            admittance = 1.0 / impedance
+            from_voltage = complex(voltages[sequence][branch.from_bus_index])
+            to_voltage = complex(voltages[sequence][branch.to_bus_index])
+            from_current = (
+                from_voltage / (abs(tap) ** 2) - to_voltage / tap.conjugate()
+            ) * admittance
+            to_current = (-from_voltage / tap + to_voltage) * admittance
+            from_currents[names[sequence]] = from_current
+            to_currents[names[sequence]] = to_current
+
+        provenance: dict[str, Any] = {
+            "positive_negative_model": "TAP_AWARE_TRANSFORMER_TWO_PORT",
+            "zero_sequence_model": "NOT_REQUIRED" if "zero" not in required else "UNAVAILABLE",
+        }
+        if "zero" in required:
+            if zero_two_bus is not None:
+                if zero_two_bus.transformer_id != branch.branch_id:
+                    return None
+                if zero_two_bus.hv_bus_id == branch.from_bus_id and zero_two_bus.lv_bus_id == branch.to_bus_id and zero_two_bus.hv_terminal_role == branch.from_terminal_role and zero_two_bus.lv_terminal_role == branch.to_terminal_role:
+                    hv_index, lv_index = branch.from_bus_index, branch.to_bus_index
+                elif zero_two_bus.hv_bus_id == branch.to_bus_id and zero_two_bus.lv_bus_id == branch.from_bus_id and zero_two_bus.hv_terminal_role == branch.to_terminal_role and zero_two_bus.lv_terminal_role == branch.from_terminal_role:
+                    hv_index, lv_index = branch.to_bus_index, branch.from_bus_index
+                else:
+                    return None
+                if (zero_two_bus.hv_bus_index, zero_two_bus.lv_bus_index) != (hv_index, lv_index):
+                    return None
+                vh = complex(voltages["zero"][hv_index])
+                vl = complex(voltages["zero"][lv_index])
+                ih = zero_two_bus.y_hh_pu * vh + zero_two_bus.y_hl_pu * vl
+                il = zero_two_bus.y_hl_pu * vh + zero_two_bus.y_ll_pu * vl
+                if not all(math.isfinite(v.real) and math.isfinite(v.imag) for v in (ih, il)):
+                    return None
+                if hv_index == branch.from_bus_index:
+                    from_currents["I0"], to_currents["I0"] = ih, il
+                else:
+                    from_currents["I0"], to_currents["I0"] = il, ih
+                provenance = {
+                    **provenance,
+                    "zero_sequence_model": "GROUNDED_WYE_GROUNDED_WYE_THREE_TEST_T_EQUIVALENT",
+                    "zero_sequence_transformer_id": zero_two_bus.transformer_id,
+                    "zero_sequence_hv_bus_id": zero_two_bus.hv_bus_id,
+                    "zero_sequence_lv_bus_id": zero_two_bus.lv_bus_id,
+                    "zero_sequence_hv_terminal_role": zero_two_bus.hv_terminal_role,
+                    "zero_sequence_lv_terminal_role": zero_two_bus.lv_terminal_role,
+                    "zero_sequence_y_hh_pu": zero_two_bus.y_hh_pu,
+                    "zero_sequence_y_hl_pu": zero_two_bus.y_hl_pu,
+                    "zero_sequence_y_ll_pu": zero_two_bus.y_ll_pu,
+                    "hv_neutral_3zn_ohm": zero_two_bus.hv_neutral_3zn_ohm,
+                    "lv_neutral_3zn_ohm": zero_two_bus.lv_neutral_3zn_ohm,
+                    "lv_neutral_3zn_hv_referred_ohm": zero_two_bus.lv_neutral_3zn_hv_referred_ohm,
+                    "zero_sequence_test_hv_open_circuit_z0_ohm": zero_two_bus.test_hv_open_circuit_z0_ohm,
+                    "zero_sequence_test_lv_open_circuit_z0_hv_referred_ohm": zero_two_bus.test_lv_open_circuit_z0_hv_referred_ohm,
+                    "zero_sequence_test_hv_short_circuit_z0_ohm": zero_two_bus.test_hv_short_circuit_z0_ohm,
+                    "zero_sequence_test_source_reference": zero_two_bus.test_source_reference,
+                    "zero_sequence_core_construction": zero_two_bus.core_construction,
+                    "zero_sequence_test_basis": zero_two_bus.zero_sequence_test_basis,
+                    "zero_sequence_base_mva": zero_two_bus.base_mva,
+                    "zero_sequence_test_mva_base": zero_two_bus.test_mva_base,
+                    "zero_sequence_hv_base_voltage_kv": zero_two_bus.hv_base_voltage_kv,
+                    "zero_sequence_lv_base_voltage_kv": zero_two_bus.lv_base_voltage_kv,
+                }
+                return from_currents, to_currents, provenance
+            if zero_shunt is None:
+                return None
+            if zero_shunt.transformer_id != branch.branch_id:
+                return None
+            if zero_shunt.bus_id == branch.from_bus_id and zero_shunt.terminal_role == branch.from_terminal_role:
+                grounded_side = "FROM"
+                grounded_bus_index = branch.from_bus_index
+            elif zero_shunt.bus_id == branch.to_bus_id and zero_shunt.terminal_role == branch.to_terminal_role:
+                grounded_side = "TO"
+                grounded_bus_index = branch.to_bus_index
+            else:
+                return None
+            if zero_shunt.bus_index != grounded_bus_index:
+                return None
+            voltage_zero = complex(voltages["zero"][grounded_bus_index])
+            grounded_current = voltage_zero / zero_shunt.impedance_pu
+            if not (math.isfinite(grounded_current.real) and math.isfinite(grounded_current.imag)):
+                return None
+            if grounded_side == "FROM":
+                from_currents["I0"] = grounded_current
+                to_currents["I0"] = 0.0j
+            else:
+                from_currents["I0"] = 0.0j
+                to_currents["I0"] = grounded_current
+            provenance = {
+                **provenance,
+                "zero_sequence_model": "GROUNDED_WYE_SIDE_RETURN_SHUNT",
+                "zero_sequence_transformer_id": zero_shunt.transformer_id,
+                "zero_sequence_grounded_winding_side": zero_shunt.grounded_winding_side,
+                "zero_sequence_grounded_terminal_role": zero_shunt.terminal_role,
+                "zero_sequence_grounded_bus_id": zero_shunt.bus_id,
+                "zero_sequence_impedance_pu": zero_shunt.impedance_pu,
+                "transformer_z0_ohm": zero_shunt.transformer_z0_ohm,
+                "neutral_3zn_ohm": zero_shunt.neutral_3zn_ohm,
+                "zero_sequence_total_impedance_ohm": zero_shunt.total_impedance_ohm,
+                "zero_sequence_core_construction": zero_shunt.core_construction,
+                "zero_sequence_test_basis": zero_shunt.zero_sequence_test_basis,
+                "zero_sequence_test_energized_winding": zero_shunt.test_energized_winding,
+                "zero_sequence_test_other_winding_condition": zero_shunt.test_other_winding_condition,
+                "zero_sequence_test_neutral_return_included": zero_shunt.test_neutral_return_included,
+            }
+        return from_currents, to_currents, provenance
+
     def _branch_current_sequences(self, branch: SequenceBranchSnapshot, voltages: dict[str, np.ndarray]) -> dict[str, complex] | None:
+        if branch.equipment_type == "Transformer":
+            snapshot = self.input.sequence_snapshot
+            zero_shunt = next(
+                (item for item in snapshot.transformer_zero_shunts if item.transformer_id == branch.branch_id),
+                None,
+            ) if snapshot is not None else None
+            zero_two_bus = next(
+                (item for item in snapshot.transformer_zero_two_bus_stamps if item.transformer_id == branch.branch_id),
+                None,
+            ) if snapshot is not None else None
+            terminal_currents = self._transformer_terminal_current_sequences(branch, voltages, zero_shunt, zero_two_bus)
+            return None if terminal_currents is None else terminal_currents[0]
         required = self._required_for_fault()
         result: dict[str, complex] = {}
         names = {"positive": "I1", "negative": "I2", "zero": "I0"}
@@ -157,7 +303,10 @@ class ShortCircuitSolver:
         equipment: dict[str, ShortCircuitEquipmentCurrent] = {}
         branches: dict[str, ShortCircuitBranchCurrent] = {}
 
+        required = self._required_for_fault()
         for source in snapshot.sources:
+            if not all(snapshot.is_bus_available(name, source.bus_index) for name in required):
+                continue
             sequence_currents = self._source_current_sequences(source, voltages)
             if sequence_currents is None:
                 continue
@@ -186,6 +335,12 @@ class ShortCircuitSolver:
             )
 
         for branch in snapshot.branches:
+            if not all(
+                snapshot.is_bus_available(name, index)
+                for name in required
+                for index in (branch.from_bus_index, branch.to_bus_index)
+            ):
+                continue
             sequence_currents = self._branch_current_sequences(branch, voltages)
             if sequence_currents is None:
                 continue
@@ -214,6 +369,116 @@ class ShortCircuitSolver:
                 phase_currents=phase,
             )
         return sources, equipment, branches
+
+    def _calculate_terminal_currents(
+        self,
+        typed: dict[str, Any],
+    ) -> tuple[dict[str, ShortCircuitTerminalCurrent], ContributionStatus, tuple[str, ...]]:
+        """Calculate terminal currents for supported line/cable and transformer primitives."""
+        snapshot = self.input.sequence_snapshot
+        if snapshot is None or not snapshot.branches:
+            return {}, ContributionStatus.UNAVAILABLE, ("No prepared branch terminal primitives are available.",)
+        voltages = self._bus_voltages(typed)
+        if voltages is None:
+            return {}, ContributionStatus.UNAVAILABLE, ("Solved sequence Bus voltages are unavailable for terminal-current calculation.",)
+        records: dict[str, ShortCircuitTerminalCurrent] = {}
+        diagnostics: list[str] = []
+        required = self._required_for_fault()
+        transformer_shunts = {item.transformer_id: item for item in snapshot.transformer_zero_shunts}
+        transformer_two_bus = {item.transformer_id: item for item in snapshot.transformer_zero_two_bus_stamps}
+        for branch in snapshot.branches:
+            if branch.equipment_type == "Transformer":
+                # Positive and negative sequence traverse the two-winding
+                # primitive. Zero sequence is checked only at the explicitly
+                # grounded terminal; the opposite winding is not a Z0 path.
+                two_port_required = tuple(name for name in required if name in {"positive", "negative"})
+                if not all(
+                    snapshot.is_bus_available(name, index)
+                    for name in two_port_required
+                    for index in (branch.from_bus_index, branch.to_bus_index)
+                ):
+                    diagnostics.append(
+                        f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                        "positive/negative sequence terminal component is unavailable."
+                    )
+                    continue
+                zero_shunt = transformer_shunts.get(branch.branch_id)
+                zero_two_bus = transformer_two_bus.get(branch.branch_id)
+                if "zero" in required:
+                    if zero_shunt is None and zero_two_bus is None:
+                        diagnostics.append(
+                            f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                            "no explicit grounded-wye zero-sequence terminal equivalent is present in the immutable study snapshot."
+                        )
+                        continue
+                    required_zero_indices = (zero_shunt.bus_index,) if zero_shunt is not None else (zero_two_bus.hv_bus_index, zero_two_bus.lv_bus_index)
+                    if not all(snapshot.is_bus_available("zero", index) for index in required_zero_indices):
+                        diagnostics.append(
+                            f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                            "the configured grounded-wye zero-sequence Bus component is unavailable."
+                        )
+                        continue
+                transformer_currents = self._transformer_terminal_current_sequences(
+                    branch, voltages, zero_shunt, zero_two_bus
+                )
+                if transformer_currents is None:
+                    diagnostics.append(
+                        f"Terminal currents unavailable for Transformer '{branch.branch_id}': "
+                        "the prepared transformer sequence primitives or grounded-side shunt do not match the terminal snapshot."
+                    )
+                    continue
+                from_sequence, to_sequence, sequence_provenance = transformer_currents
+                terminal_sequence_records = (
+                    (branch.from_terminal_role, branch.from_bus_id, from_sequence),
+                    (branch.to_terminal_role, branch.to_bus_id, to_sequence),
+                )
+            elif branch.equipment_type in {"Line", "Cable"}:
+                if not all(
+                    snapshot.is_bus_available(name, index)
+                    for name in required
+                    for index in (branch.from_bus_index, branch.to_bus_index)
+                ):
+                    diagnostics.append(
+                        f"Terminal currents unavailable for '{branch.branch_id}': "
+                        "one or both terminals belong to an unavailable sequence-network component."
+                    )
+                    continue
+                sequence_currents = self._branch_current_sequences(branch, voltages)
+                if sequence_currents is None:
+                    diagnostics.append(f"Terminal currents unavailable for {branch.branch_id}: required sequence impedance is missing.")
+                    continue
+                sequence_provenance = {"terminal_current_model": "SERIES_BRANCH_SEQUENCE_IMPEDANCE"}
+                terminal_sequence_records = (
+                    (branch.from_terminal_role, branch.from_bus_id, sequence_currents),
+                    (branch.to_terminal_role, branch.to_bus_id, {name: -value for name, value in sequence_currents.items()}),
+                )
+            else:
+                diagnostics.append(
+                    f"Terminal currents unavailable for {branch.equipment_type} '{branch.branch_id}': no supported terminal primitive."
+                )
+                continue
+            for role, bus_id, signed_sequence in terminal_sequence_records:
+                phase_currents = self._phase_from_sequence(signed_sequence)
+                key = f"{branch.branch_id}:{role}"
+                if key in records:
+                    raise ValueError(f"Duplicate equipment terminal current identity '{key}'.")
+                signed_sequence = {name: complex(value) for name, value in signed_sequence.items()}
+                signed_phase = {name: complex(value) for name, value in phase_currents.items()}
+                records[key] = ShortCircuitTerminalCurrent(
+                    equipment_id=branch.branch_id,
+                    equipment_type=branch.equipment_type,
+                    terminal_role=role,
+                    bus_id=bus_id,
+                    current=signed_phase["Ia"],
+                    sequence_currents=signed_sequence,
+                    phase_currents=signed_phase,
+                    sequence_provenance=sequence_provenance,
+                )
+        if len(records) == 2 * len(snapshot.branches):
+            return records, ContributionStatus.COMPLETE, ()
+        if records:
+            return records, ContributionStatus.PARTIAL, tuple(diagnostics)
+        return records, ContributionStatus.UNAVAILABLE, tuple(diagnostics) or ("No supported equipment terminal-current records were produced.",)
 
     def _contribution_status(
         self,
@@ -247,12 +512,116 @@ class ShortCircuitSolver:
             return ContributionStatus.PARTIAL, tuple(diagnostics)
         return ContributionStatus.COMPLETE, ()
 
+    def _solve_phase_domain(self) -> ShortCircuitResult:
+        """Execute the explicit physical-conductor-domain fault case."""
+        from .phase_domain_solver import PhaseDomainShortCircuitSolver
+        case = self.input.phase_domain_case
+        solution = PhaseDomainShortCircuitSolver().solve(case)
+        expected_branch = sum(2 * len(branch.conductor_ids) for branch in case.impedances.branches)
+        expected_connections = sum(
+            1 for edge in case.graph.connections if edge.in_service and edge.impedance_ohm != 0j
+            for node_id in (edge.from_node_id, edge.to_node_id)
+            if case.graph.node(node_id).kind.value != "EARTH_REFERENCE"
+            and case.graph.node(node_id).conductor_id is not None
+            and case.graph.node(node_id).bus_id is not None
+        )
+        expected = expected_branch + expected_connections
+        actual = len(solution.conductor_currents)
+        # Zero-ohm graph bonds are contracted into common electrical nodes
+        # during admittance assembly. Their individual branch currents are not
+        # separate result quantities and must not downgrade complete branch/
+        # finite-impedance connection coverage. Other omitted-current diagnostics
+        # remain coverage failures.
+        ideal_bond_diagnostics = tuple(
+            item for item in solution.diagnostics
+            if "is an ideal zero-ohm bond" in item
+        )
+        coverage_diagnostics = tuple(
+            item for item in solution.diagnostics
+            if "is an ideal zero-ohm bond" not in item
+        )
+        if actual == expected and expected > 0 and not coverage_diagnostics:
+            status = ContributionStatus.COMPLETE
+            diagnostics: tuple[str, ...] = ideal_bond_diagnostics
+        elif actual:
+            status = ContributionStatus.PARTIAL
+            diagnostics = (
+                f"Physical conductor-current coverage is partial: produced {actual} of {expected} terminal records.",
+                *coverage_diagnostics,
+                *ideal_bond_diagnostics,
+            )
+        else:
+            status = ContributionStatus.UNAVAILABLE
+            diagnostics = ("The phase-domain solve produced no physical conductor-current records.",)
+        provenance = {
+            "input_contract": "ShortCircuitInput",
+            "calculation_domain": "PHASE_DOMAIN",
+            "project_id": self.input.project_id,
+            "activation_generation": self.input.activation_generation,
+            "topology_revision": solution.topology_revision,
+            "base_mva": case.base_mva,
+            "current_units": "per_unit",
+            "phase_domain_node_ids": tuple(solution.node_voltages_v),
+            "phase_domain_source_ids": tuple(solution.source_currents_a),
+            "phase_domain_fault_connection_ids": tuple(solution.fault_currents_a),
+            "phase_domain_kcl_residual_a": solution.kcl_residual_a,
+            "conductor_current_ids": tuple(solution.conductor_currents),
+            "conductor_current_status": status.value,
+        }
+        values = {
+            "phase_domain_node_voltages_v": dict(solution.node_voltages_v),
+            "phase_domain_source_currents_a": dict(solution.source_currents_a),
+            "phase_domain_fault_currents_a": dict(solution.fault_currents_a),
+            "phase_domain_kcl_residual_a": solution.kcl_residual_a,
+            "conductor_currents": dict(solution.conductor_currents),
+            "conductor_current_status": status,
+            "conductor_current_diagnostics": diagnostics,
+            "contribution_status": ContributionStatus.UNAVAILABLE,
+            "contribution_diagnostics": ("Sequence-domain contribution records are not substituted for phase-domain conductor results.",),
+            "provenance": provenance,
+        }
+        result = ShortCircuitResult(
+            fault_type=self.input.fault_type,
+            fault_bus_index=self.input.fault_bus_index,
+            fault_bus_id=self.input.fault_bus_id,
+            success=True,
+            values=values,
+            source_contributions={},
+            equipment_currents={},
+            branch_currents={},
+            terminal_currents={},
+            terminal_current_status=ContributionStatus.UNAVAILABLE,
+            terminal_current_diagnostics=("Sequence/aggregate terminal-current records are not generated by the phase-domain execution path.",),
+            conductor_currents=dict(solution.conductor_currents),
+            conductor_current_status=status,
+            conductor_current_diagnostics=diagnostics,
+            provenance=provenance,
+            contribution_status=ContributionStatus.UNAVAILABLE,
+            diagnostics=("Phase-domain physical conductor currents are available; sequence-domain contribution records are not part of this result.",),
+        )
+        self.last_result = result
+        return result
+
     def solve(self) -> ShortCircuitResult:
         """Execute exactly once from the immutable input contract."""
+        if self.input.phase_domain_case is not None:
+            return self._solve_phase_domain()
         values = self._execute()
         typed = self._fault_typed_quantities(values)
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
         contribution_status, contribution_diagnostics = self._contribution_status(source_contributions, equipment_currents, branch_currents)
+        terminal_currents, terminal_current_status, terminal_current_diagnostics = self._calculate_terminal_currents(typed)
+        conductor_currents = {}
+        if self.input.sequence_snapshot is None or not self.input.sequence_snapshot.branches:
+            conductor_current_diagnostics = (
+                "No prepared branch topology is available for physical conductor-current calculation.",
+            )
+        else:
+            conductor_current_diagnostics = (
+                "Prepared sequence branch snapshots do not carry explicit physical conductor identities or per-conductor electrical parameters. Aggregate phase currents are not promoted to physical conductor currents.",
+                "Neutral-conductor current and CBCT aperture-current aggregation remain unavailable until the Core conductor topology and solver primitive are implemented.",
+            )
+        conductor_current_status = ContributionStatus.UNAVAILABLE
         provenance = {
             "input_contract": "ShortCircuitInput",
             "fault_bus_id": self.input.fault_bus_id,
@@ -261,6 +630,10 @@ class ShortCircuitSolver:
             "source_ids": tuple(source_contributions.keys()),
             "equipment_ids": tuple(equipment_currents.keys()),
             "branch_ids": tuple(branch_currents.keys()),
+            "terminal_current_ids": tuple(terminal_currents.keys()),
+            "terminal_current_status": terminal_current_status.value,
+            "conductor_current_status": conductor_current_status.value,
+            "conductor_current_ids": (),
             # Preserve the identity of the immutable Core snapshot through the
             # numerical result boundary. None is retained when a caller creates
             # detached input without project activation metadata; the solver
@@ -273,12 +646,23 @@ class ShortCircuitSolver:
             "base_mva": self.input.base_mva,
             "bus_voltage_bases_kv": dict(self.input.bus_voltage_bases_kv),
             "current_units": "per_unit",
+            "unavailable_sequence_buses": {
+                sequence: tuple(
+                    self.input.bus_ids[index]
+                    for index in indices
+                    if 0 <= index < len(self.input.bus_ids)
+                )
+                for sequence, indices in self.input.sequence_snapshot.unavailable_bus_indices.items()
+            } if self.input.sequence_snapshot is not None else {},
         }
         values = dict(values)
         values.update({
             "source_contributions": source_contributions,
             "equipment_currents": equipment_currents,
             "branch_currents": branch_currents,
+            "conductor_currents": conductor_currents,
+            "conductor_current_status": conductor_current_status,
+            "conductor_current_diagnostics": conductor_current_diagnostics,
             "contribution_status": contribution_status,
             "contribution_diagnostics": contribution_diagnostics,
         })
@@ -298,6 +682,12 @@ class ShortCircuitSolver:
             source_contributions=source_contributions,
             equipment_currents=equipment_currents,
             branch_currents=branch_currents,
+            terminal_currents=terminal_currents,
+            terminal_current_status=terminal_current_status,
+            terminal_current_diagnostics=terminal_current_diagnostics,
+            conductor_currents=conductor_currents,
+            conductor_current_status=conductor_current_status,
+            conductor_current_diagnostics=conductor_current_diagnostics,
             provenance=provenance,
             contribution_status=contribution_status,
             diagnostics=contribution_diagnostics,

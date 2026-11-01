@@ -71,6 +71,9 @@ class StudyPreparationService:
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
             topology_snapshot=self.topology,
+            phase_domain_case=configuration.phase_domain_case,
+            phase_domain_sources=configuration.phase_domain_sources or None,
+            phase_domain_faults=configuration.phase_domain_faults or None,
         )
 
     def prepare_transient_stability(
