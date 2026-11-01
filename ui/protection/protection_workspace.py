@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
     ProtectionChanged, ProjectClosed, ProjectLoaded,
@@ -356,7 +357,6 @@ class ProtectionInspector(QGroupBox):
                 f"  Settings: {dict(configuration.settings or {})}",
             ])
             try:
-                from core.protection import get_protection_function
                 specification = get_protection_function(configuration.function_code)
                 lines.append(f"  Implementation Status: {specification.status.value}")
                 if specification.input_contract is not None and not specification.input_contract.supported:
