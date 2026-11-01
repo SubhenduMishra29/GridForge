@@ -32,6 +32,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
+from core.model.breaker import Breaker
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -60,7 +61,7 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
-from .synchronism_check import ProjectScopedSynchronismAuditSink, create_project_synchronism_guard, validate_synchronism_instrument_topology
+from .synchronism_check import BypassAuthorization, ProjectScopedSynchronismAuditSink, create_project_synchronism_guard, validate_synchronism_instrument_topology
 from .synchronism_check import (
     ProjectScopedSynchronismAuditSink,
     create_project_synchronism_guard,
@@ -82,10 +83,13 @@ def create_application(
     measurement_clock: Callable[[], float] | None = None,
     measurement_clock_domain: str | None = None,
     max_measurement_source_clock_skew_seconds: float = 2.0,
+    synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> Application:
     """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
+    if synchronism_bypass_provider is not None and not callable(synchronism_bypass_provider):
+        raise TypeError("synchronism_bypass_provider must be callable when supplied.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -157,6 +161,7 @@ def create_application(
                 audit_sink=audit_sink,
                 clock=measurement_clock,
                 clock_domain=measurement_clock_domain,
+                bypass_provider=synchronism_bypass_provider,
                 topology_validator=lambda target_breaker, policy, channels: (
                     validate_synchronism_instrument_topology(
                         network=active_network,
@@ -471,6 +476,7 @@ def create_application(
                         audit_sink=audit_sink,
                         clock=measurement_clock,
                         clock_domain=measurement_clock_domain,
+                        bypass_provider=synchronism_bypass_provider,
                         topology_validator=lambda breaker, policy, channels: (
                             validate_synchronism_instrument_topology(
                                 network=network,
