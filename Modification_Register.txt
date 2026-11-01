@@ -18589,3 +18589,45 @@ Status:
     TOLERANCE / STUDY INTEGRATION / RUNTIME VERIFICATION OUTSTANDING
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-056 — Continuation: Conservative Timing-Tolerance CTI Assessment
+======================================================================
+
+Files:
+    core/protection/coordination_grading.py
+    core/protection/__init__.py
+    Modification_Register.txt
+
+Correction:
+    - Added immutable RelayOperatingTimeEnvelope records tied to a relay,
+      exact scenario current, lower/upper operating-time bounds, and a
+      non-empty manufacturer/test evidence reference.
+    - CoordinationPair can carry a separately declared maximum downstream
+      breaker clearing time, which cannot be below its nominal clearing time.
+    - When both relay timing envelopes and the breaker maximum are supplied,
+      calculate conservative CTI as upstream minimum operating time minus
+      downstream maximum operating time minus maximum breaker clearing time.
+    - Report tolerance-aware outcomes separately from nominal CTI outcomes.
+      Missing evidence/bounds or a current mismatch is NOT_ASSESSED or
+      TOLERANCE_NOT_EVALUABLE and never treated as a tolerance-aware pass.
+    - Exported RelayOperatingTimeEnvelope from core.protection.
+
+Boundary:
+    The bounds are supplied manufacturer/test evidence; Core does not invent
+    tolerances from curve families or apply generic percentages. The evidence
+    reference is provenance metadata, not an independent certification check.
+    Reset, overshoot/memory, breaker pole scatter, and time-varying relay
+    dynamics still require explicit models/data and are not covered here.
+
+Verification:
+    Remote source re-fetch and structural inspection only. No tests/CI,
+    syntax/import checks, numerical reference comparisons, or engineering
+    acceptance review were run.
+
+Status:
+    CONSERVATIVE CTI BOUND CALCULATION IMPLEMENTED IN SOURCE —
+    EVIDENCE AUTHENTICITY / DYNAMIC CHARACTERISTICS / RUNTIME VERIFICATION OPEN
+
+======================================================================
