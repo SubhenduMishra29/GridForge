@@ -623,7 +623,22 @@ class ProtectionStudyHandler:
                             if existing is not None and existing != characteristic:
                                 raise ValueError(f"Conflicting characteristic settings for function {element_id!r}.")
                             relay_characteristics[element_id] = characteristic
-                            scenario_currents[element_id] = abs(sample.value)
+                            sample_current = abs(sample.value)
+                            if element_config.function_code == "51N":
+                                residual_mode = sample.provenance.get("residual_source_mode")
+                                if residual_mode not in {"NEUTRAL_CT", "CBCT"}:
+                                    raise ValueError(
+                                        f"ANSI 51N function {element_id!r} requires an explicitly converted "
+                                        "NEUTRAL_CT or CBCT sample for coordination; three-phase residual "
+                                        "aggregation is not inferred from one binding."
+                                    )
+                                ratio = sample.provenance.get("instrument_ratio")
+                                if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                    raise ValueError(f"ANSI 51N sample {binding_id!r} lacks a valid authoritative CT ratio.")
+                                # Scenario samples are CT-secondary A; ANSI 51N's
+                                # derived RelayInput and pickup setting are primary A.
+                                sample_current *= float(ratio)
+                            scenario_currents[element_id] = sample_current
                         pair_inputs.append(ProtectionCoordinationPair(
                             downstream_function_id=pair_config.downstream_element_id,
                             upstream_function_id=pair_config.upstream_element_id,
