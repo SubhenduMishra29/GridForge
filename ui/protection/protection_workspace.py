@@ -17,12 +17,17 @@ from ui.canvas.canvas_framework import CanvasStateMachine
 from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteractionAdapter
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
-    QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QToolBar,
+    QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
     QVBoxLayout, QWidget,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
+from .protection_engineering_panels import (
+    ProtectionAnalysisCoveragePanel,
+    ProtectionFunctionCatalogPanel,
+    ProtectionTCCPanel,
+)
 
 
 class ProtectionGraphicsNode(QGraphicsRectItem):
@@ -438,6 +443,23 @@ class ProtectionWorkspace(QWidget):
             parent=self,
         )
         self._inspector = ProtectionInspector(application=application, selection_manager=selection_manager, parent=self)
+
+        # Engineer-facing navigation exposes the canonical function catalogue
+        # alongside live relay objects; analysis remains a read-only projection.
+        self._explorer_tabs = QTabWidget(self)
+        self._explorer_tabs.addTab(self._explorer, "Relays")
+        self._function_catalog = ProtectionFunctionCatalogPanel(self)
+        self._explorer_tabs.addTab(self._function_catalog, "ANSI Catalogue")
+
+        self._inspector_tabs = QTabWidget(self)
+        self._inspector_tabs.addTab(self._inspector, "Relay Details")
+        self._tcc_panel = ProtectionTCCPanel(
+            application=application, selection_manager=selection_manager, parent=self
+        )
+        self._inspector_tabs.addTab(self._tcc_panel, "TCC")
+        self._analysis_coverage = ProtectionAnalysisCoveragePanel(self)
+        self._inspector_tabs.addTab(self._analysis_coverage, "Analysis Coverage")
+
         self._toolbar = ProtectionToolbar(
             self._interaction,
             on_fit=self._canvas.fit_to_content,
@@ -480,11 +502,11 @@ class ProtectionWorkspace(QWidget):
 
     @property
     def editor_explorer(self) -> QWidget:
-        return self._explorer
+        return self._explorer_tabs
 
     @property
     def editor_inspector(self) -> QWidget:
-        return self._inspector
+        return self._inspector_tabs
 
     @property
     def canvas_state(self):
@@ -498,6 +520,9 @@ class ProtectionWorkspace(QWidget):
         self._explorer.refresh()
         self._canvas.refresh()
         self._inspector.refresh()
+        self._function_catalog.refresh()
+        self._tcc_panel.refresh()
+        self._analysis_coverage.refresh()
         self._toolbar.set_active(self._interaction.active_tool)
 
     def _on_application_event(self, event: Any) -> None:
