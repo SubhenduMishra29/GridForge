@@ -15821,3 +15821,40 @@ Verification:
     and runtime authorization-path verification remain outstanding.
 
 ======================================================================
+
+======================================================================
+GF-PROT-045
+======================================================================
+
+Scope:
+    ANSI 25 breaker re-energization and transactional restoration paths
+
+File:
+    core/application/services/switching_model_service.py
+
+Finding:
+    The GF-PROT-043 fail-closed authorizer covered explicit close
+    operations but did not cover every transition that can restore an
+    energized breaker state.
+
+Corrections:
+    1. Updating a breaker now requires authorization when the combined
+       closed/in-service state transitions from non-energized to energized.
+    2. Putting a closed breaker back in service requires authorization.
+    3. Undo callbacks that restore a previously energized breaker state
+       require fresh authorization before restoring that state.
+    4. Opening and taking a breaker out of service remain available.
+
+Status:
+    🟡 SOURCE CORRECTION COMMITTED — STATIC REVIEW PENDING
+
+Limitations:
+    The default Application composition still has no complete project-
+    scoped ANSI 25 guard. Missing authorization therefore continues to
+    deny energization. This correction does not complete ANSI 25 policy
+    persistence, trusted live sample ingestion, clock-domain attestation,
+    or durable decision audit.
+
+Verification:
+    No tests or CI run. Syntax/import/runtime checks not performed.
+======================================================================
