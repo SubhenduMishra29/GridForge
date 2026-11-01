@@ -152,6 +152,7 @@ class ProtectionTCCPanel(QGroupBox):
 
         rows: list[tuple[str, str, str, str, str]] = []
         chart_points: dict[str, list[tuple[float, float]]] = {}
+        curve_labels: dict[str, str] = {}
         notices: list[str] = []
         for configuration in relay_configurations:
             code = str(configuration.function_code).strip().upper()
@@ -193,6 +194,9 @@ class ProtectionTCCPanel(QGroupBox):
             curve_label = f"{model.curve_standard} {model.curve}"
             element_id = str(configuration.element_id)
             chart_points[element_id] = []
+            curve_labels[element_id] = (
+                f"{configuration.function_code} · {model.curve_standard} {model.curve}"
+            )
             for point in model.points:
                 rows.append((
                     element_id,
@@ -215,14 +219,6 @@ class ProtectionTCCPanel(QGroupBox):
         for row, values in enumerate(rows):
             for column, value in enumerate(values):
                 self._table.setItem(row, column, QTableWidgetItem(value))
-        curve_labels = {
-            str(configuration.element_id): (
-                f"{configuration.function_code} · "
-                f"{configuration.settings.get('curve_standard', 'IEC')} "
-                f"{configuration.settings.get('curve', '')}"
-            )
-            for configuration in relay_configurations
-        }
         for element_id, points in chart_points.items():
             if not points:
                 continue
