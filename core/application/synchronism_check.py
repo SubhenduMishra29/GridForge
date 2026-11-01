@@ -545,8 +545,12 @@ def validate_synchronism_instrument_topology(
         source_reference = getattr(channel, "source_terminal", None)
         if not isinstance(source_reference, EndpointReference) or not source_reference.is_terminal:
             raise ValueError(f"ANSI 25 channel {channel_id!r} has no canonical secondary-terminal source reference.")
-        if source_reference.equipment_id != getattr(source, "id", None):
-            raise ValueError(f"ANSI 25 channel {channel_id!r} source identity does not match its PT/CVT.")
+        expected_equipment_type = EquipmentType.PT if source_type == "PT" else EquipmentType.CVT
+        if (
+            source_reference.equipment_id != getattr(source, "id", None)
+            or source_reference.equipment_type is not expected_equipment_type
+        ):
+            raise ValueError(f"ANSI 25 channel {channel_id!r} source identity/type does not match its PT/CVT.")
         secondary_roles = {"PT": {"secondary_a", "secondary_b"}, "CVT": {"X1", "X2"}}
         if source_reference.terminal_role not in secondary_roles[source_type]:
             raise ValueError(f"ANSI 25 channel {channel_id!r} is not sourced from a PT/CVT secondary terminal.")
