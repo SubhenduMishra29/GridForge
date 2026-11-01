@@ -18660,3 +18660,41 @@ Limitations:
 
 ======================================================================
 
+======================================================================
+GF-PROT-055 — Bind ANSI 25 instruments to active Network object identity
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    ANSI 25 physical measurement source provenance
+
+Files:
+    core/application/synchronism_check.py
+    Modification_Register.txt
+
+Finding:
+    The topology validator checked PT/CVT source IDs and terminal references,
+    then resolved topology by those IDs. It did not prove that the source
+    object retained by the MeasurementChannel was the canonical equipment
+    instance registered in the active Network. A stale object from another
+    Network with colliding IDs could therefore be evaluated against the
+    active Network's topology.
+
+Correction:
+    Require network.get_by_identity(source.id) to return the exact same object
+    instance as channel.source before accepting its PT/CVT type, service state,
+    secondary terminal binding, or primary terminal topology. Missing registry
+    lookup, missing identity, and object mismatch deny breaker closing.
+
+Safety:
+    The instrument state and physical terminals evaluated by ANSI 25 are now
+    tied to the exact active Network equipment instance, not merely a matching
+    equipment identifier.
+
+Limitations:
+    No tests or CI were run; cross-project runtime fixtures remain unverified.
+
+======================================================================
+
