@@ -125,11 +125,58 @@ def create_application(
     synchronism_guard: Any = None
 
     def authorize_breaker_close(breaker, operation: str) -> bool:
-        guard = synchronism_guard
-        if guard is None:
-            raise PermissionError(
-                "Breaker energization denied: no active, audited ANSI 25 synchronism guard is composed."
+        nonlocal synchronism_guard
+        guard = None
+        active_lifecycle = getattr(application, "project_lifecycle", None)
+        active_context = getattr(active_lifecycle, "context", None)
+        active_network = getattr(active_lifecycle, "network", None)
+        active_generation = getattr(active_lifecycle, "activation_generation", 0)
+        active_configuration = protection_configuration_service.configuration
+        active_policy = (
+            active_configuration.synchronism_check_configuration
+            if active_configuration is not None else None
+        )
+        active_path = getattr(active_context, "path", None)
+        if (
+            active_context is not None
+            and active_network is not None
+            and active_policy is not None
+            and measurement_clock is not None
+            and isinstance(measurement_clock_domain, str)
+            and measurement_clock_domain.strip()
+            and active_path is not None
+        ):
+            audit_sink = ProjectScopedSynchronismAuditSink(
+                project_id=active_context.project_id,
+                activation_generation=active_generation,
+                project_path=active_path,
+                clock=measurement_clock,
+                clock_domain=measurement_clock_domain,
             )
+            guard = create_project_synchronism_guard(
+                project_id=active_context.project_id,
+                activation_generation=active_generation,
+                project_configuration_provider=lambda: (
+                    protection_configuration_service.configuration.synchronism_check_configuration
+                ),
+                measurement_channel_service=measurement_channel_service,
+                audit_sink=audit_sink,
+                clock=measurement_clock,
+                clock_domain=measurement_clock_domain,
+                topology_validator=lambda target_breaker, policy, channels: (
+                    validate_synchronism_instrument_topology(
+                        network=active_network,
+                        breaker=target_breaker,
+                        configuration=policy,
+                        channels=channels,
+                    )
+                ),
+            )
+        # Refresh on every close attempt so policy updates and Save As path
+        # changes cannot retain an obsolete project-scoped guard.
+        synchronism_guard = guard
+        if guard is None:
+            raise PermissionError("Breaker energization denied: no active audited ANSI 25 guard.")
         decision = guard.authorize_close(breaker)
         if getattr(decision, "permitted", None) is not True:
             raise PermissionError("Breaker energization denied by ANSI 25.")
