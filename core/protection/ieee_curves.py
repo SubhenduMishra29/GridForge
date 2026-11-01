@@ -7,7 +7,8 @@ The 51 relay settings/factory integration is deliberately a separate step.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import exp, expm1, isfinite, log
+from math import exp, expm1, isfinite, log, inf
+from types import MappingProxyType
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +34,7 @@ class IEEECurveDefinition:
             raise ValueError("IEEE curve A and p coefficients must be positive.")
 
 
-IEEE_CURVES = {
+IEEE_CURVES = MappingProxyType({
     "MODERATELY_INVERSE": IEEECurveDefinition(
         "MODERATELY_INVERSE", 0.0515, 0.114, 0.02,
         "IEEE C37.112 moderately inverse",
@@ -46,7 +47,7 @@ IEEE_CURVES = {
         "EXTREMELY_INVERSE", 28.2, 0.1217, 2.0,
         "IEEE C37.112 extremely inverse",
     ),
-}
+})
 
 
 def normalize_ieee_curve(curve: str) -> str:
@@ -95,9 +96,12 @@ def ieee_inverse_time(
 
     definition = IEEE_CURVES[normalize_ieee_curve(curve)]
     # expm1(p*log(M)) avoids cancellation for M close to unity.
-    denominator = expm1(definition.p * log(multiple))
+    try:
+        denominator = expm1(definition.p * log(multiple))
+    except OverflowError:
+        denominator = inf
     if denominator <= 0.0:
-        return float("inf")
+        return inf
     return dial_value * (definition.a / denominator + definition.b)
 
 
