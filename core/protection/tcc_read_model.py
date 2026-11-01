@@ -30,6 +30,14 @@ class ProtectionTCCReadModel:
     time_dial: float
     points: tuple[ProtectionTCCPoint, ...]
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.points, (tuple, list)):
+            raise TypeError("points must be a tuple or list of ProtectionTCCPoint.")
+        detached = tuple(self.points)
+        if any(not isinstance(point, ProtectionTCCPoint) for point in detached):
+            raise TypeError("points must contain only ProtectionTCCPoint values.")
+        object.__setattr__(self, "points", detached)
+
     def to_dict(self) -> dict[str, object]:
         """Return a detached serialization-friendly representation."""
         return {
@@ -61,6 +69,14 @@ def build_protection_tcc_read_model(
     """
     if not isinstance(curve_standard, str):
         raise TypeError("curve_standard must be a string.")
+    for name, value in (
+        ("pickup", pickup),
+        ("time_dial", time_dial),
+        ("minimum_multiple", minimum_multiple),
+        ("maximum_multiple", maximum_multiple),
+    ):
+        if isinstance(value, bool):
+            raise TypeError(f"{name} must be numeric, not bool.")
     standard = curve_standard.strip().upper()
     if standard == "IEC":
         canonical = normalize_iec_curve(curve)
