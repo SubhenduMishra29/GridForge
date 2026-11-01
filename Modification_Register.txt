@@ -15943,3 +15943,62 @@ Verification:
     Source inspection only. No tests, CI, syntax/import checks, or runtime
     measurement publication performed.
 ======================================================================
+
+======================================================================
+GF-PROT-048
+======================================================================
+
+Scope:
+    Verify current-main MeasurementChannel mutation and project activation
+    boundaries before implementing trusted ANSI 25 sample publication
+
+Files inspected:
+    core/measurement/measurement_channel.py
+    core/application/services/measurement_channel_service.py
+    core/application/project_lifecycle.py
+    core/application/bootstrap.py
+    core/application/application.py
+    core/protection/project_configuration.py
+
+Findings:
+    1. MeasurementChannel.update() is a public instance method accepting
+       value, timestamp, quality, availability and sample_sequence. It has
+       no producer identity, publication capability, or clock provenance
+       argument.
+    2. MeasurementChannel stores timestamp and sample_sequence but has no
+       timestamp_domain field. A candidate guard requiring that field
+       cannot be wired to the current channel model without an explicit,
+       compatible Core contract change.
+    3. MeasurementChannelService owns channel provisioning and project
+       activation state but currently exposes no trusted sample-publisher
+       API. Its channels property returns a shallow registry copy whose
+       channel objects remain mutable.
+    4. ProjectLifecycleService increments activation_generation and invokes
+       the project-state activation hook transactionally. Bootstrap rebuilds
+       candidate channels in that hook and restores the prior registry on
+       rollback. This is the correct place to replace project-scoped
+       publication capabilities once a trusted source authority exists.
+    5. The inspected composition has no source-authentication provider or
+       clock-attestation authority that can legitimately mint a trusted
+       publisher. A caller-supplied source ID, random in-process token, or
+       timestamp-domain label would not establish external source identity.
+    6. The candidate PR #869 guard expects channel timestamp_domain and
+       therefore cannot consume the current channel model unchanged.
+
+Disposition:
+    - Do not add a publisher that accepts caller-asserted source identity
+      or timestamp domain as proof of trust.
+    - Do not make the ANSI 25 breaker authorizer permissive.
+    - Define and integrate an authenticated measurement-source/clock
+      authority contract before implementing live publication. The contract
+      must bind source identity, authorized channel set, project ID,
+      activation generation, clock authority, monotonic sequence and sample
+      freshness. The trust root must be supplied by an actual measurement
+      adapter/integration, not self-registration by arbitrary callers.
+    - Keep all breaker close and re-energization paths fail-closed meanwhile.
+
+Verification:
+    Current-branch source inspection and lifecycle composition review.
+    No tests or CI run. No measurement publisher or runtime integration
+    implemented. No issue closed.
+======================================================================
