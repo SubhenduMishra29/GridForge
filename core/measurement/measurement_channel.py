@@ -378,6 +378,7 @@ class MeasurementChannel:
         self.id = id
         self.name = str(name)
         self._sample_update_authority = None
+        self.producer_id = None
 
         if not isinstance(
             signal_type,
@@ -470,15 +471,25 @@ class MeasurementChannel:
         "raw_value", "timestamp", "timestamp_domain",
         "sample_sequence", "quality", "available",
     })
+    # A project-managed channel's physical source and engineering contract
+    # must not be mutable through the channel object exposed to consumers.
+    _CONFIGURATION_FIELDS = frozenset({
+        "id", "signal_type", "source", "source_terminal", "phase", "unit",
+        "nominal_value", "scale", "polarity", "stale_after", "producer_id",
+    })
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in self._SAMPLE_STATE_FIELDS:
-            authority = getattr(self, "_sample_update_authority", None)
+        authority = getattr(self, "_sample_update_authority", None)
+        if authority is not None and name in self._SAMPLE_STATE_FIELDS:
             write_authority = getattr(self, "_sample_write_authority", None)
-            if authority is not None and write_authority is not authority:
+            if write_authority is not authority:
                 raise PermissionError(
                     "Project-managed measurement sample state is writable only through MeasurementChannelService."
                 )
+        if authority is not None and name in self._CONFIGURATION_FIELDS:
+            raise PermissionError(
+                "Project-managed measurement channel configuration is immutable after activation."
+            )
         object.__setattr__(self, name, value)
 
     def _bind_sample_update_authority(self, authority: Any) -> None:
