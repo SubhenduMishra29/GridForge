@@ -51,6 +51,7 @@ from .revision import ProjectRevision
 from .study import StudyCaseDefinition, StudyRequest, StudyResult
 from .protection_study import (
     ProtectionFaultScenario,
+    ProtectionCoordinationTimingEnvelopeConfiguration,
     ProtectionCoordinationPairConfiguration,
     ProtectionFaultScenarioResult,
     ProtectionStudyConfiguration,
@@ -99,6 +100,7 @@ __all__ = [
     "StudyRequest",
     "StudyResult",
     "ProtectionFaultScenario",
+    "ProtectionCoordinationTimingEnvelopeConfiguration",
     "ProtectionCoordinationPairConfiguration",
     "ProtectionFaultScenarioResult",
     "ProtectionStudyConfiguration",
