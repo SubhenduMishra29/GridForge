@@ -205,6 +205,26 @@ class CoordinationGrade:
     tolerance_available_cti_s: float | None = None
     tolerance_status: str = "NOT_ASSESSED"
     tolerance_reason: str = "Manufacturer/test timing envelopes and maximum breaker clearing time were not supplied."
+    downstream_timing_envelope: RelayOperatingTimeEnvelope | None = None
+    upstream_timing_envelope: RelayOperatingTimeEnvelope | None = None
+    downstream_breaker_clearing_time_max_s: float | None = None
+
+    def __post_init__(self) -> None:
+        for name, expected_function_id in (
+            ("downstream_timing_envelope", self.downstream_function_id),
+            ("upstream_timing_envelope", self.upstream_function_id),
+        ):
+            envelope = getattr(self, name)
+            if envelope is not None and not isinstance(envelope, RelayOperatingTimeEnvelope):
+                raise TypeError(f"{name} must be RelayOperatingTimeEnvelope or None.")
+            if envelope is not None and envelope.function_id != expected_function_id:
+                raise ValueError(f"{name} function identity does not match the coordination grade.")
+        maximum = self.downstream_breaker_clearing_time_max_s
+        if maximum is not None:
+            maximum = _finite(maximum, "downstream_breaker_clearing_time_max_s")
+            if maximum < self.downstream_breaker_clearing_time_s:
+                raise ValueError("Maximum breaker clearing time cannot be below the nominal value.")
+            object.__setattr__(self, "downstream_breaker_clearing_time_max_s", maximum)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -223,6 +243,25 @@ class CoordinationGrade:
             "tolerance_available_cti_s": self.tolerance_available_cti_s,
             "tolerance_status": self.tolerance_status,
             "tolerance_reason": self.tolerance_reason,
+            "downstream_timing_envelope": (
+                {
+                    "function_id": self.downstream_timing_envelope.function_id,
+                    "current_a": self.downstream_timing_envelope.current_a,
+                    "minimum_time_s": self.downstream_timing_envelope.minimum_time_s,
+                    "maximum_time_s": self.downstream_timing_envelope.maximum_time_s,
+                    "evidence_reference": self.downstream_timing_envelope.evidence_reference,
+                } if self.downstream_timing_envelope is not None else None
+            ),
+            "upstream_timing_envelope": (
+                {
+                    "function_id": self.upstream_timing_envelope.function_id,
+                    "current_a": self.upstream_timing_envelope.current_a,
+                    "minimum_time_s": self.upstream_timing_envelope.minimum_time_s,
+                    "maximum_time_s": self.upstream_timing_envelope.maximum_time_s,
+                    "evidence_reference": self.upstream_timing_envelope.evidence_reference,
+                } if self.upstream_timing_envelope is not None else None
+            ),
+            "downstream_breaker_clearing_time_max_s": self.downstream_breaker_clearing_time_max_s,
         }
 
 
@@ -326,6 +365,8 @@ def grade_protection_coordination(
         for scenario in scenario_items:
             downstream_current = scenario.function_currents_a.get(downstream.function_id)
             upstream_current = scenario.function_currents_a.get(upstream.function_id)
+            down_envelope = scenario.function_timing_envelopes.get(downstream.function_id)
+            up_envelope = scenario.function_timing_envelopes.get(upstream.function_id)
             if downstream_current is None or upstream_current is None:
                 missing = [
                     function_id for function_id, value in (
@@ -339,6 +380,9 @@ def grade_protection_coordination(
                     pair.downstream_breaker_clearing_time_s, None, pair.required_cti_s,
                     "NOT_EVALUABLE",
                     "Missing explicit fault-current magnitude for function(s): " + ", ".join(missing),
+                    downstream_timing_envelope=down_envelope,
+                    upstream_timing_envelope=up_envelope,
+                    downstream_breaker_clearing_time_max_s=pair.downstream_breaker_clearing_time_max_s,
                 ))
                 continue
 
@@ -356,6 +400,9 @@ def grade_protection_coordination(
                     pair.downstream_breaker_clearing_time_s, None, pair.required_cti_s,
                     "NOT_EVALUABLE",
                     "No finite operating time for " + " and ".join(non_operating) + " function.",
+                    downstream_timing_envelope=down_envelope,
+                    upstream_timing_envelope=up_envelope,
+                    downstream_breaker_clearing_time_max_s=pair.downstream_breaker_clearing_time_max_s,
                 ))
                 continue
 
@@ -365,8 +412,6 @@ def grade_protection_coordination(
                 - pair.downstream_breaker_clearing_time_s
             )
             coordinated = available >= pair.required_cti_s
-            down_envelope = scenario.function_timing_envelopes.get(downstream.function_id)
-            up_envelope = scenario.function_timing_envelopes.get(upstream.function_id)
             tolerance_available = None
             tolerance_status = "NOT_ASSESSED"
             tolerance_reason = (
@@ -407,6 +452,7 @@ def grade_protection_coordination(
                 "COORDINATED" if coordinated else "NOT_COORDINATED",
                 "Required CTI is met." if coordinated else "Available CTI is below the required CTI.",
                 tolerance_available, tolerance_status, tolerance_reason,
+                down_envelope, up_envelope, pair.downstream_breaker_clearing_time_max_s,
             ))
 
     return ProtectionCoordinationReport(grades=tuple(grades))
