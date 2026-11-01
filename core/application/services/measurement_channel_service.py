@@ -18,6 +18,7 @@ from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
     MeasurementPhase,
+    MeasurementQuality,
     MeasurementSignalType,
 )
 from core.measurement.measurement_provisioning import MeasurementProvisioning
@@ -35,9 +36,12 @@ class MeasurementSampleAttestation:
     timestamp_domain: str
     sample_sequence: int
     signature: str
+    channel_id: str
+    quality: MeasurementQuality
+    available: bool
 
     def __post_init__(self) -> None:
-        for name in ("producer_id", "project_id", "timestamp_domain", "signature"):
+        for name in ("producer_id", "project_id", "timestamp_domain", "signature", "channel_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip() or value != value.strip():
                 raise ValueError(f"{name} must be a canonical non-empty string.")
@@ -47,6 +51,10 @@ class MeasurementSampleAttestation:
             raise ValueError("sample_sequence must be a non-negative integer.")
         if isinstance(self.timestamp, bool) or not isinstance(self.timestamp, (int, float)) or not math.isfinite(self.timestamp):
             raise ValueError("timestamp must be finite.")
+        if not isinstance(self.quality, MeasurementQuality):
+            raise TypeError("quality must be a MeasurementQuality.")
+        if not isinstance(self.available, bool):
+            raise TypeError("available must be bool.")
 
 
 class MeasurementChannelService:
@@ -147,6 +155,10 @@ class MeasurementChannelService:
             if not isinstance(available, bool):
                 raise TypeError("available must be bool.")
             channel = self.require(channel_id)
+            if attestation.channel_id != channel.id:
+                raise PermissionError("Measurement attestation is bound to a different channel identity.")
+            if attestation.quality is not quality or attestation.available is not available:
+                raise PermissionError("Published quality/availability must exactly match the signed measurement attestation.")
             if getattr(channel, "producer_id", None) != attestation.producer_id:
                 raise PermissionError("Measurement producer identity does not match the configured channel producer.")
             if attestation.project_id != self._project_id or attestation.activation_generation != self._activation_generation:
