@@ -94,6 +94,10 @@ from core.protection.context import ProtectionContext
 from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
 from core.protection.ieee_curves import ieee_inverse_time, normalize_ieee_curve
+from core.protection.tcc_read_model import (
+    ProtectionTCCReadModel,
+    build_protection_tcc_read_model,
+)
 from core.protection.relay_functions import (
     current_multiplier,
     iec_pickup,
@@ -512,6 +516,24 @@ class IECOvercurrentRelay(RelayBase):
             pickup=self.pickup,
             curve=self.curve,
             TMS=self.TMS,
+        )
+
+    def tcc_read_model(
+        self,
+        *,
+        minimum_multiple: float = 1.01,
+        maximum_multiple: float = 20.0,
+        points: int = 200,
+    ) -> ProtectionTCCReadModel:
+        """Return numerical TCC data using this element's active standard."""
+        return build_protection_tcc_read_model(
+            self.pickup,
+            curve_standard=self.curve_standard,
+            curve=self.curve,
+            time_dial=self.TMS,
+            minimum_multiple=minimum_multiple,
+            maximum_multiple=maximum_multiple,
+            points=points,
         )
 
     # =================================================================
