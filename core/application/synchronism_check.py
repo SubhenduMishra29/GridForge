@@ -454,9 +454,15 @@ class ProjectScopedSynchronismAuditSink:
         package = normalize_package_path(Path(project_path))
         if not package.parent.is_dir():
             raise OSError("ANSI 25 audit directory does not exist; refusing to create an untracked audit location.")
+        import hashlib
+
         self._project_id = project_id
         self._activation_generation = activation_generation
         self._path = package.with_name(package.name + ".ansi25-audit.jsonl")
+        # Replay protection follows immutable project identity, not the
+        # package path, so Save As and project moves cannot reset consumption.
+        project_scope = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+        self._bypass_registry_dir = Path.home() / ".gridforge" / "ansi25-bypass" / project_scope
         self._clock = clock
         self._clock_domain = clock_domain.strip()
 
@@ -471,7 +477,11 @@ class ProjectScopedSynchronismAuditSink:
         return self._path
 
     def consume_bypass_authorization(self, authorization: BypassAuthorization) -> bool:
-        """Atomically claim a bypass token once for this project activation."""
+        """Atomically claim a bypass token in a project-identity registry.
+
+        The registry lives under the user profile rather than beside the
+        package, so Save As and moving the project do not reset replay state.
+        """
         import hashlib
         import json
         import os
@@ -484,7 +494,8 @@ class ProjectScopedSynchronismAuditSink:
         ):
             return False
         digest = hashlib.sha256(authorization.authorization_id.encode("utf-8")).hexdigest()
-        marker = self._path.with_name(self._path.name + ".bypass-" + digest + ".used")
+        self._bypass_registry_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        marker = self._bypass_registry_dir / (digest + ".used")
         record = {
             "schema": 1,
             "authorization_id": authorization.authorization_id,
@@ -510,6 +521,14 @@ class ProjectScopedSynchronismAuditSink:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+        # Persist the directory entry on filesystems that support directory
+        # fsync. Windows exposes file flushing but not portable directory fsync.
+        if os.name != "nt":
+            directory_descriptor = os.open(self._bypass_registry_dir, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
         return True
 
     def __call__(self, decision: SynchronismDecision) -> None:
