@@ -566,6 +566,7 @@ class ProtectionWorkspace(QWidget):
             if study_id is not None:
                 self._coordination_study.set_study_in_progress(study_id, False)
         elif isinstance(event, ProjectLoaded):
+            self._coordination_study.clear_in_progress()
             loaded = getattr(self._application, "protection_presentation", None)
             if isinstance(loaded, dict):
                 restored = ProtectionPresentationDocument.from_dict(loaded)
