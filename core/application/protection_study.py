@@ -34,6 +34,13 @@ from core.protection.configuration_fingerprint import canonical_configuration_va
 from core.protection.decision import ProtectionDecision
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.protection.runtime import ProtectionRuntime
+from core.protection.coordination_grading import (
+    CoordinationRelayCharacteristic,
+    CoordinationPair as ProtectionCoordinationPair,
+    FaultCurrentScenario,
+    ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
 
 
 def _freeze_mapping(value: Any, field_name: str) -> Any:
@@ -70,6 +77,47 @@ class ProtectionFaultScenario:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtectionCoordinationPairConfiguration:
+    """Explicit Application binding from two protection functions to scenario CT samples."""
+
+    downstream_element_id: str
+    upstream_element_id: str
+    downstream_binding_id: str
+    upstream_binding_id: str
+    downstream_breaker_clearing_time_s: float
+    required_cti_s: float
+    downstream_breaker_clearing_time_max_s: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "downstream_element_id", "upstream_element_id",
+            "downstream_binding_id", "upstream_binding_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if self.downstream_element_id == self.upstream_element_id:
+            raise ValueError("A coordination pair must reference two different protection functions.")
+        for name in ("downstream_breaker_clearing_time_s", "required_cti_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            number = float(value)
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        maximum = self.downstream_breaker_clearing_time_max_s
+        if maximum is not None:
+            if isinstance(maximum, bool):
+                raise TypeError("downstream_breaker_clearing_time_max_s must be numeric, not bool.")
+            maximum = float(maximum)
+            if not isfinite(maximum) or maximum < self.downstream_breaker_clearing_time_s:
+                raise ValueError("Maximum breaker clearing time must be finite and >= nominal clearing time.")
+            object.__setattr__(self, "downstream_breaker_clearing_time_max_s", maximum)
+
+
+@dataclass(frozen=True, slots=True)
 class ProtectionFaultScenarioResult:
     """Immutable short-circuit result correlated to one Protection Study scenario."""
 
@@ -78,6 +126,8 @@ class ProtectionFaultScenarioResult:
     short_circuit_result: ShortCircuitResult
     execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
     relay_evaluation_completed: bool = False
+    coordination_report: ProtectionCoordinationReport | None = None
+    coordination_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -91,6 +141,10 @@ class ProtectionFaultScenarioResult:
             raise TypeError("execution must be a ProtectionExecutionResult.")
         if not isinstance(self.relay_evaluation_completed, bool):
             raise TypeError("relay_evaluation_completed must be a boolean.")
+        if self.coordination_report is not None and not isinstance(self.coordination_report, ProtectionCoordinationReport):
+            raise TypeError("coordination_report must be ProtectionCoordinationReport or None.")
+        diagnostics = tuple(str(item) for item in self.coordination_diagnostics)
+        object.__setattr__(self, "coordination_diagnostics", diagnostics)
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -118,7 +172,7 @@ class ProtectionFaultScenarioResult:
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return tuple(self.short_circuit_result.diagnostics)
+        return tuple(self.short_circuit_result.diagnostics) + tuple(self.coordination_diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +193,7 @@ class ProtectionStudyConfiguration:
     supervision: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     fault_scenarios: tuple[ProtectionFaultScenario, ...] = ()
+    coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.evaluation_time, bool):
@@ -187,6 +242,13 @@ class ProtectionStudyConfiguration:
         if len(set(scenario_ids)) != len(scenario_ids):
             raise ValueError("fault_scenarios must not contain duplicate scenario IDs.")
         object.__setattr__(self, "fault_scenarios", scenarios)
+        pairs = tuple(self.coordination_pairs)
+        if any(not isinstance(item, ProtectionCoordinationPairConfiguration) for item in pairs):
+            raise TypeError("coordination_pairs must contain ProtectionCoordinationPairConfiguration values.")
+        pair_keys = tuple((item.downstream_element_id, item.upstream_element_id) for item in pairs)
+        if len(set(pair_keys)) != len(pair_keys):
+            raise ValueError("coordination_pairs must not contain duplicate downstream/upstream pairs.")
+        object.__setattr__(self, "coordination_pairs", pairs)
 
     @classmethod
     def from_project_configuration(
@@ -201,6 +263,7 @@ class ProtectionStudyConfiguration:
         supervision: Mapping[str, Any] | None = None,
         metadata: Mapping[str, Any] | None = None,
         fault_scenarios: tuple[ProtectionFaultScenario, ...] = (),
+        coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = (),
     ) -> "ProtectionStudyConfiguration":
         if not isinstance(configuration, ProtectionProjectConfiguration):
             raise TypeError("configuration must be a ProtectionProjectConfiguration.")
@@ -214,6 +277,7 @@ class ProtectionStudyConfiguration:
             supervision={} if supervision is None else supervision,
             metadata={} if metadata is None else metadata,
             fault_scenarios=fault_scenarios,
+            coordination_pairs=coordination_pairs,
         )
 
     @property
@@ -512,12 +576,78 @@ class ProtectionStudyHandler:
                         protection_runtime=scenario_runtime,
                     )
                 relay_evaluation_completed = not scenario_execution.diagnostics
+            coordination_report = None
+            coordination_diagnostics: list[str] = []
+            if configuration.coordination_pairs:
+                try:
+                    samples_by_binding = {sample.binding_id: sample for sample in scenario_samples}
+                    relay_characteristics: dict[str, CoordinationRelayCharacteristic] = {}
+                    pair_inputs: list[ProtectionCoordinationPair] = []
+                    scenario_currents: dict[str, float] = {}
+                    for pair_config in configuration.coordination_pairs:
+                        for element_id, binding_id in (
+                            (pair_config.downstream_element_id, pair_config.downstream_binding_id),
+                            (pair_config.upstream_element_id, pair_config.upstream_binding_id),
+                        ):
+                            element_config = configured_elements.get(element_id)
+                            if element_config is None:
+                                raise ValueError(f"Coordination function {element_id!r} is not enabled in the captured project configuration.")
+                            if element_config.function_code not in {"51", "51N"}:
+                                raise ValueError(
+                                    f"Coordination function {element_id!r} uses ANSI {element_config.function_code}; "
+                                    "this integration currently grades IEC/IEEE inverse-time 51/51N elements only."
+                                )
+                            sample = samples_by_binding.get(binding_id)
+                            if sample is None or sample.protection_element_id != element_id:
+                                raise ValueError(
+                                    f"Explicit CT sample binding {binding_id!r} is missing or belongs to another protection function."
+                                )
+                            settings = element_config.settings
+                            required_settings = {"pickup", "curve", "TMS"}
+                            if not required_settings.issubset(settings):
+                                raise ValueError(
+                                    f"Function {element_id!r} lacks required inverse-time settings {sorted(required_settings - set(settings))}."
+                                )
+                            characteristic = CoordinationRelayCharacteristic(
+                                function_id=element_id,
+                                pickup_current_a=float(settings["pickup"]),
+                                curve_standard=str(settings.get("curve_standard", "IEC")),
+                                curve=str(settings["curve"]),
+                                time_dial=float(settings["TMS"]),
+                            )
+                            existing = relay_characteristics.get(element_id)
+                            if existing is not None and existing != characteristic:
+                                raise ValueError(f"Conflicting characteristic settings for function {element_id!r}.")
+                            relay_characteristics[element_id] = characteristic
+                            scenario_currents[element_id] = abs(sample.value)
+                        pair_inputs.append(ProtectionCoordinationPair(
+                            downstream_function_id=pair_config.downstream_element_id,
+                            upstream_function_id=pair_config.upstream_element_id,
+                            downstream_breaker_clearing_time_s=pair_config.downstream_breaker_clearing_time_s,
+                            required_cti_s=pair_config.required_cti_s,
+                            downstream_breaker_clearing_time_max_s=pair_config.downstream_breaker_clearing_time_max_s,
+                        ))
+                    coordination_report = grade_protection_coordination(
+                        relays=tuple(relay_characteristics.values()),
+                        pairs=tuple(pair_inputs),
+                        scenarios=(FaultCurrentScenario(
+                            scenario_id=scenario.scenario_id,
+                            function_currents_a=scenario_currents,
+                        ),),
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    coordination_diagnostics.append(
+                        f"Protection coordination grading refused for scenario {scenario.scenario_id!r}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
                 short_circuit_result=short_circuit_result,
                 execution=scenario_execution,
                 relay_evaluation_completed=relay_evaluation_completed,
+                coordination_report=coordination_report,
+                coordination_diagnostics=tuple(coordination_diagnostics),
             ))
             if cancellation.cancelled:
                 return None
@@ -587,6 +717,7 @@ class ProtectionStudyHandler:
 
 __all__ = [
     "ProtectionFaultScenario",
+    "ProtectionCoordinationPairConfiguration",
     "ProtectionFaultScenarioResult",
     "ProtectionStudyConfiguration",
     "ProtectionStudyResult",
