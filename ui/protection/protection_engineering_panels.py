@@ -274,6 +274,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
     def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
         super().__init__("Protection Coordination Study Results", parent)
         self._application = application
+        self._in_progress_study_ids: set[str] = set()
         self._summary = QLabel("No Protection Study coordination results are available.", self)
         self._summary.setWordWrap(True)
         self._table = QTableWidget(0, len(self._COLUMNS), self)
@@ -321,6 +322,22 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         current = cls._number(getattr(envelope, "current_a", None))
         return f"{minimum}–{maximum} s @ {current} A"
 
+    def set_study_in_progress(self, study_id: Any, in_progress: bool) -> None:
+        """Suppress a prior result while this Study Case is executing a rerun."""
+        key = str(study_id).strip()
+        if not key:
+            return
+        if in_progress:
+            self._in_progress_study_ids.add(key)
+        else:
+            self._in_progress_study_ids.discard(key)
+        self.refresh()
+
+    def clear_in_progress(self) -> None:
+        """Clear execution markers when the project is closed or replaced."""
+        self._in_progress_study_ids.clear()
+        self.refresh()
+
     def refresh(self) -> None:
         self._table.setRowCount(0)
         reader = getattr(self._application, "read_study_results", None)
@@ -336,11 +353,15 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         rows: list[tuple[str, ...]] = []
         plot_records: list[dict[str, Any]] = []
         stale_rows = 0
+        in_progress_rows = 0
         reports_seen = 0
         for result in results:
             if str(getattr(result, "study_type", "")).strip().lower() != "protection":
                 continue
             study_id = str(getattr(result, "study_id", "unknown"))
+            if study_id in self._in_progress_study_ids:
+                in_progress_rows += 1
+                continue
             current = bool(getattr(result, "current", False))
             completed = str(getattr(result, "status", "")).strip().lower() == "completed"
             if not current or not completed:
@@ -417,7 +438,8 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             "immutable Core grade. Evidence references are provenance labels, not authentication."
             if rows else
             "No current, completed Protection Study contains a static coordination report. "
-            f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
+            f"{stale_rows} non-current or non-completed Protection result(s) and "
+            f"{in_progress_rows} result(s) superseded by an in-progress rerun were excluded."
         )
         self._refresh_coordination_plot(plot_records)
 
