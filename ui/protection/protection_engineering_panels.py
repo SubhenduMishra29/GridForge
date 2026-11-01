@@ -191,7 +191,7 @@ class ProtectionTCCPanel(QGroupBox):
         else:
             summary = f"Relay {relay_id}: no eligible ANSI 51/51N TCC was generated."
         if notices:
-            summary += "\\n\\n" + "\\n".join(notices)
+            summary += "\n\n" + "\n".join(notices)
         self._summary.setText(summary)
 
 
