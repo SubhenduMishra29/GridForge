@@ -7,7 +7,7 @@ The 51 relay settings/factory integration is deliberately a separate step.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import exp, isfinite, log
+from math import exp, expm1, isfinite, log
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +95,7 @@ def ieee_inverse_time(
 
     definition = IEEE_CURVES[normalize_ieee_curve(curve)]
     # expm1(p*log(M)) avoids cancellation for M close to unity.
-    denominator = exp(definition.p * log(multiple)) - 1.0
+    denominator = expm1(definition.p * log(multiple))
     if denominator <= 0.0:
         return float("inf")
     return dial_value * (definition.a / denominator + definition.b)
