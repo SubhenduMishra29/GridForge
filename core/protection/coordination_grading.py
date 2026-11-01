@@ -210,10 +210,15 @@ class CoordinationGrade:
     downstream_breaker_clearing_time_max_s: float | None = None
 
     def __post_init__(self) -> None:
-        for name in ("downstream_timing_envelope", "upstream_timing_envelope"):
+        for name, expected_function_id in (
+            ("downstream_timing_envelope", self.downstream_function_id),
+            ("upstream_timing_envelope", self.upstream_function_id),
+        ):
             envelope = getattr(self, name)
             if envelope is not None and not isinstance(envelope, RelayOperatingTimeEnvelope):
                 raise TypeError(f"{name} must be RelayOperatingTimeEnvelope or None.")
+            if envelope is not None and envelope.function_id != expected_function_id:
+                raise ValueError(f"{name} function identity does not match the coordination grade.")
         maximum = self.downstream_breaker_clearing_time_max_s
         if maximum is not None:
             maximum = _finite(maximum, "downstream_breaker_clearing_time_max_s")
