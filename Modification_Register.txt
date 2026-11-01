@@ -18575,3 +18575,46 @@ Limitations:
 
 ======================================================================
 
+======================================================================
+GF-PROT-053 — Seal project-managed measurement source configuration
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    MeasurementChannel physical-source and engineering-configuration integrity
+
+Files:
+    core/measurement/measurement_channel.py
+    core/application/services/measurement_channel_service.py
+    Modification_Register.txt
+
+Finding:
+    Project-managed channels protected sample-value mutation, but exposed
+    mutable source, source-terminal, signal-type, engineering-unit, scaling,
+    and producer identity attributes. Since channel objects are returned to
+    Application consumers, changing source references could invalidate the
+    physical PT/CVT topology trust decision after activation.
+
+Correction:
+    MeasurementChannel now seals its physical-source identity and engineering
+    configuration after MeasurementChannelService activation. The immutable
+    set includes channel identity, signal type, source equipment, source
+    terminal, phase, unit, nominal value, scale, polarity, stale-after policy,
+    and producer identity. The service assigns the configured producer ID
+    before binding its sample-update capability. Sample state remains writable
+    only through the authenticated publication service.
+
+Safety:
+    Topology and producer checks now consume channel configuration that cannot
+    be reassigned through ordinary attribute writes after project activation.
+    Project activation rollback retains the original channel objects and their
+    sealed state.
+
+Limitations:
+    Python in-process code with deliberate access to private object internals is
+    outside this object-level mutation boundary. No tests or CI were run.
+
+======================================================================
+
