@@ -44,6 +44,15 @@ class ProtectionFunctionCatalogPanel(QGroupBox):
         layout.addWidget(self._table)
         self.refresh()
 
+    @classmethod
+    def _envelope_summary(cls, envelope: Any) -> str:
+        if envelope is None:
+            return "Not supplied"
+        minimum = cls._number(getattr(envelope, "minimum_time_s", None))
+        maximum = cls._number(getattr(envelope, "maximum_time_s", None))
+        current = cls._number(getattr(envelope, "current_a", None))
+        return f"{minimum}–{maximum} s @ {current} A"
+
     def refresh(self) -> None:
         codes = list_protection_functions()
         self._table.setRowCount(len(codes))
@@ -267,6 +276,8 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         "Upstream time (s)", "Breaker clearing (s)", "Available CTI (s)",
         "Required CTI (s)", "Nominal grade", "Tolerance CTI (s)",
         "Tolerance grade", "Tolerance assessment reason",
+        "Maximum breaker clearing (s)", "Downstream timing envelope (min–max s)",
+        "Upstream timing envelope (min–max s)", "Timing evidence references",
     )
 
     def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
@@ -343,6 +354,17 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                         self._number(getattr(grade, "tolerance_available_cti_s", None)),
                         str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
                         str(getattr(grade, "tolerance_reason", "No tolerance assessment reason published.")),
+                        self._number(getattr(grade, "downstream_breaker_clearing_time_max_s", None)),
+                        self._envelope_summary(getattr(grade, "downstream_timing_envelope", None)),
+                        self._envelope_summary(getattr(grade, "upstream_timing_envelope", None)),
+                        "; ".join(
+                            str(getattr(envelope, "evidence_reference", "")).strip()
+                            for envelope in (
+                                getattr(grade, "downstream_timing_envelope", None),
+                                getattr(grade, "upstream_timing_envelope", None),
+                            )
+                            if envelope is not None and str(getattr(envelope, "evidence_reference", "")).strip()
+                        ) or "Not supplied",
                     ))
 
         # Include study identity in the first visible column without inventing
@@ -358,8 +380,8 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
             f"completed Protection Study report(s). {stale_rows} non-current or "
             "non-completed Protection result(s) were excluded. Tolerance CTI and reason "
-            "are taken directly from the Core grade; raw manufacturer envelope bounds "
-            "are not retained in this result contract."
+            "and typed manufacturer/test timing envelopes are taken directly from the "
+            "immutable Core grade. Evidence references are provenance labels, not authentication."
             if rows else
             "No current, completed Protection Study contains a static coordination report. "
             f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
