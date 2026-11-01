@@ -38,6 +38,7 @@ from core.protection.coordination_grading import (
     CoordinationRelayCharacteristic,
     CoordinationPair as ProtectionCoordinationPair,
     FaultCurrentScenario,
+    RelayOperatingTimeEnvelope,
     ProtectionCoordinationReport,
     grade_protection_coordination,
 )
@@ -62,11 +63,40 @@ def _freeze_mapping(value: Any, field_name: str) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtectionCoordinationTimingEnvelopeConfiguration:
+    """Manufacturer/test timing bounds tied to one function and exact scenario current."""
+
+    function_id: str
+    current_a: float
+    minimum_time_s: float
+    maximum_time_s: float
+    evidence_reference: str
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "evidence_reference"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("current_a", "minimum_time_s", "maximum_time_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            number = float(value)
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        if self.maximum_time_s < self.minimum_time_s:
+            raise ValueError("maximum_time_s must be >= minimum_time_s.")
+
+
+@dataclass(frozen=True, slots=True)
 class ProtectionFaultScenario:
     """One explicitly configured fault case evaluated from a detached project snapshot."""
 
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
+    coordination_timing_envelopes: tuple[ProtectionCoordinationTimingEnvelopeConfiguration, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -74,6 +104,13 @@ class ProtectionFaultScenario:
         object.__setattr__(self, "scenario_id", self.scenario_id.strip())
         if not isinstance(self.configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
+        envelopes = tuple(self.coordination_timing_envelopes)
+        if any(not isinstance(item, ProtectionCoordinationTimingEnvelopeConfiguration) for item in envelopes):
+            raise TypeError("coordination_timing_envelopes must contain typed timing-envelope configurations.")
+        function_ids = tuple(item.function_id for item in envelopes)
+        if len(set(function_ids)) != len(function_ids):
+            raise ValueError("A fault scenario may declare only one timing envelope per function.")
+        object.__setattr__(self, "coordination_timing_envelopes", envelopes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -646,12 +683,29 @@ class ProtectionStudyHandler:
                             required_cti_s=pair_config.required_cti_s,
                             downstream_breaker_clearing_time_max_s=pair_config.downstream_breaker_clearing_time_max_s,
                         ))
+                    timing_envelopes = {
+                        item.function_id: RelayOperatingTimeEnvelope(
+                            function_id=item.function_id,
+                            current_a=item.current_a,
+                            minimum_time_s=item.minimum_time_s,
+                            maximum_time_s=item.maximum_time_s,
+                            evidence_reference=item.evidence_reference,
+                        )
+                        for item in scenario.coordination_timing_envelopes
+                    }
+                    unknown_envelope_functions = set(timing_envelopes) - set(scenario_currents)
+                    if unknown_envelope_functions:
+                        raise ValueError(
+                            "Timing envelopes reference functions outside the explicit coordination pairs: "
+                            + ", ".join(sorted(unknown_envelope_functions))
+                        )
                     coordination_report = grade_protection_coordination(
                         functions=tuple(relay_characteristics.values()),
                         pairs=tuple(pair_inputs),
                         scenarios=(FaultCurrentScenario(
                             scenario_id=scenario.scenario_id,
                             function_currents_a=scenario_currents,
+                            function_timing_envelopes=timing_envelopes,
                         ),),
                     )
                 except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
@@ -736,6 +790,7 @@ class ProtectionStudyHandler:
 
 __all__ = [
     "ProtectionFaultScenario",
+    "ProtectionCoordinationTimingEnvelopeConfiguration",
     "ProtectionCoordinationPairConfiguration",
     "ProtectionFaultScenarioResult",
     "ProtectionStudyConfiguration",
