@@ -1,6 +1,6 @@
-"""Explicit multi-relay IEC/IEEE overcurrent coordination grading.
+"""Explicit multi-function IEC/IEEE overcurrent coordination grading.
 
-Core numerical policy only: relay relationships and fault-current contributions
+Core numerical policy only: function relationships and fault-current contributions
 are supplied explicitly by the caller. This module does not infer coordination
 pairs from graph depth, calculate fault current, apply settings, or operate
 breakers.
@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import Mapping, Iterable
 
 from .ieee_curves import ieee_inverse_time, normalize_ieee_curve
-from .relay_functions import iec_time, normalize_iec_curve
+from .function_functions import iec_time, normalize_iec_curve
 
 
 def _finite(value: float, name: str) -> float:
@@ -39,21 +39,21 @@ def _non_empty_id(value: str, name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class CoordinationRelayCharacteristic:
-    """One explicitly configured inverse-time relay element.
+    """One explicitly configured inverse-time function element.
 
     pickup_current_a and scenario currents must use the same primary-current
     convention. CT ratio conversion and measurement provenance are upstream
     responsibilities and are never inferred here.
     """
 
-    relay_id: str
+    function_id: str
     pickup_current_a: float
     curve_standard: str
     curve: str
     time_dial: float
 
     def __post_init__(self) -> None:
-        relay_id = _non_empty_id(self.relay_id, "relay_id")
+        function_id = _non_empty_id(self.function_id, "function_id")
         pickup = _finite(self.pickup_current_a, "pickup_current_a")
         dial = _finite(self.time_dial, "time_dial")
         if pickup <= 0.0 or dial <= 0.0:
@@ -67,7 +67,7 @@ class CoordinationRelayCharacteristic:
             curve = normalize_ieee_curve(self.curve)
         else:
             raise ValueError("curve_standard must be IEC or IEEE.")
-        object.__setattr__(self, "relay_id", relay_id)
+        object.__setattr__(self, "function_id", function_id)
         object.__setattr__(self, "pickup_current_a", pickup)
         object.__setattr__(self, "time_dial", dial)
         object.__setattr__(self, "curve_standard", standard)
@@ -95,17 +95,17 @@ class CoordinationRelayCharacteristic:
 class CoordinationPair:
     """An engineer/study-declared downstream to upstream grading pair."""
 
-    downstream_relay_id: str
-    upstream_relay_id: str
+    downstream_function_id: str
+    upstream_function_id: str
     downstream_breaker_clearing_time_s: float
     required_cti_s: float
     downstream_breaker_clearing_time_max_s: float | None = None
 
     def __post_init__(self) -> None:
-        downstream = _non_empty_id(self.downstream_relay_id, "downstream_relay_id")
-        upstream = _non_empty_id(self.upstream_relay_id, "upstream_relay_id")
+        downstream = _non_empty_id(self.downstream_function_id, "downstream_function_id")
+        upstream = _non_empty_id(self.upstream_function_id, "upstream_function_id")
         if downstream == upstream:
-            raise ValueError("A relay cannot be coordinated against itself.")
+            raise ValueError("A function cannot be coordinated against itself.")
         clearing = _finite(
             self.downstream_breaker_clearing_time_s,
             "downstream_breaker_clearing_time_s",
@@ -119,31 +119,31 @@ class CoordinationPair:
             if clearing_max < clearing:
                 raise ValueError("Maximum breaker clearing time cannot be below nominal clearing time.")
         object.__setattr__(self, "downstream_breaker_clearing_time_max_s", clearing_max)
-        object.__setattr__(self, "downstream_relay_id", downstream)
-        object.__setattr__(self, "upstream_relay_id", upstream)
+        object.__setattr__(self, "downstream_function_id", downstream)
+        object.__setattr__(self, "upstream_function_id", upstream)
         object.__setattr__(self, "downstream_breaker_clearing_time_s", clearing)
         object.__setattr__(self, "required_cti_s", cti)
 
 
 @dataclass(frozen=True, slots=True)
 class RelayOperatingTimeEnvelope:
-    """Manufacturer/test timing bounds for one relay at one exact fault current."""
+    """Manufacturer/test timing bounds for one function at one exact fault current."""
 
-    relay_id: str
+    function_id: str
     current_a: float
     minimum_time_s: float
     maximum_time_s: float
     evidence_reference: str
 
     def __post_init__(self) -> None:
-        relay_id = _non_empty_id(self.relay_id, "relay_id")
+        function_id = _non_empty_id(self.function_id, "function_id")
         current = _finite(self.current_a, "current_a")
         minimum = _finite(self.minimum_time_s, "minimum_time_s")
         maximum = _finite(self.maximum_time_s, "maximum_time_s")
         evidence = _non_empty_id(self.evidence_reference, "evidence_reference")
         if current < 0.0 or minimum < 0.0 or maximum < minimum:
             raise ValueError("Timing envelope requires non-negative current/time and maximum_time_s >= minimum_time_s.")
-        object.__setattr__(self, "relay_id", relay_id)
+        object.__setattr__(self, "function_id", function_id)
         object.__setattr__(self, "current_a", current)
         object.__setattr__(self, "minimum_time_s", minimum)
         object.__setattr__(self, "maximum_time_s", maximum)
@@ -152,46 +152,46 @@ class RelayOperatingTimeEnvelope:
 
 @dataclass(frozen=True, slots=True)
 class FaultCurrentScenario:
-    """One named fault case with explicit primary current at each relay."""
+    """One named fault case with explicit primary current at each function."""
 
     scenario_id: str
-    relay_currents_a: Mapping[str, float]
-    relay_timing_envelopes: Mapping[str, RelayOperatingTimeEnvelope] = field(default_factory=dict)
+    function_currents_a: Mapping[str, float]
+    function_timing_envelopes: Mapping[str, RelayOperatingTimeEnvelope] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         scenario_id = _non_empty_id(self.scenario_id, "scenario_id")
-        if not isinstance(self.relay_currents_a, Mapping):
-            raise TypeError("relay_currents_a must be a mapping of relay IDs to amperes.")
+        if not isinstance(self.function_currents_a, Mapping):
+            raise TypeError("function_currents_a must be a mapping of function IDs to amperes.")
         currents: dict[str, float] = {}
-        for relay_id, current in self.relay_currents_a.items():
-            key = _non_empty_id(relay_id, "relay current key")
+        for function_id, current in self.function_currents_a.items():
+            key = _non_empty_id(function_id, "function current key")
             if key in currents:
-                raise ValueError(f"Duplicate normalized relay ID {key!r} in scenario.")
-            value = _finite(current, f"current for relay {key}")
+                raise ValueError(f"Duplicate normalized function ID {key!r} in scenario.")
+            value = _finite(current, f"current for function {key}")
             if value < 0.0:
                 raise ValueError("Fault-current magnitudes cannot be negative.")
             currents[key] = value
-        if not isinstance(self.relay_timing_envelopes, Mapping):
-            raise TypeError("relay_timing_envelopes must map relay IDs to RelayOperatingTimeEnvelope values.")
+        if not isinstance(self.function_timing_envelopes, Mapping):
+            raise TypeError("function_timing_envelopes must map function IDs to RelayOperatingTimeEnvelope values.")
         envelopes: dict[str, RelayOperatingTimeEnvelope] = {}
-        for relay_id, envelope in self.relay_timing_envelopes.items():
-            key = _non_empty_id(relay_id, "timing envelope key")
+        for function_id, envelope in self.function_timing_envelopes.items():
+            key = _non_empty_id(function_id, "timing envelope key")
             if key in envelopes:
-                raise ValueError(f"Duplicate normalized timing-envelope relay ID {key!r}.")
-            if not isinstance(envelope, RelayOperatingTimeEnvelope) or envelope.relay_id != key:
+                raise ValueError(f"Duplicate normalized timing-envelope function ID {key!r}.")
+            if not isinstance(envelope, RelayOperatingTimeEnvelope) or envelope.function_id != key:
                 raise TypeError("Each timing envelope must be typed and match its mapping key.")
             envelopes[key] = envelope
         object.__setattr__(self, "scenario_id", scenario_id)
-        object.__setattr__(self, "relay_currents_a", MappingProxyType(currents))
-        object.__setattr__(self, "relay_timing_envelopes", MappingProxyType(envelopes))
+        object.__setattr__(self, "function_currents_a", MappingProxyType(currents))
+        object.__setattr__(self, "function_timing_envelopes", MappingProxyType(envelopes))
 
 
 @dataclass(frozen=True, slots=True)
 class CoordinationGrade:
     """Nominal grading outcome for one explicit pair and fault scenario."""
 
-    downstream_relay_id: str
-    upstream_relay_id: str
+    downstream_function_id: str
+    upstream_function_id: str
     scenario_id: str
     downstream_current_a: float | None
     upstream_current_a: float | None
@@ -208,8 +208,8 @@ class CoordinationGrade:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "downstream_relay_id": self.downstream_relay_id,
-            "upstream_relay_id": self.upstream_relay_id,
+            "downstream_function_id": self.downstream_function_id,
+            "upstream_function_id": self.upstream_function_id,
             "scenario_id": self.scenario_id,
             "downstream_current_a": self.downstream_current_a,
             "upstream_current_a": self.upstream_current_a,
@@ -270,50 +270,50 @@ class ProtectionCoordinationReport:
 
 
 def grade_protection_coordination(
-    relays: Iterable[CoordinationRelayCharacteristic],
+    functions: Iterable[CoordinationRelayCharacteristic],
     pairs: Iterable[CoordinationPair],
     scenarios: Iterable[FaultCurrentScenario],
 ) -> ProtectionCoordinationReport:
-    """Grade explicitly declared relay pairs across explicit fault cases.
+    """Grade explicitly declared function pairs across explicit fault cases.
 
-    Available CTI = upstream relay operating time - downstream relay
+    Available CTI = upstream function operating time - downstream function
     operating time - downstream breaker clearing time. A result is
     COORDINATED only when available CTI meets the pair's required CTI.
-    Missing currents or a non-operating relay yield NOT_EVALUABLE, never a
+    Missing currents or a non-operating function yield NOT_EVALUABLE, never a
     pass. Optional manufacturer/test operating-time envelopes and maximum
     breaker clearing-time bounds produce a separate conservative CTI result.
     If those bounds are absent or do not match the scenario current, the
     tolerance-aware result is explicitly not assessed. Reset/overshoot and
     dynamic memory remain outside this model.
     """
-    relay_items = tuple(relays)
+    function_items = tuple(functions)
     pair_items = tuple(pairs)
     scenario_items = tuple(scenarios)
-    if not relay_items or not pair_items or not scenario_items:
-        raise ValueError("At least one relay, coordination pair and fault scenario are required.")
-    if any(not isinstance(item, CoordinationRelayCharacteristic) for item in relay_items):
-        raise TypeError("relays must contain CoordinationRelayCharacteristic values.")
+    if not function_items or not pair_items or not scenario_items:
+        raise ValueError("At least one function, coordination pair and fault scenario are required.")
+    if any(not isinstance(item, CoordinationRelayCharacteristic) for item in function_items):
+        raise TypeError("functions must contain CoordinationRelayCharacteristic values.")
     if any(not isinstance(item, CoordinationPair) for item in pair_items):
         raise TypeError("pairs must contain CoordinationPair values.")
     if any(not isinstance(item, FaultCurrentScenario) for item in scenario_items):
         raise TypeError("scenarios must contain FaultCurrentScenario values.")
 
-    relay_by_id: dict[str, CoordinationRelayCharacteristic] = {}
-    for relay in relay_items:
-        if relay.relay_id in relay_by_id:
-            raise ValueError(f"Duplicate relay identity {relay.relay_id!r}.")
-        relay_by_id[relay.relay_id] = relay
+    function_by_id: dict[str, CoordinationRelayCharacteristic] = {}
+    for function in function_items:
+        if function.function_id in function_by_id:
+            raise ValueError(f"Duplicate function identity {function.function_id!r}.")
+        function_by_id[function.function_id] = function
 
     pair_keys: set[tuple[str, str]] = set()
     for pair in pair_items:
-        key = (pair.downstream_relay_id, pair.upstream_relay_id)
+        key = (pair.downstream_function_id, pair.upstream_function_id)
         if key in pair_keys:
             raise ValueError(f"Duplicate coordination pair {key!r}.")
         pair_keys.add(key)
-        if pair.downstream_relay_id not in relay_by_id:
-            raise ValueError(f"Unknown downstream relay {pair.downstream_relay_id!r}.")
-        if pair.upstream_relay_id not in relay_by_id:
-            raise ValueError(f"Unknown upstream relay {pair.upstream_relay_id!r}.")
+        if pair.downstream_function_id not in function_by_id:
+            raise ValueError(f"Unknown downstream function {pair.downstream_function_id!r}.")
+        if pair.upstream_function_id not in function_by_id:
+            raise ValueError(f"Unknown upstream function {pair.upstream_function_id!r}.")
 
     scenario_ids = [scenario.scenario_id for scenario in scenario_items]
     if len(set(scenario_ids)) != len(scenario_ids):
@@ -321,24 +321,24 @@ def grade_protection_coordination(
 
     grades: list[CoordinationGrade] = []
     for pair in pair_items:
-        downstream = relay_by_id[pair.downstream_relay_id]
-        upstream = relay_by_id[pair.upstream_relay_id]
+        downstream = function_by_id[pair.downstream_function_id]
+        upstream = function_by_id[pair.upstream_function_id]
         for scenario in scenario_items:
-            downstream_current = scenario.relay_currents_a.get(downstream.relay_id)
-            upstream_current = scenario.relay_currents_a.get(upstream.relay_id)
+            downstream_current = scenario.function_currents_a.get(downstream.function_id)
+            upstream_current = scenario.function_currents_a.get(upstream.function_id)
             if downstream_current is None or upstream_current is None:
                 missing = [
-                    relay_id for relay_id, value in (
-                        (downstream.relay_id, downstream_current),
-                        (upstream.relay_id, upstream_current),
+                    function_id for function_id, value in (
+                        (downstream.function_id, downstream_current),
+                        (upstream.function_id, upstream_current),
                     ) if value is None
                 ]
                 grades.append(CoordinationGrade(
-                    downstream.relay_id, upstream.relay_id, scenario.scenario_id,
+                    downstream.function_id, upstream.function_id, scenario.scenario_id,
                     downstream_current, upstream_current, None, None,
                     pair.downstream_breaker_clearing_time_s, None, pair.required_cti_s,
                     "NOT_EVALUABLE",
-                    "Missing explicit fault-current magnitude for relay(s): " + ", ".join(missing),
+                    "Missing explicit fault-current magnitude for function(s): " + ", ".join(missing),
                 ))
                 continue
 
@@ -351,11 +351,11 @@ def grade_protection_coordination(
                 if upstream_time == inf:
                     non_operating.append("upstream")
                 grades.append(CoordinationGrade(
-                    downstream.relay_id, upstream.relay_id, scenario.scenario_id,
+                    downstream.function_id, upstream.function_id, scenario.scenario_id,
                     downstream_current, upstream_current, downstream_time, upstream_time,
                     pair.downstream_breaker_clearing_time_s, None, pair.required_cti_s,
                     "NOT_EVALUABLE",
-                    "No finite operating time for " + " and ".join(non_operating) + " relay.",
+                    "No finite operating time for " + " and ".join(non_operating) + " function.",
                 ))
                 continue
 
@@ -365,8 +365,8 @@ def grade_protection_coordination(
                 - pair.downstream_breaker_clearing_time_s
             )
             coordinated = available >= pair.required_cti_s
-            down_envelope = scenario.relay_timing_envelopes.get(downstream.relay_id)
-            up_envelope = scenario.relay_timing_envelopes.get(upstream.relay_id)
+            down_envelope = scenario.function_timing_envelopes.get(downstream.function_id)
+            up_envelope = scenario.function_timing_envelopes.get(upstream.function_id)
             tolerance_available = None
             tolerance_status = "NOT_ASSESSED"
             tolerance_reason = (
@@ -401,7 +401,7 @@ def grade_protection_coordination(
                         else "Conservative timing bounds do not meet the required CTI."
                     )
             grades.append(CoordinationGrade(
-                downstream.relay_id, upstream.relay_id, scenario.scenario_id,
+                downstream.function_id, upstream.function_id, scenario.scenario_id,
                 downstream_current, upstream_current, downstream_time, upstream_time,
                 pair.downstream_breaker_clearing_time_s, available, pair.required_cti_s,
                 "COORDINATED" if coordinated else "NOT_COORDINATED",
