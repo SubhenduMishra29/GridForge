@@ -433,7 +433,9 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         self._summary.setText(
             f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
             f"completed Protection Study report(s). {stale_rows} non-current or "
-            "non-completed Protection result(s) were excluded. Tolerance CTI and reason "
+            "non-completed Protection result(s) and "
+            f"{in_progress_rows} result(s) superseded by an in-progress rerun were excluded. "
+            "Tolerance CTI and reason "
             "and typed manufacturer/test timing envelopes are taken directly from the "
             "immutable Core grade. Evidence references are provenance labels, not authentication."
             if rows else
