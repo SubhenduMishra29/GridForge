@@ -128,6 +128,72 @@ def _flatten_result_value(
     return [f"{prefix}: {value!r}"]
 
 
+def _protection_result_lines(value: Any) -> tuple[str, ...]:
+    """Expose protection coordination, transient grades and diagnostics explicitly."""
+    lines = ["Protection engineering detail:"]
+    engineering_status = getattr(value, "status", None)
+    if engineering_status is not None:
+        lines.append(f"Protection evaluation status: {engineering_status}")
+    execution = getattr(value, "execution", None)
+    decisions = tuple(getattr(execution, "decisions", ()) or ())
+    lines.append(f"Measurement-snapshot decisions: {len(decisions)}")
+    for index, decision in enumerate(decisions):
+        lines.extend(_flatten_result_value(
+            decision,
+            prefix=f"protection.execution.decisions[{index}]",
+            max_depth=5,
+            budget=[24],
+        ))
+    diagnostics = tuple(getattr(value, "diagnostics", ()) or ())
+    lines.append(f"Protection diagnostics: {len(diagnostics)}")
+    lines.extend(f"protection.diagnostic: {item}" for item in diagnostics[:40])
+
+    scenarios = tuple(getattr(value, "fault_scenarios", ()) or ())
+    lines.append(f"Fault scenarios: {len(scenarios)}")
+    for index, scenario in enumerate(scenarios):
+        prefix = f"protection.fault_scenarios[{index}]"
+        lines.append(f"{prefix}.scenario_id: {getattr(scenario, 'scenario_id', 'unknown')}")
+        scenario_execution = getattr(scenario, "execution", None)
+        scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
+        lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
+        scenario_diagnostics = tuple(getattr(scenario, "diagnostics", ()) or ())
+        scenario_diagnostics += tuple(getattr(scenario_execution, "diagnostics", ()) or ())
+        lines.append(f"{prefix}.diagnostics_count: {len(scenario_diagnostics)}")
+        lines.extend(f"{prefix}.diagnostic: {item}" for item in scenario_diagnostics[:30])
+
+        coordination = getattr(scenario, "coordination_report", None)
+        if coordination is None:
+            lines.append(f"{prefix}.static_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.static_coordination: report available")
+            lines.extend(_flatten_result_value(
+                coordination,
+                prefix=f"{prefix}.static_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+
+        transient = getattr(scenario, "transient_coordination_report", None)
+        if transient is None:
+            lines.append(f"{prefix}.transient_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.transient_coordination: report available")
+            lines.extend(_flatten_result_value(
+                transient,
+                prefix=f"{prefix}.transient_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+        transient_diagnostics = tuple(
+            getattr(scenario, "transient_coordination_diagnostics", ()) or ()
+        )
+        lines.extend(
+            f"{prefix}.transient_diagnostic: {item}"
+            for item in transient_diagnostics[:30]
+        )
+    return tuple(lines)
+
+
 def _result_lines(result: Any) -> tuple[str, ...]:
     """Build a bounded read-only summary for the selected Study Result."""
     lines = [
@@ -145,6 +211,8 @@ def _result_lines(result: Any) -> tuple[str, ...]:
         lines.append("value: no numerical payload was published")
     else:
         lines.extend(_flatten_result_value(result.value))
+        if str(result.study_type).strip().lower() == "protection":
+            lines.extend(_protection_result_lines(result.value))
     return tuple(lines)
 
 
