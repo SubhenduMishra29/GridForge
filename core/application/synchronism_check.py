@@ -313,6 +313,7 @@ class SynchronismCheckGuard:
         self._bypass_provider=bypass_provider; self._audit_sink=audit_sink; self._clock=clock
         self._bypass_project_id=bypass_project_id; self._bypass_activation_generation=bypass_activation_generation
         self._consumed_bypass_ids: set[str] = set(); self._bypass_lock = Lock()
+        self._durable_bypass_consumer = getattr(audit_sink, "consume_bypass_authorization", None)
 
     def authorize_close(self, breaker: Breaker) -> SynchronismDecision:
         if not isinstance(breaker,Breaker): raise TypeError("ANSI 25 guard requires a Breaker")
@@ -389,11 +390,23 @@ class SynchronismCheckGuard:
                 project_id=self._bypass_project_id,
                 activation_generation=self._bypass_activation_generation,
             ):
-                with self._bypass_lock:
-                    if auth.authorization_id in self._consumed_bypass_ids:
+                if callable(self._durable_bypass_consumer):
+                    # The project-scoped audit sink atomically claims the token
+                    # using a persistent O_EXCL marker. This survives guard
+                    # reconstruction, process restarts, and concurrent callers.
+                    try:
+                        consumed = self._durable_bypass_consumer(auth)
+                    except Exception:
+                        consumed = False
+                    if consumed is not True:
                         auth = None
-                    else:
-                        self._consumed_bypass_ids.add(auth.authorization_id)
+                else:
+                    # Non-persistent sinks retain process-local replay protection.
+                    with self._bypass_lock:
+                        if auth.authorization_id in self._consumed_bypass_ids:
+                            auth = None
+                        else:
+                            self._consumed_bypass_ids.add(auth.authorization_id)
                 if auth is not None:
                     decision=SynchronismDecision(
                         True, breaker.id, tuple(reasons), mode, True,
@@ -456,6 +469,48 @@ class ProjectScopedSynchronismAuditSink:
     def path(self):
         """Return the external sidecar path for operational diagnostics."""
         return self._path
+
+    def consume_bypass_authorization(self, authorization: BypassAuthorization) -> bool:
+        """Atomically claim a bypass token once for this project activation."""
+        import hashlib
+        import json
+        import os
+
+        if not isinstance(authorization, BypassAuthorization):
+            raise TypeError("ANSI 25 bypass consumer requires BypassAuthorization.")
+        if (
+            authorization.project_id != self._project_id
+            or authorization.activation_generation != self._activation_generation
+        ):
+            return False
+        digest = hashlib.sha256(authorization.authorization_id.encode("utf-8")).hexdigest()
+        marker = self._path.with_name(self._path.name + ".bypass-" + digest + ".used")
+        record = {
+            "schema": 1,
+            "authorization_id": authorization.authorization_id,
+            "project_id": authorization.project_id,
+            "activation_generation": authorization.activation_generation,
+            "breaker_id": authorization.breaker_id,
+            "authorized_by": authorization.authorized_by,
+            "issued_at": authorization.issued_at,
+            "expires_at": authorization.expires_at,
+        }
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        try:
+            descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            return False
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("Incomplete ANSI 25 bypass-consumption record write.")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        return True
 
     def __call__(self, decision: SynchronismDecision) -> None:
         import json
