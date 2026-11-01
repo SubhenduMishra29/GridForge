@@ -15842,7 +15842,8 @@ Corrections:
        closed/in-service state transitions from non-energized to energized.
     2. Putting a closed breaker back in service requires authorization.
     3. Undo callbacks that restore a previously energized breaker state
-       require fresh authorization before restoring that state.
+       require fresh authorization before restoring that state, including
+       undo of trip, close-state changes, in-service transitions and deletion.
     4. Opening and taking a breaker out of service remain available.
 
 Status:
