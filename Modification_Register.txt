@@ -18631,3 +18631,64 @@ Status:
     EVIDENCE AUTHENTICITY / DYNAMIC CHARACTERISTICS / RUNTIME VERIFICATION OPEN
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-056 — Continuation: Short-Circuit Protection Study CTI Integration
+======================================================================
+
+Files:
+    core/application/protection_study.py
+    core/application/__init__.py
+    core/protection/coordination_grading.py
+    Modification_Register.txt
+
+Correction:
+    - ProtectionStudyConfiguration now accepts explicit downstream/upstream
+      protection-function pair declarations. Each side names a Protection
+      Element ID and exact measurement-binding ID; breaker clearing time,
+      optional maximum clearing time, and required CTI are explicit.
+    - The existing Application ProtectionStudyHandler reuses its detached
+      Short-Circuit scenario calculation and CT measurement conversion. It
+      grades each configured pair against the corresponding scenario's
+      converted measurement samples and stores an immutable
+      ProtectionCoordinationReport on that scenario result.
+    - Function identity is now function_id, distinct from the physical
+      Relay ID, preserving the one-physical-Relay/multiple-function model.
+    - IEC/IEEE 51 settings are taken from the captured ProtectionProject
+      configuration. No live relay setting is changed.
+    - ANSI 51 uses the selected CT-secondary ampere sample and matching
+      configured pickup basis. ANSI 51N accepts only an explicitly converted
+      NEUTRAL_CT or CBCT sample and converts CT-secondary amperes back to
+      primary amperes using the adapter's authoritative CT ratio, matching
+      the canonical 51N primary-current setting basis. A single binding is
+      never treated as a three-phase residual sum.
+    - Missing bindings, unsupported function codes, absent curve settings,
+      invalid current basis, or incomplete conversion yield a coordination
+      diagnostic and no pass result. Coordination remains a non-operating
+      Application study; it does not dispatch trips or mutate breakers.
+    - Exported ProtectionCoordinationPairConfiguration through
+      core.application.
+
+Limitations:
+    - This increment integrates inverse-time ANSI 51/51N only. Other
+      protection functions, instantaneous/definite-time stages, fuse/
+      recloser curves, multi-stage elements, and differential/directional
+      coordination remain unsupported by this path.
+    - A pair currently selects one explicit current binding per function.
+      Three-phase residual aggregation is deliberately not inferred.
+    - The coordination input currents are the scenario adapter's CT
+      measurement samples, not a separate per-relay fault-current solver
+      contribution API. Study result quality and CT measurement provenance
+      remain prerequisites.
+    - Tolerance-aware grading is available in the Core model only when
+      explicit manufacturer/test envelopes are supplied; this Application
+      configuration path does not yet carry those envelopes.
+    - No tests/CI, syntax/import checks, or runtime numerical comparisons
+      were run. Source re-fetch and structural inspection only.
+
+Status:
+    APPLICATION SHORT-CIRCUIT / IEC-IEEE 51/51N COORDINATION PATH
+    IMPLEMENTED IN SOURCE — RUNTIME / NUMERICAL / ENGINEERING VERIFICATION OPEN
+
+======================================================================
