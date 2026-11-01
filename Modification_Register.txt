@@ -18692,3 +18692,43 @@ Status:
     IMPLEMENTED IN SOURCE — RUNTIME / NUMERICAL / ENGINEERING VERIFICATION OPEN
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-056 — Continuation: Scenario-Bound Manufacturer Timing Evidence
+======================================================================
+
+Files:
+    core/application/protection_study.py
+    core/application/__init__.py
+    Modification_Register.txt
+
+Correction:
+    - Added immutable ProtectionCoordinationTimingEnvelopeConfiguration
+      records to each explicit ProtectionFaultScenario. Each envelope binds
+      one function ID and exact scenario current to minimum/maximum operating
+      times and a non-empty manufacturer/test evidence reference.
+    - The Application ProtectionStudyHandler converts those declarations
+      into Core RelayOperatingTimeEnvelope inputs for the existing conservative
+      CTI calculation.
+    - Envelopes that reference functions outside the declared coordination
+      pairs are refused. Current mismatch is retained as
+      TOLERANCE_NOT_EVALUABLE by Core; evidence is not silently applied at a
+      different fault-current point.
+    - Exported the timing-envelope configuration from core.application.
+
+Limitations:
+    - Evidence references are provenance labels supplied by the study author;
+      the application does not authenticate manufacturer documents or
+      validate certification scope.
+    - Envelopes are point-specific; interpolation/extrapolation across fault
+      current, manufacturer curve tolerance bands, relay overshoot/reset,
+      breaker pole scatter, and dynamic memory are not inferred.
+    - No tests/CI, syntax/import checks, or runtime numerical comparisons
+      were run. Source-level structural inspection only.
+
+Status:
+    APPLICATION-SUPPLIED, SCENARIO-BOUND TIMING ENVELOPES WIRED INTO
+    CONSERVATIVE CTI — EVIDENCE AUTHENTICITY / ENGINEERING VALIDATION OPEN
+
+======================================================================
