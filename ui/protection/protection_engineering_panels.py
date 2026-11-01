@@ -266,7 +266,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         "Downstream time (s)", "Upstream function", "Upstream current (A)",
         "Upstream time (s)", "Breaker clearing (s)", "Available CTI (s)",
         "Required CTI (s)", "Nominal grade", "Tolerance CTI (s)",
-        "Tolerance grade", "Timing evidence",
+        "Tolerance grade", "Tolerance assessment reason",
     )
 
     def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
@@ -326,22 +326,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                 if report is None:
                     continue
                 reports_seen += 1
-                envelope_configs = tuple(
-                    getattr(getattr(scenario, "configuration", None), "coordination_timing_envelopes", ()) or ()
-                )
-                evidence_by_function = {
-                    str(item.function_id): str(item.evidence_reference)
-                    for item in envelope_configs
-                }
                 for grade in tuple(getattr(report, "grades", ()) or ()):
-                    evidence_parts = []
-                    for function_id in (
-                        str(getattr(grade, "downstream_function_id", "")),
-                        str(getattr(grade, "upstream_function_id", "")),
-                    ):
-                        reference = evidence_by_function.get(function_id)
-                        if reference:
-                            evidence_parts.append(f"{function_id}: {reference}")
                     rows.append((
                         study_id,
                         str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
@@ -357,7 +342,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                         str(getattr(grade, "status", "NOT_EVALUABLE")),
                         self._number(getattr(grade, "tolerance_available_cti_s", None)),
                         str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
-                        "; ".join(evidence_parts) if evidence_parts else "Not supplied",
+                        str(getattr(grade, "tolerance_reason", "No tolerance assessment reason published.")),
                     ))
 
         # Include study identity in the first visible column without inventing
@@ -372,8 +357,9 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         self._summary.setText(
             f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
             f"completed Protection Study report(s). {stale_rows} non-current or "
-            "non-completed Protection result(s) were excluded. Timing evidence labels "
-            "are provenance references only; they are not authenticated by this view."
+            "non-completed Protection result(s) were excluded. Tolerance CTI and reason "
+            "are taken directly from the Core grade; raw manufacturer envelope bounds "
+            "are not retained in this result contract."
             if rows else
             "No current, completed Protection Study contains a static coordination report. "
             f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
