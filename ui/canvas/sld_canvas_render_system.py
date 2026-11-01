@@ -711,7 +711,9 @@ class SLDCanvasRenderSystem:
                 )
                 item.setZValue(self.CONNECTION_Z_VALUE)
                 if callable(getattr(item, "set_visual_state", None)):
-                    item.set_visual_state(VisualState.NORMAL)
+                    # Draft wires are authoring previews, not committed Core
+                    # connectivity. Keep them visibly distinct until commit.
+                    item.set_visual_state(VisualState.PREVIEW)
                 self._scene.addItem(item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
