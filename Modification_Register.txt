@@ -18532,3 +18532,60 @@ Limitations:
     - No tests/CI, syntax/import checks, or numerical reference comparisons
       were run. Source re-fetch and structural inspection only; runtime
       behaviour remains unverified.
+
+
+======================================================================
+GF-PROT-056 — Continuation: Explicit Multi-Relay Coordination Grading
+======================================================================
+
+Files:
+    core/protection/coordination_grading.py
+    core/protection/__init__.py
+    Modification_Register.txt
+
+Correction:
+    - Added typed immutable relay-characteristic, downstream/upstream pair,
+      fault-current scenario, per-case grade and report contracts.
+    - Uses the active IEC 60255 or IEEE C37.112 inverse-time engine for each
+      relay's explicit primary-current contribution in each fault scenario.
+    - Requires explicit relay identities, downstream breaker clearing time,
+      required CTI, and current magnitude at both relays. It does not infer
+      relay relationships from graph depth or derive current from topology.
+    - Calculates available CTI as upstream operating time minus downstream
+      operating time minus downstream breaker clearing time.
+    - Reports COORDINATED only when the nominal available CTI meets the
+      explicitly configured required CTI. Missing current contributions or
+      either relay not picking up are NOT_EVALUABLE, never a pass.
+    - Exports the public API through core.protection. The calculation remains
+      Core numerical/read-model work and does not mutate settings, schedule
+      trips, or operate breakers.
+
+Limitations:
+    - Fault-current values must be supplied by the caller from an authoritative
+      study result, with CT ratio/scaling and measurement provenance already
+      resolved into the same primary-ampere convention as relay pickup.
+    - Only IEC/IEEE inverse-time elements are graded in this increment.
+      Instantaneous/definite-time stages, fuse curves, recloser sequences,
+      directional reach, multiple fault locations, and automatic setting
+      optimization are not included.
+    - Manufacturer curve tolerance, relay timing accuracy, overshoot,
+      breaker clearing-time tolerance, reset behavior, and dynamic relay
+      memory are not included. The report explicitly identifies that
+      tolerance assessment is absent; nominal COORDINATED is not a
+      standards/manufacturer tolerance guarantee.
+    - Explicit coordination pairs are supplied by the engineer/study layer;
+      this module does not infer radiality, selectivity zones, or topology
+      ownership.
+
+Verification:
+    - Remote source re-fetch and structural inspection only.
+    - No tests or CI run, per project instruction.
+    - Syntax/import integrity, runtime calculations, independent numerical
+      reference points, CTI examples, and Application/Study integration
+      remain unverified.
+
+Status:
+    MULTI-RELAY NOMINAL IEC/IEEE CTI GRADING IMPLEMENTED IN SOURCE —
+    TOLERANCE / STUDY INTEGRATION / RUNTIME VERIFICATION OUTSTANDING
+
+======================================================================
