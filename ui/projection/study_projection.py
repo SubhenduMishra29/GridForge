@@ -172,6 +172,13 @@ def _protection_result_lines(value: Any) -> tuple[str, ...]:
         scenario_execution = getattr(scenario, "execution", None)
         scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
         lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
+        for decision_index, decision in enumerate(scenario_decisions):
+            lines.extend(_flatten_result_value(
+                decision,
+                prefix=f"{prefix}.relay_decisions[{decision_index}]",
+                max_depth=5,
+                budget=[32],
+            ))
         scenario_diagnostics = tuple(getattr(scenario, "diagnostics", ()) or ())
         scenario_diagnostics += tuple(getattr(scenario_execution, "diagnostics", ()) or ())
         lines.append(f"{prefix}.diagnostics_count: {len(scenario_diagnostics)}")
