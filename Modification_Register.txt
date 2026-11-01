@@ -18440,3 +18440,43 @@ Limitations:
     unverified.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-050 — Authenticated measurement publication and clock provenance
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    ANSI 25 trusted measurement publication boundary
+
+Files:
+    core/measurement/measurement_channel.py
+    core/application/services/measurement_channel_service.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Correction:
+    Project-managed MeasurementChannel sample state is sealed against direct
+    mutation. Updates require the owning MeasurementChannelService capability.
+    The service accepts only a typed MeasurementSampleAttestation, checks the
+    configured producer identity, active project ID and activation generation,
+    exact timestamp domain, monotonic sample sequence and source timestamp
+    against an injected trusted clock. A deployment-provided verifier must
+    authenticate the producer and signed attestation/value tuple; absent
+    verifier or clock fails closed.
+
+Concurrency:
+    Measurement publication shares the Application command execution lock so
+    sample updates cannot interleave with breaker authorization and mutation.
+
+Limitations:
+    No production SCADA/PMU/device signature verifier or trusted synchronized
+    clock adapter is supplied by default. Existing channel definitions require
+    explicit producer_id and timestamp_domain before publication is possible.
+    ANSI 25 guard composition and physical instrument commissioning remain
+    separate integration work. No tests or CI were run.
+
+======================================================================
