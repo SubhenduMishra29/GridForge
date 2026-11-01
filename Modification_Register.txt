@@ -18732,3 +18732,50 @@ Status:
     CONSERVATIVE CTI — EVIDENCE AUTHENTICITY / ENGINEERING VALIDATION OPEN
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-056 — Continuation: Evidence-Bound Relay Reset / Overshoot Data
+======================================================================
+
+Files:
+    core/protection/relay_dynamic_characteristics.py
+    core/protection/__init__.py
+    Modification_Register.txt
+
+Correction:
+    - Added immutable RelayResetMemoryPoint and RelayResetMemoryCurve
+      contracts for manufacturer/test reset-memory evidence. Each curve is
+      tied to one exact pre-dropout current multiple and contains measured
+      retained-operating-progress fractions versus interruption duration.
+    - Added bounded linear interpolation only between supplied interruption
+      durations. Queries outside the measured duration domain return None;
+      no extrapolation or generic reset-time constant is introduced.
+    - Added RelayOvershootEnvelope with explicit lower/upper overshoot-time
+      bounds, exact current multiple, and evidence reference.
+    - Added RelayDynamicEvidence to associate reset curves and overshoot
+      envelopes with a protection function. Current-multiple lookup is exact
+      within numeric comparison tolerance; curves are not interpolated across
+      current multiples.
+    - Exported the contracts through core.protection.
+
+Boundary / remaining integration:
+    - Evidence references remain provenance labels; document authenticity,
+      test method, relay model/firmware applicability, and certification scope
+      are not authenticated.
+    - These contracts do not yet alter IEC 51/51N runtime timing or the
+      coordination CTI result. Overshoot semantics must be mapped to the
+      specific relay technology and test protocol before it can safely be
+      applied as an operating-time correction. Missing/out-of-domain evidence
+      must remain not evaluable.
+    - Application study configuration and multi-fault transient coordination
+      still require explicit wiring of time-series current traces, relay
+      dynamic evidence, and breaker operating sequences.
+    - No tests/CI run, per project instruction. Syntax/import and numerical
+      runtime verification remain outstanding.
+
+Status:
+    IMMUTABLE RESET-MEMORY / OVERSHOOT EVIDENCE CONTRACTS IMPLEMENTED —
+    RUNTIME / COORDINATION INTEGRATION / ENGINEERING VALIDATION OPEN
+
+======================================================================
