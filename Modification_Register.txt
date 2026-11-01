@@ -18519,8 +18519,10 @@ Audit and clock:
     project is saved and injected trusted clock/domain adapters are available.
     The audit clock domain must match the measurement publication domain.
     Missing clock, domain, saved path, audit sink, policy, or topology validator
-    leaves the breaker authorizer closed. No bypass provider is composed;
-    bypass requests therefore cannot authorize energization.
+    leaves the breaker authorizer closed. A deployment may inject a trusted
+    bypass provider; absent that provider, bypass requests cannot authorize
+    energization. Bypass authorization is project/generation/breaker scoped,
+    single-use, limited to five minutes, and its decision metadata is audited.
 
 Limitations:
     Production verifier/clock adapters, explicit bypass workflow, hardware
