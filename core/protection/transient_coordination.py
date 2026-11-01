@@ -135,12 +135,15 @@ def evaluate_relay_current_trace(
     trace: RelayCurrentTrace,
     dynamic_evidence: RelayDynamicEvidence | None = None,
 ) -> TransientRelayOutcome:
-    """Integrate inverse-time progress over a trace, applying measured reset memory.
+    """Integrate characteristic-normalized progress over a trace with measured reset.
 
-    Progress increment for each above-pickup interval is dt / t_operating(I).
+    For each above-pickup constant-current interval, the declared accumulation
+    model increments progress by dt / t_operating(I). This is not asserted to
+    be a universal electromechanical disk law: it is valid only where the relay
+    model/manufacturer confirms this normalized-progress accumulation method.
     Below-pickup intervals retain progress according to a reset curve selected
-    at the exact pre-dropout current multiple. If that evidence is absent or
-    the dropout duration is outside its measured range, evaluation fails closed.
+    at the exact pre-dropout current multiple. Missing or out-of-domain reset
+    evidence fails closed when current returns.
     """
     if not isinstance(characteristic, CoordinationRelayCharacteristic):
         raise TypeError("characteristic must be CoordinationRelayCharacteristic.")
@@ -248,10 +251,18 @@ def grade_transient_protection_coordination(
     pair_items = tuple(pairs)
     trace_items = tuple(traces)
     evidence_items = tuple(dynamic_evidence)
-    if not event_id or not str(event_id).strip():
-        raise ValueError("event_id must be non-empty.")
+    if not isinstance(event_id, str) or not event_id.strip():
+        raise ValueError("event_id must be a non-empty string.")
     if not function_items or not pair_items or not trace_items:
         raise ValueError("Functions, coordination pairs and current traces are required.")
+    if any(not isinstance(item, CoordinationRelayCharacteristic) for item in function_items):
+        raise TypeError("functions must contain CoordinationRelayCharacteristic values.")
+    if any(not isinstance(item, CoordinationPair) for item in pair_items):
+        raise TypeError("pairs must contain CoordinationPair values.")
+    if any(not isinstance(item, RelayCurrentTrace) for item in trace_items):
+        raise TypeError("traces must contain RelayCurrentTrace values.")
+    if any(not isinstance(item, RelayDynamicEvidence) for item in evidence_items):
+        raise TypeError("dynamic_evidence must contain RelayDynamicEvidence values.")
     function_map = {item.function_id: item for item in function_items}
     if len(function_map) != len(function_items):
         raise ValueError("Function IDs must be unique.")
@@ -261,6 +272,24 @@ def grade_transient_protection_coordination(
     evidence_map = {item.function_id: item for item in evidence_items}
     if len(evidence_map) != len(evidence_items):
         raise ValueError("Dynamic evidence must have unique function IDs.")
+    if set(evidence_map) - set(function_map):
+        raise ValueError("Dynamic evidence references an unknown protection function.")
+    if set(trace_map) - set(function_map):
+        raise ValueError("Current traces reference an unknown protection function.")
+    for pair in pair_items:
+        if pair.downstream_function_id not in function_map or pair.upstream_function_id not in function_map:
+            raise ValueError("A coordination pair references an unknown protection function.")
+    windows = {
+        (trace.samples[0].time_s, trace.samples[-1].time_s)
+        for trace in trace_items
+        if trace.function_id in {
+            function_id
+            for pair in pair_items
+            for function_id in (pair.downstream_function_id, pair.upstream_function_id)
+        }
+    }
+    if len(windows) != 1:
+        raise ValueError("Paired relay traces must share identical observation-window start and end times.")
 
     outcomes: dict[str, TransientRelayOutcome] = {}
     for function_id, trace in trace_map.items():
