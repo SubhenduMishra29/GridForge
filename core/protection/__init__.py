@@ -33,7 +33,7 @@ from .differential import (
     DifferentialProtectionResult,
     evaluate_differential_scheme,
 )
-from .ieee_curves import (
+from .tcc_read_model import (\n    ProtectionTCCPoint, ProtectionTCCReadModel, build_protection_tcc_read_model,\n)\nfrom .ieee_curves import (
     IEEECurveDefinition, IEEE_CURVES, normalize_ieee_curve,
     ieee_inverse_time, generate_ieee_tcc_points,
 )
