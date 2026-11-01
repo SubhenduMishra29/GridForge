@@ -18506,3 +18506,29 @@ Limitations:
     - No tests/CI, syntax/import checks, or runtime relay evaluation were run.
       Source re-fetch confirms the edits only; runtime behaviour remains
       unverified.
+
+
+GF-PROT-056 — Continuation: Standard-Dispatched TCC Read Model
+
+Implemented on protection/gf-prot-056-operational-closure:
+    - Added core/protection/tcc_read_model.py with an immutable,
+      standard-labelled ProtectionTCCReadModel and immutable TCC points.
+    - The read-model builder dispatches IEC 60255 curves to the existing
+      canonical IEC TCC generator and IEEE C37.112 curves to the IEEE
+      numerical generator. It retains the selected standard, canonical
+      curve, pickup and time-dial value in the returned read model.
+    - Exported the read-model types and builder from core.protection.
+    - ANSI 51 and inherited ANSI 51N now expose tcc_read_model(), using
+      their active curve standard and typed settings. Rendering and plot
+      styling remain outside Core.
+
+Limitations:
+    - This read model generates one element's curve only; it does not yet
+      perform multi-element grading, fault-current scenario evaluation,
+      CTI acceptance, breaker clearing-time allowance, or coordination
+      report generation.
+    - Manufacturer tolerance bands and relay-specific reset/overshoot
+      characteristics are not represented.
+    - No tests/CI, syntax/import checks, or numerical reference comparisons
+      were run. Source re-fetch and structural inspection only; runtime
+      behaviour remains unverified.
