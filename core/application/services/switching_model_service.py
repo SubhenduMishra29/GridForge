@@ -220,7 +220,19 @@ class SwitchingModelService(ModelServiceSupport):
         return self._success(breaker, "breaker", breaker_id, f"Breaker updated: {breaker_id}")
 
     def delete_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); self._network.remove_breaker(breaker); transaction.record_undo(lambda breaker=breaker: self._network.add_breaker(breaker)); return self._success(breaker, "breaker", breaker_id, f"Breaker deleted: {breaker_id}")
+        self._require_transaction(transaction)
+        self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker")
+        self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        self._network.remove_breaker(breaker)
+
+        def restore() -> None:
+            if breaker.closed and breaker.in_service:
+                self._authorize_breaker_close(breaker, operation="undo_delete_reenergize")
+            self._network.add_breaker(breaker)
+
+        transaction.record_undo(restore)
+        return self._success(breaker, "breaker", breaker_id, f"Breaker deleted: {breaker_id}")
 
     def open_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._set_breaker_closed(breaker_id=breaker_id, closed=False, transaction=transaction)
     def close_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._set_breaker_closed(breaker_id=breaker_id, closed=True, transaction=transaction)
