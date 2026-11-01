@@ -614,6 +614,16 @@ def validate_synchronism_instrument_topology(
             raise ValueError(
                 f"ANSI 25 channel {channel_id!r} must originate from a physical PT or CVT."
             )
+        source_id = getattr(source, "id", None)
+        get_by_identity = getattr(network, "get_by_identity", None)
+        if (
+            not isinstance(source_id, str)
+            or not callable(get_by_identity)
+            or get_by_identity(source_id) is not source
+        ):
+            raise ValueError(
+                f"ANSI 25 channel {channel_id!r} source is not the canonical PT/CVT object registered in the active Network."
+            )
         if getattr(source, "in_service", None) is not True:
             raise ValueError(f"ANSI 25 instrument {getattr(source, 'id', None)!r} is not in service.")
         source_reference = getattr(channel, "source_terminal", None)
