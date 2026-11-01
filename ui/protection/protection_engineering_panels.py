@@ -23,6 +23,7 @@ from ui.core.qt import (
     QLineSeries,
     QTableWidget,
     QTableWidgetItem,
+    Qt,
     QValueAxis,
     QVBoxLayout,
     QWidget,
@@ -98,12 +99,12 @@ class ProtectionTCCPanel(QGroupBox):
         self._chart.legend().setVisible(True)
         self._chart_x_axis = QValueAxis()
         self._chart_y_axis = QValueAxis()
-        self._chart_x_axis.setTitleText("Current (A) · logarithmic decades")
-        self._chart_y_axis.setTitleText("Operating time (s) · logarithmic decades")
-        self._chart_x_axis.setLabelFormat("10^%.0f")
-        self._chart_y_axis.setLabelFormat("10^%.0f")
-        self._chart.addAxis(self._chart_x_axis, 0x40)  # Qt.AlignBottom
-        self._chart.addAxis(self._chart_y_axis, 0x1)  # Qt.AlignLeft
+        self._chart_x_axis.setTitleText("log10(Current / A)")
+        self._chart_y_axis.setTitleText("log10(Operating time / s)")
+        self._chart_x_axis.setLabelFormat("%.2f")
+        self._chart_y_axis.setLabelFormat("%.2f")
+        self._chart.addAxis(self._chart_x_axis, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(self._chart_y_axis, Qt.AlignmentFlag.AlignLeft)
         self._chart_view = QChartView(self._chart, self)
         self._chart_view.setMinimumHeight(260)
         self._table = QTableWidget(0, 5, self)
