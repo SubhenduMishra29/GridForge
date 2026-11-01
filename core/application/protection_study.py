@@ -248,6 +248,8 @@ class ProtectionStudyConfiguration:
         pair_keys = tuple((item.downstream_element_id, item.upstream_element_id) for item in pairs)
         if len(set(pair_keys)) != len(pair_keys):
             raise ValueError("coordination_pairs must not contain duplicate downstream/upstream pairs.")
+        if pairs and not scenarios:
+            raise ValueError("Coordination grading requires explicit short-circuit fault scenarios.")
         object.__setattr__(self, "coordination_pairs", pairs)
 
     @classmethod
@@ -370,6 +372,8 @@ class ProtectionStudyResult:
             or item.status is not ShortCircuitStatus.COMPLETE
             or not item.measurement_contributions_complete
             or bool(item.execution.diagnostics)
+            or bool(item.coordination_diagnostics)
+            or (item.coordination_report is not None and not item.coordination_report.fully_evaluable)
             for item in self.fault_scenarios
         ):
             return "partial"
@@ -628,7 +632,7 @@ class ProtectionStudyHandler:
                             downstream_breaker_clearing_time_max_s=pair_config.downstream_breaker_clearing_time_max_s,
                         ))
                     coordination_report = grade_protection_coordination(
-                        relays=tuple(relay_characteristics.values()),
+                        functions=tuple(relay_characteristics.values()),
                         pairs=tuple(pair_inputs),
                         scenarios=(FaultCurrentScenario(
                             scenario_id=scenario.scenario_id,
