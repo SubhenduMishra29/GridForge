@@ -16002,3 +16002,44 @@ Verification:
     No tests or CI run. No measurement publisher or runtime integration
     implemented. No issue closed.
 ======================================================================
+
+
+======================================================================
+GF-PROT-049 — Reconcile ANSI 25 containment onto post-PR-908 main
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    PR #912 reconciliation after phase-domain protection integration
+
+Files:
+    core/application/services/model_service.py
+    core/application/services/switching_model_service.py
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Correction:
+    Reapply the fail-closed breaker-close authorization boundary onto the
+    post-PR-908 Application services without reverting current main's newer
+    protection configuration, residual-current input contracts, or
+    measurement-binding validation. ModelService forwards the optional
+    authorizer to SwitchingModelService. Breaker close, re-energization and
+    undo restoration paths require explicit authorization; absence, exception
+    or non-True authorization denies energization.
+
+Persistence:
+    Add optional schema-2 synchronism_check_configuration to the existing
+    ProtectionProjectConfiguration aggregate. Preserve all current main
+    fields and serialization behavior when no ANSI 25 policy is configured.
+    Policy remains finite JSON and detached/frozen after assignment.
+
+Limitations:
+    This is containment and persistence only. No authenticated live
+    measurement publisher, trusted clock authority, or project-scoped
+    synchronism guard is composed. Default breaker energization remains
+    denied. No tests or CI were run; runtime and persistence round-trip are
+    unverified.
+
+======================================================================
