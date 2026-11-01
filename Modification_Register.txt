@@ -18554,11 +18554,12 @@ Finding:
 
 Correction:
     ProjectScopedSynchronismAuditSink now claims each bypass authorization
-    using a hashed sibling marker created atomically with O_CREAT|O_EXCL.
-    The marker contains the authorization identity and project/generation/
-    breaker scope, is fsync-backed, and survives guard reconstruction and
-    process restarts. Existing markers, scope mismatches, write errors, or
-    any consumer result other than literal True deny bypass. Generic
+    using a hashed marker created atomically with O_CREAT|O_EXCL in a
+    project-ID-scoped registry under the user profile. The marker contains
+    the authorization identity and project/generation/breaker scope, is
+    fsync-backed, and survives guard reconstruction, process restarts, Save
+    As, and project moves. Existing markers, scope mismatches, write errors,
+    or any consumer result other than literal True deny bypass. Generic
     non-persistent audit sinks retain guard-local replay protection only.
 
 Safety:
@@ -18569,7 +18570,8 @@ Safety:
 
 Limitations:
     Persistent marker guarantees depend on the durability and access-control
-    properties of the project directory's filesystem. No tests or CI were run.
+    properties of the user-profile filesystem. Directory fsync is applied on
+    platforms that support it. No tests or CI were run.
 
 ======================================================================
 
