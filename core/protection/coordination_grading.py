@@ -7,7 +7,7 @@ breakers.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite, inf
 from types import MappingProxyType
 from typing import Mapping, Iterable
@@ -99,6 +99,7 @@ class CoordinationPair:
     upstream_relay_id: str
     downstream_breaker_clearing_time_s: float
     required_cti_s: float
+    downstream_breaker_clearing_time_max_s: float | None = None
 
     def __post_init__(self) -> None:
         downstream = _non_empty_id(self.downstream_relay_id, "downstream_relay_id")
@@ -112,10 +113,41 @@ class CoordinationPair:
         cti = _finite(self.required_cti_s, "required_cti_s")
         if clearing < 0.0 or cti < 0.0:
             raise ValueError("Breaker clearing time and required CTI cannot be negative.")
+        clearing_max = self.downstream_breaker_clearing_time_max_s
+        if clearing_max is not None:
+            clearing_max = _finite(clearing_max, "downstream_breaker_clearing_time_max_s")
+            if clearing_max < clearing:
+                raise ValueError("Maximum breaker clearing time cannot be below nominal clearing time.")
+        object.__setattr__(self, "downstream_breaker_clearing_time_max_s", clearing_max)
         object.__setattr__(self, "downstream_relay_id", downstream)
         object.__setattr__(self, "upstream_relay_id", upstream)
         object.__setattr__(self, "downstream_breaker_clearing_time_s", clearing)
         object.__setattr__(self, "required_cti_s", cti)
+
+
+@dataclass(frozen=True, slots=True)
+class RelayOperatingTimeEnvelope:
+    """Manufacturer/test timing bounds for one relay at one exact fault current."""
+
+    relay_id: str
+    current_a: float
+    minimum_time_s: float
+    maximum_time_s: float
+    evidence_reference: str
+
+    def __post_init__(self) -> None:
+        relay_id = _non_empty_id(self.relay_id, "relay_id")
+        current = _finite(self.current_a, "current_a")
+        minimum = _finite(self.minimum_time_s, "minimum_time_s")
+        maximum = _finite(self.maximum_time_s, "maximum_time_s")
+        evidence = _non_empty_id(self.evidence_reference, "evidence_reference")
+        if current < 0.0 or minimum < 0.0 or maximum < minimum:
+            raise ValueError("Timing envelope requires non-negative current/time and maximum_time_s >= minimum_time_s.")
+        object.__setattr__(self, "relay_id", relay_id)
+        object.__setattr__(self, "current_a", current)
+        object.__setattr__(self, "minimum_time_s", minimum)
+        object.__setattr__(self, "maximum_time_s", maximum)
+        object.__setattr__(self, "evidence_reference", evidence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +156,7 @@ class FaultCurrentScenario:
 
     scenario_id: str
     relay_currents_a: Mapping[str, float]
+    relay_timing_envelopes: Mapping[str, RelayOperatingTimeEnvelope] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         scenario_id = _non_empty_id(self.scenario_id, "scenario_id")
@@ -138,8 +171,19 @@ class FaultCurrentScenario:
             if value < 0.0:
                 raise ValueError("Fault-current magnitudes cannot be negative.")
             currents[key] = value
+        if not isinstance(self.relay_timing_envelopes, Mapping):
+            raise TypeError("relay_timing_envelopes must map relay IDs to RelayOperatingTimeEnvelope values.")
+        envelopes: dict[str, RelayOperatingTimeEnvelope] = {}
+        for relay_id, envelope in self.relay_timing_envelopes.items():
+            key = _non_empty_id(relay_id, "timing envelope key")
+            if key in envelopes:
+                raise ValueError(f"Duplicate normalized timing-envelope relay ID {key!r}.")
+            if not isinstance(envelope, RelayOperatingTimeEnvelope) or envelope.relay_id != key:
+                raise TypeError("Each timing envelope must be typed and match its mapping key.")
+            envelopes[key] = envelope
         object.__setattr__(self, "scenario_id", scenario_id)
         object.__setattr__(self, "relay_currents_a", MappingProxyType(currents))
+        object.__setattr__(self, "relay_timing_envelopes", MappingProxyType(envelopes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +202,9 @@ class CoordinationGrade:
     required_cti_s: float
     status: str
     reason: str
+    tolerance_available_cti_s: float | None = None
+    tolerance_status: str = "NOT_ASSESSED"
+    tolerance_reason: str = "Manufacturer/test timing envelopes and maximum breaker clearing time were not supplied."
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -173,6 +220,9 @@ class CoordinationGrade:
             "required_cti_s": self.required_cti_s,
             "status": self.status,
             "reason": self.reason,
+            "tolerance_available_cti_s": self.tolerance_available_cti_s,
+            "tolerance_status": self.tolerance_status,
+            "tolerance_reason": self.tolerance_reason,
         }
 
 
@@ -181,7 +231,20 @@ class ProtectionCoordinationReport:
     """Detached immutable report for all requested pairs and scenarios."""
 
     grades: tuple[CoordinationGrade, ...]
-    tolerance_assessment_included: bool = False
+
+    @property
+    def tolerance_assessment_included(self) -> bool:
+        return bool(self.grades) and all(
+            grade.tolerance_status in {"COORDINATED_WITH_TOLERANCE", "NOT_COORDINATED_WITH_TOLERANCE"}
+            for grade in self.grades
+        )
+
+    @property
+    def all_scenarios_coordinated_with_tolerance(self) -> bool:
+        return self.tolerance_assessment_included and all(
+            grade.tolerance_status == "COORDINATED_WITH_TOLERANCE"
+            for grade in self.grades
+        )
 
     @property
     def fully_evaluable(self) -> bool:
@@ -201,6 +264,7 @@ class ProtectionCoordinationReport:
             "fully_evaluable": self.fully_evaluable,
             "all_scenarios_coordinated": self.all_scenarios_coordinated,
             "tolerance_assessment_included": self.tolerance_assessment_included,
+            "all_scenarios_coordinated_with_tolerance": self.all_scenarios_coordinated_with_tolerance,
             "grades": [grade.to_dict() for grade in self.grades],
         }
 
@@ -299,12 +363,48 @@ def grade_protection_coordination(
                 - pair.downstream_breaker_clearing_time_s
             )
             coordinated = available >= pair.required_cti_s
+            down_envelope = scenario.relay_timing_envelopes.get(downstream.relay_id)
+            up_envelope = scenario.relay_timing_envelopes.get(upstream.relay_id)
+            tolerance_available = None
+            tolerance_status = "NOT_ASSESSED"
+            tolerance_reason = (
+                "Manufacturer/test timing envelopes and maximum breaker clearing time were not supplied."
+            )
+            if (
+                down_envelope is not None
+                and up_envelope is not None
+                and pair.downstream_breaker_clearing_time_max_s is not None
+            ):
+                current_match = (
+                    abs(down_envelope.current_a - downstream_current) <= max(1e-9, abs(downstream_current) * 1e-9)
+                    and abs(up_envelope.current_a - upstream_current) <= max(1e-9, abs(upstream_current) * 1e-9)
+                )
+                if not current_match:
+                    tolerance_status = "TOLERANCE_NOT_EVALUABLE"
+                    tolerance_reason = "Timing-envelope current does not match this fault scenario."
+                else:
+                    tolerance_available = (
+                        up_envelope.minimum_time_s
+                        - down_envelope.maximum_time_s
+                        - pair.downstream_breaker_clearing_time_max_s
+                    )
+                    tolerance_ok = tolerance_available >= pair.required_cti_s
+                    tolerance_status = (
+                        "COORDINATED_WITH_TOLERANCE"
+                        if tolerance_ok else "NOT_COORDINATED_WITH_TOLERANCE"
+                    )
+                    tolerance_reason = (
+                        "Conservative timing bounds meet the required CTI."
+                        if tolerance_ok
+                        else "Conservative timing bounds do not meet the required CTI."
+                    )
             grades.append(CoordinationGrade(
                 downstream.relay_id, upstream.relay_id, scenario.scenario_id,
                 downstream_current, upstream_current, downstream_time, upstream_time,
                 pair.downstream_breaker_clearing_time_s, available, pair.required_cti_s,
                 "COORDINATED" if coordinated else "NOT_COORDINATED",
                 "Required CTI is met." if coordinated else "Available CTI is below the required CTI.",
+                tolerance_available, tolerance_status, tolerance_reason,
             ))
 
     return ProtectionCoordinationReport(grades=tuple(grades))
@@ -314,6 +414,7 @@ __all__ = [
     "CoordinationRelayCharacteristic",
     "CoordinationPair",
     "FaultCurrentScenario",
+    "RelayOperatingTimeEnvelope",
     "CoordinationGrade",
     "ProtectionCoordinationReport",
     "grade_protection_coordination",
