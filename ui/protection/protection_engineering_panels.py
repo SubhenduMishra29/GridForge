@@ -102,7 +102,7 @@ class ProtectionTCCPanel(QGroupBox):
         self._chart_y_axis.setTitleText("Operating time (s) · logarithmic decades")
         self._chart_x_axis.setLabelFormat("10^%.0f")
         self._chart_y_axis.setLabelFormat("10^%.0f")
-        self._chart.addAxis(self._chart_x_axis, 0x2)  # Qt.AlignBottom
+        self._chart.addAxis(self._chart_x_axis, 0x40)  # Qt.AlignBottom
         self._chart.addAxis(self._chart_y_axis, 0x1)  # Qt.AlignLeft
         self._chart_view = QChartView(self._chart, self)
         self._chart_view.setMinimumHeight(260)
