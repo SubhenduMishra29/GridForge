@@ -88,8 +88,8 @@ class ProtectionTCCPanel(QGroupBox):
         self._selection_manager = selection_manager
         self._summary = QLabel("Select an ANSI 51 or 51N relay with complete settings.", self)
         self._summary.setWordWrap(True)
-        self._table = QTableWidget(0, 3, self)
-        self._table.setHorizontalHeaderLabels(("Current multiple", "Current (A)", "Operating time (s)"))
+        self._table = QTableWidget(0, 5, self)
+        self._table.setHorizontalHeaderLabels(("Function element", "Curve", "Current multiple", "Current (A)", "Operating time (s)"))
         self._table.setWordWrap(True)
         layout = QVBoxLayout(self)
         layout.addWidget(self._summary)
@@ -101,11 +101,12 @@ class ProtectionTCCPanel(QGroupBox):
         self._table.setRowCount(0)
         selected = self._selection_manager.selected_ids
         if not selected:
-            self._summary.setText("Select an ANSI 51 or 51N relay to inspect its TCC.")
+            self._summary.setText("Select a relay to inspect its configured inverse-time function TCCs.")
             return
         relay_id = str(selected[0]).split(":", 1)[0]
         try:
             protection = self._application.read_protection()
+            configurations = self._application.read_protection_configuration()
         except RuntimeError:
             self._summary.setText("Protection read boundary unavailable.")
             return
@@ -116,59 +117,82 @@ class ProtectionTCCPanel(QGroupBox):
         if relay is None:
             self._summary.setText("The selected presentation object is not a relay.")
             return
-        function_code = str(relay.function_type).strip().upper()
-        if function_code not in {"51", "51N"}:
-            self._summary.setText(
-                f"ANSI {function_code or 'unknown'} has no TCC renderer in this view. "
-                "The catalogue remains the authority for implementation coverage."
-            )
-            return
-        settings = dict(relay.settings or {})
-        pickup = settings.get("pickup")
-        curve = settings.get("curve")
-        time_dial = settings.get("TMS", settings.get("time_dial"))
-        standard = settings.get("curve_standard", "IEC")
-        missing = [
-            name for name, value in (
-                ("pickup", pickup), ("curve", curve), ("TMS/time_dial", time_dial)
-            ) if value is None
-        ]
-        if missing:
-            self._summary.setText(
-                "TCC unavailable: explicit relay settings are missing "
-                + ", ".join(missing)
-                + ". No default engineering values are fabricated."
-            )
-            return
-        try:
-            model = build_protection_tcc_read_model(
-                float(pickup),
-                curve_standard=str(standard),
-                curve=str(curve),
-                time_dial=float(time_dial),
-                points=31,
-            )
-        except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
-            self._summary.setText(
-                f"TCC refused: {type(exc).__name__}: {exc}"
-            )
-            return
-        self._summary.setText(
-            f"ANSI {function_code} · {model.curve_standard} {model.curve} · "
-            f"pickup {model.pickup:g} A · time dial {model.time_dial:g}. "
-            "Values use the configured pickup/current basis; this view does not "
-            "infer CT scaling or change relay settings."
+        # A physical relay can host multiple independent protection elements.
+        # Resolve each function by its canonical element configuration rather
+        # than assuming one function_type per physical relay.
+        relay_configurations = tuple(
+            item for item in configurations if str(item.relay_id) == relay_id
         )
-        self._table.setRowCount(len(model.points))
-        for row, point in enumerate(model.points):
-            values = (
-                f"{point.multiple:.4g}",
-                f"{point.current:.6g}",
-                "∞" if point.time == float("inf") else f"{point.time:.6g}",
+        if not relay_configurations:
+            self._summary.setText(
+                f"Relay {relay_id} has no configured protection-function elements."
             )
+            return
+
+        rows: list[tuple[str, str, str, str, str]] = []
+        notices: list[str] = []
+        for configuration in relay_configurations:
+            code = str(configuration.function_code).strip().upper()
+            if code not in {"51", "51N"}:
+                notices.append(
+                    f"{configuration.element_id}: ANSI {code} does not use an inverse-time TCC in this view."
+                )
+                continue
+            settings = dict(configuration.settings or {})
+            pickup = settings.get("pickup")
+            curve = settings.get("curve")
+            time_dial = settings.get("TMS", settings.get("time_dial"))
+            standard = settings.get("curve_standard", "IEC")
+            missing = [
+                name for name, value in (
+                    ("pickup", pickup), ("curve", curve), ("TMS/time_dial", time_dial)
+                ) if value is None
+            ]
+            if missing:
+                notices.append(
+                    f"{configuration.element_id}: TCC unavailable; missing "
+                    + ", ".join(missing)
+                    + "."
+                )
+                continue
+            try:
+                model = build_protection_tcc_read_model(
+                    float(pickup),
+                    curve_standard=str(standard),
+                    curve=str(curve),
+                    time_dial=float(time_dial),
+                    points=31,
+                )
+            except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                notices.append(
+                    f"{configuration.element_id}: TCC refused: {type(exc).__name__}: {exc}"
+                )
+                continue
+            curve_label = f"{model.curve_standard} {model.curve}"
+            for point in model.points:
+                rows.append((
+                    str(configuration.element_id),
+                    curve_label,
+                    f"{point.multiple:.4g}",
+                    f"{point.current:.6g}",
+                    "∞" if point.time == float("inf") else f"{point.time:.6g}",
+                ))
+        self._table.setRowCount(len(rows))
+        for row, values in enumerate(rows):
             for column, value in enumerate(values):
                 self._table.setItem(row, column, QTableWidgetItem(value))
         self._table.resizeColumnsToContents()
+        if rows:
+            summary = (
+                f"Relay {relay_id}: generated {len(rows)} immutable TCC samples "
+                "for configured ANSI 51/51N elements. Current values use each "
+                "element's configured pickup basis; CT scaling is not inferred."
+            )
+        else:
+            summary = f"Relay {relay_id}: no eligible ANSI 51/51N TCC was generated."
+        if notices:
+            summary += "\\n\\n" + "\\n".join(notices)
+        self._summary.setText(summary)
 
 
 class ProtectionAnalysisCoveragePanel(QGroupBox):
