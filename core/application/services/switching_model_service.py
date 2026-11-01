@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from core.application.errors import DomainError
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
@@ -24,10 +26,48 @@ from core.network.network import Network
 class SwitchingModelService(ModelServiceSupport):
     """Owns Application-layer mutation use cases for switching devices."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(
+        self,
+        network: Network,
+        *,
+        breaker_close_authorizer: Callable[[Breaker, str], bool] | None = None,
+    ) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
+        if breaker_close_authorizer is not None and not callable(breaker_close_authorizer):
+            raise TypeError("breaker_close_authorizer must be callable when provided.")
         self._network = network
+        self._breaker_close_authorizer = breaker_close_authorizer
+
+    def _authorize_breaker_close(self, breaker: Breaker, *, operation: str) -> None:
+        """Fail closed unless the Application composition supplies ANSI 25 authorization.
+
+        The authorizer must evaluate the active project's synchronism policy and
+        return True only for an authorized close. It must perform any required
+        durable decision audit before returning. Exceptions are propagated and
+        therefore abort the mutation before Core state changes.
+        """
+        authorizer = self._breaker_close_authorizer
+        if authorizer is None:
+            raise DomainError(
+                code="ANSI25_AUTHORIZATION_UNAVAILABLE",
+                message="Breaker closing is denied because no ANSI 25 authorizer is configured.",
+                details={"breaker_id": breaker.id, "operation": operation},
+            )
+        try:
+            authorized = authorizer(breaker, operation)
+        except Exception as exc:
+            raise DomainError(
+                code="ANSI25_AUTHORIZATION_FAILED",
+                message="Breaker closing is denied because ANSI 25 authorization failed.",
+                details={"breaker_id": breaker.id, "operation": operation, "cause": str(exc)},
+            ) from exc
+        if authorized is not True:
+            raise DomainError(
+                code="ANSI25_CLOSE_DENIED",
+                message="Breaker closing was denied by the ANSI 25 synchronism check.",
+                details={"breaker_id": breaker.id, "operation": operation},
+            )
 
     @property
     def network(self) -> Network:
@@ -138,6 +178,8 @@ class SwitchingModelService(ModelServiceSupport):
         if endpoint_from is not None and endpoint_to is not None: self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_BREAKER_ENDPOINTS", "Breaker", breaker_id)
         self._ensure_not_exists("breaker", breaker_id, "Breaker")
         breaker = Breaker(id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka)
+        if closed:
+            self._authorize_breaker_close(breaker, operation="create")
         self._network.add_breaker(breaker); transaction.record_undo(lambda breaker=breaker: self._network.remove_breaker(breaker)); return self._success(breaker, "breaker", breaker_id, f"Breaker created: {breaker_id}")
 
     def update_breaker(self, *, breaker_id: str, name: str | None = None, in_service: bool | None = None, closed: bool | None = None, failed: bool | None = None, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
@@ -150,6 +192,8 @@ class SwitchingModelService(ModelServiceSupport):
             raise DomainError(code="NO_BREAKER_UPDATE", message="At least one mutable Breaker property must be specified.", details={"breaker_id": breaker_id})
 
         old = {"name": breaker.name, "in_service": breaker.in_service, "closed": breaker.closed, "failed": breaker.failed, "voltage_kv": breaker.voltage_kv, "current_a": breaker.current_a, "interrupting_ka": breaker.interrupting_ka}
+        if closed is True and not breaker.closed:
+            self._authorize_breaker_close(breaker, operation="update")
 
         def restore_snapshot() -> None:
             for key, value in old.items():
@@ -196,7 +240,10 @@ class SwitchingModelService(ModelServiceSupport):
         transaction.record_undo(restore); return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
 
     def _set_breaker_closed(self, *, breaker_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
-        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed; breaker.close() if closed else breaker.open(); topology_changed = old != breaker.closed
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id"); breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker"); old = breaker.closed
+        if closed and not old:
+            self._authorize_breaker_close(breaker, operation="close")
+        breaker.close() if closed else breaker.open(); topology_changed = old != breaker.closed
         if topology_changed:
             self._network.invalidate_topology()
         def restore() -> None:
