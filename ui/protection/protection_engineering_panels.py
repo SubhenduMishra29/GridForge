@@ -157,10 +157,10 @@ class ProtectionTCCPanel(QGroupBox):
                 continue
             try:
                 model = build_protection_tcc_read_model(
-                    float(pickup),
-                    curve_standard=str(standard),
-                    curve=str(curve),
-                    time_dial=float(time_dial),
+                    pickup,
+                    curve_standard=standard,
+                    curve=curve,
+                    time_dial=time_dial,
                     points=31,
                 )
             except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
