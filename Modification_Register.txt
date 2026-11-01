@@ -18501,7 +18501,10 @@ Correction:
     through the Application breaker-close authorizer. Guard instances are
     scoped to project identity and activation generation and are installed
     transactionally with project state; activation rollback restores the
-    prior guard. No active guard means breaker energization is denied.
+    prior guard. The authorization boundary also rebuilds the active guard
+    against the current policy, project path, Network, and activation generation
+    on each close attempt, covering policy edits and Save As path changes. No
+    active guard means breaker energization is denied.
 
 Physical topology:
     Resolve breaker FROM/TO terminals to distinct buses through the canonical
