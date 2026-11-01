@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-import math
 import json
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .protection_measurement_binding import ProtectionMeasurementBinding
+from .residual_current import ResidualCurrentInputConfiguration
 
 
 def _freeze_value(value: Any) -> Any:
@@ -46,6 +47,7 @@ class ProtectionFunctionConfiguration:
     action_target_type: str | None = None
     action_target_id: str | None = None
     action_type: str | None = None
+    residual_current_input: ResidualCurrentInputConfiguration | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("element_id", "relay_id", "function_code"):
@@ -54,6 +56,15 @@ class ProtectionFunctionConfiguration:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value.strip())
         object.__setattr__(self, "function_code", self.function_code.upper())
+        if self.residual_current_input is not None and not isinstance(self.residual_current_input, ResidualCurrentInputConfiguration):
+            raise TypeError("residual_current_input must be ResidualCurrentInputConfiguration or None.")
+        if self.function_code in {"50N", "51N"}:
+            if self.residual_current_input is None:
+                raise ValueError(f"ANSI {self.function_code} requires an explicit residual_current_input configuration.")
+            if "residual_current" in self.input_channel_ids:
+                raise ValueError("residual_current is a derived relay input, not a physical MeasurementChannel ID.")
+        elif self.residual_current_input is not None:
+            raise ValueError("Residual-current input configuration is valid only for ANSI 50N/51N functions.")
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
         if not isinstance(self.blocked, bool):
@@ -109,6 +120,8 @@ class ProtectionFunctionConfiguration:
                 raise ValueError("input_channel_ids values must be non-empty strings.")
             if channel_id != channel_id.strip():
                 raise ValueError("input channel IDs must not contain surrounding whitespace.")
+        if self.function_code in {"50N", "51N"} and self.input_channel_ids:
+            raise ValueError("ANSI 50N/51N accepts only the derived residual_current input; physical input_channel_ids must be empty.")
         for metadata_key in self.metadata:
             if not isinstance(metadata_key, str) or not metadata_key.strip():
                 raise ValueError("metadata keys must be non-empty strings.")
@@ -131,6 +144,7 @@ class ProtectionFunctionConfiguration:
             "action_target_type": self.action_target_type,
             "action_target_id": self.action_target_id,
             "action_type": self.action_type,
+            "residual_current_input": self.residual_current_input.to_dict() if self.residual_current_input is not None else None,
         }
 
     @classmethod
@@ -157,6 +171,7 @@ class ProtectionFunctionConfiguration:
             action_target_type=data.get("action_target_type"),
             action_target_id=data.get("action_target_id"),
             action_type=data.get("action_type"),
+            residual_current_input=(ResidualCurrentInputConfiguration.from_dict(data["residual_current_input"]) if data.get("residual_current_input") is not None else None),
         )
 
 
@@ -352,6 +367,23 @@ class ProtectionProjectConfiguration:
             raise ValueError(f"Protection element already configured: {configuration.element_id}")
         self._elements[configuration.element_id] = configuration
 
+    @staticmethod
+    def _residual_binding_ids(configuration: ProtectionFunctionConfiguration) -> frozenset[str]:
+        residual = configuration.residual_current_input
+        if residual is None:
+            return frozenset()
+        if residual.mode == "THREE_PHASE_SUM":
+            return frozenset((residual.phase_binding_ids or {}).values())
+        return frozenset((residual.direct_binding_id,))
+
+    @classmethod
+    def _binding_matches_configured_input(
+        cls, configuration: ProtectionFunctionConfiguration, binding: ProtectionMeasurementBinding
+    ) -> bool:
+        if configuration.function_code in {"50N", "51N"} and binding.relay_input_id == "residual_current":
+            return binding.binding_id in cls._residual_binding_ids(configuration)
+        return configuration.input_channel_ids.get(binding.relay_input_id) == binding.channel_id
+
     def replace(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
@@ -359,10 +391,20 @@ class ProtectionProjectConfiguration:
             raise KeyError(configuration.element_id)
         for binding in self._bindings.values():
             if binding.protection_element_id == configuration.element_id:
-                if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+                if not self._binding_matches_configured_input(configuration, binding):
                     raise ValueError(
-                        "Cannot change an input channel while a canonical measurement binding references it."
+                        "Cannot change an input association while a canonical measurement binding references it."
                     )
+        referenced = {
+            binding_id for binding_id in self._residual_binding_ids(configuration)
+        }
+        existing = {
+            binding.binding_id for binding in self._bindings.values()
+            if binding.protection_element_id == configuration.element_id
+            and binding.relay_input_id == "residual_current"
+        }
+        if existing - referenced:
+            raise ValueError("Cannot remove a configured residual-current source while its measurement binding remains.")
         self._elements[configuration.element_id] = configuration
 
     def remove(self, element_id: str) -> ProtectionFunctionConfiguration:
@@ -385,18 +427,26 @@ class ProtectionProjectConfiguration:
         if binding.binding_id in self._bindings:
             raise ValueError(f"Protection measurement binding already exists: {binding.binding_id}")
         configuration = self.get(binding.protection_element_id)
-        if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+        residual_source = (
+            configuration.function_code in {"50N", "51N"}
+            and binding.relay_input_id == "residual_current"
+            and binding.binding_id in self._residual_binding_ids(configuration)
+        )
+        if not self._binding_matches_configured_input(configuration, binding):
             raise ValueError(
-                "Protection measurement binding must match the configured element input channel."
+                "Protection measurement binding must match a configured physical input or an explicitly declared residual-current source binding."
             )
-        if any(
-            existing.protection_element_id == binding.protection_element_id
+        existing_for_input = [
+            existing for existing in self._bindings.values()
+            if existing.protection_element_id == binding.protection_element_id
             and existing.relay_input_id == binding.relay_input_id
-            for existing in self._bindings.values()
-        ):
+        ]
+        if not residual_source and existing_for_input:
             raise ValueError(
-                "A protection element input may have only one canonical measurement binding."
+                "A physical protection element input may have only one canonical measurement binding."
             )
+        if residual_source and any(existing.binding_id not in self._residual_binding_ids(configuration) for existing in existing_for_input):
+            raise ValueError("Residual-current input contains an unconfigured source binding.")
         self._bindings[binding.binding_id] = binding
 
     def replace_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
@@ -410,17 +460,25 @@ class ProtectionProjectConfiguration:
         ):
             raise ValueError("A differential scheme member must remain a current measurement binding.")
         configuration = self.get(binding.protection_element_id)
-        if configuration.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+        residual_source = (
+            configuration.function_code in {"50N", "51N"}
+            and binding.relay_input_id == "residual_current"
+            and binding.binding_id in self._residual_binding_ids(configuration)
+        )
+        if not self._binding_matches_configured_input(configuration, binding):
             raise ValueError(
-                "Protection measurement binding must match the configured element input channel."
+                "Protection measurement binding must match a configured physical input or an explicitly declared residual-current source binding."
             )
-        if any(
-            key != binding.binding_id
+        existing_for_input = [
+            existing for key, existing in self._bindings.items()
+            if key != binding.binding_id
             and existing.protection_element_id == binding.protection_element_id
             and existing.relay_input_id == binding.relay_input_id
-            for key, existing in self._bindings.items()
-        ):
-            raise ValueError("A protection element input may have only one canonical measurement binding.")
+        ]
+        if not residual_source and existing_for_input:
+            raise ValueError("A physical protection element input may have only one canonical measurement binding.")
+        if residual_source and any(existing.binding_id not in self._residual_binding_ids(configuration) for existing in existing_for_input):
+            raise ValueError("Residual-current input contains an unconfigured source binding.")
         self._bindings[binding.binding_id] = binding
 
     def get_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
@@ -466,21 +524,26 @@ class ProtectionProjectConfiguration:
     def remove_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
         if any(binding_id in scheme.measurement_binding_ids for scheme in self._differential_schemes.values()):
             raise ValueError(f"Cannot remove measurement binding {binding_id!r} while a differential scheme references it.")
+        for configuration in self._elements.values():
+            if binding_id in self._residual_binding_ids(configuration):
+                raise ValueError(
+                    f"Cannot remove residual-current source binding {binding_id!r} while its function configuration references it."
+                )
         try:
             return self._bindings.pop(binding_id)
         except KeyError as exc:
             raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
 
     def to_dict(self) -> dict[str, Any]:
-        result = {
+        payload = {
             "project_id": self.project_id,
             "elements": [item.to_dict() for item in self.elements],
             "measurement_bindings": [item.to_dict() for item in self.measurement_bindings],
             "differential_schemes": [item.to_dict() for item in self.differential_schemes],
         }
         if self._synchronism_check_configuration is not None:
-            result["synchronism_check_configuration"] = _thaw_value(self._synchronism_check_configuration)
-        return result
+            payload["synchronism_check_configuration"] = _thaw_value(self._synchronism_check_configuration)
+        return payload
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProtectionProjectConfiguration":
@@ -491,6 +554,8 @@ class ProtectionProjectConfiguration:
         if not isinstance(elements, (list, tuple)):
             raise TypeError("protection configuration elements must be a list or tuple.")
         result = cls(project_id)
+        if data.get("synchronism_check_configuration") is not None:
+            result.set_synchronism_check_configuration(data["synchronism_check_configuration"])
         for item in elements:
             result.add(ProtectionFunctionConfiguration.from_dict(item))
         bindings = data.get("measurement_bindings", ())
@@ -503,9 +568,6 @@ class ProtectionProjectConfiguration:
             raise TypeError("differential_schemes must be a list or tuple.")
         for item in schemes:
             result.add_differential_scheme(DifferentialProtectionSchemeConfiguration.from_dict(item))
-        synchronism_configuration = data.get("synchronism_check_configuration")
-        if synchronism_configuration is not None:
-            result.set_synchronism_check_configuration(synchronism_configuration)
         return result
 
 
