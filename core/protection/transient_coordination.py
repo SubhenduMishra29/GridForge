@@ -331,6 +331,16 @@ def grade_transient_protection_coordination(
                 downstream.overshoot_assessment, upstream.overshoot_assessment,
             ))
             continue
+        if (downstream.overshoot_assessment != "ASSESSED" or upstream.overshoot_assessment != "ASSESSED"):
+            grades.append(TransientCoordinationGrade(
+                pair.downstream_function_id, pair.upstream_function_id,
+                downstream.operation_time_s, upstream.operation_time_s,
+                pair.downstream_breaker_clearing_time_s, None, pair.required_cti_s,
+                "NOT_EVALUABLE",
+                "Relay overshoot is not assessed for both functions; transient CTI cannot be declared coordinated.",
+                downstream.overshoot_assessment, upstream.overshoot_assessment,
+            ))
+            continue
         available = (
             upstream.operation_time_s
             - downstream.operation_time_s
