@@ -279,8 +279,22 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         self._table = QTableWidget(0, len(self._COLUMNS), self)
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
         self._table.setWordWrap(True)
+        self._plot = QChart()
+        self._plot.setTitle("Study-driven coordination operating points and supplied timing bounds")
+        self._plot.legend().setVisible(True)
+        self._plot_x_axis = QValueAxis()
+        self._plot_y_axis = QValueAxis()
+        self._plot_x_axis.setTitleText("log10(Primary current / A)")
+        self._plot_y_axis.setTitleText("log10(Time / s)")
+        self._plot_x_axis.setLabelFormat("%.2f")
+        self._plot_y_axis.setLabelFormat("%.2f")
+        self._plot.addAxis(self._plot_x_axis, Qt.AlignmentFlag.AlignBottom)
+        self._plot.addAxis(self._plot_y_axis, Qt.AlignmentFlag.AlignLeft)
+        self._plot_view = QChartView(self._plot, self)
+        self._plot_view.setMinimumHeight(280)
         layout = QVBoxLayout(self)
         layout.addWidget(self._summary)
+        layout.addWidget(self._plot_view, 1)
         layout.addWidget(self._table, 1)
         self.refresh()
 
@@ -320,6 +334,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             return
 
         rows: list[tuple[str, ...]] = []
+        plot_records: list[dict[str, Any]] = []
         stale_rows = 0
         reports_seen = 0
         for result in results:
@@ -338,6 +353,24 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                     continue
                 reports_seen += 1
                 for grade in tuple(getattr(report, "grades", ()) or ()):
+                    plot_records.append({
+                        "study_id": study_id,
+                        "scenario_id": str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
+                        "downstream_id": str(getattr(grade, "downstream_function_id", "—")),
+                        "upstream_id": str(getattr(grade, "upstream_function_id", "—")),
+                        "downstream_current_a": getattr(grade, "downstream_current_a", None),
+                        "upstream_current_a": getattr(grade, "upstream_current_a", None),
+                        "downstream_time_s": getattr(grade, "downstream_operating_time_s", None),
+                        "upstream_time_s": getattr(grade, "upstream_operating_time_s", None),
+                        "breaker_s": getattr(grade, "downstream_breaker_clearing_time_s", None),
+                        "breaker_max_s": getattr(grade, "downstream_breaker_clearing_time_max_s", None),
+                        "downstream_envelope": getattr(grade, "downstream_timing_envelope", None),
+                        "upstream_envelope": getattr(grade, "upstream_timing_envelope", None),
+                        "cti_s": getattr(grade, "available_cti_s", None),
+                        "required_cti_s": getattr(grade, "required_cti_s", None),
+                        "status": str(getattr(grade, "status", "NOT_EVALUABLE")),
+                        "tolerance_status": str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
+                    })
                     rows.append((
                         study_id,
                         str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
@@ -376,6 +409,7 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             for column, value in enumerate(values):
                 self._table.setItem(row_index, column, QTableWidgetItem(value))
         self._table.resizeColumnsToContents()
+        self._refresh_coordination_plot(plot_records)
         self._summary.setText(
             f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
             f"completed Protection Study report(s). {stale_rows} non-current or "
@@ -386,6 +420,91 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
             "No current, completed Protection Study contains a static coordination report. "
             f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
         )
+
+    def _refresh_coordination_plot(self, records: list[dict[str, Any]]) -> None:
+        """Plot exact-scenario grade data; never extrapolate a TCC from one point."""
+        self._plot.removeAllSeries()
+        x_values: list[float] = []
+        y_values: list[float] = []
+
+        def add_series(name: str, points: list[tuple[Any, Any]]) -> None:
+            valid = [
+                (float(current), float(seconds))
+                for current, seconds in points
+                if current is not None and seconds is not None
+                and isfinite(float(current)) and isfinite(float(seconds))
+                and float(current) > 0.0 and float(seconds) > 0.0
+            ]
+            if not valid:
+                return
+            series = QLineSeries()
+            series.setName(name)
+            self._plot.addSeries(series)
+            series.attachAxis(self._plot_x_axis)
+            series.attachAxis(self._plot_y_axis)
+            for current, seconds in valid:
+                x_value, y_value = log10(current), log10(seconds)
+                series.append(x_value, y_value)
+                x_values.append(x_value)
+                y_values.append(y_value)
+
+        for record in records:
+            tag = f'{record["study_id"]} / {record["scenario_id"]}'
+            down_current, up_current = record["downstream_current_a"], record["upstream_current_a"]
+            down_time, up_time = record["downstream_time_s"], record["upstream_time_s"]
+            add_series(f'{tag} · downstream {record["downstream_id"]}', [(down_current, down_time)])
+            add_series(f'{tag} · upstream {record["upstream_id"]}', [(up_current, up_time)])
+            if down_time is not None and record["breaker_s"] is not None:
+                add_series(
+                    f'{tag} · downstream + breaker clearing',
+                    [(down_current, float(down_time) + float(record["breaker_s"]))],
+                )
+            for role, current_key, envelope_key in (
+                ("downstream", "downstream_current_a", "downstream_envelope"),
+                ("upstream", "upstream_current_a", "upstream_envelope"),
+            ):
+                envelope = record[envelope_key]
+                if envelope is None:
+                    continue
+                current = getattr(envelope, "current_a", None)
+                scenario_current = record[current_key]
+                if (
+                    current is None or scenario_current is None
+                    or abs(float(current) - float(scenario_current))
+                    > max(1e-9, abs(float(scenario_current)) * 1e-9)
+                ):
+                    continue
+                add_series(
+                    f'{tag} · {role} supplied timing bounds',
+                    [
+                        (current, getattr(envelope, "minimum_time_s", None)),
+                        (current, getattr(envelope, "maximum_time_s", None)),
+                    ],
+                )
+
+        if x_values and y_values:
+            x_min, x_max = min(x_values), max(x_values)
+            y_min, y_max = min(y_values), max(y_values)
+            self._plot_x_axis.setRange(x_min - 0.15, x_max + 0.15 if x_max > x_min else x_max + 0.5)
+            self._plot_y_axis.setRange(y_min - 0.15, y_max + 0.15 if y_max > y_min else y_max + 0.5)
+        elif records:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nNo finite, positive current/time points are available for logarithmic plotting; "
+                "the exact Core grade records remain visible in the table."
+            )
+        else:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nNo current coordination grade records are available to plot."
+            )
+        if x_values:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nPlot shows exact-scenario operating points, exact-current supplied timing "
+                "bounds, and the downstream-plus-breaker-clearing endpoint. It does not synthesize "
+                "continuous TCC curves, interpolation, or missing manufacturer envelopes."
+            )
 
 
 class ProtectionAnalysisCoveragePanel(QGroupBox):
