@@ -209,10 +209,10 @@ def _result_lines(result: Any) -> tuple[str, ...]:
         lines.extend(_flatten_result_value(result.metadata, prefix="metadata"))
     if result.value is None:
         lines.append("value: no numerical payload was published")
+    elif str(result.study_type).strip().lower() == "protection":
+        lines.extend(_protection_result_lines(result.value))
     else:
         lines.extend(_flatten_result_value(result.value))
-        if str(result.study_type).strip().lower() == "protection":
-            lines.extend(_protection_result_lines(result.value))
     return tuple(lines)
 
 
