@@ -763,6 +763,67 @@ class ProtectionStudyHandler:
                         f"Protection coordination grading refused for scenario {scenario.scenario_id!r}: "
                         f"{type(exc).__name__}: {exc}"
                     )
+            transient_report = None
+            transient_diagnostics: list[str] = []
+            if scenario.transient_current_traces:
+                try:
+                    if not configuration.coordination_pairs:
+                        raise ValueError("Transient grading requires explicit coordination pairs.")
+                    if not scenario.transient_event_id:
+                        raise ValueError("Transient grading requires an explicit event ID.")
+                    samples_by_binding = {x.binding_id: x for x in scenario_samples}
+                    transient_functions = {}
+                    transient_traces = []
+                    for trace_config in scenario.transient_current_traces:
+                        element = configured_elements.get(trace_config.function_id)
+                        if element is None or element.function_code not in {"51", "51N"}:
+                            raise ValueError("Transient trace must identify an enabled ANSI 51/51N function.")
+                        bound = samples_by_binding.get(trace_config.measurement_binding_id)
+                        if bound is None or bound.protection_element_id != trace_config.function_id:
+                            raise ValueError("Transient trace binding is missing or belongs to another function.")
+                        settings = element.settings
+                        if not {"pickup", "curve", "TMS"}.issubset(settings):
+                            raise ValueError("Transient function lacks pickup/curve/TMS settings.")
+                        transient_functions[trace_config.function_id] = CoordinationRelayCharacteristic(
+                            function_id=trace_config.function_id,
+                            pickup_current_a=float(settings["pickup"]),
+                            curve_standard=str(settings.get("curve_standard", "IEC")),
+                            curve=str(settings["curve"]),
+                            time_dial=float(settings["TMS"]),
+                        )
+                        scale = 1.0
+                        if element.function_code == "51N":
+                            if bound.provenance.get("residual_source_mode") not in {"NEUTRAL_CT", "CBCT"}:
+                                raise ValueError("ANSI 51N transient trace requires explicit NEUTRAL_CT or CBCT source.")
+                            ratio = bound.provenance.get("instrument_ratio")
+                            if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                raise ValueError("ANSI 51N transient trace requires an authoritative positive CT ratio.")
+                            scale = float(ratio)
+                        transient_traces.append(RelayCurrentTrace(
+                            function_id=trace_config.function_id,
+                            samples=tuple(CoreRelayCurrentSample(x.time_s, x.current_a * scale) for x in trace_config.samples),
+                        ))
+                    transient_pairs = tuple(ProtectionCoordinationPair(
+                        downstream_function_id=x.downstream_element_id,
+                        upstream_function_id=x.upstream_element_id,
+                        downstream_breaker_clearing_time_s=x.downstream_breaker_clearing_time_s,
+                        required_cti_s=x.required_cti_s,
+                        downstream_breaker_clearing_time_max_s=x.downstream_breaker_clearing_time_max_s,
+                    ) for x in configuration.coordination_pairs)
+                    unknown_evidence = {x.function_id for x in scenario.transient_dynamic_evidence} - set(transient_functions)
+                    if unknown_evidence:
+                        raise ValueError("Dynamic evidence references functions without transient traces: " + ", ".join(sorted(unknown_evidence)))
+                    transient_report = grade_transient_protection_coordination(
+                        event_id=scenario.transient_event_id,
+                        functions=tuple(transient_functions.values()),
+                        pairs=transient_pairs,
+                        traces=tuple(transient_traces),
+                        dynamic_evidence=scenario.transient_dynamic_evidence,
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    transient_diagnostics.append(
+                        f"Transient coordination refused for scenario {scenario.scenario_id!r}: {type(exc).__name__}: {exc}"
+                    )
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
@@ -771,6 +832,8 @@ class ProtectionStudyHandler:
                 relay_evaluation_completed=relay_evaluation_completed,
                 coordination_report=coordination_report,
                 coordination_diagnostics=tuple(coordination_diagnostics),
+                transient_coordination_report=transient_report,
+                transient_coordination_diagnostics=tuple(transient_diagnostics),
             ))
             if cancellation.cancelled:
                 return None
