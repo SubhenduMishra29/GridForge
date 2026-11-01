@@ -33,7 +33,7 @@ from .differential import (
     DifferentialProtectionResult,
     evaluate_differential_scheme,
 )
-from .function_catalog import (
+from .ieee_curves import (\n    IEEECurveDefinition, IEEE_CURVES, normalize_ieee_curve,\n    ieee_inverse_time, generate_ieee_tcc_points,\n)\nfrom .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
     get_protection_function,
