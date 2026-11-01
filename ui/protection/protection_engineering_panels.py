@@ -6,7 +6,7 @@ or issue equipment commands.
 """
 from __future__ import annotations
 
-from math import log10
+from math import isfinite, log10
 from typing import Any
 
 from core.protection import (
@@ -150,6 +150,7 @@ class ProtectionTCCPanel(QGroupBox):
             return
 
         rows: list[tuple[str, str, str, str, str]] = []
+        chart_points: dict[str, list[tuple[float, float]]] = {}
         notices: list[str] = []
         for configuration in relay_configurations:
             code = str(configuration.function_code).strip().upper()
@@ -189,14 +190,23 @@ class ProtectionTCCPanel(QGroupBox):
                 )
                 continue
             curve_label = f"{model.curve_standard} {model.curve}"
+            element_id = str(configuration.element_id)
+            chart_points[element_id] = []
             for point in model.points:
                 rows.append((
-                    str(configuration.element_id),
+                    element_id,
                     curve_label,
                     f"{point.multiple:.4g}",
                     f"{point.current:.6g}",
                     "∞" if point.time == float("inf") else f"{point.time:.6g}",
                 ))
+                if (
+                    isfinite(point.current)
+                    and isfinite(point.time)
+                    and point.current > 0.0
+                    and point.time > 0.0
+                ):
+                    chart_points[element_id].append((point.current, point.time))
         self._table.setRowCount(len(rows))
         series_by_element: dict[str, QLineSeries] = {}
         chart_x: list[float] = []
@@ -204,29 +214,30 @@ class ProtectionTCCPanel(QGroupBox):
         for row, values in enumerate(rows):
             for column, value in enumerate(values):
                 self._table.setItem(row, column, QTableWidgetItem(value))
-            element_id, curve_label, _multiple, current_text, time_text = values
-            try:
-                current_a = float(current_text)
-                operating_time_s = float(time_text)
-            except (TypeError, ValueError):
+        curve_labels = {
+            str(configuration.element_id): (
+                f"{configuration.function_code} · "
+                f"{configuration.settings.get('curve_standard', 'IEC')} "
+                f"{configuration.settings.get('curve', '')}"
+            )
+            for configuration in relay_configurations
+        }
+        for element_id, points in chart_points.items():
+            if not points:
                 continue
-            if current_a <= 0.0 or operating_time_s <= 0.0:
-                continue
-            # The chart uses log10 coordinates on both axes. The table retains
-            # the original engineering values and units without transformation.
-            series = series_by_element.get(element_id)
-            if series is None:
-                series = QLineSeries()
-                series.setName(f"{element_id} · {curve_label}")
-                series_by_element[element_id] = series
-                self._chart.addSeries(series)
-                series.attachAxis(self._chart_x_axis)
-                series.attachAxis(self._chart_y_axis)
-            x_value = log10(current_a)
-            y_value = log10(operating_time_s)
-            series.append(x_value, y_value)
-            chart_x.append(x_value)
-            chart_y.append(y_value)
+            series = QLineSeries()
+            series.setName(f"{element_id} · {curve_labels.get(element_id, 'TCC')}")
+            series_by_element[element_id] = series
+            self._chart.addSeries(series)
+            series.attachAxis(self._chart_x_axis)
+            series.attachAxis(self._chart_y_axis)
+            for current_a, operating_time_s in points:
+                # Plot full-precision Core read-model values, not rounded table text.
+                x_value = log10(current_a)
+                y_value = log10(operating_time_s)
+                series.append(x_value, y_value)
+                chart_x.append(x_value)
+                chart_y.append(y_value)
         if chart_x and chart_y:
             x_min, x_max = min(chart_x), max(chart_x)
             y_min, y_max = min(chart_y), max(chart_y)
