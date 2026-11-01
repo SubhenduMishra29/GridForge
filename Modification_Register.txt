@@ -18435,8 +18435,9 @@ Architecture:
 Verification:
     - Main baseline and exact removal implementation inspected.
     - Focused source diff review only; no tests or CI were run.
-    - Runtime collision scenario and Python syntax/import checks remain
-      unexecuted in this run.
+    - The changed method snippet parsed with Python's AST parser.
+    - Full-module syntax/import integrity and the runtime collision scenario
+      remain unexecuted in this run.
 
 Status:
     SCOPE-AWARE DRAFT CONNECTION CLEANUP IMPLEMENTED ON A DEDICATED BRANCH —
