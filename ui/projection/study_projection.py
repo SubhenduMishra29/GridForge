@@ -543,9 +543,19 @@ class StudyProjection:
         # Keep historical result details inspectable, but never project failed,
         # cancelled, stale, or explicitly non-converged numerical values onto SLD.
         solver_success = getattr(result.value, "success", None)
+        study_type = str(getattr(result, "study_type", "")).strip().lower()
+        protection_result = study_type == "protection"
+        # ProtectionDecision is an evaluation output, not an executed breaker
+        # state transition. The generic numerical SLD overlay has no typed
+        # protection-annotation contract and must not imply that a trip occurred.
+        # Keep Protection Study decisions and measurement completeness visible
+        # in the Study Result panel; a dedicated SLD protection projection must
+        # consume current, complete scenario data and distinguish decisions from
+        # confirmed equipment-state changes before drawing any annotation.
         overlay_result = (
             result
-            if str(getattr(result, "status", "")).strip().lower() == "completed"
+            if not protection_result
+            and str(getattr(result, "status", "")).strip().lower() == "completed"
             and bool(getattr(result, "current", False))
             and solver_success is not False
             else None
