@@ -421,6 +421,31 @@ class ProtectionToolbar(QToolBar):
             action.setChecked(key == tool_id)
 
 
+def _study_event_matches_active_project(application: Any, payload: Any) -> bool:
+    """Reject lifecycle events emitted by a different project activation."""
+    if not hasattr(payload, "get"):
+        return False
+    project_id = payload.get("project_id")
+    generation = payload.get("activation_generation")
+    if project_id is None or generation is None:
+        return False
+    try:
+        lifecycle = application.project_lifecycle
+        context = lifecycle.context
+        active = (
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+        )
+        return bool(
+            active
+            and str(project_id) == str(context.project_id)
+            and int(generation) == int(lifecycle.activation_generation)
+        )
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+
+
 class ProtectionWorkspace(QWidget):
     workspace_id = "protection"
     _EVENT_TYPES = (
@@ -555,16 +580,18 @@ class ProtectionWorkspace(QWidget):
             self._interaction.cancel()
             self._presentation.clear()
             self._selection_manager.clear()
-        elif isinstance(event, StudyStarted):
+        elif isinstance(event, (StudyStarted, StudyCompleted, StudyFailed, StudyCancelled)):
             payload = getattr(event, "payload", {})
-            study_id = payload.get("study_id") if hasattr(payload, "get") else None
+            # Study execution is scoped to a project activation. A late event
+            # from a closed/replaced project must never clear or create the
+            # active project's in-progress marker for a reused Study Case ID.
+            if not _study_event_matches_active_project(self._application, payload):
+                return
+            study_id = payload.get("study_id")
             if study_id is not None:
-                self._coordination_study.set_study_in_progress(study_id, True)
-        elif isinstance(event, (StudyCompleted, StudyFailed, StudyCancelled)):
-            payload = getattr(event, "payload", {})
-            study_id = payload.get("study_id") if hasattr(payload, "get") else None
-            if study_id is not None:
-                self._coordination_study.set_study_in_progress(study_id, False)
+                self._coordination_study.set_study_in_progress(
+                    study_id, isinstance(event, StudyStarted)
+                )
         elif isinstance(event, ProjectLoaded):
             self._coordination_study.clear_in_progress()
             loaded = getattr(self._application, "protection_presentation", None)
