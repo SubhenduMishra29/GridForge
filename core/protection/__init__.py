@@ -33,7 +33,11 @@ from .differential import (
     DifferentialProtectionResult,
     evaluate_differential_scheme,
 )
-from .ieee_curves import (\n    IEEECurveDefinition, IEEE_CURVES, normalize_ieee_curve,\n    ieee_inverse_time, generate_ieee_tcc_points,\n)\nfrom .function_catalog import (
+from .ieee_curves import (
+    IEEECurveDefinition, IEEE_CURVES, normalize_ieee_curve,
+    ieee_inverse_time, generate_ieee_tcc_points,
+)
+from .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
     get_protection_function,
@@ -54,4 +58,6 @@ __all__ = [
     "DifferentialProtectionResult", "evaluate_differential_scheme",
     "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
     "get_protection_function", "list_protection_functions",
+    "IEEECurveDefinition", "IEEE_CURVES", "normalize_ieee_curve",
+    "ieee_inverse_time", "generate_ieee_tcc_points",
 ]
