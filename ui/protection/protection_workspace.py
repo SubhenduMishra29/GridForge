@@ -333,22 +333,38 @@ class ProtectionInspector(QGroupBox):
             self._label.setText(f"Protection presentation object: {object_id}")
             return
         settings = dict(relay.settings or {})
-        configuration = next((item for item in configurations if str(item.relay_id) == relay_id), None)
+        relay_configurations = tuple(
+            item for item in configurations if str(item.relay_id) == relay_id
+        )
         lines = [
             "Identity", f"  {relay.object_id}",
             "Relay", f"  {relay.name} ({relay.relay_type})",
-            "Function", f"  {relay.function_type}",
+            "Physical Relay Function Label", f"  {relay.function_type}",
+            "Configured Protection Elements", f"  {len(relay_configurations)}",
             "Inputs", f"  {len(relay.input_channel_bindings)}",
             "State", f"  {ProtectionGraphicsSurface._decision_text(relay)}",
             "In Service", f"  {relay.in_service}",
             "Enabled", f"  {relay.enabled}",
             "Blocked", f"  {relay.blocked}",
         ]
-        if configuration is not None:
+        for index, configuration in enumerate(relay_configurations, start=1):
             lines.extend([
-                "Configuration", f"  {configuration.element_id}",
-                "Configured Inputs", f"  {dict(configuration.input_channel_ids)}",
+                f"Protection Element {index}",
+                f"  Element ID: {configuration.element_id}",
+                f"  ANSI Function: {configuration.function_code}",
+                f"  Input / Measurement Bindings: {dict(configuration.input_channel_ids)}",
+                f"  Settings: {dict(configuration.settings or {})}",
             ])
+            try:
+                from core.protection import get_protection_function
+                specification = get_protection_function(configuration.function_code)
+                lines.append(f"  Implementation Status: {specification.status.value}")
+                if specification.input_contract is not None and not specification.input_contract.supported:
+                    lines.append(
+                        f"  Input Contract: FAIL-CLOSED — {specification.input_contract.unsupported_reason}"
+                    )
+            except (KeyError, TypeError, ValueError):
+                lines.append("  Implementation Status: catalogue entry unavailable")
         decision = getattr(relay, "decision", None)
         if decision is not None:
             lines.extend([
