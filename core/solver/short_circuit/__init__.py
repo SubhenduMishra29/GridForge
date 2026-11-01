@@ -43,6 +43,13 @@ from .phase_domain_solver import (
     PhaseDomainShortCircuitSolver,
 )
 from .short_circuit import ShortCircuit
+from .rl_transient import (
+    RLPhaseEquivalent,
+    RLTransientSample,
+    RLPhaseTransient,
+    RLTransientFaultResult,
+    solve_rl_fault_transient,
+)
 
 __all__ = [
     "FaultType",
@@ -73,5 +80,10 @@ __all__ = [
     "PhaseDomainShortCircuitCase",
     "PhaseDomainShortCircuitSolution",
     "PhaseDomainShortCircuitSolver",
+    "RLPhaseEquivalent",
+    "RLTransientSample",
+    "RLPhaseTransient",
+    "RLTransientFaultResult",
+    "solve_rl_fault_transient",
     "ShortCircuit",
 ]
