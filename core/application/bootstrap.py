@@ -131,11 +131,6 @@ def create_application(
         active_context = getattr(active_lifecycle, "context", None)
         active_network = getattr(active_lifecycle, "network", None)
         active_generation = getattr(active_lifecycle, "activation_generation", 0)
-        active_configuration = protection_configuration_service.configuration
-        active_policy = (
-            active_configuration.synchronism_check_configuration
-            if active_configuration is not None else None
-        )
         active_path = getattr(active_context, "path", None)
         if (
             active_context is not None
