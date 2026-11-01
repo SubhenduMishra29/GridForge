@@ -5,6 +5,7 @@ from .protection_engineering_panels import (
     ProtectionAnalysisCoveragePanel,
     ProtectionFunctionCatalogPanel,
     ProtectionTCCPanel,
+    ProtectionCoordinationStudyPanel,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "ProtectionFunctionCatalogPanel",
     "ProtectionTCCPanel",
     "ProtectionAnalysisCoveragePanel",
+    "ProtectionCoordinationStudyPanel",
 ]
