@@ -7,10 +7,10 @@
 """Typed Protection Study configuration, result, and StudyService handler.
 
 The handler supports either one coherent live measurement-snapshot evaluation
-or explicit short-circuit fault-scenario calculations from a detached project
-snapshot. Fault scenarios are not yet converted into scenario-specific CT/PT/CVT
-measurement samples for relay evaluation. The Study never dispatches trip
-commands or mutates breaker state.
+or explicit short-circuit fault scenarios converted through configured
+instrument/channel bindings into detached Application-authorized RelayInput
+snapshots. Unsupported instrument/result paths fail closed. The Study never
+dispatches trip commands or mutates breaker state.
 """
 
 from __future__ import annotations
@@ -25,12 +25,15 @@ from core.analysis.short_circuit import ShortCircuitAnalysis
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult, ShortCircuitStatus
+from core.application.services.ct_measurement_association_service import CTMeasurementAssociationService
+from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementAdapter
 
 from core.application.protection_execution import ProtectionExecutionResult
 from core.application.revision import ProjectRevision
 from core.protection.configuration_fingerprint import canonical_configuration_value
 from core.protection.decision import ProtectionDecision
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.runtime import ProtectionRuntime
 
 
 def _freeze_mapping(value: Any, field_name: str) -> Any:
@@ -73,6 +76,8 @@ class ProtectionFaultScenarioResult:
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
     short_circuit_result: ShortCircuitResult
+    execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
+    relay_evaluation_completed: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -82,6 +87,10 @@ class ProtectionFaultScenarioResult:
             raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
         if not isinstance(self.short_circuit_result, ShortCircuitResult):
             raise TypeError("short_circuit_result must be a ShortCircuitResult.")
+        if not isinstance(self.execution, ProtectionExecutionResult):
+            raise TypeError("execution must be a ProtectionExecutionResult.")
+        if not isinstance(self.relay_evaluation_completed, bool):
+            raise TypeError("relay_evaluation_completed must be a boolean.")
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -101,7 +110,10 @@ class ProtectionFaultScenarioResult:
 
     @property
     def measurement_contributions_complete(self) -> bool:
-        """Whether branch/source current contributions are complete enough for mapping."""
+        """Whether the active calculation domain produced complete measurement primitives."""
+        result = self.short_circuit_result
+        if result.provenance.get("calculation_domain") == "PHASE_DOMAIN":
+            return result.conductor_current_status is ContributionStatus.COMPLETE
         return self.contribution_status is ContributionStatus.COMPLETE
 
     @property
@@ -269,11 +281,21 @@ class ProtectionStudyResult:
 
     @property
     def decisions(self) -> tuple[ProtectionDecision, ...]:
-        return self.execution.decisions
+        scenario_decisions = tuple(
+            decision
+            for scenario in self.fault_scenarios
+            for decision in scenario.execution.decisions
+        )
+        return self.execution.decisions + scenario_decisions
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return self.execution.diagnostics
+        scenario_diagnostics = tuple(
+            f"scenario={scenario.scenario_id!r}: {message}"
+            for scenario in self.fault_scenarios
+            for message in (*scenario.diagnostics, *scenario.execution.diagnostics)
+        )
+        return self.execution.diagnostics + scenario_diagnostics
 
     @property
     def status(self) -> str:
@@ -283,11 +305,16 @@ class ProtectionStudyResult:
             not item.success
             or item.status is not ShortCircuitStatus.COMPLETE
             or not item.measurement_contributions_complete
+            or bool(item.execution.diagnostics)
             for item in self.fault_scenarios
         ):
             return "partial"
         if self.fault_scenarios and not self.measurement_snapshot_evaluated:
-            return "fault_scenarios_calculated"
+            return (
+                "evaluated"
+                if all(item.relay_evaluation_completed for item in self.fault_scenarios)
+                else "fault_scenarios_calculated"
+            )
         return "evaluated" if self.measurement_snapshot_evaluated else "not_evaluated"
 
 
@@ -295,8 +322,14 @@ class ProtectionStudyHandler:
     """Run a non-operating protection evaluation through the existing StudyService."""
 
     def __init__(self, application: Any) -> None:
-        if application is None or not callable(getattr(application, "evaluate_protection_cycle", None)):
-            raise TypeError("application must expose evaluate_protection_cycle().")
+        if (
+            application is None
+            or not callable(getattr(application, "evaluate_protection_cycle", None))
+            or not callable(getattr(application, "_evaluate_protection_scenario", None))
+        ):
+            raise TypeError(
+                "application must expose the live and detached-scenario protection evaluation boundaries."
+            )
         self._application = application
 
     def __call__(self, request: Any, execution_context: Any, cancellation: Any) -> ProtectionStudyResult | None:
@@ -357,6 +390,9 @@ class ProtectionStudyHandler:
                 scenario.configuration.fault_impedance,
                 elements=scenario.configuration.element_ids or None,
                 topology_snapshot=execution_context.topology_snapshot,
+                phase_domain_case=scenario.configuration.phase_domain_case,
+                phase_domain_sources=scenario.configuration.phase_domain_sources or None,
+                phase_domain_faults=scenario.configuration.phase_domain_faults or None,
             )
             short_circuit_result = ShortCircuitAnalysis.from_prepared(prepared_input).run()
             expected_provenance = {
@@ -370,10 +406,118 @@ class ProtectionStudyHandler:
                         f"Protection fault scenario {scenario.scenario_id!r} returned mismatched "
                         f"short-circuit {provenance_key} provenance."
                     )
+            if cancellation.cancelled:
+                return None
+
+            sample_adapter = ProtectionScenarioMeasurementAdapter()
+            ct_associations: dict[str, Any] = {}
+            association_service = CTMeasurementAssociationService()
+            scenario_samples = []
+            conversion_diagnostics: list[str] = []
+            measurement_service = application.measurement_channel_service
+            configured_elements = {
+                item.element_id: item
+                for item in active_configuration.elements
+                if item.enabled
+            }
+            for binding in active_configuration.measurement_bindings:
+                if binding.protection_element_id not in configured_elements:
+                    continue
+                prefix = (
+                    f"element={binding.protection_element_id!r}, "
+                    f"input={binding.relay_input_id!r}, binding={binding.binding_id!r}"
+                )
+                try:
+                    if binding.measurement_type.strip().lower() != "current":
+                        raise ValueError(
+                            "Scenario voltage conversion is not implemented; PT/CVT samples are not inferred."
+                        )
+                    channel = measurement_service.require(binding.channel_id)
+                    instrument = detached_network.get_by_identity(binding.instrument_id)
+                    if binding.instrument_id not in ct_associations:
+                        ct_associations[binding.instrument_id] = association_service.resolve(
+                            execution_context.project_snapshot,
+                            binding.instrument_id,
+                        )
+                    element_configuration = configured_elements[binding.protection_element_id]
+                    residual_configuration = element_configuration.residual_current_input
+                    if residual_configuration is not None and residual_configuration.mode == "NEUTRAL_CT":
+                        scenario_sample = sample_adapter.convert_neutral_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    elif residual_configuration is not None and residual_configuration.mode == "CBCT":
+                        scenario_sample = sample_adapter.convert_cbct_window_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    else:
+                        scenario_sample = sample_adapter.convert_terminal_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                        )
+                    scenario_samples.append(scenario_sample)
+                except Exception as exc:
+                    conversion_diagnostics.append(
+                        f"{prefix}: scenario measurement conversion refused: {type(exc).__name__}: {exc}"
+                    )
+
+            if cancellation.cancelled:
+                return None
+            relay_evaluation_completed = False
+            if conversion_diagnostics:
+                scenario_execution = ProtectionExecutionResult(
+                    diagnostics=tuple(conversion_diagnostics)
+                )
+            else:
+                # Each fault scenario gets a fresh stateful protection runtime.
+                # In particular, ANSI 51N pickup/timing/latching state must not
+                # leak between independent scenarios or mutate the live runtime.
+                scenario_runtime = ProtectionRuntime(
+                    lifecycle.network,
+                    active_configuration,
+                    activation_generation=request.activation_generation,
+                )
+                try:
+                    scenario_runtime.compose(measurement_service.channels)
+                except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                    scenario_execution = ProtectionExecutionResult(
+                        diagnostics=(
+                            f"Scenario protection runtime composition failed closed: {type(exc).__name__}: {exc}",
+                        )
+                    )
+                else:
+                    scenario_execution = application._evaluate_protection_scenario(
+                        scenario_id=scenario.scenario_id,
+                        samples=tuple(scenario_samples),
+                        evaluation_time=configuration.evaluation_time,
+                        evaluation_timestep=configuration.timestep,
+                        event_id=configuration.event_id,
+                        event_type=configuration.event_type,
+                        supervision=configuration.supervision,
+                        evaluation_metadata={
+                            **dict(configuration.metadata),
+                            "study_id": str(request.study_id),
+                            "study_type": "protection",
+                            "scenario_id": scenario.scenario_id,
+                            "source_model_revision": request.source_revision.model_revision,
+                            "source_topology_revision": request.source_revision.topology_revision,
+                        },
+                        network_state=execution_context.topology_snapshot,
+                        protection_runtime=scenario_runtime,
+                    )
+                relay_evaluation_completed = not scenario_execution.diagnostics
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
                 short_circuit_result=short_circuit_result,
+                execution=scenario_execution,
+                relay_evaluation_completed=relay_evaluation_completed,
             ))
             if cancellation.cancelled:
                 return None
@@ -413,9 +557,9 @@ class ProtectionStudyHandler:
                 network_state=execution_context.topology_snapshot,
             )
         else:
-            # Fault-current results are not yet converted through configured
-            # CT/PT/CVT paths into scenario-specific RelayInput samples.
-            # Never reuse live channel samples as if they represented a fault.
+            # Each fault scenario retains its own detached-sample execution.
+            # Keep the top-level execution empty so decisions remain correlated
+            # to their individual scenario result records.
             execution = ProtectionExecutionResult()
         if cancellation.cancelled:
             return None

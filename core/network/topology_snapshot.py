@@ -36,12 +36,17 @@ class EquipmentBusAttachment:
     equipment_type: str
     terminal_role: str
     bus_id: str
+    bus_attachment_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.equipment_id, "equipment_id")
         _require_non_empty_string(self.equipment_type, "equipment_type")
         _require_non_empty_string(self.terminal_role, "terminal_role")
         _require_non_empty_string(self.bus_id, "bus_id")
+        if self.bus_attachment_id is not None:
+            _require_non_empty_string(self.bus_attachment_id, "bus_attachment_id")
+            if self.bus_attachment_id not in {f"attachment-{index}" for index in range(9)}:
+                raise ValueError("bus_attachment_id must be a canonical Bus attachment-N identity (N in 0..8).")
         if self.equipment_type not in _CANONICAL_EQUIPMENT_TYPES:
             raise ValueError(
                 f"equipment_type must be a canonical EquipmentType value; "

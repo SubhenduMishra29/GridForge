@@ -15,6 +15,7 @@ from core.solver.short_circuit.sequence_snapshot import (
 )
 from .sequence_network_preparation import SequenceNetworkPreparation
 from core.network.topology_snapshot import TopologySnapshot
+from core.model.transformer import Transformer
 
 
 class ShortCircuitPreparation:
@@ -35,7 +36,7 @@ class ShortCircuitPreparation:
         self.base_mva = base_mva
         self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None, phase_domain_sources: Any | None = None, phase_domain_faults: Any | None = None) -> ShortCircuitInput:
         network = self._network
         if topology_snapshot is None:
             network.rebuild_topology()
@@ -53,12 +54,223 @@ class ShortCircuitPreparation:
             if len(set(bus_ids)) != len(bus_ids):
                 raise ValueError("TopologySnapshot bus IDs must be unique for Short Circuit preparation.")
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
+            if phase_domain_sources is not None or phase_domain_faults is not None:
+                if phase_domain_case is not None:
+                    raise ValueError("Supply either phase_domain_case or explicit phase_domain_sources/faults.")
+                sources = tuple(phase_domain_sources or ())
+                faults = tuple(phase_domain_faults or ())
+                if not faults:
+                    raise ValueError("Phase-domain preparation requires explicit fault connections.")
+                if self.base_mva is None:
+                    raise ValueError("Phase-domain preparation requires an explicit study MVA base.")
+                from core.network import build_phase_domain_conductor_network
+                from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+                from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
+                from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
+                from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
+                graph = network.build_phase_domain_conductor_snapshot()
+                if phase_domain_sources is None:
+                    from core.analysis.phase_domain_source_preparation import prepare_phase_domain_source_equivalents
+                    sources = prepare_phase_domain_source_equivalents(network, graph)
+                if not sources:
+                    raise ValueError("Phase-domain preparation requires at least one explicit or automatically prepared source equivalent.")
+                physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                if not physical_topology.branches:
+                    raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
+                physical_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, physical_topology, base_mva=self.base_mva
+                )
+                admittance = assemble_phase_domain_admittance(graph, physical_impedances)
+                from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
+                transformer_primitives = tuple(
+                    prepare_transformer_phase_domain_multiport(transformer, graph)
+                    for transformer in getattr(network, "transformers", ())
+                    if getattr(transformer, "in_service", True)
+                )
+                phase_domain_case = PhaseDomainShortCircuitCase(
+                    graph=graph, admittance=admittance, impedances=physical_impedances,
+                    sources=sources, faults=faults, base_mva=self.base_mva,
+                    transformer_primitives=transformer_primitives,
+                )
+            if phase_domain_case is not None:
+                from core.solver.short_circuit.phase_domain_solver import PhaseDomainShortCircuitCase
+                if not isinstance(phase_domain_case, PhaseDomainShortCircuitCase):
+                    raise TypeError("phase_domain_case must be a PhaseDomainShortCircuitCase.")
+                if self.base_mva is None:
+                    raise ValueError("Phase-domain preparation requires an explicit study MVA base.")
+                # A caller-supplied typed case may carry valid-looking project
+                # revisions while embedding stale graph or impedance data.
+                # Rebuild every Network-derived primitive from this captured
+                # detached Network and require exact value equality; only
+                # source/fault declarations are caller-owned study inputs.
+                from core.network import build_phase_domain_conductor_network
+                from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+                from core.analysis.physical_conductor_preparation import prepare_physical_conductor_impedance_snapshot
+                from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
+                authoritative_graph = network.build_phase_domain_conductor_snapshot()
+                authoritative_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                if not authoritative_topology.branches:
+                    raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
+                authoritative_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, authoritative_topology, base_mva=float(self.base_mva)
+                )
+                authoritative_admittance = assemble_phase_domain_admittance(
+                    authoritative_graph, authoritative_impedances
+                )
+                from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
+                authoritative_transformer_primitives = tuple(
+                    prepare_transformer_phase_domain_multiport(transformer, authoritative_graph)
+                    for transformer in getattr(network, "transformers", ())
+                    if getattr(transformer, "in_service", True)
+                )
+                if phase_domain_case.graph != authoritative_graph:
+                    raise ValueError("Supplied phase-domain case graph does not match the captured authoritative Network graph.")
+                if phase_domain_case.impedances != authoritative_impedances:
+                    raise ValueError("Supplied phase-domain case impedances do not match the captured Line/Cable conductor inventory.")
+                if phase_domain_case.admittance != authoritative_admittance:
+                    raise ValueError("Supplied phase-domain case admittance does not match the captured authoritative Network preparation.")
+                if phase_domain_case.transformer_primitives != authoritative_transformer_primitives:
+                    raise ValueError("Supplied phase-domain transformer multiports do not match the captured authoritative Transformer models and winding terminal graph.")
+                if complex(Zf) != 0j:
+                    raise ValueError("Phase-domain fault impedance must be declared on the explicit fault connections, not duplicated in Zf.")
+                if (
+                    phase_domain_case.graph.project_id,
+                    phase_domain_case.graph.activation_generation,
+                    phase_domain_case.graph.topology_revision,
+                ) != (
+                    topology_snapshot.project_id,
+                    topology_snapshot.activation_generation,
+                    topology_snapshot.topology_revision,
+                ):
+                    raise ValueError("Phase-domain case provenance does not match the captured project topology.")
+                if self.base_mva is None or not math.isclose(phase_domain_case.base_mva, float(self.base_mva), rel_tol=1e-9, abs_tol=1e-9):
+                    raise ValueError("Phase-domain case and ShortCircuitPreparation must use the same explicit MVA base.")
+
+                # Bind every numerical source to a live, registered Core
+                # equipment owner. A graph node alone is not proof that an
+                # electrical source exists or is in service.
+                from core.solver.short_circuit.phase_domain_solver import (
+                    PhaseDomainSourceEquivalent,
+                )
+                for source in phase_domain_case.sources:
+                    source_node_ids = (
+                        (source.node_id,)
+                        if isinstance(source, PhaseDomainSourceEquivalent)
+                        else source.node_ids
+                    )
+                    source_nodes = tuple(
+                        phase_domain_case.graph.node(node_id)
+                        for node_id in source_node_ids
+                    )
+                    equipment_ids = {node.equipment_id for node in source_nodes}
+                    if len(equipment_ids) != 1 or None in equipment_ids:
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} must resolve to exactly one registered equipment owner."
+                        )
+                    equipment_id = next(iter(equipment_ids))
+                    try:
+                        equipment = network.get_by_identity(equipment_id)
+                    except (KeyError, TypeError) as exc:
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} references unregistered equipment {equipment_id!r}."
+                        ) from exc
+                    if equipment is None or str(getattr(equipment, "id", "")) != equipment_id:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} is not the canonical registered Network object."
+                        )
+                    equipment_type = str(getattr(equipment, "element_type", "")).strip().lower()
+                    if equipment_type not in {"grid", "generator", "motor"}:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} has unsupported source model type {equipment_type!r}."
+                        )
+                    if getattr(equipment, "in_service", None) is not True:
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} is not explicitly in service."
+                        )
+                    # A matching equipment_id/role string is not sufficient:
+                    # the source node must correspond to a real Core terminal
+                    # owned by this exact registered equipment object.
+                    declared_terminals = tuple(getattr(equipment, "terminals", ()) or ())
+                    if not declared_terminals or any(
+                        getattr(terminal, "owner", None) is not equipment
+                        for terminal in declared_terminals
+                    ):
+                        raise ValueError(
+                            f"Phase-domain source owner {equipment_id!r} does not expose a complete terminal collection owned by the canonical equipment object."
+                        )
+                    for node in source_nodes:
+                        if getattr(node.kind, "value", node.kind) != "EQUIPMENT_TERMINAL":
+                            raise ValueError(
+                                f"Phase-domain source node {node.node_id!r} must be an EQUIPMENT_TERMINAL, not {getattr(node.kind, 'value', node.kind)!r}."
+                            )
+                        matching_terminals = tuple(
+                            terminal for terminal in declared_terminals
+                            if getattr(terminal, "role", None) == node.terminal_role
+                        )
+                        if len(matching_terminals) != 1:
+                            raise ValueError(
+                                f"Phase-domain source node {node.node_id!r} must resolve to exactly one authoritative Core terminal role on equipment {equipment_id!r}."
+                            )
+                    if equipment_type == "motor" and getattr(equipment, "running", None) is not True:
+                        raise ValueError(
+                            f"Motor source {equipment_id!r} is not explicitly running; no motor contribution is admitted."
+                        )
+                    if any(node.terminal_role != "terminal" for node in source_nodes):
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} must attach to the authoritative terminal role."
+                        )
+                    if any(node.conductor_role not in {"A", "B", "C"} for node in source_nodes):
+                        raise ValueError(
+                            f"Phase-domain source {source.source_id!r} may inject only into explicitly declared phase conductors; neutral/PE source injection is unsupported."
+                        )
+                voltage_bases: dict[str, float] = {}
+                for bus_id in bus_ids:
+                    bus = network.get_by_identity(bus_id)
+                    nominal_kv = getattr(bus, "nominal_voltage_kv", None)
+                    if nominal_kv is not None:
+                        value = float(nominal_kv)
+                        if math.isfinite(value) and value > 0.0:
+                            voltage_bases[bus_id] = value
+                return ShortCircuitInput(
+                    fault_type=normalized_type,
+                    fault_bus_index=bus_index,
+                    fault_bus_id=bus_ids[bus_index],
+                    prefault_voltage=1.0 + 0.0j,
+                    fault_impedance=0.0j,
+                    bus_ids=bus_ids,
+                    sequence_snapshot=None,
+                    sequence_elements=(),
+                    project_id=topology_snapshot.project_id,
+                    activation_generation=topology_snapshot.activation_generation,
+                    topology_revision=topology_snapshot.topology_revision,
+                    base_mva=self.base_mva,
+                    bus_voltage_bases_kv=voltage_bases,
+                    phase_domain_case=phase_domain_case,
+                )
             prefault_voltages = tuple(
                 self._prepare_prefault_voltage(network, bus_id)
                 for bus_id in bus_ids
             )
             prefault_voltage = prefault_voltages[bus_index]
             snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
+            required_sequences = (
+                ("positive", "negative")
+                if normalized_type is FaultType.LINE_LINE
+                else ("positive", "negative", "zero")
+                if normalized_type.is_unbalanced
+                else ("positive",)
+            )
+            unavailable_at_fault = tuple(
+                sequence for sequence in required_sequences
+                if not snapshot.is_bus_available(sequence, bus_index)
+            )
+            if unavailable_at_fault:
+                raise ValueError(
+                    f"Fault Bus '{bus_ids[bus_index]}' belongs to an ungrounded or "
+                    f"numerically unavailable sequence-network component for: "
+                    f"{', '.join(unavailable_at_fault)} sequence. No earth-return "
+                    "path is declared for this component."
+                )
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
@@ -69,9 +281,9 @@ class ShortCircuitPreparation:
             else:
                 sequence_elements = tuple(str(getattr(element, "id", element)) for element in elements)
             if normalized_type.is_unbalanced:
-                for name in ("positive", "negative", "zero"):
+                for name in required_sequences:
                     if not snapshot.has_matrix(name):
-                        raise ValueError(f"{name.capitalize()}-sequence matrix is required for an unsymmetrical fault study.")
+                        raise ValueError(f"{name.capitalize()}-sequence matrix is required for this unsymmetrical fault study.")
                 if not sequence_elements:
                     raise ValueError("At least one sequence-network element is required for an unsymmetrical fault study.")
 
@@ -113,9 +325,78 @@ class ShortCircuitPreparation:
     def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
+            if fault_type.requires_zero_sequence:
+                for transformer in (item for item in self._branch_elements(network) if isinstance(item, Transformer) and bool(getattr(item, "in_service", True))):
+                    if (
+                        getattr(transformer, "hv_winding_connection", None) is not None
+                        and getattr(transformer, "lv_winding_connection", None) is not None
+                        and getattr(transformer.hv_winding_connection, "value", transformer.hv_winding_connection) == "WYE_GROUNDED"
+                        and getattr(transformer.lv_winding_connection, "value", transformer.lv_winding_connection) == "WYE_GROUNDED"
+                    ):
+                        supplied_stamps = {
+                            str(getattr(item, "transformer_id", ""))
+                            for item in getattr(sequence_network, "transformer_zero_sequence_two_bus_stamps", ())
+                        }
+                        if str(transformer.id) not in supplied_stamps:
+                            raise ValueError(
+                                f"Externally supplied sequence network lacks the explicit D14I two-Bus zero-sequence stamp for grounded-wye/grounded-wye Transformer '{transformer.id}'."
+                            )
+            requires_tap_aware_matrix = any(
+                isinstance(element, Transformer)
+                and (
+                    not math.isclose(float(getattr(element, "tap", 1.0)), 1.0, rel_tol=0.0, abs_tol=1e-12)
+                    or not math.isclose(float(getattr(element, "shift", 0.0)), 0.0, rel_tol=0.0, abs_tol=1e-12)
+                )
+                for element in self._branch_elements(network)
+                if bool(getattr(element, "in_service", True))
+            )
+            if requires_tap_aware_matrix and getattr(sequence_network, "transformer_tap_convention", None) != "FROM_SIDE_COMPLEX_TAP_V1":
+                raise ValueError(
+                    "An externally supplied sequence network cannot be used with a non-unity transformer tap/phase shift "
+                    "unless it declares the canonical FROM_SIDE_COMPLEX_TAP_V1 stamping convention."
+                )
         else:
-            required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
+            required = (
+                ("positive", "negative")
+                if fault_type is FaultType.LINE_LINE
+                else ("positive", "negative", "zero")
+                if fault_type.is_unbalanced
+                else ("positive",)
+            )
             sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
+        if self._sequence_network is not None:
+            # External sequence matrices do not own physical-conductor inputs.
+            # Re-prepare this separate product from the authoritative Network
+            # and canonical topology; never infer it from supplied Z1/Z2/Z0.
+            from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
+            from core.analysis.physical_conductor_preparation import (
+                PhysicalConductorImpedanceSnapshot,
+                prepare_physical_conductor_impedance_snapshot,
+            )
+            physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+            if not physical_topology.branches:
+                physical_impedances = PhysicalConductorImpedanceSnapshot(
+                    project_id=physical_topology.project_id,
+                    activation_generation=physical_topology.activation_generation,
+                    topology_revision=physical_topology.topology_revision,
+                    branches=(),
+                )
+                physical_diagnostics = ()
+            elif self.base_mva is None:
+                physical_impedances = None
+                physical_diagnostics = ("UNAVAILABLE: explicit study base_mva is required for physical-conductor per-unit preparation.",)
+            else:
+                physical_impedances = prepare_physical_conductor_impedance_snapshot(
+                    network, physical_topology, base_mva=self.base_mva
+                )
+                physical_diagnostics = ()
+            try:
+                sequence_network.physical_conductor_topology = physical_topology
+                sequence_network.physical_conductor_impedances = physical_impedances
+                sequence_network.physical_conductor_impedance_diagnostics = physical_diagnostics
+            except (AttributeError, TypeError) as exc:
+                if physical_topology.branches:
+                    raise ValueError("Externally supplied immutable sequence data cannot carry the required D15E physical-conductor snapshot.") from exc
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
             bus_ids=bus_ids,
@@ -154,6 +435,10 @@ class ShortCircuitPreparation:
                     negative=negative,
                     zero=zero,
                     equipment_type=type(element).__name__,
+                    from_terminal_role=str(getattr(getattr(element.from_terminal, "role", "FROM"), "value", getattr(element.from_terminal, "role", "FROM"))).strip().upper(),
+                    to_terminal_role=str(getattr(getattr(element.to_terminal, "role", "TO"), "value", getattr(element.to_terminal, "role", "TO"))).strip().upper(),
+                    tap_ratio=float(getattr(element, "tap", 1.0)),
+                    phase_shift_rad=float(getattr(element, "shift", 0.0)),
                 )
             )
             seen.add(branch_id)

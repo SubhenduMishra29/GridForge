@@ -129,10 +129,12 @@ All Rights Reserved.
 from __future__ import annotations
 
 import math
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .physical_conductor_construction import PhysicalConductorConstruction
 
 
 class Breaker(ElectricalObject):
@@ -157,6 +159,7 @@ class Breaker(ElectricalObject):
         "_voltage_kv",
         "_current_a",
         "_interrupting_ka",
+        "_phase_domain_pole_states",
     )
 
     # ============================================================
@@ -176,6 +179,7 @@ class Breaker(ElectricalObject):
         voltage_kv: float | None = None,
         current_a: float | None = None,
         interrupting_ka: float | None = None,
+        phase_domain_pole_states: Mapping[str, bool] | None = None,
     ) -> None:
         """
         Construct a two-terminal Breaker.
@@ -299,6 +303,13 @@ class Breaker(ElectricalObject):
                 interrupting_ka,
                 "interrupting_ka",
             )
+        )
+
+        # Physical pole construction is explicit. The legacy global
+        # closed/open state is not used to invent a three-pole or neutral
+        # switching arrangement.
+        self._phase_domain_pole_states = self._normalize_phase_domain_pole_states(
+            phase_domain_pole_states
         )
 
     # ============================================================
@@ -526,6 +537,31 @@ class Breaker(ElectricalObject):
     ) -> None:
         self._failed = bool(value)
 
+    @property
+    def phase_domain_pole_states(self) -> Mapping[str, bool] | None:
+        """Explicit physical conductor-role to pole-closed-state mapping."""
+        return self._phase_domain_pole_states
+
+    @staticmethod
+    def _normalize_phase_domain_pole_states(value: Mapping[str, bool] | None):
+        if value is None:
+            return None
+        if not isinstance(value, Mapping) or not value:
+            raise TypeError("phase_domain_pole_states must be a non-empty role-to-bool mapping.")
+        normalized = {}
+        for raw_role, state in value.items():
+            if not isinstance(raw_role, str):
+                raise TypeError("Breaker pole conductor roles must be strings.")
+            role = raw_role.strip().upper()
+            if role not in {"A", "B", "C", "N"}:
+                raise ValueError("Breaker physical poles support only explicit A, B, C and N conductor roles.")
+            if role in normalized:
+                raise ValueError(f"Duplicate breaker pole role {role!r}.")
+            if type(state) is not bool:
+                raise TypeError(f"Breaker pole state for {role!r} must be bool.")
+            normalized[role] = state
+        return MappingProxyType(dict(sorted(normalized.items())))
+
     # ============================================================
     # SWITCHING OPERATIONS
     # ============================================================
@@ -724,6 +760,7 @@ class Breaker(ElectricalObject):
                 "voltage_kv": self._voltage_kv,
                 "current_a": self._current_a,
                 "interrupting_ka": self._interrupting_ka,
+                "phase_domain_pole_states": None if self._phase_domain_pole_states is None else dict(self._phase_domain_pole_states),
                 "from_endpoint": self._endpoint_identifier(
                     self._terminal_from.endpoint
                 ),
@@ -734,6 +771,13 @@ class Breaker(ElectricalObject):
         )
 
         return summary
+
+    @property
+    def physical_conductor_construction(self) -> PhysicalConductorConstruction | None:
+        """Common immutable inventory; pole state remains separately authoritative."""
+        if self._phase_domain_pole_states is None:
+            return None
+        return PhysicalConductorConstruction.from_roles(self._phase_domain_pole_states.keys())
 
     # ============================================================
     # REPRESENTATION

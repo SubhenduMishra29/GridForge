@@ -13,7 +13,10 @@ from uuid import UUID, uuid4
 
 from ..command import Command
 from core.model import EndpointReference
-from ...model.transformer import ImpedanceBasis
+from ...model.transformer import ImpedanceBasis, TransformerWindingConnection
+from ...model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
+from ...model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
+from ...model.conductor import BranchConductorSystem
 
 CREATE_BUS = "model.create_bus"
 UPDATE_BUS = "model.update_bus"
@@ -182,6 +185,9 @@ class DeleteShuntCommand(Command):
 class CreateLineCommand(Command):
     def __init__(self, *, line_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None,
                  resistance_ohm: float, reactance_ohm: float, shunt_susceptance_siemens: float = 0.0,
+                 zero_sequence_resistance_ohm: float | None = None,
+                 zero_sequence_reactance_ohm: float | None = None,
+                 conductor_system: BranchConductorSystem | None = None,
                  name: str = "", rate_mva: float = 100.0,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
@@ -193,15 +199,22 @@ class CreateLineCommand(Command):
             "resistance_ohm": resistance_ohm,
             "reactance_ohm": reactance_ohm,
             "shunt_susceptance_siemens": shunt_susceptance_siemens,
+            "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm,
+            "conductor_system": conductor_system,
             "name": name,
             "rate_mva": rate_mva,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class UpdateLineCommand(Command):
-    def __init__(self, *, line_id: str, name: str | None = None, resistance_ohm: float | None = None, reactance_ohm: float | None = None, shunt_susceptance_siemens: float | None = None, rate_mva: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if all(value is None for value in (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, rate_mva, in_service)):
+    def __init__(self, *, line_id: str, name: str | None = None, resistance_ohm: float | None = None, reactance_ohm: float | None = None, shunt_susceptance_siemens: float | None = None, zero_sequence_resistance_ohm: float | None = None, zero_sequence_reactance_ohm: float | None = None, conductor_system: BranchConductorSystem | None = None, clear_conductor_system: bool = False, rate_mva: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(clear_conductor_system, bool):
+            raise TypeError("clear_conductor_system must be bool.")
+        if clear_conductor_system and conductor_system is not None:
+            raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
+        if all(value is None for value in (name, resistance_ohm, reactance_ohm, shunt_susceptance_siemens, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, conductor_system, rate_mva, in_service)) and not clear_conductor_system:
             raise ValueError("UpdateLineCommand requires at least one mutable Line field.")
-        super().__init__(**_command(UPDATE_LINE, {"line_id": line_id, "name": name, "resistance_ohm": resistance_ohm, "reactance_ohm": reactance_ohm, "shunt_susceptance_siemens": shunt_susceptance_siemens, "rate_mva": rate_mva, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(UPDATE_LINE, {"line_id": line_id, "name": name, "resistance_ohm": resistance_ohm, "reactance_ohm": reactance_ohm, "shunt_susceptance_siemens": shunt_susceptance_siemens, "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm, "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm, "conductor_system": conductor_system, "clear_conductor_system": clear_conductor_system, "rate_mva": rate_mva, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class DeleteLineCommand(Command):
     def __init__(self, *, line_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
@@ -212,6 +225,19 @@ class CreateTransformerCommand(Command):
                  r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float | None = None, impedance_base_mva: float | None = None,
                  impedance_base_voltage_kv: float | None = None,
+                 hv_winding_connection: TransformerWindingConnection | str | None = None,
+                 lv_winding_connection: TransformerWindingConnection | str | None = None,
+                 hv_neutral_grounding_impedance_ohm: complex | None = None,
+                 lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_terminal_role: str | None = None,
+                 lv_terminal_role: str | None = None,
+                 impedance_reference_winding: str | None = None,
+                 zero_sequence_resistance_ohm: float | None = None,
+                 zero_sequence_reactance_ohm: float | None = None,
+                 core_construction: str | None = None, zero_sequence_test_basis: str | None = None,
+                 vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+                 zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+                 zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
         _endpoint(endpoint_to, "endpoint_to")
@@ -233,6 +259,20 @@ class CreateTransformerCommand(Command):
             "impedance_basis": normalized_basis,
             "impedance_base_mva": impedance_base_mva,
             "impedance_base_voltage_kv": impedance_base_voltage_kv,
+            "hv_winding_connection": hv_winding_connection,
+            "lv_winding_connection": lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_terminal_role": hv_terminal_role,
+            "lv_terminal_role": lv_terminal_role,
+            "impedance_reference_winding": impedance_reference_winding,
+            "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm,
+            "core_construction": core_construction,
+            "zero_sequence_test_basis": zero_sequence_test_basis,
+            "vector_group_configuration": vector_group_configuration,
+            "zero_sequence_test_configuration": zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
             "tap": tap,
             "shift": shift,
             "name": name,
@@ -244,9 +284,23 @@ class UpdateTransformerCommand(Command):
                  x: float | None = None, b: float | None = None,
                  impedance_basis: ImpedanceBasis | str | None = None, impedance_base_mva: float | None = None,
                  tap: float | None = None, shift: float | None = None, rate_mva: float | None = None,
-                 in_service: bool | None = None, command_id: UUID | None = None,
+                 in_service: bool | None = None,
+                 hv_winding_connection: TransformerWindingConnection | str | None = None,
+                 lv_winding_connection: TransformerWindingConnection | str | None = None,
+                 hv_neutral_grounding_impedance_ohm: complex | None = None,
+                 lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_terminal_role: str | None = None,
+                 lv_terminal_role: str | None = None,
+                 impedance_reference_winding: str | None = None,
+                 zero_sequence_resistance_ohm: float | None = None,
+                 zero_sequence_reactance_ohm: float | None = None,
+                 core_construction: str | None = None, zero_sequence_test_basis: str | None = None,
+                 vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
+                 zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
+                 zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+                 command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service)
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
         if all(value is None for value in values):
             raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
         normalized_basis = None
@@ -259,19 +313,34 @@ class UpdateTransformerCommand(Command):
             "transformer_id": transformer_id, "name": name, "r": r, "x": x, "b": b,
             "impedance_basis": normalized_basis, "impedance_base_mva": impedance_base_mva,
             "tap": tap, "shift": shift, "rate_mva": rate_mva, "in_service": in_service,
+            "hv_winding_connection": hv_winding_connection, "lv_winding_connection": lv_winding_connection,
+            "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
+            "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_terminal_role": hv_terminal_role,
+            "lv_terminal_role": lv_terminal_role,
+            "impedance_reference_winding": impedance_reference_winding,
+            "zero_sequence_resistance_ohm": zero_sequence_resistance_ohm,
+            "zero_sequence_reactance_ohm": zero_sequence_reactance_ohm,
+            "core_construction": core_construction,
+            "zero_sequence_test_basis": zero_sequence_test_basis,
+            "vector_group_configuration": vector_group_configuration,
+            "zero_sequence_test_configuration": zero_sequence_test_configuration,
+            "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateCableCommand(Command):
-    def __init__(self, *, cable_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, thermal_limit_mva: float | None = None, conductor_count: int = 1, in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, cable_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, thermal_limit_mva: float | None = None, conductor_count: int = 1, in_service: bool = True, conductor_system: BranchConductorSystem | None = None, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from"); _endpoint(endpoint_to, "endpoint_to")
-        super().__init__(**_command(CREATE_CABLE, {"presentation_x": presentation_x, "presentation_y": presentation_y, "cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "thermal_limit_mva": thermal_limit_mva, "conductor_count": conductor_count, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_CABLE, {"presentation_x": presentation_x, "presentation_y": presentation_y, "cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "thermal_limit_mva": thermal_limit_mva, "conductor_count": conductor_count, "in_service": in_service, "conductor_system": conductor_system}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateCableCommand(Command):
-    def __init__(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, thermal_limit_mva: float | None = None, conductor_count: int | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if all(v is None for v in (name, length_km, rated_voltage_kv, rated_current_a, r1_ohm_per_km, x1_ohm_per_km, b1_us_per_km, r0_ohm_per_km, x0_ohm_per_km, b0_us_per_km, thermal_limit_mva, conductor_count, in_service)): raise ValueError("UpdateCableCommand requires at least one mutable Cable field.")
-        super().__init__(**_command(UPDATE_CABLE, {"cable_id": cable_id, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "thermal_limit_mva": thermal_limit_mva, "conductor_count": conductor_count, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+    def __init__(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, thermal_limit_mva: float | None = None, conductor_count: int | None = None, in_service: bool | None = None, conductor_system: BranchConductorSystem | None = None, clear_conductor_system: bool = False, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(clear_conductor_system, bool): raise TypeError("clear_conductor_system must be bool.")
+        if clear_conductor_system and conductor_system is not None: raise ValueError("Specify conductor_system or clear_conductor_system, not both.")
+        if all(v is None for v in (name, length_km, rated_voltage_kv, rated_current_a, r1_ohm_per_km, x1_ohm_per_km, b1_us_per_km, r0_ohm_per_km, x0_ohm_per_km, b0_us_per_km, thermal_limit_mva, conductor_count, in_service, conductor_system)) and not clear_conductor_system: raise ValueError("UpdateCableCommand requires at least one mutable Cable field.")
+        super().__init__(**_command(UPDATE_CABLE, {"cable_id": cable_id, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "thermal_limit_mva": thermal_limit_mva, "conductor_count": conductor_count, "in_service": in_service, "conductor_system": conductor_system, "clear_conductor_system": clear_conductor_system}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteCableCommand(Command):
     def __init__(self, *, cable_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_CABLE, {"cable_id": cable_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))

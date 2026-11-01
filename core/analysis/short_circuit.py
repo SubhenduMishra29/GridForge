@@ -39,12 +39,16 @@ class ShortCircuitAnalysis:
     ) -> "ShortCircuitAnalysis":
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
-        preparation = ShortCircuitPreparation(network, sequence_network, base_mva=base_mva)
+        effective_base_mva = configuration.base_mva if base_mva is None else base_mva
+        preparation = ShortCircuitPreparation(network, sequence_network, base_mva=effective_base_mva)
         input_data = preparation.prepare(
             configuration.fault_type,
             configuration.fault_bus_id,
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
+            phase_domain_case=configuration.phase_domain_case,
+            phase_domain_sources=configuration.phase_domain_sources or None,
+            phase_domain_faults=configuration.phase_domain_faults or None,
         )
         return cls.from_prepared(input_data)
 
