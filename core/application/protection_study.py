@@ -34,6 +34,8 @@ from core.protection.configuration_fingerprint import canonical_configuration_va
 from core.protection.decision import ProtectionDecision
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.protection.runtime import ProtectionRuntime
+from core.protection.transient_coordination import RelayCurrentSample as CoreRelayCurrentSample, RelayCurrentTrace, TransientCoordinationReport, grade_transient_protection_coordination
+from core.protection.relay_dynamic_characteristics import RelayDynamicEvidence
 from core.protection.coordination_grading import (
     CoordinationRelayCharacteristic,
     CoordinationPair as ProtectionCoordinationPair,
@@ -90,6 +92,28 @@ class ProtectionCoordinationTimingEnvelopeConfiguration:
             raise ValueError("maximum_time_s must be >= minimum_time_s.")
 
 
+@dataclass(frozen=True, slots=True)
+class ProtectionTransientCurrentTraceConfiguration:
+    """Function-bound current trace with explicit relay-model validity declaration."""
+    function_id: str
+    measurement_binding_id: str
+    samples: tuple[CoreRelayCurrentSample, ...]
+    normalized_progress_model_confirmed: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "measurement_binding_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        samples = tuple(self.samples)
+        if len(samples) < 2 or any(not isinstance(x, CoreRelayCurrentSample) for x in samples):
+            raise TypeError("At least two typed current samples are required.")
+        if any(b.time_s <= a.time_s for a, b in zip(samples, samples[1:])):
+            raise ValueError("Current trace timestamps must be strictly increasing.")
+        if self.normalized_progress_model_confirmed is not True:
+            raise ValueError("Relay-specific normalized-progress confirmation is required.")
+        object.__setattr__(self, "samples", samples)
 @dataclass(frozen=True, slots=True)
 class ProtectionFaultScenario:
     """One explicitly configured fault case evaluated from a detached project snapshot."""
