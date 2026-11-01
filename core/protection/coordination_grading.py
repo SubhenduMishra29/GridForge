@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import Mapping, Iterable
 
 from .ieee_curves import ieee_inverse_time, normalize_ieee_curve
-from .function_functions import iec_time, normalize_iec_curve
+from .relay_functions import iec_time, normalize_iec_curve
 
 
 def _finite(value: float, name: str) -> float:
@@ -41,9 +41,9 @@ def _non_empty_id(value: str, name: str) -> str:
 class CoordinationRelayCharacteristic:
     """One explicitly configured inverse-time function element.
 
-    pickup_current_a and scenario currents must use the same primary-current
-    convention. CT ratio conversion and measurement provenance are upstream
-    responsibilities and are never inferred here.
+    pickup_current_a and scenario currents must use the same ampere convention.
+    The Application adapter supplies CT-secondary amperes in the integrated
+    Protection Study path. This Core function never infers CT scaling.
     """
 
     function_id: str
