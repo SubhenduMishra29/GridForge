@@ -44,15 +44,6 @@ class ProtectionFunctionCatalogPanel(QGroupBox):
         layout.addWidget(self._table)
         self.refresh()
 
-    @classmethod
-    def _envelope_summary(cls, envelope: Any) -> str:
-        if envelope is None:
-            return "Not supplied"
-        minimum = cls._number(getattr(envelope, "minimum_time_s", None))
-        maximum = cls._number(getattr(envelope, "maximum_time_s", None))
-        current = cls._number(getattr(envelope, "current_a", None))
-        return f"{minimum}–{maximum} s @ {current} A"
-
     def refresh(self) -> None:
         codes = list_protection_functions()
         self._table.setRowCount(len(codes))
@@ -306,6 +297,15 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
         if number == float("-inf"):
             return "−∞"
         return f"{number:.6g}"
+
+    @classmethod
+    def _envelope_summary(cls, envelope: Any) -> str:
+        if envelope is None:
+            return "Not supplied"
+        minimum = cls._number(getattr(envelope, "minimum_time_s", None))
+        maximum = cls._number(getattr(envelope, "maximum_time_s", None))
+        current = cls._number(getattr(envelope, "current_a", None))
+        return f"{minimum}–{maximum} s @ {current} A"
 
     def refresh(self) -> None:
         self._table.setRowCount(0)
