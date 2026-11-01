@@ -121,6 +121,9 @@ class ProtectionFaultScenario:
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
     coordination_timing_envelopes: tuple[ProtectionCoordinationTimingEnvelopeConfiguration, ...] = ()
+    transient_event_id: str | None = None
+    transient_current_traces: tuple[ProtectionTransientCurrentTraceConfiguration, ...] = ()
+    transient_dynamic_evidence: tuple[RelayDynamicEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -135,6 +138,22 @@ class ProtectionFaultScenario:
         if len(set(function_ids)) != len(function_ids):
             raise ValueError("A fault scenario may declare only one timing envelope per function.")
         object.__setattr__(self, "coordination_timing_envelopes", envelopes)
+        traces = tuple(self.transient_current_traces)
+        evidence = tuple(self.transient_dynamic_evidence)
+        if traces and (not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip()):
+            raise ValueError("Transient traces require an explicit event ID.")
+        if self.transient_event_id is not None:
+            if not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip():
+                raise ValueError("transient_event_id must be non-empty or None.")
+            object.__setattr__(self, "transient_event_id", self.transient_event_id.strip())
+        if any(not isinstance(x, ProtectionTransientCurrentTraceConfiguration) for x in traces):
+            raise TypeError("Transient traces must use typed Application trace configurations.")
+        if any(not isinstance(x, RelayDynamicEvidence) for x in evidence):
+            raise TypeError("Transient evidence must use RelayDynamicEvidence.")
+        if len({x.function_id for x in traces}) != len(traces) or len({x.function_id for x in evidence}) != len(evidence):
+            raise ValueError("Transient trace/evidence function IDs must be unique.")
+        object.__setattr__(self, "transient_current_traces", traces)
+        object.__setattr__(self, "transient_dynamic_evidence", evidence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +208,8 @@ class ProtectionFaultScenarioResult:
     relay_evaluation_completed: bool = False
     coordination_report: ProtectionCoordinationReport | None = None
     coordination_diagnostics: tuple[str, ...] = ()
+    transient_coordination_report: TransientCoordinationReport | None = None
+    transient_coordination_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -206,6 +227,9 @@ class ProtectionFaultScenarioResult:
             raise TypeError("coordination_report must be ProtectionCoordinationReport or None.")
         diagnostics = tuple(str(item) for item in self.coordination_diagnostics)
         object.__setattr__(self, "coordination_diagnostics", diagnostics)
+        if self.transient_coordination_report is not None and not isinstance(self.transient_coordination_report, TransientCoordinationReport):
+            raise TypeError("transient_coordination_report must be TransientCoordinationReport or None.")
+        object.__setattr__(self, "transient_coordination_diagnostics", tuple(str(x) for x in self.transient_coordination_diagnostics))
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -233,7 +257,7 @@ class ProtectionFaultScenarioResult:
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return tuple(self.short_circuit_result.diagnostics) + tuple(self.coordination_diagnostics)
+        return tuple(self.short_circuit_result.diagnostics) + tuple(self.coordination_diagnostics) + tuple(self.transient_coordination_diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +459,8 @@ class ProtectionStudyResult:
             or bool(item.execution.diagnostics)
             or bool(item.coordination_diagnostics)
             or (item.coordination_report is not None and not item.coordination_report.fully_evaluable)
+            or bool(item.transient_coordination_diagnostics)
+            or (item.transient_coordination_report is not None and not item.transient_coordination_report.fully_evaluable)
             for item in self.fault_scenarios
         ):
             return "partial"
