@@ -33,6 +33,14 @@ from .differential import (
     DifferentialProtectionResult,
     evaluate_differential_scheme,
 )
+from .coordination_grading import (
+    CoordinationRelayCharacteristic,
+    CoordinationPair,
+    FaultCurrentScenario,
+    CoordinationGrade,
+    ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
 from .tcc_read_model import (
     ProtectionTCCPoint,
     ProtectionTCCReadModel,
@@ -65,5 +73,11 @@ __all__ = [
     "get_protection_function", "list_protection_functions",
     "IEEECurveDefinition", "IEEE_CURVES", "normalize_ieee_curve",
     "ieee_inverse_time", "generate_ieee_tcc_points",
+    "CoordinationRelayCharacteristic",
+    "CoordinationPair",
+    "FaultCurrentScenario",
+    "CoordinationGrade",
+    "ProtectionCoordinationReport",
+    "grade_protection_coordination",
     "ProtectionTCCPoint", "ProtectionTCCReadModel", "build_protection_tcc_read_model",
 ]
