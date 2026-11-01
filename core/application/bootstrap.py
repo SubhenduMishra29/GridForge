@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 import math
 from dataclasses import replace
 from uuid import uuid4
@@ -59,7 +59,7 @@ from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
-from .services.measurement_channel_service import MeasurementChannelService
+from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
 from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
@@ -69,7 +69,14 @@ from .creation_schema import creation_contracts_from_definitions
 from .services.motor_dynamics_service import MotorDynamicsComposition
 
 
-def create_application(network: Any) -> Application:
+def create_application(
+    network: Any,
+    *,
+    measurement_source_verifier: Callable[[MeasurementSampleAttestation, Any, float | complex], bool] | None = None,
+    measurement_clock: Callable[[], float] | None = None,
+    measurement_clock_domain: str | None = None,
+    max_measurement_source_clock_skew_seconds: float = 2.0,
+) -> Application:
     """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
@@ -79,7 +86,12 @@ def create_application(network: Any) -> Application:
     # Application-scoped configuration checks. Study execution never uses this
     # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
-    measurement_channel_service = MeasurementChannelService()
+    measurement_channel_service = MeasurementChannelService(
+        source_verifier=measurement_source_verifier,
+        clock=measurement_clock,
+        clock_domain=measurement_clock_domain,
+        max_source_clock_skew_seconds=max_measurement_source_clock_skew_seconds,
+    )
     measurement_channel_service.activate(initial_context, network, (), generation=1)
     protection_configuration_service = ProtectionConfigurationService(
         ProtectionProjectConfiguration(initial_context.project_id),
@@ -168,6 +180,7 @@ def create_application(network: Any) -> Application:
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
     )
+    measurement_channel_service.bind_execution_lock(application._execution_lock)
 
     # Configure trusted creation contracts at the canonical Application
     # composition boundary. The registry validates all definitions against
