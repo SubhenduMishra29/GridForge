@@ -518,7 +518,9 @@ class ProtectionCoordinationStudyPanel(QGroupBox):
                 + "\n\nPlot shows exact-scenario operating points, exact-current supplied timing "
                 "bounds, and nominal/maximum downstream breaker-clearing endpoints. Current is "
                 "shown in each function's supplied ampere basis; no cross-CT normalization is "
-                "inferred. It does not synthesize continuous TCC curves, interpolation, or missing "
+                "inferred. Do not compare horizontal positions across functions unless their CT "
+                "ratios and current bases are known to be equivalent. It does not synthesize "
+                "continuous TCC curves, interpolation, or missing "
                 "manufacturer envelopes."
             )
 
