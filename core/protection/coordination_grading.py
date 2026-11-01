@@ -280,9 +280,11 @@ def grade_protection_coordination(
     operating time - downstream breaker clearing time. A result is
     COORDINATED only when available CTI meets the pair's required CTI.
     Missing currents or a non-operating relay yield NOT_EVALUABLE, never a
-    pass. Manufacturer timing tolerances, breaker tolerance bands, relay
-    overshoot and reset characteristics are not included in this nominal
-    calculation and are explicitly reported as such.
+    pass. Optional manufacturer/test operating-time envelopes and maximum
+    breaker clearing-time bounds produce a separate conservative CTI result.
+    If those bounds are absent or do not match the scenario current, the
+    tolerance-aware result is explicitly not assessed. Reset/overshoot and
+    dynamic memory remain outside this model.
     """
     relay_items = tuple(relays)
     pair_items = tuple(pairs)
