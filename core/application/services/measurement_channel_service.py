@@ -159,8 +159,8 @@ class MeasurementChannelService:
                 raise PermissionError("Trusted measurement clock is unavailable.") from exc
             if isinstance(trusted_now, bool) or not isinstance(trusted_now, (int, float)) or not math.isfinite(trusted_now):
                 raise PermissionError("Trusted measurement clock returned an invalid timestamp.")
-            if attestation.timestamp > trusted_now or trusted_now - attestation.timestamp > self._max_source_clock_skew_seconds:
-                raise PermissionError("Measurement source timestamp is outside the trusted clock-skew window.")
+            if attestation.timestamp > trusted_now + self._max_source_clock_skew_seconds:
+                raise PermissionError("Measurement source timestamp is too far ahead of the trusted clock.")
             try:
                 verified = self._source_verifier(attestation, channel, value)
             except Exception as exc:
