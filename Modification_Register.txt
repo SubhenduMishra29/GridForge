@@ -18480,3 +18480,49 @@ Limitations:
     separate integration work. No tests or CI were run.
 
 ======================================================================
+
+======================================================================
+GF-PROT-051 — Project-scoped ANSI 25 guard and physical instrument topology
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    PR #912 Application composition and synchronism-check enforcement
+
+Files:
+    core/application/synchronism_check.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Correction:
+    Add the typed six-channel ANSI 25 policy/measurement guard and compose it
+    through the Application breaker-close authorizer. Guard instances are
+    scoped to project identity and activation generation and are installed
+    transactionally with project state; activation rollback restores the
+    prior guard. No active guard means breaker energization is denied.
+
+Physical topology:
+    Resolve breaker FROM/TO terminals to distinct buses through the canonical
+    ConnectivityResolver. Every configured left/right voltage, phase-angle,
+    and frequency channel must originate from a PT/CVT secondary whose two
+    primary terminals resolve only to the corresponding breaker-side bus.
+    Missing, ambiguous, out-of-service, wrong-family, or cross-side instrument
+    topology fails closed before sample evaluation.
+
+Audit and clock:
+    Compose the append-only fsync-backed project sidecar audit only when the
+    project is saved and injected trusted clock/domain adapters are available.
+    The audit clock domain must match the measurement publication domain.
+    Missing clock, domain, saved path, audit sink, policy, or topology validator
+    leaves the breaker authorizer closed. No bypass provider is composed;
+    bypass requests therefore cannot authorize energization.
+
+Limitations:
+    Production verifier/clock adapters, explicit bypass workflow, hardware
+    commissioning, runtime tests, persistence round-trip and full end-to-end
+    breaker close execution remain unverified. No tests or CI were run.
+
+======================================================================
+
