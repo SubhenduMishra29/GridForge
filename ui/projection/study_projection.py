@@ -153,6 +153,22 @@ def _protection_result_lines(value: Any) -> tuple[str, ...]:
     for index, scenario in enumerate(scenarios):
         prefix = f"protection.fault_scenarios[{index}]"
         lines.append(f"{prefix}.scenario_id: {getattr(scenario, 'scenario_id', 'unknown')}")
+        scenario_configuration = getattr(scenario, "configuration", None)
+        lines.append(
+            f"{prefix}.fault_bus_id: {getattr(scenario_configuration, 'fault_bus_id', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.fault_type: {getattr(scenario_configuration, 'fault_type', 'unknown')}"
+        )
+        lines.append(f"{prefix}.short_circuit_status: {getattr(scenario, 'status', 'unknown')}")
+        lines.append(
+            f"{prefix}.measurement_contributions_complete: "
+            f"{getattr(scenario, 'measurement_contributions_complete', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.relay_evaluation_completed: "
+            f"{getattr(scenario, 'relay_evaluation_completed', 'unknown')}"
+        )
         scenario_execution = getattr(scenario, "execution", None)
         scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
         lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
