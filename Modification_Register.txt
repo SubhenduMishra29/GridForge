@@ -15897,3 +15897,49 @@ Verification:
     Source edited and re-fetched. No tests, CI, syntax/import checks, or
     runtime persistence round-trip executed.
 ======================================================================
+
+======================================================================
+GF-PROT-047
+======================================================================
+
+Scope:
+    Audit candidate ANSI 25 measurement publisher and clock-domain contract
+
+Files inspected:
+    core/application/services/measurement_channel_service.py
+    core/measurement/measurement_channel.py
+    core/application/synchronism_check.py
+    core/application/bootstrap.py
+
+Findings:
+    1. Current main MeasurementChannelService provisions and persists
+       logical channel definitions but exposes no trusted live sample
+       ingestion boundary.
+    2. PR #869 adds publish_sample(), but timestamp_domain is a caller-
+       supplied string compared with the channel's configured string.
+       This is domain-label consistency, not authenticated clock provenance.
+    3. Candidate publish_sample() does not require an expected project_id,
+       activation_generation, or producer identity in each publication.
+       A retained producer/service reference could therefore be unsafe
+       across project activation unless a stronger producer capability is
+       introduced.
+    4. Candidate channel update authority is an in-process object capability;
+       it protects direct field mutation but does not authenticate which
+       external measurement source supplied the sample.
+    5. Current bootstrap already has a transactional project-state
+       activation hook and the canonical protection configuration is
+       serialized through ProtectionProjectConfiguration.to_dict/from_dict.
+
+Disposition:
+    - Persist ANSI 25 policy additively in the existing protection
+      configuration aggregate (GF-PROT-046).
+    - Do not port the candidate publisher unchanged or treat timestamp
+      string equality as clock attestation.
+    - Require a project/generation-scoped publisher capability bound to
+      an authorized source and declared clock authority before wiring
+      live samples into ANSI 25.
+
+Verification:
+    Source inspection only. No tests, CI, syntax/import checks, or runtime
+    measurement publication performed.
+======================================================================
