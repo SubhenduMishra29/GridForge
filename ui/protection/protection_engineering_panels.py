@@ -258,6 +258,128 @@ class ProtectionTCCPanel(QGroupBox):
         self._summary.setText(summary)
 
 
+class ProtectionCoordinationStudyPanel(QGroupBox):
+    """Project actual Protection Study coordination grades as a read-only table."""
+
+    _COLUMNS = (
+        "Study / Scenario", "Downstream function", "Downstream current (A)",
+        "Downstream time (s)", "Upstream function", "Upstream current (A)",
+        "Upstream time (s)", "Breaker clearing (s)", "Available CTI (s)",
+        "Required CTI (s)", "Nominal grade", "Tolerance CTI (s)",
+        "Tolerance grade", "Timing evidence",
+    )
+
+    def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
+        super().__init__("Protection Coordination Study Results", parent)
+        self._application = application
+        self._summary = QLabel("No Protection Study coordination results are available.", self)
+        self._summary.setWordWrap(True)
+        self._table = QTableWidget(0, len(self._COLUMNS), self)
+        self._table.setHorizontalHeaderLabels(self._COLUMNS)
+        self._table.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._summary)
+        layout.addWidget(self._table, 1)
+        self.refresh()
+
+    @staticmethod
+    def _number(value: Any) -> str:
+        if value is None:
+            return "—"
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if number == float("inf"):
+            return "∞"
+        if number == float("-inf"):
+            return "−∞"
+        return f"{number:.6g}"
+
+    def refresh(self) -> None:
+        self._table.setRowCount(0)
+        reader = getattr(self._application, "read_study_results", None)
+        if not callable(reader):
+            self._summary.setText("Application does not expose the Protection Study result read model.")
+            return
+        try:
+            results = tuple(reader())
+        except Exception as exc:
+            self._summary.setText(f"Protection Study results unavailable: {type(exc).__name__}: {exc}")
+            return
+
+        rows: list[tuple[str, ...]] = []
+        stale_rows = 0
+        reports_seen = 0
+        for result in results:
+            if str(getattr(result, "study_type", "")).strip().lower() != "protection":
+                continue
+            study_id = str(getattr(result, "study_id", "unknown"))
+            current = bool(getattr(result, "current", False))
+            completed = str(getattr(result, "status", "")).strip().lower() == "completed"
+            if not current or not completed:
+                stale_rows += 1
+                continue
+            protection_result = getattr(result, "value", None)
+            for scenario in tuple(getattr(protection_result, "fault_scenarios", ()) or ()):
+                report = getattr(scenario, "coordination_report", None)
+                if report is None:
+                    continue
+                reports_seen += 1
+                envelope_configs = tuple(
+                    getattr(getattr(scenario, "configuration", None), "coordination_timing_envelopes", ()) or ()
+                )
+                evidence_by_function = {
+                    str(item.function_id): str(item.evidence_reference)
+                    for item in envelope_configs
+                }
+                for grade in tuple(getattr(report, "grades", ()) or ()):
+                    evidence_parts = []
+                    for function_id in (
+                        str(getattr(grade, "downstream_function_id", "")),
+                        str(getattr(grade, "upstream_function_id", "")),
+                    ):
+                        reference = evidence_by_function.get(function_id)
+                        if reference:
+                            evidence_parts.append(f"{function_id}: {reference}")
+                    rows.append((
+                        study_id,
+                        str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
+                        str(getattr(grade, "downstream_function_id", "—")),
+                        self._number(getattr(grade, "downstream_current_a", None)),
+                        self._number(getattr(grade, "downstream_operating_time_s", None)),
+                        str(getattr(grade, "upstream_function_id", "—")),
+                        self._number(getattr(grade, "upstream_current_a", None)),
+                        self._number(getattr(grade, "upstream_operating_time_s", None)),
+                        self._number(getattr(grade, "downstream_breaker_clearing_time_s", None)),
+                        self._number(getattr(grade, "available_cti_s", None)),
+                        self._number(getattr(grade, "required_cti_s", None)),
+                        str(getattr(grade, "status", "NOT_EVALUABLE")),
+                        self._number(getattr(grade, "tolerance_available_cti_s", None)),
+                        str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
+                        "; ".join(evidence_parts) if evidence_parts else "Not supplied",
+                    ))
+
+        # Include study identity in the first visible column without inventing
+        # relationships: each row is copied from one explicit Core grade.
+        self._table.setColumnCount(len(self._COLUMNS) + 1)
+        self._table.setHorizontalHeaderLabels(("Study ID",) + self._COLUMNS)
+        self._table.setRowCount(len(rows))
+        for row_index, values in enumerate(rows):
+            for column, value in enumerate(values):
+                self._table.setItem(row_index, column, QTableWidgetItem(value))
+        self._table.resizeColumnsToContents()
+        self._summary.setText(
+            f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
+            f"completed Protection Study report(s). {stale_rows} non-current or "
+            "non-completed Protection result(s) were excluded. Timing evidence labels "
+            "are provenance references only; they are not authenticated by this view."
+            if rows else
+            "No current, completed Protection Study contains a static coordination report. "
+            f"{stale_rows} non-current or non-completed Protection result(s) were excluded."
+        )
+
+
 class ProtectionAnalysisCoveragePanel(QGroupBox):
     """Expose analysis capability and explicit model boundaries to engineers."""
 
@@ -298,4 +420,5 @@ __all__ = [
     "ProtectionFunctionCatalogPanel",
     "ProtectionTCCPanel",
     "ProtectionAnalysisCoveragePanel",
+    "ProtectionCoordinationStudyPanel",
 ]
