@@ -15859,3 +15859,41 @@ Limitations:
 Verification:
     No tests or CI run. Syntax/import/runtime checks not performed.
 ======================================================================
+
+======================================================================
+GF-PROT-046
+======================================================================
+
+Scope:
+    Persist ANSI 25 policy in the current ProtectionProjectConfiguration
+
+File:
+    core/protection/project_configuration.py
+
+Finding:
+    Current-main project persistence already serializes the canonical
+    ProtectionProjectConfiguration aggregate. A separate project-file
+    persistence root is unnecessary for ANSI 25 policy.
+
+Correction:
+    - Added an optional schema-2 synchronism_check_configuration payload
+      to ProtectionProjectConfiguration.
+    - Added strict top-level schema and breaker-key validation.
+    - Require each breaker policy to be a mapping and the complete payload
+      to be finite JSON data.
+    - Preserve backward compatibility: projects without ANSI 25 policy
+      retain the prior serialized shape.
+    - Persist configured ANSI 25 policy through the existing protection
+      configuration to_dict/from_dict path; no separate project root or
+      stale PR #869 protection configuration replacement.
+
+Limitations:
+    Per-breaker typed policy validation and activation-time breaker/channel
+    reference validation still belong to the Application guard integration.
+    This change does not authenticate measurement publishers, establish a
+    trusted clock domain, or enable breaker closing.
+
+Verification:
+    Source edited and re-fetched. No tests, CI, syntax/import checks, or
+    runtime persistence round-trip executed.
+======================================================================
