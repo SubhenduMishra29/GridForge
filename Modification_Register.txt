@@ -18618,3 +18618,45 @@ Limitations:
 
 ======================================================================
 
+======================================================================
+GF-PROT-054 — Authenticate complete measurement sample envelope
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    Trusted measurement publication attestation integrity
+
+Files:
+    core/application/services/measurement_channel_service.py
+    Modification_Register.txt
+
+Finding:
+    MeasurementSampleAttestation authenticated producer/project/generation,
+    timestamp/domain, sequence and signature, while publish_sample accepted
+    quality and availability as independent caller-supplied arguments. The
+    verifier therefore had no signed source metadata to validate for those
+    safety-critical fields. The attestation also did not explicitly bind the
+    target logical channel identity.
+
+Correction:
+    Extend the typed attestation with channel_id, MeasurementQuality and
+    availability. Validate these fields at construction and require the
+    published channel, quality and availability to match the attested values
+    exactly before invoking the configured verifier. The verifier receives
+    the complete typed envelope and raw value, so it can authenticate the
+    full sample payload, including its logical-channel association.
+
+Safety:
+    A caller cannot promote a signed but SUSPECT/INVALID/UNKNOWN or unavailable
+    source sample to GOOD/available by changing publication arguments.
+    Cross-channel replay is rejected before sample mutation.
+
+Limitations:
+    Deployment verifier implementations must include the new channel_id,
+    quality and availability fields in the signature-validation contract.
+    No tests or CI were run.
+
+======================================================================
+
