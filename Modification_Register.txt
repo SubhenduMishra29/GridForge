@@ -18396,3 +18396,50 @@ Disposition:
     not pixel proximity. Keep #874 open pending a reproducible runtime trace.
 
 ======================================================================
+
+======================================================================
+GF-AUD-137 — Scope-aware DraftNetwork equipment removal
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    Application-owned draft lifecycle and canonical endpoint identity
+
+Files:
+    core/application/draft/network.py
+    Modification_Register.txt
+
+Finding:
+    DraftEndpointReference identity explicitly includes endpoint scope
+    (draft or core), but DraftNetwork.remove_equipment() matched connection
+    endpoints by object_id alone. If a transient draft ID matched the string
+    identity of a committed Core endpoint, removing the draft item also
+    removed a connection to the independent Core object. This collapsed
+    two distinct canonical identities.
+
+Correction:
+    DraftNetwork.remove_equipment() now removes only connections whose
+    endpoint has scope="draft" and object_id equal to the removed draft ID.
+    Core-scoped terminal and Bus attachment references are preserved even
+    when their object_id string is identical to the removed draft ID.
+
+Architecture:
+    - The correction is confined to Application-owned DraftNetwork state.
+    - It does not mutate Core topology or infer electrical connectivity.
+    - Endpoint scope remains part of canonical identity; graphical snapping
+      and route coordinates remain presentation-only.
+    - No Qt/QGraphics dependency or public package export was introduced.
+
+Verification:
+    - Main baseline and exact removal implementation inspected.
+    - Focused source diff review only; no tests or CI were run.
+    - Runtime collision scenario and Python syntax/import checks remain
+      unexecuted in this run.
+
+Status:
+    SCOPE-AWARE DRAFT CONNECTION CLEANUP IMPLEMENTED ON A DEDICATED BRANCH —
+    MERGE AND RUNTIME VERIFICATION DEFERRED
+
+======================================================================
