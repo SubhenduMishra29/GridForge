@@ -34,6 +34,7 @@ from .study_result_archive import (
     ArchivedStudyResult,
     StudyResultArchive,
     StudyResultArchiveError,
+    StudyResultArchiveVerification,
 )
 from .type_registry import ModelTypeRegistry, UnknownModelTypeError
 
@@ -64,6 +65,7 @@ __all__ = [
     "ArchivedStudyResult",
     "StudyResultArchive",
     "StudyResultArchiveError",
+    "StudyResultArchiveVerification",
     "ModelTypeRegistry",
     "UnknownModelTypeError",
 ]
