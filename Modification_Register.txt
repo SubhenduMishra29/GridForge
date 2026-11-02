@@ -18396,3 +18396,53 @@ Disposition:
     not pixel proximity. Keep #874 open pending a reproducible runtime trace.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-38
+======================================================================
+
+Scope:
+    Integrate signed internal delta-loop currents into the short-circuit
+    physical result contract with winding provenance, explicit bases and
+    protection-measurement boundary.
+
+Corrections:
+    - Added ShortCircuitTransformerDeltaLoopCurrent to the canonical
+      short-circuit result model.
+    - Each record carries transformer/loop identity, HV/LV winding,
+      signed primary current in A, study base MVA, explicit winding
+      voltage base kV, derived current base A, per-unit current and
+      explicit positive loop direction.
+    - Record validation checks the A/pu/base relationship and fixes
+      measurement_scope=INTERNAL_DELTA_LOOP and
+      external_ct_measurement_eligible=False.
+    - Phase-domain solver now emits these typed records rather than
+      unqualified complex values.
+    - ShortCircuitResult exposes an immutable nested
+      transformer_delta_loop_currents mapping and includes it in
+      serialization output.
+    - Short-circuit measurement generation explicitly rejects internal
+      delta-loop current keys as external CT inputs. Existing external
+      conductor-current records remain a separate result family.
+
+Engineering boundary:
+    - Loop current is a winding-internal circulating current, not a
+      terminal line current and not a CT aperture conductor current.
+    - A future internal winding sensor requires its own explicitly
+      modeled measurement source and channel contract; this change does
+      not make internal loop current available to ordinary CTs.
+    - No result-conversion adapter is inferred where the legacy
+      sequence-domain short-circuit path has no phase-domain solution.
+
+Verification:
+    Remote source re-fetch and static source assertions only. No tests/CI,
+    syntax/import checks, numerical loop-current fixture, result
+    serialization round-trip or protection-channel runtime check run.
+
+Status:
+    TYPED SIGNED DELTA-LOOP RESULT AND CT-EXCLUSION CONTRACT IMPLEMENTED —
+    RUNTIME/NUMERICAL VERIFICATION DEFERRED
+
+======================================================================
+
