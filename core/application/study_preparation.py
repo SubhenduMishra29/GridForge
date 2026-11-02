@@ -192,6 +192,12 @@ class StudyPreparationService:
                     f"Dynamic machine '{machine_id}' bus '{bus_id}' does not match "
                     f"canonical topology attachment '{attached_bus_id}'."
                 )
+            if not association.connection_path:
+                raise ValueError(
+                    f"Dynamic machine '{machine_id}' on Bus '{bus_id}' has no persisted "
+                    "machine-to-network breaker-controlled connection_path; transient preparation "
+                    "fails closed rather than inferring a path from names or proximity."
+                )
 
             # The ordered path is a persisted engineering identity, not a
             # display-name heuristic. Resolve each switch from canonical
