@@ -20038,3 +20038,84 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-TS-EVENT-960 — IMMUTABLE EVENT DISPATCH AND TRANSITION EVIDENCE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    EventExecution previously stored only event identity/type, scheduled
+    timestamp and an untyped action result. EventManager invoked actions
+    without recording actual simulation dispatch time, omitted priority,
+    description and metadata, and discarded failed-action evidence by raising
+    EventError before appending history. Event state mutations did not expose
+    typed before/after revision evidence. The transient solver did not record
+    whether the same-time post-event algebraic re-evaluation succeeded.
+
+Correction:
+    - Preserve the legacy EventExecution.time field as scheduled time and add
+      explicit scheduled_time and dispatch_time fields.
+    - EventManager.process() records its current simulation time as dispatch
+      time; process_interval() records the actual interval end reached by the
+      integrator. Scheduled and dispatch times are never conflated.
+    - Capture event priority, description and a recursively detached,
+      immutable metadata/action-result representation.
+    - Add explicit succeeded/failed execution status, failure type/message,
+      pre-event/post-event revision, and post-event algebraic
+      re-evaluation status/failure evidence.
+    - Add an optional revision_reader to SimulationEvent/EventManager
+      registration. Transient event factories bind it to the authoritative
+      TransientEventState revision.
+    - Return structured transition records from breaker open/close,
+      equipment-state and fault apply/clear actions. Records include previous
+      and resulting state, machine/path transitions where applicable, source
+      topology revision and pre/post detached-network revisions.
+    - Record failed action evidence in EventManager.history before raising
+      EventError. EventError exposes the immutable failed EventExecution.
+    - Use at-most-once failure semantics by default: a failed event remains
+      triggered and is not silently retried. EventManager.retry(event_id)
+      explicitly re-arms only a recorded failed attempt and preserves the
+      previous attempt in history.
+    - Preserve deterministic ordering by scheduled time, priority and event
+      ID for simultaneous events.
+    - After successful event dispatch, annotate each EventExecution with the
+      same-time post-event algebraic re-evaluation outcome. If re-evaluation
+      fails, the event remains recorded as successfully dispatched while its
+      re-evaluation status is failed, and the transient solver fails safely.
+    - Update Modification_Register.txt.
+
+Boundary:
+    EventManager remains the sole scheduler and TransientEventState remains
+    the sole detached transient mutation owner. The solver supplies actual
+    simulation dispatch time and records algebraic re-evaluation outcome.
+    No duplicate scheduler, live-project mutation or automatic event retry
+    mechanism is introduced.
+
+Coordination:
+    - #954 remains responsible for current-time due-event dispatch when
+      record_initial=False.
+    - #958 must update transient result archive encoding/decoding to preserve
+      the expanded immutable EventExecution fields and nested metadata.
+    - #959 can consume the enriched event timeline/read model.
+    - #955 supplies the machine path and switch transition payloads retained
+      by this event record.
+
+Verification:
+    - Source-level inspection of EventManager.add/add_event, process(),
+      process_interval(), _execute_event(), explicit retry, revision capture,
+      TransientEventState mutation results and TransientStabilitySolver
+      post-event algebraic re-evaluation paths.
+    - No tests or CI were run, per project instruction.
+    - Runtime dispatch-time tolerance, failure history, explicit retry,
+      immutable metadata and post-event re-evaluation acceptance remain
+      pending.
+    - Result archive round-trip remains pending under #958.
+
+Status:
+    TYPED EVENT DISPATCH / FAILURE / TRANSITION / RE-EVALUATION EVIDENCE
+    IMPLEMENTED IN SOURCE. RUNTIME AND ARCHIVE ACCEPTANCE REMAIN PENDING.
+
+======================================================================
+
