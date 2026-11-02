@@ -648,6 +648,42 @@ class Application:
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
         )
+
+        # Bind every live current input to the actual CT registered in this
+        # active Network and prove that its measured equipment terminal lies
+        # on exactly one committed CT primary side. This is a topology-side
+        # association check, not a claim that switching-state reachability or
+        # physical protection-zone ownership has been inferred.
+        from core.application.services.ct_measurement_association_service import (
+            CTMeasurementAssociationService,
+        )
+        ct_association_service = CTMeasurementAssociationService()
+        current_bindings = tuple(
+            binding
+            for binding in runtime.configuration.measurement_bindings
+            if binding.measurement_type.strip().lower() == "current"
+            and any(
+                element.enabled and element.element_id == binding.protection_element_id
+                for element in runtime.configuration.elements
+            )
+        )
+        for binding in current_bindings:
+            prefix = (
+                f"project={project.project_id!r}, element={binding.protection_element_id!r}, "
+                f"input={binding.relay_input_id!r}, binding={binding.binding_id!r}"
+            )
+            try:
+                association = ct_association_service.resolve(project, binding.instrument_id)
+                if not association.in_service:
+                    raise ValueError("bound CT is out of service.")
+                if association.topology_revision != lifecycle.network.state.topology_revision:
+                    raise ValueError("CT association topology revision is stale for the active Network.")
+                association.locate_measurement_endpoint(binding.source_endpoint_reference)
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                diagnostics.append(
+                    f"{prefix}: live CT topology association refused: {type(exc).__name__}: {exc}"
+                )
+
         for element in runtime.configuration.elements:
             if not element.enabled:
                 continue
