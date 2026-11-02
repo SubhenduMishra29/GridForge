@@ -24,7 +24,19 @@ import numpy as np
 
 from core.application.revision import ProjectRevision
 from core.application.study import StudyResult
-from core.solver.short_circuit.result import ShortCircuitTransformerDeltaLoopCurrent
+from core.solver.power_flow.result import PowerFlowResult
+from core.solver.short_circuit.fault_types import FaultType
+from core.solver.short_circuit.result import (
+    ContributionStatus,
+    ShortCircuitBranchCurrent,
+    ShortCircuitConductorCurrent,
+    ShortCircuitEquipmentCurrent,
+    ShortCircuitResult,
+    ShortCircuitSourceContribution,
+    ShortCircuitStatus,
+    ShortCircuitTerminalCurrent,
+    ShortCircuitTransformerDeltaLoopCurrent,
+)
 
 
 ARCHIVE_FORMAT = "GridForgeStudyResult"
@@ -57,14 +69,36 @@ def _qualified_name(value: Any) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
+_SOLVER_RESULT_TYPES = {
+    f"{cls.__module__}.{cls.__qualname__}": cls
+    for cls in (
+        PowerFlowResult,
+        ShortCircuitResult,
+        ShortCircuitSourceContribution,
+        ShortCircuitBranchCurrent,
+        ShortCircuitEquipmentCurrent,
+        ShortCircuitTerminalCurrent,
+        ShortCircuitConductorCurrent,
+        ShortCircuitTransformerDeltaLoopCurrent,
+    )
+}
+_SOLVER_ENUM_TYPES = {
+    f"{cls.__module__}.{cls.__qualname__}": cls
+    for cls in (FaultType, ContributionStatus, ShortCircuitStatus)
+}
+
+
 def _encode_value(value: Any) -> Any:
     """Encode supported result values explicitly; reject unknown runtime objects."""
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
-        if not math.isfinite(value):
-            raise StudyResultArchiveError("Study Result contains a non-finite float.")
-        return value
+        if math.isfinite(value):
+            return value
+        special = "nan" if math.isnan(value) else (
+            "positive_infinity" if value > 0 else "negative_infinity"
+        )
+        return {"$type": "float", "value": special}
     if isinstance(value, ShortCircuitTransformerDeltaLoopCurrent):
         return {
             "$type": "ShortCircuitTransformerDeltaLoopCurrent",
@@ -94,9 +128,10 @@ def _encode_value(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         return sorted((_encode_value(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
     if is_dataclass(value) and not isinstance(value, type):
+        qualified = _qualified_name(value)
         return {
-            "$type": "dataclass",
-            "class": _qualified_name(value),
+            "$type": "solver_result" if qualified in _SOLVER_RESULT_TYPES else "dataclass",
+            "class": qualified,
             "fields": {item.name: _encode_value(getattr(value, item.name)) for item in fields(value)},
         }
     raise StudyResultArchiveError(
@@ -110,6 +145,15 @@ def _decode_value(value: Any) -> Any:
     if not isinstance(value, Mapping):
         return value
     kind = value.get("$type")
+    if kind == "float" and set(value) == {"$type", "value"}:
+        special = value["value"]
+        if special == "nan":
+            return float("nan")
+        if special == "positive_infinity":
+            return float("inf")
+        if special == "negative_infinity":
+            return float("-inf")
+        raise StudyResultArchiveError("Persisted non-finite float tag is invalid.")
     if kind == "complex" and set(value) == {"$type", "real", "imag"}:
         real, imag = float(value["real"]), float(value["imag"])
         if not math.isfinite(real) or not math.isfinite(imag):
@@ -120,17 +164,36 @@ def _decode_value(value: Any) -> Any:
     if kind == "ShortCircuitTransformerDeltaLoopCurrent" and set(value) == {"$type", "value"}:
         return ShortCircuitTransformerDeltaLoopCurrent.from_dict(value["value"])
     if kind == "enum" and set(value) == {"$type", "class", "value"}:
-        # Preserve the enum's canonical value without importing arbitrary
-        # classes from persisted data.
-        return _decode_value(value["value"])
-    if kind == "dataclass" and set(value) == {"$type", "class", "fields"}:
+        qualified = value["class"]
+        decoded = _decode_value(value["value"])
+        enum_type = _SOLVER_ENUM_TYPES.get(qualified)
+        if enum_type is not None:
+            try:
+                return enum_type(decoded)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError("Persisted solver enum value is invalid.") from exc
+        # Unknown enums remain detached scalar values; never import archive names.
+        return decoded
+    if kind in {"solver_result", "dataclass"} and set(value) == {"$type", "class", "fields"}:
         payload = value["fields"]
         if not isinstance(payload, Mapping):
             raise StudyResultArchiveError("Persisted dataclass fields must be an object.")
-        return {
-            "$dataclass": value["class"],
-            "fields": {key: _decode_value(item) for key, item in payload.items()},
-        }
+        decoded_fields = {key: _decode_value(item) for key, item in payload.items()}
+        qualified = value["class"]
+        result_type = _SOLVER_RESULT_TYPES.get(qualified) if kind == "solver_result" else None
+        if result_type is not None:
+            allowed_fields = {item.name for item in fields(result_type)}
+            if set(decoded_fields) != allowed_fields:
+                raise StudyResultArchiveError(
+                    f"Persisted {result_type.__name__} fields do not match its canonical contract."
+                )
+            try:
+                return result_type(**decoded_fields)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError(
+                    f"Persisted {result_type.__name__} violates its result contract: {exc}"
+                ) from exc
+        return {"$dataclass": qualified, "fields": decoded_fields}
     return {key: _decode_value(item) for key, item in value.items()}
 
 
