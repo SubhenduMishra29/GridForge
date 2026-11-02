@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 from threading import RLock
@@ -67,6 +68,10 @@ from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.protection_configuration_service import ProtectionConfigurationService
+from .protection_execution_audit import ProtectionExecutionAuditStore
+from .field_device_dispatch import (
+    FieldDeviceCommandService, FieldDeviceCommandRequest, FieldDeviceExecutionStatus,
+)
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -111,7 +116,9 @@ class Application:
                  measurement_channel_service: MeasurementChannelService | None = None,
                  control_service: ControlApplicationService | None = None,
                  control_signal_mapping: ControlSignalMapping | None = None,
-                 protection_configuration_service: ProtectionConfigurationService | None = None) -> None:
+                 protection_configuration_service: ProtectionConfigurationService | None = None,
+                 protection_execution_audit_store: ProtectionExecutionAuditStore | None = None,
+                 field_device_command_service: FieldDeviceCommandService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping): raise TypeError("Application control_signal_mapping must be a ControlSignalMapping or None.")
@@ -122,6 +129,8 @@ class Application:
         if sld_service is not None and not isinstance(sld_service, SLDService): raise TypeError("Application sld_service must be an SLDService.")
         if measurement_channel_service is not None and not isinstance(measurement_channel_service, MeasurementChannelService): raise TypeError("Application measurement_channel_service must be a MeasurementChannelService.")
         if protection_configuration_service is not None and not isinstance(protection_configuration_service, ProtectionConfigurationService): raise TypeError("Application protection_configuration_service must be a ProtectionConfigurationService.")
+        if protection_execution_audit_store is not None and not isinstance(protection_execution_audit_store, ProtectionExecutionAuditStore): raise TypeError("protection_execution_audit_store must be a ProtectionExecutionAuditStore.")
+        if field_device_command_service is not None and not isinstance(field_device_command_service, FieldDeviceCommandService): raise TypeError("field_device_command_service must be a FieldDeviceCommandService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -136,12 +145,12 @@ class Application:
         # ProjectLifecycleService activation owns its transactional project switching.
         self.protection_configuration_service = protection_configuration_service
         self.protection_runtime: ProtectionRuntime | None = None
+        self._protection_execution_audit_store = protection_execution_audit_store
+        self._field_device_command_service = field_device_command_service
+        self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
+        self._protection_cycle_inflight: set[tuple[str, int, str, int]] = set()
+        self._protection_cycle_cache_limit = 4096
         self._measurement_sample_unsubscribe = None
-        if self._measurement_channel_service is not None:
-            self._measurement_sample_unsubscribe = self._measurement_channel_service.subscribe_samples(
-                self._on_authenticated_measurement_sample,
-                subscriber_id=f"application-protection-cycle-{id(self)}",
-            )
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
@@ -151,6 +160,10 @@ class Application:
         self._execution_lock = RLock()
         if self._measurement_channel_service is not None:
             self._measurement_channel_service.bind_execution_lock(self._execution_lock)
+            self._measurement_sample_unsubscribe = self._measurement_channel_service.subscribe_samples(
+                self._on_authenticated_measurement_sample,
+                subscriber_id=f"application-protection-cycle-{id(self)}",
+            )
         self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
         self._commit_state_lock = RLock()
         self._commit_in_flight = False
@@ -530,73 +543,168 @@ class Application:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
 
-    def _on_authenticated_measurement_sample(self, attestation: Any, channel: Any) -> Any:
-        """Trigger one live protection evaluation after authenticated sample publication.
+    def _append_protection_audit(self, *, project_id: str, generation: int, event_id: str,
+                                 event_type: str, occurred_at: float, payload: Mapping[str, Any]) -> None:
+        store = self._protection_execution_audit_store
+        if store is None:
+            raise RuntimeError("Durable protection execution audit store is not configured.")
+        store.append(
+            project_id=project_id, activation_generation=generation, event_id=event_id,
+            event_type=event_type, occurred_at=occurred_at, payload=payload,
+        )
 
-        This is an event-driven execution trigger, not a scheduler. Coherent
-        sample timestamps and complete input sets remain mandatory; partial or
-        skewed publication batches return the canonical fail-closed diagnostics.
-        """
+    def _on_authenticated_measurement_sample(self, attestation: Any, channel: Any) -> Any:
+        """Trigger exactly once for each authenticated channel sample identity."""
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
         runtime = self.protection_runtime
         configuration_service = self.protection_configuration_service
-        if configuration_service is None:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    "GF-PROT-042 authenticated measurement sample received, but "
-                    "Application has no injected ProtectionConfigurationService; "
-                    "live protection execution is unavailable.",
-                )
-            )
-        configuration = configuration_service.configuration
-        if configuration is None:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    "GF-PROT-042 authenticated measurement sample received, but "
-                    "there is no active project protection configuration; "
-                    "live protection execution is unavailable.",
-                )
-            )
-        if runtime is None:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    "GF-PROT-042 authenticated measurement sample received, but "
-                    "the active project's ProtectionRuntime has not been composed.",
-                )
-            )
+        if project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            return ProtectionExecutionResult(diagnostics=("GF-PROT-042 sample received without an active project.",))
+        if configuration_service is None or configuration_service.configuration is None or runtime is None:
+            return ProtectionExecutionResult(diagnostics=(
+                "GF-PROT-042 authenticated sample received, but active protection configuration/runtime authority is unavailable.",
+            ))
         channel_id = getattr(channel, "id", None)
         referenced = any(
             element.enabled and channel_id in element.input_channel_ids.values()
-            for element in configuration.elements
+            for element in configuration_service.configuration.elements
         ) or any(
-            binding.channel_id == channel_id
-            and any(
+            binding.channel_id == channel_id and any(
                 element.enabled and element.element_id == binding.protection_element_id
-                for element in configuration.elements
+                for element in configuration_service.configuration.elements
             )
-            for binding in configuration.measurement_bindings
+            for binding in configuration_service.configuration.measurement_bindings
         )
         if not referenced:
             return None
+
+        cycle_key = (
+            project.project_id, lifecycle.activation_generation,
+            str(attestation.channel_id), int(attestation.sample_sequence),
+        )
+        if cycle_key in self._protection_cycle_results:
+            self._protection_cycle_results.move_to_end(cycle_key)
+            return self._protection_cycle_results[cycle_key]
+        if cycle_key in self._protection_cycle_inflight:
+            return ProtectionExecutionResult(diagnostics=(
+                f"Duplicate protection cycle suppressed while in flight: {cycle_key!r}.",
+            ))
+        self._protection_cycle_inflight.add(cycle_key)
         try:
-            return self.evaluate_protection_cycle(
-                attestation.timestamp,
-                event_id=f"measurement:{attestation.channel_id}:{attestation.sample_sequence}",
+            # Use the trusted Application clock, not the producer timestamp, as
+            # evaluation time. The producer timestamp remains in the attestation
+            # and the input snapshot freshness check.
+            evaluation_time = self.measurement_channel_service.trusted_now()
+            event_id = f"measurement:{attestation.project_id}:{attestation.activation_generation}:{attestation.channel_id}:{attestation.sample_sequence}"
+            result = self.evaluate_protection_cycle(
+                evaluation_time,
+                event_id=event_id,
                 event_type="AUTHENTICATED_MEASUREMENT_SAMPLE",
                 evaluation_metadata={
                     "trigger": "MEASUREMENT_CHANNEL_PUBLICATION",
                     "producer_id": attestation.producer_id,
                     "channel_id": attestation.channel_id,
                     "sample_sequence": attestation.sample_sequence,
+                    "source_timestamp": attestation.timestamp,
                     "timestamp_domain": attestation.timestamp_domain,
                 },
             )
         except Exception as exc:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    "GF-PROT-042 event-triggered protection cycle failed closed after "
-                    f"authenticated sample publication: {type(exc).__name__}: {exc}",
+            event_id = f"measurement:{attestation.project_id}:{attestation.activation_generation}:{attestation.channel_id}:{attestation.sample_sequence}"
+            result = ProtectionExecutionResult(diagnostics=(
+                "GF-PROT-042 event-triggered protection cycle failed closed after authenticated sample publication: "
+                f"{type(exc).__name__}: {exc}",
+            ))
+        finally:
+            self._protection_cycle_inflight.discard(cycle_key)
+
+        self._protection_cycle_results[cycle_key] = result
+        self._protection_cycle_results.move_to_end(cycle_key)
+        while len(self._protection_cycle_results) > self._protection_cycle_cache_limit:
+            self._protection_cycle_results.popitem(last=False)
+
+        audit_store = self._protection_execution_audit_store
+        if audit_store is not None:
+            try:
+                audit_store.append_cycle(
+                    project_id=attestation.project_id,
+                    activation_generation=attestation.activation_generation,
+                    event_id=event_id,
+                    occurred_at=self.measurement_channel_service.trusted_now(),
+                    attestation=attestation,
+                    result=result,
                 )
+            except Exception as exc:
+                result = ProtectionExecutionResult(
+                    decisions=result.decisions,
+                    control_decisions=result.control_decisions,
+                    commands=result.commands,
+                    application_results=result.application_results,
+                    outcomes=result.outcomes,
+                    diagnostics=result.diagnostics + (
+                        f"Durable protection audit append failed: {type(exc).__name__}: {exc}",
+                    ),
+                )
+                self._protection_cycle_results[cycle_key] = result
+        return result
+
+    def run_measurement_watchdog(self) -> tuple[dict[str, Any], ...]:
+        """Poll required live inputs for missing/stale data; never issues a trip."""
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        configuration_service = self.protection_configuration_service
+        if project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Measurement watchdog requires an active project.")
+        if configuration_service is None or configuration_service.configuration is None:
+            raise RuntimeError("Measurement watchdog requires active protection configuration.")
+        now = self.measurement_channel_service.trusted_now()
+        required = {
+            channel_id
+            for element in configuration_service.configuration.elements if element.enabled
+            for channel_id in element.input_channel_ids.values()
+        }
+        findings = self.measurement_channel_service.inspect_staleness(tuple(required), current_time=now)
+        if findings and self._protection_execution_audit_store is not None:
+            event_id = f"watchdog:{project.project_id}:{lifecycle.activation_generation}:{now:.9f}"
+            self._protection_execution_audit_store.append_watchdog(
+                project_id=project.project_id,
+                activation_generation=lifecycle.activation_generation,
+                event_id=event_id,
+                occurred_at=now,
+                findings=findings,
             )
+        return findings
+
+    def poll_field_device_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
+        """Poll and verify physical feedback independently of Core postconditions."""
+        service = self._field_device_command_service
+        if service is None:
+            return FieldDeviceExecutionStatus(
+                "not_configured", "unavailable",
+                diagnostic="No field-device adapter is configured; no physical acknowledgement is claimed.",
+            )
+        status = service.poll_acknowledgement(command_id)
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        if project is not None and self._protection_execution_audit_store is not None:
+            now = self.measurement_channel_service.trusted_now()
+            self._protection_execution_audit_store.append(
+                project_id=project.project_id,
+                activation_generation=lifecycle.activation_generation,
+                event_id=f"device-ack:{command_id}:{status.acknowledgement_id or status.acknowledgement_status}",
+                event_type="FIELD_DEVICE_ACKNOWLEDGEMENT",
+                occurred_at=now,
+                payload={
+                    "command_id": command_id,
+                    "delivery_status": status.delivery_status,
+                    "acknowledgement_status": status.acknowledgement_status,
+                    "delivery_id": status.delivery_id,
+                    "acknowledgement_id": status.acknowledgement_id,
+                    "diagnostic": status.diagnostic,
+                },
+            )
+        return status
 
     def evaluate_protection_cycle(
         self,
