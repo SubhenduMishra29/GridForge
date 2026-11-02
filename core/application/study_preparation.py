@@ -156,6 +156,7 @@ class StudyPreparationService:
         machine_rotor_policies: dict[str, str] = {}
         switch_states: dict[str, bool] = {}
         switch_available_states: dict[str, bool] = {}
+        switch_connections: dict[str, tuple[str, str]] = {}
         switching_types = {"breaker", "switch", "disconnector", "fuse"}
         registry = getattr(self._execution_context.project_snapshot.network, "registry", None)
         if registry is None or not callable(getattr(registry, "get_by_identity", None)):
@@ -163,6 +164,35 @@ class StudyPreparationService:
                 "Transient stability requires the detached ProjectSnapshot Network registry "
                 "to capture canonical switching-device states."
             )
+        # Capture every fully bus-attached switching device, not only
+        # generator breakers: closed ideal switches contract Bus nodes in
+        # the detached numerical network, while open switches leave them
+        # separated. Only canonical equipment IDs are used.
+        for switch_id, switch_attachments in attachments_by_equipment.items():
+            if not switch_attachments:
+                continue
+            equipment_types = {item.equipment_type for item in switch_attachments}
+            if len(equipment_types) != 1 or next(iter(equipment_types)) not in switching_types:
+                continue
+            if len(switch_attachments) != 2:
+                continue
+            switch_buses = tuple(item.bus_id for item in switch_attachments)
+            if switch_buses[0] == switch_buses[1]:
+                continue
+            try:
+                switch = registry.get_by_identity(switch_id)
+            except KeyError as exc:
+                raise ValueError(
+                    f"Canonical switching equipment '{switch_id}' is missing from the detached ProjectSnapshot Network registry."
+                ) from exc
+            switch_connections[switch_id] = switch_buses
+            switch_states[switch_id] = bool(conduction_state(switch))
+            switch_available_states[switch_id] = (
+                bool(getattr(switch, "in_service", False))
+                and not bool(getattr(switch, "failed", False))
+                and not bool(getattr(switch, "blown", False))
+            )
+
         for association in dynamic_models.all():
             machine_id = str(association.machine_id)
             bus_id = str(association.bus_id)
@@ -237,24 +267,17 @@ class StudyPreparationService:
                         f"Dynamic machine '{machine_id}' connection path loops at "
                         f"switch '{switch_id}' and Bus '{next_bus}'."
                     )
-                try:
-                    switch = registry.get_by_identity(switch_id)
-                except KeyError as exc:
+                if switch_id not in switch_connections:
                     raise ValueError(
-                        f"Dynamic machine '{machine_id}' connection path references "
-                        f"unregistered switching target '{switch_id}'."
-                    ) from exc
+                        f"Dynamic machine '{machine_id}' path target '{switch_id}' "
+                        "does not resolve to a fully attached canonical switching connection."
+                    )
+                switch = registry.get_by_identity(switch_id)
                 if str(getattr(switch, "id", "")) != switch_id:
                     raise ValueError(
                         f"Dynamic machine '{machine_id}' path target '{switch_id}' "
                         "does not resolve to the same canonical object identity."
                     )
-                switch_states[switch_id] = bool(conduction_state(switch))
-                switch_available_states[switch_id] = (
-                    bool(getattr(switch, "in_service", False))
-                    and not bool(getattr(switch, "failed", False))
-                    and not bool(getattr(switch, "blown", False))
-                )
                 current_bus = next_bus
                 visited_buses.add(current_bus)
 
@@ -283,6 +306,7 @@ class StudyPreparationService:
             machine_rotor_policies=machine_rotor_policies,
             switch_states=switch_states,
             switch_available_states=switch_available_states,
+            switch_connections=switch_connections,
         )
 
 
