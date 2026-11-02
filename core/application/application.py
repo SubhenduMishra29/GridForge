@@ -1502,7 +1502,37 @@ class Application:
             state_observer=observe_protection_command_state,
             field_device_dispatcher=field_device_dispatcher,
         )
-        return execution.execute(decisions)
+        execution_result = execution.execute(decisions)
+        if (
+            self._protection_execution_audit_store is not None
+            and event_type != "AUTHENTICATED_MEASUREMENT_SAMPLE"
+        ):
+            audit_event_id = event_id or f"manual-protection:{uuid4()}"
+            try:
+                self._protection_execution_audit_store.append_execution(
+                    project_id=project.project_id,
+                    activation_generation=captured_generation,
+                    event_id=audit_event_id,
+                    occurred_at=evaluation_time,
+                    metadata={
+                        "event_type": event_type or "MANUAL_APPLICATION_EVALUATION",
+                        "evaluation_time": evaluation_time,
+                        "network_topology_revision": captured_network.state.topology_revision,
+                    },
+                    result=execution_result,
+                )
+            except Exception as exc:
+                execution_result = ProtectionExecutionResult(
+                    decisions=execution_result.decisions,
+                    control_decisions=execution_result.control_decisions,
+                    commands=execution_result.commands,
+                    application_results=execution_result.application_results,
+                    outcomes=execution_result.outcomes,
+                    diagnostics=execution_result.diagnostics + (
+                        f"Durable protection execution audit append failed: {type(exc).__name__}: {exc}",
+                    ),
+                )
+        return execution_result
 
 
     def _evaluate_protection_scenario(
