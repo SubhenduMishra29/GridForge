@@ -473,7 +473,22 @@ class StudyResultComparisonReadModel:
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
     """Extract only solver values whose unit and engineering bases are explicit."""
     observations: dict[str, tuple[complex | float, str, tuple[Any, ...]]] = {}
+    ambiguous_observations: set[str] = set()
     visited = 0
+
+    def add_observation(
+        identity: str,
+        observation: tuple[complex | float, str, tuple[Any, ...]],
+    ) -> None:
+        # Duplicate physical identities are ambiguous; never let traversal
+        # order silently choose which value participates in a comparison.
+        if identity in ambiguous_observations:
+            return
+        if identity in observations:
+            observations.pop(identity, None)
+            ambiguous_observations.add(identity)
+            return
+        observations[identity] = observation
 
     def visit(item: Any, path: str, depth: int) -> None:
         nonlocal visited
@@ -487,19 +502,28 @@ def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | 
             if item.snapshot_id is None or not item.bus_ids:
                 return
             for bus_id, magnitude, angle in zip(item.bus_ids, item.voltage_magnitudes, item.voltage_angles):
-                prefix = f"{path}.bus:{bus_id!r}"
-                observations[f"{prefix}.voltage_magnitude"] = (magnitude, "p.u.", (item.snapshot_id,))
-                observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
+                prefix = f"bus:{bus_id!r}"
+                add_observation(
+                    f"{prefix}.voltage_magnitude",
+                    (magnitude, "p.u.", (item.snapshot_id,)),
+                )
+                add_observation(
+                    f"{prefix}.voltage_angle",
+                    (angle, "deg", (item.snapshot_id,)),
+                )
             return
         if isinstance(item, ShortCircuitConductorCurrent):
             # Match by physical conductor/terminal identity, never by collection
             # position. Topology revision is part of the comparison base so a
             # conductor record from a different topology cannot be paired.
             identity = (
-                f"{item.equipment_id!r}|{item.terminal_role!r}|"
-                f"{item.conductor_id!r}|{item.bus_id!r}"
+                item.equipment_id,
+                item.terminal_role,
+                item.conductor_id,
+                item.bus_id,
+                item.phase_or_sequence,
             )
-            observation_path = f"{path}.conductor[{identity}]"
+            observation_path = f"conductor:{identity!r}"
             base = (
                 item.base_mva,
                 item.voltage_base_kv,
@@ -508,24 +532,31 @@ def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | 
                 item.reference_direction,
                 item.current_units,
             )
-            observations[f"{observation_path}.current"] = (item.current, "p.u.", base)
+            add_observation(
+                f"{observation_path}.current",
+                (item.current, "p.u.", base),
+            )
             return
         if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
             # A transformer may contain multiple loops and winding records.
             # Include all physical identifiers in the key; direction and
             # current base are also required to agree before calculating delta.
-            observation_path = (
-                f"{path}.transformer[{item.transformer_id!r}]"
-                f".loop[{item.loop_id!r}].winding[{item.winding!r}]"
-            )
+            identity = (item.transformer_id, item.loop_id, item.winding)
+            observation_path = f"transformer_delta_loop:{identity!r}"
             base = (
                 item.base_mva,
                 item.voltage_base_kv,
                 item.current_base_a,
                 item.positive_direction,
             )
-            observations[f"{observation_path}.current_a"] = (item.current_a, "A", base)
-            observations[f"{observation_path}.current_pu"] = (item.current_pu, "p.u.", base)
+            add_observation(
+                f"{observation_path}.current_a",
+                (item.current_a, "A", base),
+            )
+            add_observation(
+                f"{observation_path}.current_pu",
+                (item.current_pu, "p.u.", base),
+            )
             return
         if isinstance(item, Mapping):
             for key, nested in item.items():
