@@ -440,7 +440,20 @@ class StudyProjection:
             result.compatibility_message,
             f"Same source revision: {result.same_source_revision}",
             f"Same activation generation: {result.same_activation_generation}",
+            f"Numerical comparison: {result.numeric_comparison_status}",
         ]
+        if result.numeric_deltas:
+            lines.append("Base-compatible electrical value deltas (RIGHT - LEFT):")
+            for delta in result.numeric_deltas:
+                lines.append(
+                    f"{delta.path}: {delta.left_value} -> {delta.right_value}; "
+                    f"Δ={delta.delta} {delta.unit}; bases={delta.base}"
+                )
+        else:
+            lines.append(
+                "No numeric values were compared: canonical units and identical "
+                "engineering bases were not available for matching result fields."
+            )
         for label, row in (("LEFT", result.left), ("RIGHT", result.right)):
             lines.extend((
                 f"--- {label} EXECUTION ---",
