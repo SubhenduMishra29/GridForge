@@ -66,6 +66,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .services.protection_configuration_service import ProtectionConfigurationService
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -109,7 +110,8 @@ class Application:
                  sld_service: SLDService | None = None,
                  measurement_channel_service: MeasurementChannelService | None = None,
                  control_service: ControlApplicationService | None = None,
-                 control_signal_mapping: ControlSignalMapping | None = None) -> None:
+                 control_signal_mapping: ControlSignalMapping | None = None,
+                 protection_configuration_service: ProtectionConfigurationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping): raise TypeError("Application control_signal_mapping must be a ControlSignalMapping or None.")
@@ -119,6 +121,7 @@ class Application:
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("Application validation_service must be a ValidationService.")
         if sld_service is not None and not isinstance(sld_service, SLDService): raise TypeError("Application sld_service must be an SLDService.")
         if measurement_channel_service is not None and not isinstance(measurement_channel_service, MeasurementChannelService): raise TypeError("Application measurement_channel_service must be a MeasurementChannelService.")
+        if protection_configuration_service is not None and not isinstance(protection_configuration_service, ProtectionConfigurationService): raise TypeError("Application protection_configuration_service must be a ProtectionConfigurationService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -129,6 +132,10 @@ class Application:
         if control_signal_mapping is not None and control_service is not None:
             self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._measurement_channel_service = measurement_channel_service
+        # Inject the existing project-scoped service at the Application composition boundary.
+        # ProjectLifecycleService activation owns its transactional project switching.
+        self.protection_configuration_service = protection_configuration_service
+        self.protection_runtime: ProtectionRuntime | None = None
         self._measurement_sample_unsubscribe = None
         if self._measurement_channel_service is not None:
             self._measurement_sample_unsubscribe = self._measurement_channel_service.subscribe_samples(
@@ -530,13 +537,32 @@ class Application:
         sample timestamps and complete input sets remain mandatory; partial or
         skewed publication batches return the canonical fail-closed diagnostics.
         """
-        runtime = getattr(self, "protection_runtime", None)
-        configuration_service = getattr(self, "protection_configuration_service", None)
-        if runtime is None or configuration_service is None:
-            return None
-        configuration = getattr(configuration_service, "configuration", None)
+        runtime = self.protection_runtime
+        configuration_service = self.protection_configuration_service
+        if configuration_service is None:
+            return ProtectionExecutionResult(
+                diagnostics=(
+                    "GF-PROT-042 authenticated measurement sample received, but "
+                    "Application has no injected ProtectionConfigurationService; "
+                    "live protection execution is unavailable.",
+                )
+            )
+        configuration = configuration_service.configuration
         if configuration is None:
-            return None
+            return ProtectionExecutionResult(
+                diagnostics=(
+                    "GF-PROT-042 authenticated measurement sample received, but "
+                    "there is no active project protection configuration; "
+                    "live protection execution is unavailable.",
+                )
+            )
+        if runtime is None:
+            return ProtectionExecutionResult(
+                diagnostics=(
+                    "GF-PROT-042 authenticated measurement sample received, but "
+                    "the active project's ProtectionRuntime has not been composed.",
+                )
+            )
         channel_id = getattr(channel, "id", None)
         referenced = any(
             element.enabled and channel_id in element.input_channel_ids.values()
