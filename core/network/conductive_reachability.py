@@ -116,7 +116,9 @@ class ConductiveReachabilityResolver:
 
         # Add only physically defensible internal series paths. An open or
         # failed device contributes no edge; it cannot be bypassed by topology.
-        for equipment in self._network.elements:
+        for equipment in self._equipment():
+            if getattr(equipment, "id", None) in excluded_equipment_ids:
+                continue
             if not isinstance(equipment, self._CONDUCTIVE_TYPES):
                 continue
             terminals = tuple(
