@@ -18843,6 +18843,9 @@ Finding:
     observations if records were reordered between executions.
 
 Corrections:
+    - Power Flow voltage observations require both a stable solver snapshot
+      identity and explicit stable bus IDs; positional bus-index fallback
+      is prohibited.
     - ShortCircuitConductorCurrent observations are keyed by equipment,
       terminal role, conductor identity and bus identity.
     - Conductor comparison bases now include MVA, kV, topology revision,
