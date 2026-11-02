@@ -18446,3 +18446,54 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-SC-D15F-39
+
+Scope:
+    Preserve explicit transformer delta-loop current records through the
+    phase-domain Short-Circuit execution, canonical result contract and
+    Protection Study diagnostic read path.
+
+Corrections:
+    - ShortCircuitSolver now transfers the exact typed
+      PhaseDomainShortCircuitSolution transformer_delta_loop_currents_a
+      mapping into ShortCircuitResult. The same records are retained in
+      the result values payload and canonical typed field; the sequence
+      domain does not synthesize or fabricate loop records.
+    - ShortCircuitResult validates nested transformer/loop identities and
+      requires every value to be a ShortCircuitTransformerDeltaLoopCurrent.
+      Nested mappings remain immutable.
+    - Delta-loop records now have explicit JSON-compatible to_dict and
+      strict from_dict contracts. ShortCircuitResult.as_dict serializes
+      each record through that contract instead of leaking dataclass
+      instances into a generic mapping.
+    - ProtectionFaultScenarioResult exposes the canonical typed mapping
+      as a read-only diagnostic property. It does not create samples,
+      relay inputs, CT associations or conductor-current records.
+    - The existing measurement-generation rejection of internal delta-loop
+      keys remains unchanged. External CT/CBCT conversion continues to
+      consume only explicitly associated external terminal/conductor data.
+
+Persistence boundary:
+    - The canonical ShortCircuitResult.as_dict payload now contains
+      round-trippable typed delta-loop records, but GridForge project
+      persistence does not persist executed StudyResult values today.
+      This increment does not add a second result repository or silently
+      change the .gridforge project schema. Durable study-result storage
+      remains a separate Application persistence feature.
+    - Internal delta-loop currents remain ineligible for ordinary external
+      CT measurement, even when exposed to Protection Study diagnostics.
+
+Verification:
+    - Remote source re-fetch and focused source assertions only.
+    - No tests/CI, syntax/import checks, numerical MNA fixtures, or
+      end-to-end study/persistence round-trip were run.
+    - Runtime behaviour remains unverified.
+
+Status:
+    PHASE-DOMAIN RESULT HANDOFF AND PROTECTION DIAGNOSTIC READ PATH
+    IMPLEMENTED — DURABLE STUDY-RESULT STORAGE AND RUNTIME VERIFICATION
+    DEFERRED
+
+======================================================================
