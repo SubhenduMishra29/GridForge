@@ -385,11 +385,6 @@ class ProtectionStudyConfiguration:
             for pair in pairs
             for function_id in (pair.downstream_element_id, pair.upstream_element_id)
         }
-        pair_function_ids = {
-            function_id
-            for pair in pairs
-            for function_id in (pair.downstream_element_id, pair.upstream_element_id)
-        }
         for scenario in scenarios:
             if scenario.transient_current_traces and not pairs:
                 raise ValueError("Transient grading requires explicit coordination pairs.")
