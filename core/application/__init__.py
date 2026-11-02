@@ -46,7 +46,14 @@ from .read_models import (
     SimpleWireReadModel,
     StudyResultReadModel,
 )
-from .read_service import (\n    ArchivedStudyResultReadModel,\n    NetworkReadService,\n    ProtectionReadService,\n    ReadService,\n    StudyReadService,\n    StudyResultComparisonReadModel,\n)
+from .read_service import (
+    ArchivedStudyResultReadModel,
+    NetworkReadService,
+    ProtectionReadService,
+    ReadService,
+    StudyReadService,
+    StudyResultComparisonReadModel,
+)
 from .revision import ProjectRevision
 from .study import StudyCaseDefinition, StudyRequest, StudyResult
 from .protection_study import (
