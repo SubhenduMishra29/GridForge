@@ -18560,3 +18560,55 @@ Status:
     IMPLEMENTED — RUNTIME/ROUND-TRIP VERIFICATION DEFERRED
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-41
+
+Scope:
+    Expose searchable durable Study Result execution history, provenance,
+    selected-record loading and guarded two-execution comparison through
+    the existing Application StudyReadService.
+
+Corrections:
+    - Extended StudyReadService to adapt the existing StudyResultArchive;
+      no second archive or result authority was introduced.
+    - Added immutable ArchivedStudyResultReadModel rows carrying archive
+      record UUID, saved timestamp, Study Case UUID, project identity,
+      activation generation, source revision counters, study type/status,
+      message, metadata and detached result value.
+    - Added archive filters for project, activation generation, Study Case,
+      study type, terminal status, saved-time window and free-text search.
+    - Added exact archive-record retrieval scoped to the active project.
+    - Added a two-record comparison contract. Different projects or study
+      types are explicitly marked incompatible; same-type comparisons
+      expose whether source revisions and activation generations match.
+    - Exposed archived history, record retrieval and comparison through
+      Application facade methods scoped to the active project.
+    - Exported the new read DTOs and StudyReadService from the Application
+      package API.
+    - Exposed transformer delta-loop records as a diagnostic-only accessor
+      on archived result rows. No CT, CBCT, relay input, measurement channel
+      or external conductor-current conversion is introduced.
+
+Presentation boundary:
+    - Read DTOs are framework-neutral and suitable for the Study Results
+      projection. They do not import Qt or UI types.
+    - The current branch inspection did not establish an existing concrete
+      Study Results widget/panel to wire without inventing a competing UI
+      surface. Direct widget binding remains a follow-on UI integration
+      requiring the actual active panel composition path.
+    - Archived values remain detached snapshots; only explicitly supported
+      typed delta-loop records are restored as canonical typed values.
+
+Verification:
+    - Remote source re-fetch and static source review only.
+    - No tests/CI, syntax/import checks, archive query execution, comparison
+      fixture, UI runtime, or numerical result comparison was run.
+
+Status:
+    APPLICATION ARCHIVE QUERY / PROVENANCE / COMPARISON READ CONTRACT
+    IMPLEMENTED — CONCRETE UI PANEL BINDING AND RUNTIME VERIFICATION
+    DEFERRED
+
+======================================================================
