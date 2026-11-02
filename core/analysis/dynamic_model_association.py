@@ -59,7 +59,10 @@ class DynamicMachineModelAssociation:
         object.__setattr__(self, "model_type", self.model_type.strip())
         if isinstance(self.connection_path, (str, bytes)):
             raise TypeError("connection_path must be an ordered sequence of switching-equipment IDs.")
-        path = tuple(str(item).strip() for item in self.connection_path)
+        raw_path = tuple(self.connection_path)
+        if any(not isinstance(item, str) for item in raw_path):
+            raise TypeError("connection_path entries must be canonical string equipment IDs.")
+        path = tuple(item.strip() for item in raw_path)
         if not path or any(not item for item in path):
             raise ValueError(
                 f"Dynamic machine '{self.machine_id}' requires an explicit non-empty connection_path "
