@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import hashlib
 from pathlib import Path
 import math
 from dataclasses import replace
@@ -44,6 +45,8 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .protection_execution_audit import ProtectionExecutionAuditStore
+from .field_device_dispatch import FieldDeviceAdapter, FieldDeviceCommandService, FieldDeviceAcknowledgement
 from .control_dispatch import ControlTripBatchCommand
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
@@ -88,12 +91,16 @@ def create_application(
     measurement_clock_domain: str | None = None,
     max_measurement_source_clock_skew_seconds: float = 2.0,
     synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
+    field_device_adapter: FieldDeviceAdapter | None = None,
+    field_device_acknowledgement_verifier: Callable[[FieldDeviceAcknowledgement], bool] | None = None,
 ) -> Application:
     """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
     if synchronism_bypass_provider is not None and not callable(synchronism_bypass_provider):
         raise TypeError("synchronism_bypass_provider must be callable when supplied.")
+    if (field_device_adapter is None) != (field_device_acknowledgement_verifier is None):
+        raise ValueError("field_device_adapter and field_device_acknowledgement_verifier must be supplied together.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -111,6 +118,17 @@ def create_application(
         ProtectionProjectConfiguration(initial_context.project_id),
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
         measurement_channel_provider=lambda: measurement_channel_service.channels,
+    )
+
+    protection_execution_audit_store = ProtectionExecutionAuditStore(
+        lambda project_id: (
+            Path.home() / ".gridforge" / "protection-audit"
+            / f"{hashlib.sha256(project_id.encode('utf-8')).hexdigest()}.sqlite3"
+        )
+    )
+    field_device_command_service = (
+        FieldDeviceCommandService(field_device_adapter, field_device_acknowledgement_verifier)
+        if field_device_adapter is not None else None
     )
 
     def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
@@ -281,6 +299,8 @@ def create_application(
         validation_service=validation_service,
         measurement_channel_service=measurement_channel_service,
         protection_configuration_service=protection_configuration_service,
+        protection_execution_audit_store=protection_execution_audit_store,
+        field_device_command_service=field_device_command_service,
         control_service=control_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
