@@ -58,13 +58,18 @@ class TransientStabilityResult:
             MappingProxyType({str(machine_id): (float(values[0]), float(values[1])) for machine_id, values in sample.items()})
             for sample in self.electrical_powers
         )
+        events = tuple(self.events)
+        if any(not isinstance(event, EventExecution) for event in events):
+            raise TypeError("Transient result events must contain canonical EventExecution records.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Transient result provenance must be a mapping.")
         time.setflags(write=False)
         states.setflags(write=False)
         object.__setattr__(self, "time", time)
         object.__setattr__(self, "states", states)
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
-        object.__setattr__(self, "events", tuple(self.events))
+        object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @property
