@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from contextlib import closing
 import json
+import math
 from pathlib import Path
 import sqlite3
 from threading import RLock
@@ -94,8 +95,8 @@ class ProtectionExecutionAuditStore:
             raise ValueError("event_id must be non-empty.")
         if not isinstance(event_type, str) or not event_type.strip():
             raise ValueError("event_type must be non-empty.")
-        if isinstance(occurred_at, bool) or not isinstance(occurred_at, (int, float)):
-            raise TypeError("occurred_at must be numeric.")
+        if isinstance(occurred_at, bool) or not isinstance(occurred_at, (int, float)) or not math.isfinite(occurred_at):
+            raise TypeError("occurred_at must be a finite numeric timestamp.")
         path = Path(self._database_path_provider(project_id)).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         encoded = json.dumps(self._json_value(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -108,6 +109,16 @@ class ProtectionExecutionAuditStore:
                 "activation_generation INTEGER NOT NULL, event_id TEXT NOT NULL, "
                 "event_type TEXT NOT NULL, occurred_at REAL NOT NULL, recorded_at TEXT NOT NULL, "
                 "payload_json TEXT NOT NULL, UNIQUE(project_id, activation_generation, event_id, event_type))"
+            )
+            connection.execute(
+                "CREATE TRIGGER IF NOT EXISTS protection_audit_no_update "
+                "BEFORE UPDATE ON protection_execution_audit "
+                "BEGIN SELECT RAISE(ABORT, 'protection audit is append-only'); END"
+            )
+            connection.execute(
+                "CREATE TRIGGER IF NOT EXISTS protection_audit_no_delete "
+                "BEFORE DELETE ON protection_execution_audit "
+                "BEGIN SELECT RAISE(ABORT, 'protection audit is append-only'); END"
             )
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO protection_execution_audit "
