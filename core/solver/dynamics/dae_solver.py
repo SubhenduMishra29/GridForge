@@ -401,14 +401,7 @@ class DAESolver:
                     mechanical_powers=(
                         self.mechanical_powers
                     ),
-                    machine_connection_states=(
-                        {
-                            machine.machine_id: bool(self.machine_connection_state(machine.machine_id))
-                            for machine in self.machine_system.machines
-                        }
-                        if self.machine_connection_state is not None
-                        else None
-                    ),
+                    machine_connection_states=self._machine_connection_states(),
                     time=time,
                 )
             )
@@ -439,6 +432,19 @@ class DAESolver:
             )
 
         return derivatives
+
+    def _machine_connection_states(self) -> dict[str, bool] | None:
+        if self.machine_connection_state is None:
+            return None
+        return {
+            machine.machine_id: bool(self.machine_connection_state(machine.machine_id))
+            for machine in self.machine_system.machines
+        }
+
+    def is_machine_connected(self, machine_id: str) -> bool:
+        if self.machine_connection_state is None:
+            return True
+        return bool(self.machine_connection_state(str(machine_id)))
 
     # ==================================================================
     # COMPLETE DAE EVALUATION
@@ -474,6 +480,7 @@ class DAESolver:
                     mechanical_powers=(
                         self.mechanical_powers
                     ),
+                    machine_connection_states=self._machine_connection_states(),
                     time=time,
                 )
             )
