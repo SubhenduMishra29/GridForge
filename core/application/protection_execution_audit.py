@@ -119,6 +119,27 @@ class ProtectionExecutionAuditStore:
             connection.commit()
             return cursor.rowcount == 1
 
+    def claim_cycle(self, *, project_id: str, activation_generation: int,
+                    event_id: str, occurred_at: float, attestation: Any) -> bool:
+        """Durably reserve a cycle identity before any protection command can dispatch.
+
+        A crash after claim is intentionally left as an auditable in-progress
+        record; automatic replay is not allowed to risk a duplicate trip.
+        """
+        payload = {
+            "producer_id": getattr(attestation, "producer_id", None),
+            "channel_id": getattr(attestation, "channel_id", None),
+            "sample_sequence": getattr(attestation, "sample_sequence", None),
+            "source_timestamp": getattr(attestation, "timestamp", None),
+            "timestamp_domain": getattr(attestation, "timestamp_domain", None),
+            "claim_state": "claimed_before_evaluation",
+        }
+        return self.append(
+            project_id=project_id, activation_generation=activation_generation,
+            event_id=event_id, event_type="PROTECTION_CYCLE_CLAIMED",
+            occurred_at=occurred_at, payload=payload,
+        )
+
     def append_cycle(self, *, project_id: str, activation_generation: int,
                      event_id: str, occurred_at: float, attestation: Any, result: Any) -> bool:
         attestation_data = {
