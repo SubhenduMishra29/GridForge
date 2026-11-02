@@ -212,6 +212,7 @@ class TransientStabilitySolver:
         if runtime_event_state is not None:
             result_provenance["final_detached_network_revision"] = runtime_event_state.topology_revision
             result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
+            result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
 
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
