@@ -91,7 +91,9 @@ class ConductiveReachabilityResolver:
                     values[identity] = item
         return tuple(values[key] for key in sorted(values))
 
-    def _adjacency(self) -> dict[TopologyEndpointReference, set[TopologyEndpointReference]]:
+    def _adjacency(
+        self, excluded_equipment_ids: frozenset[str] = frozenset()
+    ) -> dict[TopologyEndpointReference, set[TopologyEndpointReference]]:
         resolved = ConnectivityResolver(self._network).resolve()
         graph: dict[TopologyEndpointReference, set[TopologyEndpointReference]] = {
             source: set(targets) for source, targets in resolved.topology_adjacency
@@ -132,11 +134,21 @@ class ConductiveReachabilityResolver:
         self,
         source: EndpointReference | TopologyEndpointReference,
         target: EndpointReference | TopologyEndpointReference,
+        *,
+        excluded_equipment_ids: frozenset[str] = frozenset(),
     ) -> ConductivePath | None:
-        """Return the deterministic shortest live path, or None when isolated."""
+        """Return the deterministic shortest live path, or None when isolated.
+
+        Explicitly excluded equipment contributes no internal conductive path;
+        its terminal attachment vertices and external SimpleWire paths remain.
+        This supports proof that a CT is a boundary rather than traversing it.
+        """
         start = self._coerce(source)
         finish = self._coerce(target)
-        graph = self._adjacency()
+        excluded = frozenset(excluded_equipment_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in excluded):
+            raise ValueError("excluded_equipment_ids must contain canonical equipment identities.")
+        graph = self._adjacency(excluded)
         if start == finish:
             return ConductivePath(start, finish, (start,), (), self._network.state.topology_revision)
         queue = deque([start])
@@ -168,10 +180,15 @@ class ConductiveReachabilityResolver:
             self._network.state.topology_revision,
         )
 
-    def reachable(self, source: EndpointReference | TopologyEndpointReference) -> tuple[TopologyEndpointReference, ...]:
+    def reachable(
+        self,
+        source: EndpointReference | TopologyEndpointReference,
+        *,
+        excluded_equipment_ids: frozenset[str] = frozenset(),
+    ) -> tuple[TopologyEndpointReference, ...]:
         """Return all endpoints conductively reachable from source."""
         start = self._coerce(source)
-        graph = self._adjacency()
+        graph = self._adjacency(frozenset(excluded_equipment_ids))
         seen = {start}
         queue = deque([start])
         while queue:
