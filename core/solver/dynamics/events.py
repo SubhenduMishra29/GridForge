@@ -294,8 +294,8 @@ class EventExecution:
     def __post_init__(self) -> None:
         scheduled = float(self.time if self.scheduled_time is None else self.scheduled_time)
         dispatched = float(scheduled if self.dispatch_time is None else self.dispatch_time)
-        if not all(math.isfinite(value) for value in (scheduled, dispatched)):
-            raise ValueError("Event execution timestamps must be finite.")
+        if not all(math.isfinite(value) for value in (scheduled, dispatched)) or scheduled < 0.0 or dispatched < 0.0:
+            raise ValueError("Event execution timestamps must be finite and non-negative.")
         if self.status not in {"succeeded", "failed"}:
             raise ValueError("Event execution status must be succeeded or failed.")
         if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed"}:
