@@ -19890,3 +19890,43 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-068 — ANSI 81 FREQUENCY FUNCTION STATUS / ROCOF GAP TRIAGE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    The canonical protection function catalogue did not register ANSI 81.
+    The current repository therefore has no catalogued ANSI 81 under/over-
+    frequency relay implementation and no RoCoF (df/dt) relay contract in
+    this protection function path. The reported step-wise derivative cannot
+    be attributed to an implemented ANSI 81 relay from the inspected source.
+
+Correction:
+    - Register ANSI 81 explicitly as NOT_IMPLEMENTED in the canonical
+      Protection Function Catalogue.
+    - Do not add a derivative filter, smoothing or deadband algorithm without
+      a defined sample-rate, timestamp-domain, estimator-window and
+      measurement-quality contract.
+    - Keep 81/81R creation fail-closed through the existing catalogue status
+      gate and make the unsupported state visible to the Protection UI.
+
+Boundary:
+    This is an explicit unsupported-function guard, not a frequency estimator
+    or ANSI 81 implementation. The original issue remains open for a future
+    properly specified frequency/RoCoF measurement and relay implementation.
+    No transient solver signal or Control input has been reinterpreted.
+
+Verification:
+    Source-level catalogue inspection only. No tests/CI, syntax/import checks,
+    frequency waveform benchmark or runtime relay simulation were run.
+
+Status:
+    ANSI 81 EXPLICITLY NOT IMPLEMENTED; ROCOF DEAD-BAND CORRECTION BLOCKED
+    UNTIL THE MEASUREMENT/ESTIMATOR CONTRACT IS DEFINED.
+
+======================================================================
+
