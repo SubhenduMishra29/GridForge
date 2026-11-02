@@ -38,6 +38,8 @@ class TransformerDeltaLoopState:
     winding: str
     coupling_coefficients: tuple[complex, ...]
     impedance_ohm: complex
+    voltage_base_kv: float
+    positive_direction: str
 
     def __post_init__(self) -> None:
         loop_id = str(self.loop_id).strip()
@@ -56,6 +58,14 @@ class TransformerDeltaLoopState:
         object.__setattr__(self, "winding", winding)
         object.__setattr__(self, "coupling_coefficients", coefficients)
         object.__setattr__(self, "impedance_ohm", impedance)
+        voltage_base = float(self.voltage_base_kv)
+        if not math.isfinite(voltage_base) or voltage_base <= 0.0:
+            raise ValueError("Delta loop voltage_base_kv must be finite and positive.")
+        object.__setattr__(self, "voltage_base_kv", voltage_base)
+        direction = str(self.positive_direction).strip()
+        if not direction:
+            raise ValueError("Delta loop positive_direction must define its signed winding orientation.")
+        object.__setattr__(self, "positive_direction", direction)
 
 
 def transformer_delta_loop_fingerprint(loop_states: Sequence[TransformerDeltaLoopState]) -> str:
@@ -68,6 +78,8 @@ def transformer_delta_loop_fingerprint(loop_states: Sequence[TransformerDeltaLoo
                 item.winding,
                 ",".join(f"{value.real.hex()}:{value.imag.hex()}" for value in item.coupling_coefficients),
                 f"{complex(item.impedance_ohm).real.hex()}:{complex(item.impedance_ohm).imag.hex()}",
+                item.voltage_base_kv.hex(),
+                item.positive_direction,
             ))
         )
     return sha256("\n".join(payload).encode("utf-8")).hexdigest()
