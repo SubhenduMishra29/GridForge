@@ -105,16 +105,17 @@ class FieldDeviceCommandService:
             if existing is not None:
                 return self.poll_acknowledgement(request.command_id)
             receipt = self._adapter.send(request)
-        if not isinstance(receipt, FieldDeviceDeliveryReceipt):
-            raise TypeError("field-device adapter must return FieldDeviceDeliveryReceipt.")
-        if receipt.command_id != request.command_id:
-            return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="adapter receipt command identity mismatch")
-        with self._lock:
+            if not isinstance(receipt, FieldDeviceDeliveryReceipt):
+                raise TypeError("field-device adapter must return FieldDeviceDeliveryReceipt.")
+            if receipt.command_id != request.command_id:
+                return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="adapter receipt command identity mismatch")
             self._deliveries[request.command_id] = receipt
-        if receipt.status != "accepted":
-            return FieldDeviceExecutionStatus(receipt.status, "unavailable", receipt.delivery_id,
-                                              diagnostic=receipt.diagnostic or "device transport did not accept the command")
-        return self.poll_acknowledgement(request.command_id)
+            if receipt.status != "accepted":
+                return FieldDeviceExecutionStatus(
+                    receipt.status, "unavailable", receipt.delivery_id,
+                    diagnostic=receipt.diagnostic or "device transport did not accept the command",
+                )
+            return self.poll_acknowledgement(request.command_id)
 
     def poll_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
         with self._lock:
