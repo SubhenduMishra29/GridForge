@@ -38,9 +38,18 @@ PresentationActivationBridge = Callable[[Document | None], None]
 class ProjectWorkspaceApplicationAdapter:
     """Bridge Application lifecycle success into the coordinated UI workspace transaction."""
 
-    def __init__(self, application: Application, lifecycle: ProjectWorkspaceLifecycle) -> None:
+    def __init__(
+        self,
+        application: Application,
+        lifecycle: ProjectWorkspaceLifecycle,
+        *,
+        sld_deserializer: Callable[[dict], SLDDocument] | None = None,
+    ) -> None:
         if not isinstance(application, Application): raise TypeError("application must be an Application.")
         if not isinstance(lifecycle, ProjectWorkspaceLifecycle): raise TypeError("lifecycle must be a ProjectWorkspaceLifecycle.")
+        if sld_deserializer is not None and not callable(sld_deserializer):
+            raise TypeError("sld_deserializer must be callable.")
+        self._sld_deserializer = sld_deserializer if sld_deserializer is not None else SLDDocument.from_dict
         self._application = application
         self._lifecycle = lifecycle
         self._handlers: list[WorkspaceUpdateHandler] = []
@@ -53,6 +62,13 @@ class ProjectWorkspaceApplicationAdapter:
         self._application.configure_workspace_dirty_provider(
             lambda: bool(self._lifecycle.documents.dirty_document_ids)
         )
+
+    def _deserialize_sld_document(self, data: dict) -> SLDDocument:
+        """Use the composition-root SLD deserializer for every restored document."""
+        document = self._sld_deserializer(data)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("SLD deserializer must return an SLDDocument.")
+        return document
 
     @property
     def application(self) -> Application: return self._application
@@ -211,7 +227,7 @@ class ProjectWorkspaceApplicationAdapter:
                 raise TypeError("presentation collection payload must be a mapping.")
             documents = []
             for item in data.get("documents", ()):
-                documents.append(SLDDocument.from_dict(item))
+                documents.append(self._deserialize_sld_document(item))
             return ProjectPresentationCollection.ordered(
                 documents,
                 data.get("active_document_id"),
@@ -233,7 +249,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._application.configure_project_presentation_contract(
             factory=factory,
             serializer=serializer,
-            deserializer=SLDDocument.from_dict,
+            deserializer=self._deserialize_sld_document,
         )
         self._application.project_lifecycle.configure_presentation_collection_contract(
             serializer=collection_serializer,

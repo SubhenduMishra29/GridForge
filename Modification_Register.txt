@@ -18929,7 +18929,7 @@ Date:
 
 Repository baseline:
     SubhenduMishra29/GridForge main
-    69aab115540ee539453f38d65c0c1696fb3d2f96
+    24083b34c55726b8c94170d1c921354ba8419128
 
 Scope:
     Preserve canonical Core-scoped connections when removing a DraftNetwork
@@ -18954,18 +18954,22 @@ Architecture:
     - Draft removal is not a Core deletion command.
     - Graphical snapping and route coordinates remain presentation-only.
 
+Reconciliation:
+    - Current main contains the scope-aware predicate in
+      core/application/draft/network.py.
+    - PR #915 is closed without merge; this register entry records the
+      verified current-main source state, not a merge attributed to #915.
+
 Verification:
-    - Confirmed the defect in the current main implementation.
-    - Confirmed DraftEndpointReference validates and serializes scope.
-    - Reviewed the replacement against both terminal and Bus endpoint forms.
+    - Confirmed the current main file checks both endpoint scope and ID.
+    - Reviewed the removal loop for source and target independently.
     - No tests/CI, syntax/import checks or runtime collision fixture were run.
 
 Status:
-    SCOPE-AWARE DRAFT CONNECTION CLEANUP IMPLEMENTED ON A MAIN-BASED
-    CORRECTION BRANCH — REVIEW / MERGE PENDING
+    SCOPE-AWARE DRAFT CONNECTION CLEANUP PRESENT ON CURRENT MAIN;
+    RUNTIME COLLISION VERIFICATION REMAINS PENDING.
 
 ======================================================================
-
 
 ======================================================================
 GF-SC-D15F-48 — STATIC INITIAL RUNNING-MOTOR PHASE-DOMAIN SOURCE
@@ -20539,3 +20543,67 @@ Status:
     IN SOURCE AND RECONCILED WITH CURRENT MAIN; RUNTIME ACCEPTANCE PENDING.
 
 ======================================================================
+
+======================================================================
+GF-AUD-139 — CONFIGURED SLD DESERIALIZER FOR COLLECTION REHYDRATION
+======================================================================
+
+Date:
+    2026-11-02
+
+Issue:
+    #995
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    24083b34c55726b8c94170d1c921354ba8419128
+
+Scope:
+    Production project-open SLD presentation collection deserialization
+
+Finding:
+    The production workspace adapter restored each document in a persisted
+    ProjectPresentationCollection with SLDDocument.from_dict(item) and no
+    default symbol-presentation factory. The composition root already
+    configured deserialize_sld() with PresentationBootstrap's
+    default_symbol_presentation factory, but the collection path bypassed
+    that configured deserializer. Legacy or intentionally incomplete nodes
+    with presentation=null therefore remained without their configured
+    renderer-neutral symbol presentation after project reopen.
+
+Correction:
+    - Inject the composition-root SLD deserializer into
+      ProjectWorkspaceApplicationAdapter.
+    - Route every collection document through that same deserializer.
+    - Use the same adapter-owned deserialization boundary for the
+      single-document presentation contract.
+    - Validate that the configured deserializer returns SLDDocument.
+    - Preserve collection ordering and active_document_id through the
+      existing ProjectPresentationCollection.ordered() operation.
+    - Preserve authored symbol presentation: SLDDocument.from_dict()
+      materializes defaults only where presentation is absent.
+
+Architecture:
+    - Deserialization remains in the UI presentation/workspace boundary.
+    - The factory produces renderer-neutral symbol data only.
+    - No Core equipment or topology is created, deleted or rewritten.
+    - No Qt/QGraphics dependency, Core import, or public package export
+      is introduced.
+
+Verification:
+    - Confirmed the production composition root already owns the configured
+      default symbol factory and the project-open path prioritizes the
+      collection deserializer.
+    - Confirmed SLDDocument.from_dict() only materializes missing
+      presentations and preserves existing authored presentations.
+    - Reviewed the focused source changes and unchanged package/Qt boundaries.
+    - No tests or CI were run, per repository instruction.
+    - Full project save/reopen, multi-document ordering and authored-symbol
+      round-trip runtime acceptance remain pending.
+
+Status:
+    CONFIGURED SLD DESERIALIZER SHARED BY SINGLE-DOCUMENT AND COLLECTION
+    RESTORATION; RUNTIME SAVE/REOPEN VERIFICATION REMAINS PENDING.
+
+======================================================================
+
