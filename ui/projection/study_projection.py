@@ -199,6 +199,9 @@ class StudyProjection:
         bind_archive_comparison = getattr(panel, "set_archive_comparison_handler", None)
         if callable(bind_archive_comparison):
             bind_archive_comparison(self.compare_archived_results)
+        bind_archive_search = getattr(panel, "set_archive_search_handler", None)
+        if callable(bind_archive_search):
+            bind_archive_search(self.search_archived_results)
         self._refresh_all_results()
         self._render()
 
@@ -398,6 +401,18 @@ class StudyProjection:
                 archive_setter(tuple(archive_reader()))
             except Exception:
                 _LOGGER.exception("Archived Study Result history refresh failed")
+
+    def search_archived_results(self, query: str) -> None:
+        """Apply the Study Cases panel's text filter to durable execution history."""
+        reader = getattr(self._application, "read_archived_study_results", None)
+        setter = getattr(self._panel, "set_archived_results", None)
+        if not callable(reader) or not callable(setter):
+            return
+        try:
+            setter(tuple(reader(search=str(query))))
+        except Exception:
+            _LOGGER.exception("Archived Study Result search failed")
+            setter(())
 
     def compare_archived_results(self, record_ids: tuple[UUID, ...]) -> None:
         """Render a provenance-aware comparison of exactly two archive records."""
