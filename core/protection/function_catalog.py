@@ -97,6 +97,7 @@ _SPECS = (
     ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.PARTIAL, NegativeSequenceOvercurrentRelay, CONTRACT_46),
     ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.PARTIAL, ThermalOverloadRelay, CONTRACT_49),
     ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.PARTIAL, DirectionalRelay, CONTRACT_67),
+    ProtectionFunctionSpecification("81", "Frequency (underfrequency/overfrequency; RoCoF not implemented)", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.PARTIAL, DistanceRelay, CONTRACT_21),
 )
