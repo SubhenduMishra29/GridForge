@@ -50,8 +50,9 @@ integration stage.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping
+from types import MappingProxyType
 
 import numpy as np
 
@@ -63,9 +64,61 @@ from .multimachine import MultiMachineSystem
 # TYPES
 # ======================================================================
 
+@dataclass(frozen=True, slots=True)
+class AlgebraicNetworkSolution:
+    """Quality-checked algebraic network solution for one DAE evaluation."""
+
+    bus_voltages: Mapping[str, complex]
+    status: str
+    accepted: bool
+    quality_verified: bool
+    solver_name: str
+    absolute_residual_norm: float | None = None
+    normalized_residual: float | None = None
+    residual_tolerance: float | None = None
+    condition_number: float | None = None
+    condition_limit: float | None = None
+    bus_ids: tuple[str, ...] = ()
+    topology_revision: int | None = None
+    simulation_time: float | None = None
+    source_ids: tuple[str, ...] = ()
+    active_fault_id: str | None = None
+    study_provenance: Mapping[str, object] = field(default_factory=dict)
+    diagnostics: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        voltages = {str(key): complex(value) for key, value in self.bus_voltages.items()}
+        for bus_id, value in voltages.items():
+            if not (np.isfinite(value.real) and np.isfinite(value.imag)):
+                raise ValueError(f"Algebraic solution contains non-finite voltage at bus '{bus_id}'.")
+        if self.accepted and self.status not in {"ACCEPTED", "UNVERIFIED"}:
+            raise ValueError("Accepted algebraic solutions must have ACCEPTED or UNVERIFIED status.")
+        if self.quality_verified and self.status == "UNVERIFIED":
+            raise ValueError("UNVERIFIED algebraic solutions cannot claim verified quality.")
+        for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_limit"):
+            value = getattr(self, name)
+            if value is not None and (not np.isfinite(float(value)) or float(value) < 0.0):
+                raise ValueError(f"{name} must be finite and non-negative when supplied.")
+        if self.condition_number is not None:
+            condition = float(self.condition_number)
+            if np.isnan(condition) or condition < 0.0 or (np.isinf(condition) and self.status != "SINGULAR"):
+                raise ValueError("condition_number must be non-negative and finite except for SINGULAR status.")
+        if self.normalized_residual is not None and self.residual_tolerance is None:
+            raise ValueError("A normalized residual requires an acceptance tolerance.")
+        if self.topology_revision is not None and (not isinstance(self.topology_revision, int) or self.topology_revision < 0):
+            raise ValueError("topology_revision must be a non-negative integer.")
+        if self.simulation_time is not None and not np.isfinite(float(self.simulation_time)):
+            raise ValueError("simulation_time must be finite.")
+        object.__setattr__(self, "bus_voltages", MappingProxyType(voltages))
+        object.__setattr__(self, "bus_ids", tuple(str(value) for value in self.bus_ids))
+        object.__setattr__(self, "source_ids", tuple(str(value) for value in self.source_ids))
+        object.__setattr__(self, "study_provenance", MappingProxyType(dict(self.study_provenance)))
+        object.__setattr__(self, "diagnostics", tuple(str(value) for value in self.diagnostics))
+
+
 NetworkSolver = Callable[
     [np.ndarray, float],
-    Mapping[str, complex],
+    Mapping[str, complex] | AlgebraicNetworkSolution,
 ]
 
 MechanicalPowerMap = Mapping[
@@ -127,6 +180,7 @@ class DAESolution:
     derivatives: np.ndarray
 
     time: float
+    algebraic_quality: AlgebraicNetworkSolution | None = None
 
     def __post_init__(self) -> None:
         state = np.asarray(
@@ -145,6 +199,9 @@ class DAESolution:
             raise ValueError(
                 "DAESolution time must be finite."
             )
+        if self.algebraic_quality is not None and self.algebraic_quality.simulation_time is not None:
+            if not np.isclose(self.algebraic_quality.simulation_time, time, rtol=0.0, atol=1e-12):
+                raise ValueError("DAESolution algebraic quality time must match the DAE sample time.")
 
         state.setflags(write=False)
         derivatives.setflags(write=False)
@@ -299,68 +356,66 @@ class DAESolver:
     # ALGEBRAIC SOLUTION
     # ==================================================================
 
+    def solve_algebraic_result(
+        self,
+        state: np.ndarray,
+        time: float,
+    ) -> AlgebraicNetworkSolution:
+        """Return voltages together with the callback's algebraic quality evidence."""
+        state = self.machine_system.validate_global_state(state)
+        time = self._validate_time(time)
+        try:
+            result = self.network_solver(state, time)
+        except Exception as exc:
+            raise DAEAlgebraicError(
+                f"Algebraic network solution failed at t={time:.12g} s: {exc}"
+            ) from exc
+        if isinstance(result, AlgebraicNetworkSolution):
+            solution = result
+            if solution.simulation_time is not None and not np.isclose(
+                solution.simulation_time, time, rtol=0.0, atol=1e-12
+            ):
+                raise DAEAlgebraicError(
+                    "Algebraic quality record time does not match the DAE evaluation time."
+                )
+            if not solution.accepted:
+                context = (
+                    f"status={solution.status}, buses={solution.bus_ids}, "
+                    f"topology_revision={solution.topology_revision}, "
+                    f"residual={solution.normalized_residual}, "
+                    f"condition_number={solution.condition_number}"
+                )
+                details = "; ".join(solution.diagnostics)
+                raise DAEAlgebraicError(
+                    f"Algebraic network solution rejected at t={time:.12g} s ({context}). {details}"
+                )
+        else:
+            if result is None or not isinstance(result, Mapping):
+                raise DAEAlgebraicError("network_solver must return a voltage mapping or AlgebraicNetworkSolution.")
+            try:
+                voltages = {str(bus_id): complex(value) for bus_id, value in result.items()}
+            except Exception as exc:
+                raise DAEAlgebraicError("Invalid algebraic network-solver result.") from exc
+            solution = AlgebraicNetworkSolution(
+                bus_voltages=voltages,
+                status="UNVERIFIED",
+                accepted=True,
+                quality_verified=False,
+                solver_name=getattr(self.network_solver, "__qualname__", type(self.network_solver).__name__),
+                bus_ids=tuple(voltages),
+                simulation_time=time,
+                diagnostics=("Legacy mapping callback supplied no assembled matrix/source residual or conditioning evidence.",),
+            )
+        self._validate_required_buses(dict(solution.bus_voltages))
+        return solution
+
     def solve_algebraic(
         self,
         state: np.ndarray,
         time: float,
     ) -> dict[str, complex]:
-        """
-        Solve the algebraic network for a dynamic state.
-        """
-
-        state = (
-            self.machine_system.validate_global_state(
-                state
-            )
-        )
-
-        time = self._validate_time(time)
-
-        try:
-            result = self.network_solver(
-                state,
-                time,
-            )
-
-        except Exception as exc:
-            raise DAEAlgebraicError(
-                "Algebraic network solution "
-                f"failed at t={time:.12g} s."
-            ) from exc
-
-        if result is None:
-            raise DAEAlgebraicError(
-                "network_solver returned None."
-            )
-
-        try:
-            voltages = {
-                str(bus_id): complex(voltage)
-                for bus_id, voltage in result.items()
-            }
-
-        except Exception as exc:
-            raise DAEAlgebraicError(
-                "Invalid algebraic "
-                "network-solver result."
-            ) from exc
-
-        for bus_id, voltage in voltages.items():
-            if not (
-                np.isfinite(voltage.real)
-                and np.isfinite(voltage.imag)
-            ):
-                raise DAEAlgebraicError(
-                    "Network solver returned "
-                    f"non-finite voltage for "
-                    f"bus '{bus_id}'."
-                )
-
-        self._validate_required_buses(
-            voltages
-        )
-
-        return voltages
+        """Compatibility API returning only bus voltages."""
+        return dict(self.solve_algebraic_result(state, time).bus_voltages)
 
     # ==================================================================
     # DIFFERENTIAL SOLUTION
@@ -388,10 +443,8 @@ class DAESolver:
 
         time = self._validate_time(time)
 
-        voltages = self.solve_algebraic(
-            state,
-            time,
-        )
+        algebraic_solution = self.solve_algebraic_result(state, time)
+        voltages = dict(algebraic_solution.bus_voltages)
 
         try:
             derivatives = (
@@ -467,10 +520,8 @@ class DAESolver:
 
         time = self._validate_time(time)
 
-        voltages = self.solve_algebraic(
-            state,
-            time,
-        )
+        algebraic_solution = self.solve_algebraic_result(state, time)
+        voltages = dict(algebraic_solution.bus_voltages)
 
         try:
             derivatives = (
@@ -515,6 +566,7 @@ class DAESolver:
             terminal_voltages=voltages,
             derivatives=derivatives,
             time=time,
+            algebraic_quality=algebraic_solution,
         )
 
     # ==================================================================
@@ -876,6 +928,7 @@ class DAESolver:
 
 
 __all__ = [
+    "AlgebraicNetworkSolution",
     "NetworkSolver",
     "MechanicalPowerMap",
     "DAESolverError",
