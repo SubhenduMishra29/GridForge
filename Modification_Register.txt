@@ -19601,3 +19601,56 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-063 — APPLICATION PROTECTION STUDY CTI GRADING
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Integrate explicit inverse-time relay coordination grading into the
+    existing detached-scenario Protection Study workflow.
+
+Application contract:
+    - Add typed downstream/upstream function and measurement-binding pairs.
+    - Require explicit breaker clearing time and required CTI.
+    - Allow optional maximum breaker clearing time and manufacturer/test
+      timing envelopes tied to exact scenario currents.
+    - Require unique pairs and explicit short-circuit fault scenarios.
+    - Keep the study snapshot immutable and provenance-bound.
+
+Scenario integration:
+    - Resolve only enabled ANSI 51/51N elements and explicit current
+      measurement bindings.
+    - Use the configured IEC/IEEE curve standard, pickup and time dial.
+    - Require explicit NEUTRAL_CT or CBCT provenance for ANSI 51N and apply
+      the authoritative CT ratio to convert secondary current to primary A.
+    - Reject missing, ambiguous, cross-function or conflicting bindings.
+    - Calculate available CTI after downstream breaker clearing time.
+    - Return NOT_EVALUABLE for missing currents or non-operating relays.
+    - Evaluate conservative CTI separately when both timing envelopes and
+      maximum breaker clearing time are supplied.
+    - Preserve report and diagnostics in each fault-scenario result.
+    - Mark the Protection Study partial when coordination cannot be fully
+      evaluated; a fully evaluated NOT_COORDINATED result remains explicit.
+
+Safety and architecture:
+    - Explicit pairs only; no graph-depth or topology-based inference.
+    - No relay trip or breaker mutation is performed by the Study.
+    - CT secondary/primary conversion is explicit; three-phase residual
+      aggregation is not inferred from a single binding.
+    - Manufacturer evidence references are recorded but not cryptographically
+      authenticated in this pass.
+
+Verification:
+    - Source-level inspection only.
+    - No tests/CI, syntax/import checks or independent CTI benchmark run.
+
+Status:
+    STATIC 51/51N CTI GRADING INTEGRATED INTO PROTECTION STUDY.
+    TRANSIENT RESET-MEMORY AND RL FAULT-CURRENT INTEGRATION REMAIN PENDING.
+
+======================================================================
+
