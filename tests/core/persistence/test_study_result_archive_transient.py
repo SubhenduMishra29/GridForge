@@ -51,6 +51,18 @@ def _transient_result() -> TransientStabilityResult:
         post_event_revision=8,
         post_event_re_evaluation_status="succeeded",
     )
+    failed_event = EventExecution(
+        event_id="FAULT-CLEAR-FAILED",
+        event_type="fault_clear",
+        time=1.5,
+        scheduled_time=1.5,
+        dispatch_time=1.5000000001,
+        status="failed",
+        failure_type="ValueError",
+        failure_message="No active fault is available to clear.",
+        pre_event_revision=8,
+        post_event_revision=8,
+    )
     return TransientStabilityResult(
         time=np.asarray([0.0, 1.0], dtype=float),
         states=np.asarray([[0.0, 0.0], [0.2, 0.01]], dtype=float),
@@ -62,7 +74,7 @@ def _transient_result() -> TransientStabilityResult:
             {"GEN-1": (1.0, 0.1)},
             {"GEN-1": (0.0, 0.0)},
         ),
-        events=(event,),
+        events=(event, failed_event),
         provenance={
             "project_id": "project-archive-test",
             "activation_generation": 3,
@@ -112,7 +124,7 @@ def test_transient_result_and_event_execution_round_trip_as_canonical_types(tmp_
     assert value.electrical_powers[1]["GEN-1"] == (0.0, 0.0)
     assert value.provenance["final_detached_network_revision"] == 8
 
-    assert len(value.events) == 1
+    assert len(value.events) == 2
     event = value.events[0]
     assert isinstance(event, EventExecution)
     assert event.scheduled_time == 1.0
@@ -123,6 +135,11 @@ def test_transient_result_and_event_execution_round_trip_as_canonical_types(tmp_
     assert event.post_event_revision == 8
     assert event.post_event_re_evaluation_status == "succeeded"
     assert event.result["machine_transitions"]["GEN-1"]["connected_after"] is False
+    failed_event = value.events[1]
+    assert failed_event.event_id == "FAULT-CLEAR-FAILED"
+    assert failed_event.status == "failed"
+    assert failed_event.failure_type == "ValueError"
+    assert failed_event.pre_event_revision == failed_event.post_event_revision == 8
     with pytest.raises(TypeError):
         event.metadata["breaker_id"] = "CHANGED"
     with pytest.raises(TypeError):
