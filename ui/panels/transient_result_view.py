@@ -99,13 +99,14 @@ class TransientResultViewWidget(QWidget):
 
         self._event_list.clear()
         for index, event in enumerate(model.events, start=1):
+            dispatch_label = (
+                f"dispatched {event.dispatch_time:.9g} s"
+                if event.dispatch_time is not None
+                else "dispatch unavailable (scheduled-time marker)"
+            )
             line = (
                 f"{index}. {event.event_type} — {event.event_id} | "
-                f"scheduled {event.scheduled_time:.9g} s / "
-                f"dispatched {event.dispatch_time:.9g} s" if event.dispatch_time is not None
-                else f"scheduled {event.scheduled_time:.9g} s / dispatch unavailable (scheduled-time marker) | "
-            )
-            line += (
+                f"scheduled {event.scheduled_time:.9g} s / {dispatch_label} | "
                 f"{event.status} | "
                 f"revision {event.pre_event_revision} → {event.post_event_revision} | "
                 f"post-event solve: {event.post_event_re_evaluation_status}"
