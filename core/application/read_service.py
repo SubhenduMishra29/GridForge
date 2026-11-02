@@ -18,6 +18,7 @@ from uuid import UUID
 from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
+from core.solver.dynamics.events import EventExecution
 from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
@@ -661,16 +662,36 @@ class StudyReadService:
         saved_at: str | None = None,
     ) -> TransientResultPresentationReadModel | None:
         value = getattr(row, "value", None)
-        if not isinstance(value, TransientStabilityResult):
+        transient_fields: Mapping[str, Any] | None = None
+        if isinstance(value, TransientStabilityResult):
+            transient_fields = {
+                "time": value.time,
+                "states": value.states,
+                "terminal_voltages": value.terminal_voltages,
+                "electrical_powers": value.electrical_powers,
+                "events": value.events,
+                "provenance": value.provenance,
+            }
+        elif isinstance(value, Mapping) and value.get("$dataclass") == (
+            f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
+        ):
+            # Schema-v1 archive records deliberately retain their historical
+            # generic-dataclass mapping semantics. Adapt the known payload
+            # shape here without mutating/retyping the archived source record.
+            candidate = value.get("fields")
+            if not isinstance(candidate, Mapping):
+                raise ValueError("Legacy transient result mapping has no canonical fields object.")
+            transient_fields = candidate
+        else:
             return None
 
-        time_s = tuple(float(item) for item in value.time)
+        time_s = tuple(float(item) for item in transient_fields.get("time", ()))
         state_samples = tuple(
             tuple(float(item) for item in sample)
-            for sample in value.states
+            for sample in transient_fields.get("states", ())
         )
-        voltage_samples = tuple(dict(sample) for sample in value.terminal_voltages)
-        power_samples = tuple(dict(sample) for sample in value.electrical_powers)
+        voltage_samples = tuple(dict(sample) for sample in transient_fields.get("terminal_voltages", ()))
+        power_samples = tuple(dict(sample) for sample in transient_fields.get("electrical_powers", ()))
         sample_count = len(time_s)
         source_indices = tuple(range(sample_count))
         signals: list[TransientSignalReadModel] = []
@@ -678,7 +699,10 @@ class StudyReadService:
         # State column labels are authored by the solver from its global
         # MultiMachineSystem state layout. Legacy results without descriptors
         # remain fully inspectable through explicit unlabeled State N signals.
-        state_descriptors = value.provenance.get("state_signals", ())
+        provenance_source = transient_fields.get("provenance", {})
+        if not isinstance(provenance_source, Mapping):
+            raise ValueError("Transient solver provenance must be a mapping.")
+        state_descriptors = provenance_source.get("state_signals", ())
         state_width = value.states.shape[1]
         if state_descriptors:
             if not isinstance(state_descriptors, (tuple, list)):
@@ -796,28 +820,56 @@ class StudyReadService:
                     component=component,
                 ))
 
-        events = tuple(
-            TransientEventReadModel(
-                event_id=event.event_id,
-                event_type=event.event_type,
-                scheduled_time=event.scheduled_time,
-                dispatch_time=event.dispatch_time,
-                priority=event.priority,
-                description=event.description,
-                status=event.status,
-                metadata=event.metadata,
-                result=event.result,
-                failure_type=event.failure_type,
-                failure_message=event.failure_message,
-                pre_event_revision=event.pre_event_revision,
-                post_event_revision=event.post_event_revision,
-                post_event_re_evaluation_status=event.post_event_re_evaluation_status,
-                post_event_re_evaluation_failure_type=event.post_event_re_evaluation_failure_type,
-                post_event_re_evaluation_failure_message=event.post_event_re_evaluation_failure_message,
-            )
-            for event in value.events
-        )
-        provenance = dict(value.provenance)
+        event_records = []
+        event_class_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
+        for event in transient_fields.get("events", ()):
+            if isinstance(event, EventExecution):
+                event_data = {
+                    "event_id": event.event_id,
+                    "event_type": event.event_type,
+                    "scheduled_time": event.scheduled_time,
+                    "dispatch_time": event.dispatch_time,
+                    "priority": event.priority,
+                    "description": event.description,
+                    "status": event.status,
+                    "metadata": event.metadata,
+                    "result": event.result,
+                    "failure_type": event.failure_type,
+                    "failure_message": event.failure_message,
+                    "pre_event_revision": event.pre_event_revision,
+                    "post_event_revision": event.post_event_revision,
+                    "post_event_re_evaluation_status": event.post_event_re_evaluation_status,
+                    "post_event_re_evaluation_failure_type": event.post_event_re_evaluation_failure_type,
+                    "post_event_re_evaluation_failure_message": event.post_event_re_evaluation_failure_message,
+                }
+            elif isinstance(event, Mapping) and event.get("$dataclass") == event_class_name:
+                legacy_event_fields = event.get("fields")
+                if not isinstance(legacy_event_fields, Mapping):
+                    raise ValueError("Legacy EventExecution mapping has no canonical fields object.")
+                scheduled_time = float(legacy_event_fields["time"])
+                event_data = {
+                    "event_id": str(legacy_event_fields["event_id"]),
+                    "event_type": str(legacy_event_fields["event_type"]),
+                    "scheduled_time": scheduled_time,
+                    "dispatch_time": scheduled_time,
+                    "priority": 0,
+                    "description": "",
+                    "status": "succeeded",
+                    "metadata": {},
+                    "result": legacy_event_fields.get("result"),
+                    "failure_type": None,
+                    "failure_message": None,
+                    "pre_event_revision": None,
+                    "post_event_revision": None,
+                    "post_event_re_evaluation_status": "not_run",
+                    "post_event_re_evaluation_failure_type": None,
+                    "post_event_re_evaluation_failure_message": None,
+                }
+            else:
+                raise ValueError("Transient event history contains an unknown event record type.")
+            event_records.append(TransientEventReadModel(**event_data))
+        events = tuple(event_records)
+        provenance = dict(provenance_source)
         provenance["execution_identity"] = {
             "study_id": str(row.study_id),
             "project_id": row.project_id,
