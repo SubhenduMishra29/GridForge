@@ -68,6 +68,7 @@ class ProtectionExecutionAuditStore:
                     "diagnostic": postcondition.diagnostic,
                 },
                 "field_device_delivery_status": getattr(item, "field_device_delivery_status", "not_configured"),
+                "field_device_acknowledgement_status": getattr(item, "field_device_acknowledgement_status", "unavailable"),
                 "field_device_acknowledgement_id": getattr(item, "field_device_acknowledgement_id", None),
             })
         return {
