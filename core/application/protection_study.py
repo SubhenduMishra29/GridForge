@@ -306,6 +306,22 @@ class ProtectionStudyConfiguration:
             raise ValueError("coordination_pairs must not contain duplicate downstream/upstream pairs.")
         if pairs and not scenarios:
             raise ValueError("Coordination grading requires explicit short-circuit fault scenarios.")
+        pair_function_ids = {
+            function_id
+            for pair in pairs
+            for function_id in (pair.downstream_element_id, pair.upstream_element_id)
+        }
+        for scenario in scenarios:
+            if scenario.coordination_timing_envelopes and not pairs:
+                raise ValueError("Timing envelopes require explicit coordination pairs.")
+            unknown_envelopes = {
+                item.function_id for item in scenario.coordination_timing_envelopes
+            } - pair_function_ids
+            if unknown_envelopes:
+                raise ValueError(
+                    "Timing envelopes reference functions outside the configured coordination pairs: "
+                    + ", ".join(sorted(unknown_envelopes))
+                )
         object.__setattr__(self, "coordination_pairs", pairs)
 
     @classmethod
@@ -641,6 +657,8 @@ class ProtectionStudyHandler:
             if configuration.coordination_pairs:
                 try:
                     samples_by_binding = {sample.binding_id: sample for sample in scenario_samples}
+                    if len(samples_by_binding) != len(scenario_samples):
+                        raise ValueError("Scenario contains duplicate measurement binding samples.")
                     relay_characteristics: dict[str, CoordinationRelayCharacteristic] = {}
                     pair_inputs: list[ProtectionCoordinationPair] = []
                     scenario_currents: dict[str, float] = {}
