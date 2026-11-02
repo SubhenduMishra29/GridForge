@@ -63,6 +63,19 @@ class ArchivedStudyResult:
         if not isinstance(self.result, StudyResult):
             raise TypeError("result must be a StudyResult.")
 
+@dataclass(frozen=True, slots=True)
+class StudyResultArchiveVerification:
+    """Read-only integrity report; corrupt records are reported, never repaired."""
+
+    project_id: str
+    scanned_count: int
+    valid_record_ids: tuple[UUID, ...]
+    invalid_records: tuple[tuple[str, str], ...]
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.invalid_records
+
 
 def _qualified_name(value: Any) -> str:
     cls = type(value)
@@ -286,6 +299,12 @@ class StudyResultArchive:
                         stream.flush()
                         os.fsync(stream.fileno())
                     os.replace(temporary_name, target)
+                    if os.name != "nt":
+                        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                        try:
+                            os.fsync(directory_fd)
+                        finally:
+                            os.close(directory_fd)
                 except Exception:
                     try:
                         os.unlink(temporary_name)
@@ -407,11 +426,52 @@ class StudyResultArchive:
         )
         return records[-1] if records else None
 
+    def verify(
+        self, project_id: str, *, activation_generation: int | None = None
+    ) -> StudyResultArchiveVerification:
+        """Inspect every record in scope and report corruption without mutating it."""
+        project_dir = self._root / self._project_key(project_id)
+        if activation_generation is not None and (
+            isinstance(activation_generation, bool)
+            or not isinstance(activation_generation, int)
+            or activation_generation < 1
+        ):
+            raise ValueError("activation_generation must be a positive integer.")
+        if not project_dir.exists():
+            return StudyResultArchiveVerification(project_id, 0, (), ())
+        directories = (
+            (project_dir / str(activation_generation),)
+            if activation_generation is not None
+            else tuple(item for item in project_dir.iterdir() if item.is_dir())
+        )
+        valid: list[UUID] = []
+        invalid: list[tuple[str, str]] = []
+        scanned = 0
+        for directory in directories:
+            if not directory.exists():
+                continue
+            for path in sorted(directory.glob("*.json")):
+                scanned += 1
+                try:
+                    record = self._read(path, expected_project_id=project_id)
+                    if activation_generation is not None and record.result.activation_generation != activation_generation:
+                        raise StudyResultArchiveError("Study Result archive activation-generation path mismatch.")
+                    valid.append(record.record_id)
+                except StudyResultArchiveError as exc:
+                    invalid.append((path.name, str(exc)))
+        return StudyResultArchiveVerification(
+            project_id=project_id,
+            scanned_count=scanned,
+            valid_record_ids=tuple(valid),
+            invalid_records=tuple(invalid),
+        )
+
 
 __all__ = [
     "ARCHIVE_FORMAT",
     "ARCHIVE_SCHEMA_VERSION",
     "ArchivedStudyResult",
+    "StudyResultArchiveVerification",
     "StudyResultArchive",
     "StudyResultArchiveError",
 ]
