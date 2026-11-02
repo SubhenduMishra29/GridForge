@@ -305,7 +305,7 @@ class ShortCircuitPreparation:
                 if math.isfinite(nominal_kv) and nominal_kv > 0.0:
                     voltage_bases[bus_id] = nominal_kv
 
-            self._assert_topology_unchanged(network, canonical_snapshot, captured_topology_revision)
+            self._assert_network_unchanged(network, canonical_snapshot, captured_topology_revision, captured_model_signature)
             return ShortCircuitInput(
                 fault_type=normalized_type,
                 fault_bus_index=bus_index,
