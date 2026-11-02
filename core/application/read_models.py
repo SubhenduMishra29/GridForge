@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID
@@ -212,6 +213,157 @@ class StudyResultReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientSignalReadModel:
+    """One complete, sample-aligned scalar channel from a transient result."""
+
+    signal_id: str
+    label: str
+    quantity: str
+    unit: str
+    values: tuple[float, ...]
+    source_indices: tuple[int, ...]
+    machine_id: str | None = None
+    bus_id: str | None = None
+    component: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("signal_id", "label", "quantity", "unit"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"TransientSignalReadModel.{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        values = tuple(float(value) for value in self.values)
+        indices = tuple(self.source_indices)
+        if len(values) != len(indices):
+            raise ValueError("Transient signal values and source indices must have identical lengths.")
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("Transient signal values must be finite.")
+        if any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in indices):
+            raise ValueError("Transient signal source indices must be non-negative integers.")
+        object.__setattr__(self, "values", values)
+        object.__setattr__(self, "source_indices", indices)
+
+
+@dataclass(frozen=True, slots=True)
+class TransientEventReadModel:
+    """Immutable event-timeline record retaining dispatch and failure evidence."""
+
+    event_id: str
+    event_type: str
+    scheduled_time: float
+    dispatch_time: float
+    priority: int
+    description: str
+    status: str
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    result: Any = None
+    failure_type: str | None = None
+    failure_message: str | None = None
+    pre_event_revision: int | None = None
+    post_event_revision: int | None = None
+    post_event_re_evaluation_status: str = "not_run"
+    post_event_re_evaluation_failure_type: str | None = None
+    post_event_re_evaluation_failure_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.event_id or not self.event_type:
+            raise ValueError("Transient event identity and type must be non-empty.")
+        if not all(math.isfinite(float(value)) and float(value) >= 0.0 for value in (self.scheduled_time, self.dispatch_time)):
+            raise ValueError("Transient event times must be finite and non-negative.")
+        if self.status not in {"succeeded", "failed"}:
+            raise ValueError("Transient event status must be succeeded or failed.")
+        if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed"}:
+            raise ValueError("Transient event re-evaluation status is invalid.")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("Transient event metadata must be a mapping.")
+        object.__setattr__(self, "scheduled_time", float(self.scheduled_time))
+        object.__setattr__(self, "dispatch_time", float(self.dispatch_time))
+        object.__setattr__(self, "metadata", _freeze(self.metadata))
+        object.__setattr__(self, "result", _freeze(self.result))
+
+    @property
+    def marker_time(self) -> float:
+        """Use actual dispatch time for chart markers, retaining scheduled time separately."""
+        return self.dispatch_time
+
+
+@dataclass(frozen=True, slots=True)
+class TransientResultPresentationReadModel:
+    """Complete UI-neutral transient samples, selectable signals and event history.
+
+    This is a read-side projection of solver output. It contains every source
+    sample in its original order; it performs no interpolation or down-sampling.
+    """
+
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    status: str
+    current: bool
+    historical: bool
+    record_id: UUID | None
+    saved_at: str | None
+    time_s: tuple[float, ...]
+    state_samples: tuple[tuple[float, ...], ...]
+    terminal_voltage_samples: tuple[Mapping[str, complex], ...]
+    electrical_power_samples: tuple[Mapping[str, tuple[float, float]], ...]
+    signals: tuple[TransientSignalReadModel, ...]
+    events: tuple[TransientEventReadModel, ...]
+    provenance: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.study_id, UUID):
+            raise TypeError("Transient presentation study_id must be UUID.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("Transient presentation source_revision must be ProjectRevision.")
+        if self.historical and self.record_id is None:
+            raise ValueError("Historical transient presentations require archive record identity.")
+        if self.historical and self.current:
+            raise ValueError("Historical transient presentations cannot be marked current.")
+        if self.historical and not self.saved_at:
+            raise ValueError("Historical transient presentations require archive saved_at provenance.")
+        times = tuple(float(value) for value in self.time_s)
+        if any(not math.isfinite(value) for value in times):
+            raise ValueError("Transient presentation time samples must be finite.")
+        if any(right <= left for left, right in zip(times, times[1:])):
+            raise ValueError("Transient presentation time samples must remain strictly increasing.")
+        states = tuple(tuple(float(value) for value in row) for row in self.state_samples)
+        voltages = tuple(_freeze(sample) for sample in self.terminal_voltage_samples)
+        powers = tuple(_freeze(sample) for sample in self.electrical_power_samples)
+        count = len(times)
+        if len(states) != count or len(voltages) != count or len(powers) != count:
+            raise ValueError("Transient presentation time/state/voltage/power sample counts must match exactly.")
+        if states and len({len(row) for row in states}) != 1:
+            raise ValueError("Transient presentation state rows must have a consistent width.")
+        signals = tuple(self.signals)
+        if not all(isinstance(signal, TransientSignalReadModel) for signal in signals):
+            raise TypeError("Transient presentation signals must be TransientSignalReadModel values.")
+        if len({signal.signal_id for signal in signals}) != len(signals):
+            raise ValueError("Transient presentation signal IDs must be unique.")
+        expected_indices = tuple(range(count))
+        if any(signal.source_indices != expected_indices or len(signal.values) != count for signal in signals):
+            raise ValueError("Every transient signal must preserve every original source sample index.")
+        events = tuple(self.events)
+        if not all(isinstance(event, TransientEventReadModel) for event in events):
+            raise TypeError("Transient presentation events must be TransientEventReadModel values.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Transient presentation provenance must be a mapping.")
+        object.__setattr__(self, "time_s", times)
+        object.__setattr__(self, "state_samples", states)
+        object.__setattr__(self, "terminal_voltage_samples", voltages)
+        object.__setattr__(self, "electrical_power_samples", powers)
+        object.__setattr__(self, "signals", signals)
+        object.__setattr__(self, "events", events)
+        object.__setattr__(self, "provenance", _freeze(self.provenance))
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.time_s)
+
+
+@dataclass(frozen=True, slots=True)
 class ProtectionReadModel:
     """Immutable collection snapshot of protection-domain read data."""
 
@@ -227,4 +379,7 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "StudyResultReadModel",
+    "TransientSignalReadModel",
+    "TransientEventReadModel",
+    "TransientResultPresentationReadModel",
 ]
