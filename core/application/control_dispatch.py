@@ -200,4 +200,4 @@ class ControlCommandDispatcher:
         return self.execute_command(ControlTripBatchCommand(commands))
 
 
-__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher", "InvalidApplicationResultError"]
+__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher", "ControlTripBatchCommand", "InvalidApplicationResultError"]
