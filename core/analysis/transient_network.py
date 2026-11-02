@@ -134,6 +134,14 @@ class PreparedTransientStability:
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
+        if self.network.project_id != self.project_id:
+            raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
+        if self.network.activation_generation != self.activation_generation:
+            raise ValueError("Detached transient Network activation generation does not match PreparedTransientStability.")
+        if self.network.source_revision != self.source_revision:
+            raise ValueError("Detached transient Network source revision does not match PreparedTransientStability.")
+        if self.network.topology_revision != self.source_revision[1]:
+            raise ValueError("Detached transient Network topology revision does not match its source revision.")
         machine_ids = tuple(machine.machine_id for machine in self.machines)
         if len(machine_ids) != len(set(machine_ids)):
             raise ValueError("Prepared transient machine identities must be unique.")
@@ -207,8 +215,32 @@ class PreparedTransientStability:
         if any(value <= 0.0 for value in power_flow_result.voltage_magnitudes):
             raise ValueError("Power Flow voltage magnitudes must be positive for transient initialization.")
 
+        associations = dynamic_models.all()
+        expected_machine_ids = {association.machine_id for association in associations}
+        if set(machine_connection_paths) != expected_machine_ids:
+            raise ValueError(
+                "Detached machine connection paths must cover exactly the dynamic-model association identities."
+            )
+        if set(machine_rotor_policies) != expected_machine_ids:
+            raise ValueError(
+                "Disconnected rotor policies must cover exactly the dynamic-model association identities."
+            )
+        expected_switch_ids = {
+            switch_id
+            for path in machine_connection_paths.values()
+            for switch_id in path
+        }
+        if set(switch_states) != expected_switch_ids:
+            raise ValueError(
+                "Captured switch states must cover exactly the switching IDs in the explicit machine paths; "
+                f"missing={sorted(expected_switch_ids - set(switch_states))!r}, "
+                f"unexpected={sorted(set(switch_states) - expected_switch_ids)!r}."
+            )
+        if any(type(value) is not bool for value in switch_states.values()):
+            raise TypeError("Captured detached switch states must be explicit bool values.")
+
         definitions: list[DynamicMachineModelDefinition] = []
-        for association in dynamic_models.all():
+        for association in associations:
             definitions.append(
                 DynamicMachineModelDefinition(
                     machine_id=association.machine_id,
