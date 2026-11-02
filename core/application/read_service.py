@@ -744,6 +744,11 @@ class StudyReadService:
             numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
         )
 
+    def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
+        if self._archive is None or not callable(getattr(self._archive, "verify", None)):
+            raise RuntimeError("Study Result archive verification is unavailable.")
+        return self._archive.verify(project_id, activation_generation=activation_generation)
+
     def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
         return self.results(
             project_id=project_id,
