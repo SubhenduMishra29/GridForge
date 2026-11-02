@@ -403,6 +403,11 @@ def validate_protection_input_contracts(
                 diagnostics.append(
                     f"{detail}: physical instrument identity does not match the authoritative channel source."
                 )
+            if binding.measurement_type.strip().lower() == "voltage":
+                if getattr(channel, "source_terminal", None) != binding.source_endpoint_reference:
+                    diagnostics.append(
+                        f"{detail}: PT/CVT primary terminal reference does not match the channel's authoritative source terminal."
+                    )
             channel_phase = getattr(getattr(channel, "phase", None), "value", getattr(channel, "phase", None))
             if str(binding.phase_or_sequence).strip().upper() != str(channel_phase).strip().upper():
                 diagnostics.append(
