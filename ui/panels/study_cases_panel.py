@@ -71,8 +71,12 @@ class StudyCasesPanelWidget(QWidget):
         self._result_list = QListWidget(self)
         self._archive_heading = QLabel("Archived Executions", self)
         self._archive_list = QListWidget(self)
+        self._archive_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self._archive_selection_handler: Callable[[UUID | None], object] | None = None
+        self._archive_comparison_handler: Callable[[tuple[UUID, ...]], object] | None = None
         self._archive_rows: tuple[object, ...] = ()
+        self._compare_archive = QPushButton("Compare Selected Executions", self)
+        self._compare_archive.clicked.connect(self._compare_selected_archives)
         self._run = QPushButton("Run Study", self)
         self._run.clicked.connect(self._run_selected)
         self._list.currentRowChanged.connect(self._on_case_selected)
@@ -87,6 +91,7 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._result_list)
         layout.addWidget(self._archive_heading)
         layout.addWidget(self._archive_list)
+        layout.addWidget(self._compare_archive)
         self._archive_list.currentRowChanged.connect(self._on_archive_selected)
         self.set_result_details("Select a completed study to inspect its results.", ())
 
@@ -176,6 +181,23 @@ class StudyCasesPanelWidget(QWidget):
         self._archive_selection_handler = handler
         if handler is not None:
             handler(self.selected_archived_record_id())
+
+    def set_archive_comparison_handler(
+        self, handler: Callable[[tuple[UUID, ...]], object] | None
+    ) -> None:
+        self._archive_comparison_handler = handler
+
+    def selected_archived_record_ids(self) -> tuple[UUID, ...]:
+        values = []
+        for item in self._archive_list.selectedItems():
+            value = item.data(32)
+            if isinstance(value, UUID):
+                values.append(value)
+        return tuple(values)
+
+    def _compare_selected_archives(self) -> None:
+        if self._archive_comparison_handler is not None:
+            self._archive_comparison_handler(self.selected_archived_record_ids())
 
     def selected_archived_record_id(self) -> UUID | None:
         item = self._archive_list.currentItem()
