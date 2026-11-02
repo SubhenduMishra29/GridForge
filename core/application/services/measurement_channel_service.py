@@ -143,13 +143,15 @@ class MeasurementChannelService:
         if not callable(callback):
             raise TypeError("sample publication callback must be callable.")
         key = subscriber_id.strip()
-        if key in self._sample_subscribers:
-            raise ValueError(f"Measurement sample subscriber already registered: {key!r}.")
-        self._sample_subscribers[key] = callback
+        with self._execution_lock:
+            if key in self._sample_subscribers:
+                raise ValueError(f"Measurement sample subscriber already registered: {key!r}.")
+            self._sample_subscribers[key] = callback
 
         def unsubscribe() -> None:
-            if self._sample_subscribers.get(key) is callback:
-                self._sample_subscribers.pop(key, None)
+            with self._execution_lock:
+                if self._sample_subscribers.get(key) is callback:
+                    self._sample_subscribers.pop(key, None)
 
         return unsubscribe
 
@@ -216,13 +218,20 @@ class MeasurementChannelService:
                 sample_sequence=attestation.sample_sequence,
             )
 
-        # The sample is authenticated and committed before consumers are
-        # notified. Callbacks run outside the measurement lock so Application
-        # evaluation cannot hold the producer publication critical section.
-        outcomes = []
-        for subscriber_id, callback in tuple(sorted(self._sample_subscribers.items())):
-            outcomes.append((subscriber_id, callback(attestation, channel)))
-        return tuple(outcomes)
+            # Keep the shared Application execution lock through callback
+            # evaluation. This serializes the authenticated sample snapshot,
+            # protection evaluation and any resulting command dispatch against
+            # subsequent sample publications and competing state mutations.
+            # The lock is re-entrant because Application command dispatch may
+            # be reached from the protection callback.
+            outcomes = []
+            for subscriber_id, callback in tuple(sorted(self._sample_subscribers.items())):
+                try:
+                    outcome = callback(attestation, channel)
+                except Exception as exc:
+                    outcome = exc
+                outcomes.append((subscriber_id, outcome))
+            return tuple(outcomes)
 
     def activate(
         self,
