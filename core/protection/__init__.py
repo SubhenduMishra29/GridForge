@@ -41,6 +41,11 @@ from .tcc_read_model import (
     ProtectionTCCPoint, ProtectionTCCReadModel,
     build_protection_tcc_read_model,
 )
+from .coordination_grading import (
+    CoordinationRelayCharacteristic, CoordinationPair, FaultCurrentScenario,
+    RelayOperatingTimeEnvelope, CoordinationGrade, ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
 from .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
@@ -66,4 +71,7 @@ __all__ = [
     "ieee_inverse_time", "generate_ieee_tcc_points",
     "ProtectionTCCPoint", "ProtectionTCCReadModel",
     "build_protection_tcc_read_model",
+    "CoordinationRelayCharacteristic", "CoordinationPair", "FaultCurrentScenario",
+    "RelayOperatingTimeEnvelope", "CoordinationGrade", "ProtectionCoordinationReport",
+    "grade_protection_coordination",
 ]
