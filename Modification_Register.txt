@@ -18918,3 +18918,56 @@ Status:
     VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-48 — STATIC INITIAL RUNNING-MOTOR PHASE-DOMAIN SOURCE
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Admit a running Motor as a static initial short-circuit source only
+    when its locked-rotor sequence data and physical neutral/earth return
+    are explicit and complete.
+
+Corrections:
+    - Include canonical registered Motors in phase-domain source
+      preparation; stopped or out-of-service Motors do not contribute.
+    - Require explicit locked-rotor Z1, Z2, Z0, impedance MVA/kV bases
+      and internal voltage. Nameplate, starting-current and load-flow
+      values are not substituted.
+    - Require exact A/B/C and N equipment-terminal graph nodes.
+    - Require exactly one source-referenced neutral GROUND_ELECTRODE path
+      to a local earth node reachable from EARTH_REFERENCE.
+    - Take Motor neutral grounding impedance only from the declared
+      physical graph edge; no neutral or earth connection is synthesized.
+    - Produce a grounded multi-conductor source primitive using the
+      Motor's declared locked-rotor positive-sequence impedance.
+
+Engineering boundary:
+    - This is a static initial fault-source equivalent only.
+    - Motor current decay, rotor-flux dynamics, speed dependence and
+      time constants are not inferred or claimed.
+    - Missing sequence data or physical neutral/earth return fails closed.
+    - This does not replace the separate motor-dynamics solver/plugin.
+
+Verification:
+    - Compared the stale implementation branch against current main.
+    - Ported only the phase-domain source adapter correction onto a fresh
+      main-based branch.
+    - Source-level checks confirm Motor admission, stopped-Motor exclusion,
+      required neutral/electrode path and grounded multi-conductor output.
+    - No tests/CI, syntax/import checks, numerical fault fixture or
+      end-to-end protection execution were run.
+
+Status:
+    STATIC INITIAL RUNNING-MOTOR SOURCE ADAPTER IMPLEMENTED ON A
+    MAIN-BASED CORRECTION BRANCH — NUMERICAL / RUNTIME VERIFICATION PENDING
+
+======================================================================
