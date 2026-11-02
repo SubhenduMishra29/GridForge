@@ -39,6 +39,9 @@ class DetachedTransientNetworkState:
     equipment_states: Mapping[str, bool] = MappingProxyType({})
     machine_connection_paths: Mapping[str, tuple[str, ...]] = MappingProxyType({})
     machine_rotor_policies: Mapping[str, str] = MappingProxyType({})
+    project_id: str | None = None
+    activation_generation: int | None = None
+    source_revision: tuple[int, int, int, int] | None = None
     active_fault: object | None = None
     topology_revision: int | None = None
 
@@ -76,6 +79,23 @@ class DetachedTransientNetworkState:
         object.__setattr__(self, "equipment_states", MappingProxyType(equipment_states))
         object.__setattr__(self, "machine_connection_paths", MappingProxyType(paths))
         object.__setattr__(self, "machine_rotor_policies", MappingProxyType(policies))
+        if self.project_id is not None and (not isinstance(self.project_id, str) or not self.project_id.strip()):
+            raise ValueError("Detached transient project_id must be non-empty when supplied.")
+        if self.activation_generation is not None and (
+            isinstance(self.activation_generation, bool)
+            or not isinstance(self.activation_generation, int)
+            or self.activation_generation < 1
+        ):
+            raise ValueError("Detached transient activation_generation must be a positive integer.")
+        if self.source_revision is not None and (
+            len(self.source_revision) != 4
+            or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in self.source_revision)
+        ):
+            raise ValueError("Detached transient source_revision must contain four non-negative revision integers.")
+        if self.project_id is not None:
+            object.__setattr__(self, "project_id", self.project_id.strip())
+        if self.source_revision is not None:
+            object.__setattr__(self, "source_revision", tuple(self.source_revision))
 
     def is_element_conducting(self, element_id: str, default: bool = True) -> bool:
         return self.equipment_states.get(str(element_id), default)
@@ -230,7 +250,11 @@ class PreparedTransientStability:
             breaker_states=switch_states,
             machine_connection_paths=machine_connection_paths,
             machine_rotor_policies=machine_rotor_policies,
+            project_id=project_id,
+            activation_generation=activation_generation,
+            source_revision=source_revision,
             equipment_states={
+
                 element.branch_id: bool(element.in_service)
                 for element in (*prepared_power_flow.branches, *prepared_power_flow.transformers)
             } | {
