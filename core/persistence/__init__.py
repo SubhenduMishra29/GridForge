@@ -34,6 +34,7 @@ from .study_result_archive import (
     ArchivedStudyResult,
     StudyResultArchive,
     StudyResultArchiveError,
+    StudyResultArchiveCommitUncertain,
     StudyResultArchiveVerification,
 )
 from .type_registry import ModelTypeRegistry, UnknownModelTypeError
@@ -65,6 +66,7 @@ __all__ = [
     "ArchivedStudyResult",
     "StudyResultArchive",
     "StudyResultArchiveError",
+    "StudyResultArchiveCommitUncertain",
     "StudyResultArchiveVerification",
     "ModelTypeRegistry",
     "UnknownModelTypeError",
