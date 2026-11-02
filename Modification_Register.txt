@@ -20039,6 +20039,13 @@ GF-PROT-070 — SWITCHING-AWARE REACHABILITY, ANSI 21 COVERAGE AND LIVE TRIGGER
       and after the sample has been committed.
     - Application subscribes and invokes evaluate_protection_cycle for every
       authenticated sample on an enabled protection input.
+    - Subscriber registration, removal, sample commit and callback execution
+      are serialized under the shared re-entrant Application execution lock.
+      This prevents a subsequent sample or state mutation from racing the
+      evaluation triggered by the just-committed sample.
+    - Subscriber exceptions are captured as callback outcomes after the sample
+      commit; one external subscriber cannot undo an authenticated sample or
+      prevent later subscribers from being notified.
     - Incoherent or incomplete V/I publication sets fail closed through the
       existing timestamp/quality/freshness gates.
     - Existing persisted function-to-target mapping and Application command
