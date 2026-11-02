@@ -178,6 +178,8 @@ def prepare_transformer_phase_domain_multiport(
         internal_loop_labels=loop_labels,
         internal_loop_coupling=loop_coupling,
         internal_loop_impedance_ohm=loop_impedance,
+        internal_loop_voltage_base_kv=tuple(loop.voltage_base_kv for loop in loop_states),
+        internal_loop_positive_directions=tuple(loop.positive_direction for loop in loop_states),
     )
 
 

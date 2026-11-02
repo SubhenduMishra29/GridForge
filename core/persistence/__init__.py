@@ -28,6 +28,14 @@ from .project_package import (
     normalize_package_path,
 )
 from .project_persistence import ProjectPersistenceError, ProjectPersistenceService
+from .study_result_archive import (
+    ARCHIVE_FORMAT,
+    ARCHIVE_SCHEMA_VERSION,
+    ArchivedStudyResult,
+    StudyResultArchive,
+    StudyResultArchiveError,
+    StudyResultArchiveVerification,
+)
 from .type_registry import ModelTypeRegistry, UnknownModelTypeError
 
 __all__ = [
@@ -52,6 +60,12 @@ __all__ = [
     "normalize_package_path",
     "ProjectPersistenceError",
     "ProjectPersistenceService",
+    "ARCHIVE_FORMAT",
+    "ARCHIVE_SCHEMA_VERSION",
+    "ArchivedStudyResult",
+    "StudyResultArchive",
+    "StudyResultArchiveError",
+    "StudyResultArchiveVerification",
     "ModelTypeRegistry",
     "UnknownModelTypeError",
 ]

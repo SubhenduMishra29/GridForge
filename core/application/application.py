@@ -159,6 +159,7 @@ class Application:
         self._study_service = StudyService(self._event_bus)
         self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
+        self._study_result_archive: Any | None = None
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
@@ -311,6 +312,25 @@ class Application:
         return self._control_service
     @property
     def study_service(self) -> StudyService: return self._study_service
+
+    @property
+    def study_result_archive(self) -> Any | None:
+        """Return the configured durable Study Result archive, when enabled."""
+        return self._study_result_archive
+
+    def configure_study_result_archive(self, archive: Any | None) -> None:
+        """Attach the Persistence-owned archive to the Application study boundary."""
+        if archive is None:
+            self._study_service.set_result_persister(None)
+            self._study_result_archive = None
+            self._study_read_service.configure_archive(None)
+            return
+        persister = getattr(archive, "save", None)
+        if not callable(persister) or not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must expose callable save() and load_all() operations.")
+        self._study_service.set_result_persister(persister)
+        self._study_read_service.configure_archive(archive)
+        self._study_result_archive = archive
 
     @property
     def study_cases(self) -> tuple[StudyCaseDefinition, ...]:
@@ -1958,6 +1978,55 @@ class Application:
             project_id=context.project_id,
             activation_generation=self.project_lifecycle.activation_generation,
             current_revision=self.revision,
+        )
+
+    def read_archived_study_results(
+        self, *, study_type: str | None = None, status: str | None = None,
+        saved_after: str | None = None, saved_before: str | None = None,
+        search: str | None = None, activation_generation: int | None = None,
+        study_id: UUID | None = None,
+    ) -> tuple[Any, ...]:
+        """Search durable executions for the active project, including older generations."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            return ()
+        return self._study_read_service.archived_results(
+            project_id=context.project_id,
+            activation_generation=activation_generation,
+            study_id=study_id,
+            study_type=study_type,
+            status=status,
+            saved_after=saved_after,
+            saved_before=saved_before,
+            search=search,
+        )
+
+    def read_archived_study_result(self, record_id: UUID, *, activation_generation: int | None = None) -> Any:
+        """Load one durable execution record within the active project identity."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to read archived Study Results.")
+        return self._study_read_service.archived_result(
+            record_id, project_id=context.project_id,
+            activation_generation=activation_generation,
+        )
+
+    def compare_archived_study_results(self, left_record_id: UUID, right_record_id: UUID) -> Any:
+        """Compare two archived executions without silently mixing project/study types."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to compare archived Study Results.")
+        return self._study_read_service.compare_archived_results(
+            left_record_id, right_record_id, project_id=context.project_id,
+        )
+
+    def verify_archived_study_results(self, *, activation_generation: int | None = None) -> Any:
+        """Verify active-project archive records without modifying or deleting them."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to verify archived Study Results.")
+        return self._study_read_service.verify_archived_results(
+            project_id=context.project_id, activation_generation=activation_generation,
         )
 
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:

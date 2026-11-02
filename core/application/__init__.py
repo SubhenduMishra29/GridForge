@@ -46,7 +46,15 @@ from .read_models import (
     SimpleWireReadModel,
     StudyResultReadModel,
 )
-from .read_service import NetworkReadService, ProtectionReadService, ReadService
+from .read_service import (
+    ArchivedStudyResultReadModel,
+    NetworkReadService,
+    ProtectionReadService,
+    ReadService,
+    StudyReadService,
+    StudyResultComparisonReadModel,
+    StudyResultNumericDeltaReadModel,
+)
 from .revision import ProjectRevision
 from .study import StudyCaseDefinition, StudyRequest, StudyResult
 from .protection_study import (
@@ -93,7 +101,8 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "SimpleWireReadModel",
-    "StudyResultReadModel",
+    "StudyResultReadModel",\n    "ArchivedStudyResultReadModel",\n    "StudyResultComparisonReadModel",
+    "StudyResultNumericDeltaReadModel",\n    "StudyReadService",
     "StudyCaseDefinition",
     "StudyRequest",
     "StudyResult",

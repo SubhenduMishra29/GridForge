@@ -117,6 +117,11 @@ class ProtectionFaultScenarioResult:
         return self.contribution_status is ContributionStatus.COMPLETE
 
     @property
+    def transformer_delta_loop_currents(self) -> Mapping[str, Mapping[str, Any]]:
+        """Read-only internal transformer diagnostics; never a CT measurement source."""
+        return self.short_circuit_result.transformer_delta_loop_currents
+
+    @property
     def diagnostics(self) -> tuple[str, ...]:
         return tuple(self.short_circuit_result.diagnostics)
 

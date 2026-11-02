@@ -30,6 +30,7 @@ from .result import (
     ShortCircuitSourceContribution,
     ShortCircuitTerminalCurrent,
     ShortCircuitConductorCurrent,
+    ShortCircuitTransformerDeltaLoopCurrent,
 )
 from .short_circuit_solver import ShortCircuitSolver
 from .phase_domain_solver import (
@@ -63,6 +64,7 @@ __all__ = [
     "ShortCircuitBranchCurrent",
     "ShortCircuitTerminalCurrent",
     "ShortCircuitConductorCurrent",
+    "ShortCircuitTransformerDeltaLoopCurrent",
     "ShortCircuitResult",
     "ShortCircuitSolver",
     "PhaseDomainSourceEquivalent",

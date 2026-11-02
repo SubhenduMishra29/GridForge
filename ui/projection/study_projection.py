@@ -193,6 +193,15 @@ class StudyProjection:
         bind_selection = getattr(panel, "set_result_selection_handler", None)
         if callable(bind_selection):
             bind_selection(self.select_result)
+        bind_archive_selection = getattr(panel, "set_archive_selection_handler", None)
+        if callable(bind_archive_selection):
+            bind_archive_selection(self.select_archived_result)
+        bind_archive_comparison = getattr(panel, "set_archive_comparison_handler", None)
+        if callable(bind_archive_comparison):
+            bind_archive_comparison(self.compare_archived_results)
+        bind_archive_search = getattr(panel, "set_archive_search_handler", None)
+        if callable(bind_archive_search):
+            bind_archive_search(self.search_archived_results)
         self._refresh_all_results()
         self._render()
 
@@ -384,6 +393,128 @@ class StudyProjection:
                 "current": "true" if bool(getattr(result, "current", False)) else "false",
                 "message": str(getattr(result, "message", "") or ""),
             }
+
+        archive_reader = getattr(self._application, "read_archived_study_results", None)
+        archive_setter = getattr(self._panel, "set_archived_results", None)
+        if callable(archive_reader) and callable(archive_setter):
+            try:
+                archive_setter(tuple(archive_reader()))
+            except Exception:
+                _LOGGER.exception("Archived Study Result history refresh failed")
+
+    def search_archived_results(self, query: str) -> None:
+        """Apply the Study Cases panel's text filter to durable execution history."""
+        reader = getattr(self._application, "read_archived_study_results", None)
+        setter = getattr(self._panel, "set_archived_results", None)
+        if not callable(reader) or not callable(setter):
+            return
+        try:
+            setter(tuple(reader(search=str(query))))
+        except Exception:
+            _LOGGER.exception("Archived Study Result search failed")
+            setter(())
+
+    def compare_archived_results(self, record_ids: tuple[UUID, ...]) -> None:
+        """Render a provenance-aware comparison of exactly two archive records."""
+        if len(record_ids) != 2:
+            self._set_result_details(
+                "Study Result Comparison",
+                ("Select exactly two archived executions, then choose Compare Selected Executions.",),
+            )
+            self._notify_result_changed(None)
+            return
+        compare = getattr(self._application, "compare_archived_study_results", None)
+        if not callable(compare):
+            self._set_result_details("Study Result Comparison", ("Archive comparison is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            result = compare(record_ids[0], record_ids[1])
+        except Exception:
+            _LOGGER.exception("Archived Study Result comparison failed")
+            self._set_result_details("Study Result Comparison", ("The selected executions could not be compared.",))
+            self._notify_result_changed(None)
+            return
+        lines = [
+            f"Compatibility: {'COMPATIBLE' if result.compatible else 'INCOMPATIBLE'}",
+            result.compatibility_message,
+            f"Same source revision: {result.same_source_revision}",
+            f"Same activation generation: {result.same_activation_generation}",
+            f"Numerical comparison: {result.numeric_comparison_status}",
+        ]
+        if result.numeric_deltas:
+            lines.append("Base-compatible electrical value deltas (RIGHT - LEFT):")
+            for delta in result.numeric_deltas:
+                lines.append(
+                    f"{delta.path}: {delta.left_value} -> {delta.right_value}; "
+                    f"Δ={delta.delta} {delta.unit}; bases={delta.base}"
+                )
+        else:
+            lines.append(
+                "No numeric values were compared: canonical units and identical "
+                "engineering bases were not available for matching result fields."
+            )
+        for label, row in (("LEFT", result.left), ("RIGHT", result.right)):
+            lines.extend((
+                f"--- {label} EXECUTION ---",
+                f"Record: {row.record_id}",
+                f"Saved at (UTC): {row.saved_at}",
+                f"Study Case: {row.study_id}",
+                f"Project: {row.project_id}",
+                f"Activation generation: {row.activation_generation}",
+                f"Source revision: {row.source_revision}",
+                f"Study type/status: {row.study_type} / {row.status}",
+            ))
+            lines.extend(_flatten_result_value(row.value, prefix=f"{label.lower()}.value"))
+            delta_loops = getattr(row, "transformer_delta_loop_currents", ())
+            if delta_loops:
+                lines.append(f"{label} internal delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+                lines.extend(_flatten_result_value(delta_loops, prefix=f"{label.lower()}.delta_loop"))
+        self._set_result_details("Study Result Comparison", tuple(lines))
+        self._notify_result_changed(None)
+
+    def select_archived_result(self, record_id: UUID | None) -> None:
+        """Inspect a durable execution without projecting it as live SLD data."""
+        if record_id is None:
+            return
+        reader = getattr(self._application, "read_archived_study_result", None)
+        if not callable(reader):
+            self._set_result_details("Archived Study Result", ("Archive read service is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            record = reader(record_id)
+        except Exception:
+            _LOGGER.exception("Archived Study Result could not be loaded")
+            self._set_result_details("Archived Study Result", ("The selected archive record could not be loaded.",))
+            self._notify_result_changed(None)
+            return
+        lines = (
+            f"Archive record: {record.record_id}",
+            f"Saved at (UTC): {record.saved_at}",
+            f"Study Case: {record.study_id}",
+            f"Project: {record.project_id}",
+            f"Activation generation: {record.activation_generation}",
+            f"Source revision: {record.source_revision}",
+            f"Study type: {record.study_type}",
+            f"Status: {record.status}",
+        )
+        details = list(lines)
+        if record.message:
+            details.append(f"Message: {record.message}")
+        details.extend(_flatten_result_value(record.metadata, prefix="metadata"))
+        if record.value is None:
+            details.append("value: no numerical payload was published")
+        else:
+            details.extend(_flatten_result_value(record.value))
+        delta_loops = getattr(record, "transformer_delta_loop_currents", ())
+        if delta_loops:
+            details.append("Internal transformer delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+            details.extend(_flatten_result_value(delta_loops, prefix="transformer_delta_loop_currents"))
+        self._set_result_details(f"Archived {record.study_type.replace('_', ' ').title()} Result", tuple(details))
+        # Historical archive values are inspectable, but are never sent to SLD
+        # overlays or treated as current solver output.
+        self._notify_result_changed(None)
 
     def select_result(self, study_id: UUID | None) -> None:
         """Display the result associated with the selected Study Case identity."""

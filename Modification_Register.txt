@@ -18399,6 +18399,371 @@ Disposition:
 
 
 ======================================================================
+GF-SC-D15F-38
+======================================================================
+
+Scope:
+    Integrate signed internal delta-loop currents into the short-circuit
+    physical result contract with winding provenance, explicit bases and
+    protection-measurement boundary.
+
+Corrections:
+    - Added ShortCircuitTransformerDeltaLoopCurrent to the canonical
+      short-circuit result model.
+    - Each record carries transformer/loop identity, HV/LV winding,
+      signed primary current in A, study base MVA, explicit winding
+      voltage base kV, derived current base A, per-unit current and
+      explicit positive loop direction.
+    - Record validation checks the A/pu/base relationship and fixes
+      measurement_scope=INTERNAL_DELTA_LOOP and
+      external_ct_measurement_eligible=False.
+    - Phase-domain solver now emits these typed records rather than
+      unqualified complex values.
+    - ShortCircuitResult exposes an immutable nested
+      transformer_delta_loop_currents mapping and includes it in
+      serialization output.
+    - Short-circuit measurement generation explicitly rejects internal
+      delta-loop current keys as external CT inputs. Existing external
+      conductor-current records remain a separate result family.
+
+Engineering boundary:
+    - Loop current is a winding-internal circulating current, not a
+      terminal line current and not a CT aperture conductor current.
+    - A future internal winding sensor requires its own explicitly
+      modeled measurement source and channel contract; this change does
+      not make internal loop current available to ordinary CTs.
+    - No result-conversion adapter is inferred where the legacy
+      sequence-domain short-circuit path has no phase-domain solution.
+
+Verification:
+    Remote source re-fetch and static source assertions only. No tests/CI,
+    syntax/import checks, numerical loop-current fixture, result
+    serialization round-trip or protection-channel runtime check run.
+
+Status:
+    TYPED SIGNED DELTA-LOOP RESULT AND CT-EXCLUSION CONTRACT IMPLEMENTED —
+    RUNTIME/NUMERICAL VERIFICATION DEFERRED
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-39
+
+Scope:
+    Preserve explicit transformer delta-loop current records through the
+    phase-domain Short-Circuit execution, canonical result contract and
+    Protection Study diagnostic read path.
+
+Corrections:
+    - ShortCircuitSolver now transfers the exact typed
+      PhaseDomainShortCircuitSolution transformer_delta_loop_currents_a
+      mapping into ShortCircuitResult. The same records are retained in
+      the result values payload and canonical typed field; the sequence
+      domain does not synthesize or fabricate loop records.
+    - ShortCircuitResult validates nested transformer/loop identities and
+      requires every value to be a ShortCircuitTransformerDeltaLoopCurrent.
+      Nested mappings remain immutable.
+    - Delta-loop records now have explicit JSON-compatible to_dict and
+      strict from_dict contracts. ShortCircuitResult.as_dict serializes
+      each record through that contract instead of leaking dataclass
+      instances into a generic mapping.
+    - ProtectionFaultScenarioResult exposes the canonical typed mapping
+      as a read-only diagnostic property. It does not create samples,
+      relay inputs, CT associations or conductor-current records.
+    - The existing measurement-generation rejection of internal delta-loop
+      keys remains unchanged. External CT/CBCT conversion continues to
+      consume only explicitly associated external terminal/conductor data.
+
+Persistence boundary:
+    - The canonical ShortCircuitResult.as_dict payload now contains
+      round-trippable typed delta-loop records, but GridForge project
+      persistence does not persist executed StudyResult values today.
+      This increment does not add a second result repository or silently
+      change the .gridforge project schema. Durable study-result storage
+      remains a separate Application persistence feature.
+    - Internal delta-loop currents remain ineligible for ordinary external
+      CT measurement, even when exposed to Protection Study diagnostics.
+
+Verification:
+    - Remote source re-fetch and focused source assertions only.
+    - No tests/CI, syntax/import checks, numerical MNA fixtures, or
+      end-to-end study/persistence round-trip were run.
+    - Runtime behaviour remains unverified.
+
+Status:
+    PHASE-DOMAIN RESULT HANDOFF AND PROTECTION DIAGNOSTIC READ PATH
+    IMPLEMENTED — DURABLE STUDY-RESULT STORAGE AND RUNTIME VERIFICATION
+    DEFERRED
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-40
+
+Scope:
+    Add durable, versioned persistence for Application StudyResult
+    executions without modifying canonical .gridforge project
+    configuration or losing typed transformer delta-loop diagnostics.
+
+Corrections:
+    - Added StudyResultArchive as an append-only execution-artifact store
+      under the user's GridForge application data directory.
+    - Archive records carry format/schema version, unique execution-record
+      identity, saved timestamp, StudyResult identity/status, project and
+      activation provenance, all four source revision counters, metadata,
+      and result payload.
+    - Canonical JSON payloads are SHA-256 integrity checked on restore.
+      Writes use a same-directory temporary file, fsync and atomic replace.
+    - Result encoding explicitly supports finite numeric/complex values,
+      UUIDs, enums, NumPy arrays/scalars, mappings, collections and
+      dataclass field snapshots. Unsupported runtime objects fail closed.
+    - ShortCircuitTransformerDeltaLoopCurrent records use their explicit
+      typed codec and are reconstructed as typed records when archived
+      Protection/Short-Circuit result payloads are loaded. Other detached
+      dataclass values restore as tagged field mappings; arbitrary Python
+      classes are never imported or instantiated from persisted data.
+    - StudyResultArchive supports loading all records or the latest record
+      for a project, activation generation and Study Case identity.
+    - StudyService now accepts a durable result persister. It persists
+      completed, failed and cancelled terminal outcomes before publishing
+      the corresponding terminal event. A failure to persist a completed
+      result converts the in-memory outcome to failed and publishes
+      StudyFailed rather than reporting a non-durable completion.
+    - Application composition wires the archive at
+      ~/.gridforge/study-results. Project configuration save/load remains
+      unchanged and cannot overwrite the separate execution archive.
+
+Persistence boundary:
+    - Study results are stored outside the canonical .gridforge package.
+      The archive is keyed by a SHA-256 project identity directory and
+      retains activation-generation and Study Case provenance in each
+      independently versioned record.
+    - Restored StudyResult.value is a detached tagged data snapshot, not a
+      rehydrated live solver/runtime object. Internal delta-loop records
+      alone are reconstructed as their canonical typed value object.
+    - This is an execution-result archive, not a replacement project
+      repository and not a solver cache.
+
+Verification:
+    - Remote source re-fetch and focused static source assertions only.
+    - No tests/CI, syntax/import checks, archive round-trip, filesystem
+      durability exercise, numerical MNA fixture or end-to-end study
+      execution was run.
+    - Runtime compatibility with every registered study result type
+      remains unverified; unsupported payload members intentionally
+      fail closed instead of being silently discarded.
+
+Status:
+    VERSIONED DURABLE STUDY RESULT ARCHIVE AND STUDY SERVICE INTEGRATION
+    IMPLEMENTED — RUNTIME/ROUND-TRIP VERIFICATION DEFERRED
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-41
+
+Scope:
+    Expose searchable durable Study Result execution history, provenance,
+    selected-record loading and guarded two-execution comparison through
+    the existing Application StudyReadService.
+
+Corrections:
+    - Extended StudyReadService to adapt the existing StudyResultArchive;
+      no second archive or result authority was introduced.
+    - Added immutable ArchivedStudyResultReadModel rows carrying archive
+      record UUID, saved timestamp, Study Case UUID, project identity,
+      activation generation, source revision counters, study type/status,
+      message, metadata and detached result value.
+    - Added archive filters for project, activation generation, Study Case,
+      study type, terminal status, saved-time window and free-text search.
+    - Added exact archive-record retrieval scoped to the active project.
+    - Added a two-record comparison contract. Different projects or study
+      types are explicitly marked incompatible; same-type comparisons
+      expose whether source revisions and activation generations match.
+    - Exposed archived history, record retrieval and comparison through
+      Application facade methods scoped to the active project.
+    - Exported the new read DTOs and StudyReadService from the Application
+      package API.
+    - Exposed transformer delta-loop records as a diagnostic-only accessor
+      on archived result rows. No CT, CBCT, relay input, measurement channel
+      or external conductor-current conversion is introduced.
+
+Presentation boundary:
+    - Read DTOs are framework-neutral and suitable for the Study Results
+      projection. They do not import Qt or UI types.
+    - The current branch inspection did not establish an existing concrete
+      Study Results widget/panel to wire without inventing a competing UI
+      surface. Direct widget binding remains a follow-on UI integration
+      requiring the actual active panel composition path.
+    - Archived values remain detached snapshots; only explicitly supported
+      typed delta-loop records are restored as canonical typed values.
+
+Verification:
+    - Remote source re-fetch and static source review only.
+    - No tests/CI, syntax/import checks, archive query execution, comparison
+      fixture, UI runtime, or numerical result comparison was run.
+
+Status:
+    APPLICATION ARCHIVE QUERY / PROVENANCE / COMPARISON AND STUDY RESULTS
+    PANEL INTEGRATION IMPLEMENTED — RUNTIME/NUMERICAL VERIFICATION DEFERRED
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-42
+======================================================================
+
+Scope:
+    Restore canonical solver result contracts from the durable Study Result
+    archive and preserve IEEE-754 non-finite convergence metrics explicitly.
+
+Corrections:
+    - Added an explicit tagged float representation for NaN, positive
+      infinity and negative infinity. JSON non-standard NaN/Infinity tokens
+      remain disabled; the archive remains canonical JSON.
+    - Added a strict allow-list codec for PowerFlowResult, ShortCircuitResult
+      and their typed short-circuit contribution/current records.
+    - Solver result reconstruction is performed only for exact allow-listed
+      class identities and exact dataclass field sets. Persisted class names
+      are never imported or dynamically resolved.
+    - Canonical solver constructors re-apply their engineering invariants
+      during restoration. Unknown dataclasses remain detached snapshots.
+    - Whitelisted solver enums restore to their canonical enum types;
+      unknown enums remain detached scalar values.
+    - Non-converged PowerFlowResult.error may retain positive infinity
+      through persistence, while its voltage/history arrays retain their
+      existing finite-value contract.
+
+Persistence boundary:
+    - No arbitrary class construction or module import is permitted from
+      archive data.
+    - Complex electrical current values remain finite-only under the
+      canonical short-circuit result contracts.
+    - Existing archive schema version remains 1 because the new tagged
+      encodings are additive and unknown legacy dataclasses remain readable
+      as detached mappings.
+
+Verification:
+    - Remote source edits and source-level review only.
+    - No tests/CI, syntax/import checks, archive round-trip, non-finite
+      restoration fixture or numerical solver run was performed.
+
+Status:
+    CANONICAL POWER-FLOW / SHORT-CIRCUIT RESTORATION AND EXPLICIT
+    NON-FINITE FLOAT ENCODING IMPLEMENTED — ROUND-TRIP VERIFICATION PENDING
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-43
+======================================================================
+
+Scope:
+    Compare archived electrical study values as numerical differences
+    without mixing unlike units, engineering bases or reference directions.
+
+Corrections:
+    - Added StudyResultNumericDeltaReadModel and exposed it through the
+      Application read-model package.
+    - Power Flow voltage magnitude/angle comparison is keyed by stable bus
+      identity and requires the same explicit solver snapshot identity.
+    - Short-Circuit physical conductor current comparison requires matching
+      MVA/kV bases, conductor phase and reference direction.
+    - Internal transformer delta-loop current comparison exposes both A and
+      per-unit deltas and requires matching MVA/kV bases and positive
+      direction. It remains diagnostic-only and is not a CT/CBCT source.
+    - Every delta is RIGHT minus LEFT. Non-finite numeric observations are
+      excluded. Missing or unlike bases are not silently normalized.
+    - Study Results comparison UI now displays numerical deltas, units and
+      the exact base descriptor; it explicitly reports when no compatible
+      numeric observations exist.
+
+Engineering boundary:
+    - The comparison does not infer bases from display labels or unrelated
+      metadata. Power Flow values require a shared snapshot identity.
+    - Short-Circuit values without explicit physical current bases are not
+      promoted into numerical comparisons.
+
+Verification:
+    Remote source review only. No numerical comparison fixture or UI runtime
+    execution was performed.
+
+Status:
+    BASE-AWARE NUMERICAL STUDY RESULT COMPARISON IMPLEMENTED —
+    NUMERICAL FIXTURE / UI RUNTIME VERIFICATION PENDING
+
+======================================================================
+GF-SC-D15F-44
+======================================================================
+
+Scope:
+    Make transformer internal delta-loop MNA equation reconciliation an
+    explicit part of the phase-domain solver result.
+
+Corrections:
+    - For each internal loop, the solver independently evaluates
+      C^T * V_terminal against Z_loop * I_loop after solving.
+    - A non-finite or out-of-tolerance voltage residual fails the solve.
+    - Successful per-loop reconciliation reports coupling voltage,
+      impedance drop, residual, tolerance and declared positive direction.
+    - PhaseDomainShortCircuitSolution exposes immutable nested
+      transformer_delta_loop_reconciliation diagnostics.
+    - Existing global MNA residual continues to include internal loop
+      unknowns; this adds a transformer-specific engineering diagnostic.
+
+Engineering boundary:
+    - This verifies consistency of the supplied coupling/impedance model
+      and its solved state. It does not independently derive manufacturer
+      parameters or validate the physical accuracy of supplied data.
+    - No numerical fixture was run; the new reconciliation has not yet
+      been exercised against a known transformer case.
+
+Status:
+    EXPLICIT TRANSFORMER DELTA-LOOP MNA RECONCILIATION IMPLEMENTED —
+    NUMERICAL FIXTURE VERIFICATION PENDING
+
+======================================================================
+GF-SC-D15F-45
+======================================================================
+
+Scope:
+    Strengthen Study Result archive durability and add a non-destructive
+    integrity/recovery inspection path.
+
+Corrections:
+    - After atomic replacement, POSIX archive writes fsync the containing
+      directory so the rename is included in the durability boundary.
+    - Added StudyResultArchive.verify(project_id, activation_generation)
+      to inspect all records in scope, validating envelope, checksum,
+      project/generation identity and canonical typed restoration.
+    - Verification returns valid record UUIDs and per-file failure details.
+      It never deletes, rewrites, quarantines or silently skips corrupt data.
+    - Exposed the verification report through StudyReadService and the
+      active-project-scoped Application facade.
+    - Existing strict load_all behaviour remains fail-closed on corruption.
+
+Engineering boundary:
+    - Verification is an integrity report, not an automatic repair tool.
+      Recovery from a damaged record remains an explicit operator action.
+    - POSIX directory fsync is applied where supported; Windows retains
+      atomic same-directory replacement and file fsync.
+
+Verification:
+    Remote source review only. No filesystem crash simulation, archive
+    round-trip, corruption fixture or recovery exercise was performed.
+
+Status:
+    ARCHIVE DURABILITY HARDENING AND NON-DESTRUCTIVE INTEGRITY REPORT
+    IMPLEMENTED — FILESYSTEM / RECOVERY EXERCISE PENDING
+
+======================================================================
+
+
+======================================================================
 GF-AUD-137 — README AND ARCHITECTURE DOCUMENTATION RECONCILIATION
 ======================================================================
 

@@ -8,10 +8,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, fields, is_dataclass
+import math
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from .revision import ProjectRevision
+
+from core.solver.power_flow.result import PowerFlowResult
+from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
@@ -396,19 +402,141 @@ class ProtectionReadService:
         decision = decision_provider(str(relay.id)) if decision_provider is not None else None
         return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings, decision=decision)
 
-class StudyReadService:
-    """Canonical Application read boundary for published study results.
+@dataclass(frozen=True, slots=True)
+class ArchivedStudyResultReadModel:
+    """Read-only archive row with stable execution identity and provenance."""
 
-    The service adapts the existing Application StudyService store into
-    immutable read models. It never executes studies and never becomes a
-    second result authority.
+    record_id: UUID
+    saved_at: str
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    status: str
+    message: str
+    metadata: Any
+    value: Any
+
+    @property
+    def transformer_delta_loop_currents(self) -> Any:
+        """Find internal-loop diagnostics inside detached result snapshots."""
+        def find(value: Any, depth: int = 0) -> Any:
+            if depth > 8:
+                return ()
+            if isinstance(value, Mapping):
+                direct = value.get("transformer_delta_loop_currents")
+                if direct is not None:
+                    return direct
+                for key in ("fields", "values", "short_circuit", "result", "value"):
+                    nested = value.get(key)
+                    if nested is not None:
+                        found = find(nested, depth + 1)
+                        if found:
+                            return found
+                return ()
+            if isinstance(value, (tuple, list)):
+                for item in value:
+                    found = find(item, depth + 1)
+                    if found:
+                        return found
+            return ()
+        return find(self.value)
+
+
+@dataclass(frozen=True, slots=True)
+class StudyResultNumericDeltaReadModel:
+    """One numerical difference whose physical unit and bases are identical."""
+
+    path: str
+    left_value: complex | float
+    right_value: complex | float
+    delta: complex | float
+    unit: str
+    base: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StudyResultComparisonReadModel:
+    """Two-execution comparison with only base-compatible numeric deltas."""
+
+    left: ArchivedStudyResultReadModel
+    right: ArchivedStudyResultReadModel
+    compatible: bool
+    compatibility_message: str
+    same_source_revision: bool
+    same_activation_generation: bool
+    numeric_deltas: tuple[StudyResultNumericDeltaReadModel, ...] = ()
+    numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
+
+
+def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
+    """Extract only solver values whose unit and engineering bases are explicit."""
+    observations: dict[str, tuple[complex | float, str, tuple[Any, ...]]] = {}
+    visited = 0
+
+    def visit(item: Any, path: str, depth: int) -> None:
+        nonlocal visited
+        if depth > 12 or visited >= 20000 or item is None:
+            return
+        visited += 1
+        if isinstance(item, PowerFlowResult):
+            if item.snapshot_id is None:
+                return
+            identifiers = item.bus_ids or tuple(str(index) for index in range(len(item.voltage_magnitudes)))
+            for bus_id, magnitude, angle in zip(identifiers, item.voltage_magnitudes, item.voltage_angles):
+                prefix = f"{path}.bus:{bus_id}"
+                observations[f"{prefix}.voltage_magnitude"] = (magnitude, "p.u.", (item.snapshot_id,))
+                observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
+            return
+        if isinstance(item, ShortCircuitConductorCurrent):
+            base = (item.base_mva, item.voltage_base_kv, item.phase_or_sequence, item.reference_direction)
+            observations[f"{path}.current"] = (item.current, "p.u.", base)
+            return
+        if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
+            base = (item.base_mva, item.voltage_base_kv, item.positive_direction)
+            observations[f"{path}.current_a"] = (item.current_a, "A", base)
+            observations[f"{path}.current_pu"] = (item.current_pu, "p.u.", base)
+            return
+        if isinstance(item, Mapping):
+            for key, nested in item.items():
+                visit(nested, f"{path}.{key}", depth + 1)
+            return
+        if isinstance(item, (tuple, list)):
+            for index, nested in enumerate(item):
+                visit(nested, f"{path}[{index}]", depth + 1)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for descriptor in fields(item):
+                visit(getattr(item, descriptor.name), f"{path}.{descriptor.name}", depth + 1)
+
+    visit(value, "result", 0)
+    return observations
+
+
+class StudyReadService:
+    """Canonical Application read boundary for live and archived study results.
+
+    The service adapts the existing StudyService and StudyResultArchive. It
+    performs no execution, mutation, numerical reinterpretation or measurement
+    generation. Archived values remain detached snapshots.
     """
-    def __init__(self, studies: Any) -> None:
+
+    def __init__(self, studies: Any, archive: Any | None = None) -> None:
         if studies is None or not callable(getattr(studies, "get_result", None)):
             raise TypeError("studies must provide get_result().")
         if not callable(getattr(studies, "results", None)):
             raise TypeError("studies must provide results().")
         self._studies = studies
+        self._archive = None
+        self.configure_archive(archive)
+
+    def configure_archive(self, archive: Any | None) -> None:
+        if archive is not None and not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must provide load_all().")
+        if archive is not None and not callable(getattr(archive, "load_latest", None)):
+            raise TypeError("archive must provide load_latest().")
+        self._archive = archive
 
     @staticmethod
     def _to_read_model(
@@ -440,6 +568,23 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             current=current,
+        )
+
+    @staticmethod
+    def _archived_to_read_model(record: Any) -> ArchivedStudyResultReadModel:
+        result = record.result
+        return ArchivedStudyResultReadModel(
+            record_id=record.record_id,
+            saved_at=record.saved_at,
+            study_id=result.study_id,
+            project_id=result.project_id,
+            activation_generation=result.activation_generation,
+            source_revision=result.source_revision,
+            study_type=result.study_type,
+            status=result.status,
+            message=result.message,
+            metadata=result.metadata,
+            value=result.value,
         )
 
     def result(
@@ -482,6 +627,128 @@ class StudyReadService:
             )
         )
 
+    def archived_results(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int | None = None,
+        study_id: UUID | None = None,
+        study_type: str | None = None,
+        status: str | None = None,
+        saved_after: str | None = None,
+        saved_before: str | None = None,
+        search: str | None = None,
+    ) -> tuple[ArchivedStudyResultReadModel, ...]:
+        if self._archive is None:
+            return ()
+        if status is not None and status not in {"completed", "failed", "cancelled"}:
+            raise ValueError("status must be completed, failed, cancelled, or None.")
+        if study_type is not None and (not isinstance(study_type, str) or not study_type.strip()):
+            raise ValueError("study_type must be a non-empty string or None.")
+        def parse_timestamp(value: str | None, label: str) -> datetime | None:
+            if value is None:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (AttributeError, ValueError) as exc:
+                raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+        after = parse_timestamp(saved_after, "saved_after")
+        before = parse_timestamp(saved_before, "saved_before")
+        if after is not None and before is not None and after > before:
+            raise ValueError("saved_after must not be later than saved_before.")
+        records = self._archive.load_all(
+            project_id,
+            activation_generation=activation_generation,
+            study_id=study_id,
+        )
+        needle = search.strip().casefold() if isinstance(search, str) else ""
+        rows = []
+        for record in records:
+            row = self._archived_to_read_model(record)
+            if study_type is not None and row.study_type != study_type.strip():
+                continue
+            if status is not None and row.status != status:
+                continue
+            saved_at = parse_timestamp(row.saved_at, "archived saved_at")
+            if after is not None and (saved_at is None or saved_at < after):
+                continue
+            if before is not None and (saved_at is None or saved_at > before):
+                continue
+            if needle:
+                haystack = " ".join((
+                    str(row.study_id), row.study_type, row.status, row.message,
+                    str(row.metadata), str(row.record_id),
+                )).casefold()
+                if needle not in haystack:
+                    continue
+            rows.append(row)
+        return tuple(sorted(rows, key=lambda row: (row.saved_at, str(row.record_id)), reverse=True))
+
+    def archived_result(
+        self, record_id: UUID, *, project_id: str,
+        activation_generation: int | None = None,
+    ) -> ArchivedStudyResultReadModel:
+        if not isinstance(record_id, UUID):
+            raise TypeError("record_id must be a UUID.")
+        for row in self.archived_results(
+            project_id=project_id, activation_generation=activation_generation
+        ):
+            if row.record_id == record_id:
+                return row
+        raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
+
+    def compare_archived_results(
+        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+    ) -> StudyResultComparisonReadModel:
+        left = self.archived_result(left_record_id, project_id=project_id)
+        right = self.archived_result(right_record_id, project_id=project_id)
+        compatible = left.project_id == right.project_id and left.study_type == right.study_type
+        if left.project_id != right.project_id:
+            message = "Comparison rejected: records belong to different projects."
+            compatible = False
+        elif left.study_type != right.study_type:
+            message = "Comparison rejected: study types differ."
+            compatible = False
+        else:
+            message = "Same project and study type; compare values with source-revision and activation provenance shown."
+        numeric_deltas: list[StudyResultNumericDeltaReadModel] = []
+        if compatible:
+            left_values = _study_result_numeric_observations(left.value)
+            right_values = _study_result_numeric_observations(right.value)
+            for path in sorted(set(left_values).intersection(right_values)):
+                left_value, left_unit, left_base = left_values[path]
+                right_value, right_unit, right_base = right_values[path]
+                if left_unit != right_unit or left_base != right_base:
+                    continue
+                finite = all(
+                    math.isfinite(part)
+                    for value in (left_value, right_value)
+                    for part in ((value.real, value.imag) if isinstance(value, complex) else (float(value),))
+                )
+                if not finite:
+                    continue
+                numeric_deltas.append(StudyResultNumericDeltaReadModel(
+                    path=path, left_value=left_value, right_value=right_value,
+                    delta=right_value - left_value, unit=left_unit, base=left_base,
+                ))
+        return StudyResultComparisonReadModel(
+            left=left,
+            right=right,
+            compatible=compatible,
+            compatibility_message=message,
+            same_source_revision=left.source_revision == right.source_revision,
+            same_activation_generation=left.activation_generation == right.activation_generation,
+            numeric_deltas=tuple(numeric_deltas),
+            numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
+        )
+
+    def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
+        if self._archive is None or not callable(getattr(self._archive, "verify", None)):
+            raise RuntimeError("Study Result archive verification is unavailable.")
+        return self._archive.verify(project_id, activation_generation=activation_generation)
+
     def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
         return self.results(
             project_id=project_id,
@@ -489,4 +756,13 @@ class StudyReadService:
             current_revision=current_revision,
         )
 
-__all__ = ["NetworkReadService", "ProtectionReadService", "ReadService", "StudyReadService"]
+
+__all__ = [
+    "ArchivedStudyResultReadModel",
+    "StudyReadService",
+    "StudyResultComparisonReadModel",
+    "StudyResultNumericDeltaReadModel",
+    "NetworkReadService",
+    "ProtectionReadService",
+    "ReadService",
+]

@@ -17,7 +17,7 @@ import numpy as np
 from core.analysis.phase_domain_network_preparation import PhaseDomainAdmittanceSnapshot
 from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
 from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind, PhaseDomainConnectionKind
-from .result import ShortCircuitConductorCurrent
+from .result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 
 def _name(value: str, field: str) -> str:
@@ -142,6 +142,8 @@ class PhaseDomainTransformerMultiport:
     internal_loop_labels: tuple[str, ...] = ()
     internal_loop_coupling: tuple[tuple[complex, ...], ...] = ()
     internal_loop_impedance_ohm: tuple[tuple[complex, ...], ...] = ()
+    internal_loop_voltage_base_kv: tuple[float, ...] = ()
+    internal_loop_positive_directions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "transformer_id", _name(self.transformer_id, "transformer_id"))
@@ -188,6 +190,16 @@ class PhaseDomainTransformerMultiport:
         object.__setattr__(self, "internal_loop_labels", loop_labels)
         object.__setattr__(self, "internal_loop_coupling", coupling)
         object.__setattr__(self, "internal_loop_impedance_ohm", loop_z)
+        loop_bases = tuple(float(value) for value in self.internal_loop_voltage_base_kv)
+        loop_directions = tuple(_name(value, "transformer delta-loop positive direction") for value in self.internal_loop_positive_directions)
+        if loop_count and (len(loop_bases) != loop_count or len(loop_directions) != loop_count):
+            raise ValueError("Each internal delta loop requires an explicit voltage base and positive direction.")
+        if any(not math.isfinite(value) or value <= 0.0 for value in loop_bases):
+            raise ValueError("Internal delta-loop voltage bases must be finite and positive.")
+        if not loop_count and (loop_bases or loop_directions):
+            raise ValueError("Delta-loop bases/directions require loop labels.")
+        object.__setattr__(self, "internal_loop_voltage_base_kv", loop_bases)
+        object.__setattr__(self, "internal_loop_positive_directions", loop_directions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +340,8 @@ class PhaseDomainShortCircuitSolution:
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
     transformer_terminal_currents_a: Mapping[str, Mapping[str, complex]] | None = None
-    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, complex]] | None = None
+    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] | None = None
+    transformer_delta_loop_reconciliation: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None
 
     def __post_init__(self) -> None:
         residual = float(self.kcl_residual_a)
@@ -347,6 +360,18 @@ class PhaseDomainShortCircuitSolution:
         object.__setattr__(self, "transformer_terminal_currents_a", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in transformer_currents.items()}))
         loop_currents = self.transformer_delta_loop_currents_a or {}
         object.__setattr__(self, "transformer_delta_loop_currents_a", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in loop_currents.items()}))
+        loop_reconciliation = self.transformer_delta_loop_reconciliation or {}
+        object.__setattr__(
+            self,
+            "transformer_delta_loop_reconciliation",
+            MappingProxyType({
+                transformer_id: MappingProxyType({
+                    loop_id: MappingProxyType(dict(record))
+                    for loop_id, record in records.items()
+                })
+                for transformer_id, records in loop_reconciliation.items()
+            }),
+        )
 
 
 def _reconcile_source_returns(case: PhaseDomainShortCircuitCase, source_currents: Mapping[str, Any], connection_currents: Mapping[str, complex]) -> dict[str, dict[str, Any]]:
@@ -767,15 +792,56 @@ class PhaseDomainShortCircuitSolver:
 
         transformer_terminal_currents = {}
         transformer_delta_loop_currents = {}
+        transformer_delta_loop_reconciliation = {}
         for primitive in case.transformer_primitives:
             terminal_voltages = np.asarray([voltage_by_node[node_id] for node_id in primitive.node_ids], dtype=complex)
             terminal_currents = np.asarray(primitive.admittance_siemens, dtype=complex) @ terminal_voltages
             loop_indices = transformer_loop_indices.get(primitive.transformer_id, ())
             loop_values = np.asarray([solution[index] for index in loop_indices], dtype=complex)
             if loop_indices:
-                terminal_currents = terminal_currents + np.asarray(primitive.internal_loop_coupling, dtype=complex) @ loop_values
+                coupling = np.asarray(primitive.internal_loop_coupling, dtype=complex)
+                loop_impedance = np.asarray(primitive.internal_loop_impedance_ohm, dtype=complex)
+                coupling_voltage = coupling.T @ terminal_voltages
+                impedance_drop = loop_impedance @ loop_values
+                loop_residuals = coupling_voltage - impedance_drop
+                loop_scale = max(
+                    float(np.max(np.abs(coupling_voltage))),
+                    float(np.max(np.abs(impedance_drop))),
+                    1.0e-9,
+                )
+                loop_tolerance = 1.0e-8 * loop_scale
+                loop_reconciliation = {}
+                for index, label in enumerate(primitive.internal_loop_labels):
+                    residual = float(abs(loop_residuals[index]))
+                    if not math.isfinite(residual) or residual > loop_tolerance:
+                        raise ValueError(
+                            f"Transformer {primitive.transformer_id!r} internal delta loop "
+                            f"{label!r} violates its coupled MNA equation: "
+                            f"residual={residual:.9g} V, tolerance={loop_tolerance:.9g} V."
+                        )
+                    loop_reconciliation[label] = {
+                        "status": "RECONCILED",
+                        "positive_direction": primitive.internal_loop_positive_directions[index],
+                        "coupling_voltage_v": complex(coupling_voltage[index]),
+                        "impedance_drop_v": complex(impedance_drop[index]),
+                        "equation_residual_v": residual,
+                        "tolerance_v": loop_tolerance,
+                    }
+                transformer_delta_loop_reconciliation[primitive.transformer_id] = loop_reconciliation
+                terminal_currents = terminal_currents + coupling @ loop_values
                 transformer_delta_loop_currents[primitive.transformer_id] = {
-                    label: complex(current) for label, current in zip(primitive.internal_loop_labels, loop_values)
+                    label: ShortCircuitTransformerDeltaLoopCurrent(
+                        transformer_id=primitive.transformer_id,
+                        loop_id=label,
+                        winding=label.split(":DELTA_LOOP:", 1)[0],
+                        current_a=complex(current),
+                        base_mva=case.base_mva,
+                        voltage_base_kv=primitive.internal_loop_voltage_base_kv[index],
+                        current_base_a=case.base_mva * 1.0e6 / (math.sqrt(3.0) * primitive.internal_loop_voltage_base_kv[index] * 1.0e3),
+                        current_pu=complex(current) / (case.base_mva * 1.0e6 / (math.sqrt(3.0) * primitive.internal_loop_voltage_base_kv[index] * 1.0e3)),
+                        positive_direction=primitive.internal_loop_positive_directions[index],
+                    )
+                    for index, (label, current) in enumerate(zip(primitive.internal_loop_labels, loop_values))
                 }
             transformer_terminal_currents[primitive.transformer_id] = {
                 label: complex(current) for label, current in zip(primitive.terminal_labels, terminal_currents)
@@ -847,6 +913,7 @@ class PhaseDomainShortCircuitSolver:
             diagnostics=tuple(connection_diagnostics),
             transformer_terminal_currents_a=transformer_terminal_currents,
             transformer_delta_loop_currents_a=transformer_delta_loop_currents,
+            transformer_delta_loop_reconciliation=transformer_delta_loop_reconciliation,
         )
 
 
