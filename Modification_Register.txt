@@ -20088,7 +20088,7 @@ Correction:
       absolute infinity-norm residual, normalized backward error,
       acceptance tolerance, condition estimate/limit, reduced Bus
       identities, topology revision, simulation time, connected machine
-      source IDs, active-fault ID and project/activation/source provenance.
+      source IDs, active-fault type/Bus context and project/activation/source provenance.
     - Compute the residual from the exact contracted matrix and source
       vector used by numpy.linalg.solve:
           r = YV - I
