@@ -404,16 +404,10 @@ def create_application(
             restore_control_runtime()
 
         try:
-            # Rebuild the candidate project's measurement registry before
-            # validating protection bindings or composing ProtectionRuntime.
-            # The loaded definitions are configuration only; activation binds
-            # them to this candidate Network and project generation.
-            measurement_channel_service.activate(
-                context,
-                network,
-                loaded.measurement_definitions if context is not None and loaded is not None else (),
-                generation=generation,
-            )
+            # Application.attach_project_lifecycle composes measurement-channel
+            # activation ahead of this project-state activator. Consume that exact
+            # candidate registry here; do not provision a second set of channel
+            # objects or split the measurement/protection activation authority.
             if context is None:
                 control_service.activate(ControlConfiguration.empty("closed-project"))
                 application.control_engine.deactivate()
