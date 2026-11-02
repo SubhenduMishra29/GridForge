@@ -380,28 +380,46 @@ class TransientNetworkSolver:
         dynamic_state = self.machine_system.validate_global_state(np.asarray(state, dtype=float))
         passive = YBusBuilder().build(_PreparedTransientPassiveView(self.network_state))
         matrix = passive.matrix.toarray().astype(np.complex128, copy=True)
-        source = np.zeros(len(passive.bus_ids), dtype=np.complex128)
+        matrix, bus_to_index, reduced_bus_ids = self._contract_closed_switches(
+            matrix,
+            passive.bus_ids,
+        )
+        source = np.zeros(len(reduced_bus_ids), dtype=np.complex128)
 
-        self._apply_active_fault(matrix, self.network_state.active_fault, passive.bus_ids)
+        self._apply_active_fault(matrix, self.network_state.active_fault, bus_to_index)
 
         offset = 0
         for machine in self.machine_system.machines:
             local_state = dynamic_state[offset:offset + machine.state_size]
             offset += machine.state_size
             bus_id = str(machine.bus_id)
-            if bus_id not in passive.bus_ids:
+            if bus_id not in bus_to_index:
                 raise ValueError(f"Machine '{machine.machine_id}' references unknown bus '{bus_id}'.")
             # Rotor state is always retained in the global differential state.
             # The electrical Norton equivalent is included only while every
             # explicitly captured breaker-controlled path component conducts.
             if not self.network_state.is_machine_connected(machine.machine_id):
                 continue
-            index = passive.index_of(bus_id)
+            index = bus_to_index[bus_id]
             delta = float(local_state[0])
             e_internal = float(machine.parameters.Efd) * np.exp(1j * delta)
             admittance = 1.0 / (1j * float(machine.parameters.Xd_prime))
             matrix[index, index] += admittance
             source[index] += admittance * e_internal
+
+        # A disconnected generator terminal can become an isolated Bus after
+        # its breaker opens. Such a node has no defined network voltage and
+        # contributes no coupling to any other node; pin only that zero row /
+        # column to 0 pu so it cannot make the remaining energized network
+        # singular. This is a numerical reference for a floating isolated
+        # node, not an electrical shunt or a live-project mutation.
+        for index in range(matrix.shape[0]):
+            if (
+                not np.any(np.abs(matrix[index, :]) > 1e-14)
+                and not np.any(np.abs(matrix[:, index]) > 1e-14)
+            ):
+                matrix[index, index] = 1.0 + 0.0j
+                source[index] = 0.0 + 0.0j
 
         try:
             voltages = np.linalg.solve(matrix, source)
@@ -410,22 +428,67 @@ class TransientNetworkSolver:
 
         if not np.all(np.isfinite(voltages.real)) or not np.all(np.isfinite(voltages.imag)):
             raise ValueError("Transient algebraic network solution contains non-finite voltages.")
-        return {bus_id: complex(voltages[index]) for index, bus_id in enumerate(passive.bus_ids)}
+        return {
+            bus_id: complex(voltages[bus_to_index[bus_id]])
+            for bus_id in passive.bus_ids
+        }
+
+    def _contract_closed_switches(
+        self,
+        matrix: np.ndarray,
+        bus_ids: tuple[str, ...],
+    ) -> tuple[np.ndarray, dict[str, int], tuple[str, ...]]:
+        """Contract closed ideal-switch edges into common numerical Bus nodes."""
+        parent = {bus_id: bus_id for bus_id in bus_ids}
+
+        def find(bus_id: str) -> str:
+            while parent[bus_id] != bus_id:
+                parent[bus_id] = parent[parent[bus_id]]
+                bus_id = parent[bus_id]
+            return bus_id
+
+        for switch_id, (from_bus, to_bus) in self.network_state.switch_connections.items():
+            if not (
+                self.network_state.breaker_states[switch_id]
+                and self.network_state.switch_available_states[switch_id]
+            ):
+                continue
+            first = find(from_bus)
+            second = find(to_bus)
+            if first != second:
+                low, high = sorted((first, second))
+                parent[high] = low
+
+        roots = tuple(sorted({find(bus_id) for bus_id in bus_ids}))
+        root_index = {root: index for index, root in enumerate(roots)}
+        bus_to_index = {bus_id: root_index[find(bus_id)] for bus_id in bus_ids}
+        reduced = np.zeros((len(roots), len(roots)), dtype=np.complex128)
+        for row, row_bus in enumerate(bus_ids):
+            reduced_row = bus_to_index[row_bus]
+            for column, column_bus in enumerate(bus_ids):
+                reduced_column = bus_to_index[column_bus]
+                reduced[reduced_row, reduced_column] += matrix[row, column]
+        return reduced, bus_to_index, roots
 
     @staticmethod
-    def _apply_active_fault(matrix: np.ndarray, fault: object | None, bus_ids: tuple[str, ...]) -> None:
+    def _apply_active_fault(
+        matrix: np.ndarray,
+        fault: object | None,
+        bus_to_index: Mapping[str, int],
+    ) -> None:
         if fault is None:
             return
         if not isinstance(fault, TransientFault):
             raise TypeError("Detached transient active_fault must be TransientFault.")
-        if fault.bus_id not in bus_ids:
+        if fault.bus_id not in bus_to_index:
             raise ValueError(f"Transient fault references unknown bus '{fault.bus_id}'.")
         impedance = complex(fault.impedance)
         if abs(impedance) <= 1e-15:
             admittance = 1e12 + 0.0j
         else:
             admittance = 1.0 / impedance
-        matrix[bus_ids.index(fault.bus_id), bus_ids.index(fault.bus_id)] += admittance
+        index = bus_to_index[fault.bus_id]
+        matrix[index, index] += admittance
 
 
 __all__ = ["DetachedTransientNetworkState", "PreparedTransientStability", "TransientNetworkSolver"]
