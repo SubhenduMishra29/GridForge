@@ -46,6 +46,7 @@ from .read_models import (
     SimpleWireReadModel,
     StudyResultReadModel,
     TransientSignalReadModel,
+    TransientAlgebraicQualityReadModel,
     TransientEventReadModel,
     TransientResultPresentationReadModel,
 )
@@ -109,6 +110,7 @@ __all__ = [
     "SimpleWireReadModel",
     "StudyResultReadModel",
     "TransientSignalReadModel",
+    "TransientAlgebraicQualityReadModel",
     "TransientEventReadModel",
     "TransientResultPresentationReadModel",
     "ArchivedStudyResultReadModel",
