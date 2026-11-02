@@ -622,7 +622,13 @@ class StudyProjection:
                 f"Source revision: {row.source_revision}",
                 f"Study type/status: {row.study_type} / {row.status}",
             ))
-            lines.extend(_flatten_result_value(row.value, prefix=f"{label.lower()}.value"))
+            if str(getattr(row, "study_type", "")).strip().lower() == "transient_stability":
+                lines.append(
+                    "Complete time-series and event timeline are available by selecting this archive record; "
+                    "the comparison text view does not truncate or flatten transient samples."
+                )
+            else:
+                lines.extend(_flatten_result_value(row.value, prefix=f"{label.lower()}.value"))
             delta_loops = getattr(row, "transformer_delta_loop_currents", ())
             if delta_loops:
                 lines.append(f"{label} internal delta-loop currents (diagnostic only; not CT/CBCT measurements):")
@@ -646,6 +652,30 @@ class StudyProjection:
             self._set_result_details("Archived Study Result", ("The selected archive record could not be loaded.",))
             self._notify_result_changed(None)
             return
+        if str(getattr(record, "study_type", "")).strip().lower() == "transient_stability":
+            presentation_reader = getattr(self._application, "read_archived_transient_study_result", None)
+            setter = getattr(self._panel, "set_transient_result", None)
+            if callable(presentation_reader) and callable(setter):
+                try:
+                    presentation = presentation_reader(record_id)
+                except Exception:
+                    _LOGGER.exception("Archived transient result presentation could not be loaded")
+                    presentation = None
+                if presentation is not None:
+                    setter(presentation)
+                else:
+                    self._set_result_details(
+                        "Archived Transient Stability Result",
+                        ("The complete transient presentation read model is unavailable; raw samples were not sent through the bounded text formatter.",),
+                    )
+            else:
+                self._set_result_details(
+                    "Archived Transient Stability Result",
+                    ("The dedicated transient presentation view is unavailable; raw samples were not sent through the bounded text formatter.",),
+                )
+            self._notify_result_changed(None)
+            return
+
         lines = (
             f"Archive record: {record.record_id}",
             f"Saved at (UTC): {record.saved_at}",
@@ -702,9 +732,31 @@ class StudyProjection:
             self._set_result_details("Study Result", ("No result has been published for this study.",))
             self._notify_result_changed(None)
             return
-        title = f"{result.study_type.replace('_', ' ').title()} Result"
-        lines = _result_lines(result)
-        self._set_result_details(title, lines)
+        if str(getattr(result, "study_type", "")).strip().lower() == "transient_stability":
+            presentation_reader = getattr(self._application, "read_transient_study_result", None)
+            setter = getattr(self._panel, "set_transient_result", None)
+            if callable(presentation_reader) and callable(setter):
+                try:
+                    presentation = presentation_reader(study_id)
+                except Exception:
+                    _LOGGER.exception("Live transient result presentation could not be loaded")
+                    presentation = None
+                if presentation is not None:
+                    setter(presentation)
+                else:
+                    self._set_result_details(
+                        "Transient Stability Result",
+                        ("The complete transient presentation read model is unavailable; raw samples were not sent through the bounded text formatter.",),
+                    )
+            else:
+                self._set_result_details(
+                    "Transient Stability Result",
+                    ("The dedicated transient presentation view is unavailable; raw samples were not sent through the bounded text formatter.",),
+                )
+        else:
+            title = f"{result.study_type.replace('_', ' ').title()} Result"
+            lines = _result_lines(result)
+            self._set_result_details(title, lines)
         # Numerical overlays are valid only for a completed, current result whose
         # solver explicitly reports success when that contract is available.
         # Keep historical result details inspectable, but never project failed,
