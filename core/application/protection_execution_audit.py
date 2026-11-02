@@ -6,6 +6,7 @@ the protection execution path; it never creates decisions or device feedback.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -98,7 +99,7 @@ class ProtectionExecutionAuditStore:
         path = Path(self._database_path_provider(project_id)).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         encoded = json.dumps(self._json_value(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
-        with self._lock, sqlite3.connect(path, timeout=10.0) as connection:
+        with self._lock, closing(sqlite3.connect(path, timeout=10.0)) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute(
@@ -115,6 +116,7 @@ class ProtectionExecutionAuditStore:
                 (project_id, activation_generation, event_id, event_type, float(occurred_at),
                  datetime.now(timezone.utc).isoformat(), encoded),
             )
+            connection.commit()
             return cursor.rowcount == 1
 
     def append_cycle(self, *, project_id: str, activation_generation: int,
