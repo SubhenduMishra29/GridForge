@@ -296,10 +296,34 @@ class EventExecution:
         dispatched = float(scheduled if self.dispatch_time is None else self.dispatch_time)
         if not all(math.isfinite(value) for value in (scheduled, dispatched)) or scheduled < 0.0 or dispatched < 0.0:
             raise ValueError("Event execution timestamps must be finite and non-negative.")
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise ValueError("Event execution event_id must be non-empty.")
+        if not isinstance(self.event_type, str) or not self.event_type.strip():
+            raise ValueError("Event execution event_type must be non-empty.")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("Event execution metadata must be a mapping.")
         if self.status not in {"succeeded", "failed"}:
             raise ValueError("Event execution status must be succeeded or failed.")
+        if self.status == "failed" and (not self.failure_type or self.failure_message is None):
+            raise ValueError("Failed event executions require failure type and message evidence.")
+        if self.status == "succeeded" and (self.failure_type is not None or self.failure_message is not None):
+            raise ValueError("Successful event executions cannot carry action-failure evidence.")
         if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed"}:
             raise ValueError("Post-event re-evaluation status must be not_run, succeeded or failed.")
+        if self.post_event_re_evaluation_status == "failed" and (
+            not self.post_event_re_evaluation_failure_type
+            or self.post_event_re_evaluation_failure_message is None
+        ):
+            raise ValueError("Failed post-event re-evaluation requires failure type and message evidence.")
+        for revision in (self.pre_event_revision, self.post_event_revision):
+            if revision is not None and (
+                isinstance(revision, bool) or not isinstance(revision, int) or revision < 0
+            ):
+                raise ValueError("Event execution revisions must be non-negative integers when supplied.")
+        object.__setattr__(self, "event_id", self.event_id.strip())
+        object.__setattr__(self, "event_type", self.event_type.strip())
+        object.__setattr__(self, "priority", int(self.priority))
+        object.__setattr__(self, "description", str(self.description))
         object.__setattr__(self, "time", scheduled)
         object.__setattr__(self, "scheduled_time", scheduled)
         object.__setattr__(self, "dispatch_time", dispatched)
