@@ -122,8 +122,6 @@ CONTRACT_49 = ProtectionFunctionInputContract(
 CONTRACT_67 = ProtectionFunctionInputContract("67", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT})
 CONTRACT_21 = ProtectionFunctionInputContract(
     "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
-    supported=False,
-    unsupported_reason="distance zone reach settings do not declare an engineering unit; V/I cannot be proven comparable to configured reach",
 )
 
 
@@ -186,6 +184,46 @@ def validate_protection_input_contracts(
             diagnostics.append(f"{prefix}: no canonical function specification/input contract; function is fail-closed.")
             continue
         contract = specification.input_contract
+        if code == "21":
+            settings = getattr(element, "settings", {})
+            required_distance_basis = {
+                "impedance_unit": "ohm",
+                "measurement_reference_basis": "PRIMARY",
+                "voltage_current_pairing": "SAME_PHASE_TO_NEUTRAL",
+            }
+            for setting_name, expected in required_distance_basis.items():
+                actual = settings.get(setting_name) if isinstance(settings, Mapping) else None
+                if actual != expected:
+                    diagnostics.append(
+                        f"{prefix}: ANSI 21 requires explicit {setting_name}={expected!r}; "
+                        f"received {actual!r}. No implicit impedance basis or phase pairing is permitted."
+                    )
+            bindings_by_input = {
+                binding.relay_input_id: binding
+                for binding in getattr(configuration, "measurement_bindings", ())
+                if binding.protection_element_id == element.element_id
+            }
+            for input_name, expected_type in (("voltage", "voltage"), ("current", "current")):
+                binding = bindings_by_input.get(input_name)
+                if binding is None:
+                    continue
+                if binding.measurement_type.strip().lower() != expected_type:
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: ANSI 21 physical binding must be {expected_type!r}."
+                    )
+                basis = binding.metadata.get("reference_basis")
+                if basis != "PRIMARY":
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: physical binding metadata must explicitly declare "
+                        "reference_basis='PRIMARY'; secondary quantities cannot be compared to primary-ohm reach."
+                    )
+                endpoint = binding.source_endpoint_reference
+                role = (endpoint.terminal_role or "").upper() if endpoint.is_terminal else ""
+                primary_roles = {"P1", "P2", "PRIMARY_A", "PRIMARY_B", "H1", "H2"}
+                if not endpoint.is_terminal or role not in primary_roles:
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: ANSI 21 requires an explicit physical primary instrument terminal."
+                    )
         if contract is None:
             diagnostics.append(f"{prefix}: canonical catalog has no declared input contract; function is fail-closed.")
             continue
