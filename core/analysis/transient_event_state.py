@@ -30,7 +30,7 @@ class TransientEventState:
     ) -> dict[str, object]:
         breaker_id = str(breaker_id)
         previous_state = self.breaker_states.get(breaker_id)
-        if closed and not self.snapshot.switch_available_states.get(breaker_id, False):
+        if closed and breaker_id in self.snapshot.switch_available_states and not self.snapshot.switch_available_states[breaker_id]:
             raise ValueError(
                 f"Cannot close switching target '{breaker_id}': it is failed, out of service, "
                 "or otherwise unavailable in the captured study snapshot."
@@ -111,6 +111,7 @@ class TransientEventState:
             "switch_id": switch_id,
             "previous_switch_state": previous_state,
             "new_switch_state": new_state,
+            "switch_available": self.snapshot.switch_available_states.get(switch_id),
             "machine_transitions": machine_transitions,
             "source_topology_revision": self.snapshot.topology_revision,
             "detached_network_revision": self.topology_revision,
