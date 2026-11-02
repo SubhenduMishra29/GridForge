@@ -128,6 +128,95 @@ def _flatten_result_value(
     return [f"{prefix}: {value!r}"]
 
 
+def _protection_result_lines(value: Any) -> tuple[str, ...]:
+    """Expose protection coordination, transient grades and diagnostics explicitly."""
+    lines = ["Protection engineering detail:"]
+    engineering_status = getattr(value, "status", None)
+    if engineering_status is not None:
+        lines.append(f"Protection evaluation status: {engineering_status}")
+    execution = getattr(value, "execution", None)
+    decisions = tuple(getattr(execution, "decisions", ()) or ())
+    lines.append(f"Measurement-snapshot decisions: {len(decisions)}")
+    for index, decision in enumerate(decisions):
+        lines.extend(_flatten_result_value(
+            decision,
+            prefix=f"protection.execution.decisions[{index}]",
+            max_depth=5,
+            budget=[24],
+        ))
+    diagnostics = tuple(getattr(value, "diagnostics", ()) or ())
+    lines.append(f"Protection diagnostics: {len(diagnostics)}")
+    lines.extend(f"protection.diagnostic: {item}" for item in diagnostics[:40])
+
+    scenarios = tuple(getattr(value, "fault_scenarios", ()) or ())
+    lines.append(f"Fault scenarios: {len(scenarios)}")
+    for index, scenario in enumerate(scenarios):
+        prefix = f"protection.fault_scenarios[{index}]"
+        lines.append(f"{prefix}.scenario_id: {getattr(scenario, 'scenario_id', 'unknown')}")
+        scenario_configuration = getattr(scenario, "configuration", None)
+        lines.append(
+            f"{prefix}.fault_bus_id: {getattr(scenario_configuration, 'fault_bus_id', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.fault_type: {getattr(scenario_configuration, 'fault_type', 'unknown')}"
+        )
+        lines.append(f"{prefix}.short_circuit_status: {getattr(scenario, 'status', 'unknown')}")
+        lines.append(
+            f"{prefix}.measurement_contributions_complete: "
+            f"{getattr(scenario, 'measurement_contributions_complete', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.relay_evaluation_completed: "
+            f"{getattr(scenario, 'relay_evaluation_completed', 'unknown')}"
+        )
+        scenario_execution = getattr(scenario, "execution", None)
+        scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
+        lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
+        for decision_index, decision in enumerate(scenario_decisions):
+            lines.extend(_flatten_result_value(
+                decision,
+                prefix=f"{prefix}.relay_decisions[{decision_index}]",
+                max_depth=5,
+                budget=[32],
+            ))
+        scenario_diagnostics = tuple(getattr(scenario, "diagnostics", ()) or ())
+        scenario_diagnostics += tuple(getattr(scenario_execution, "diagnostics", ()) or ())
+        lines.append(f"{prefix}.diagnostics_count: {len(scenario_diagnostics)}")
+        lines.extend(f"{prefix}.diagnostic: {item}" for item in scenario_diagnostics[:30])
+
+        coordination = getattr(scenario, "coordination_report", None)
+        if coordination is None:
+            lines.append(f"{prefix}.static_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.static_coordination: report available")
+            lines.extend(_flatten_result_value(
+                coordination,
+                prefix=f"{prefix}.static_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+
+        transient = getattr(scenario, "transient_coordination_report", None)
+        if transient is None:
+            lines.append(f"{prefix}.transient_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.transient_coordination: report available")
+            lines.extend(_flatten_result_value(
+                transient,
+                prefix=f"{prefix}.transient_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+        transient_diagnostics = tuple(
+            getattr(scenario, "transient_coordination_diagnostics", ()) or ()
+        )
+        lines.extend(
+            f"{prefix}.transient_diagnostic: {item}"
+            for item in transient_diagnostics[:30]
+        )
+    return tuple(lines)
+
+
 def _result_lines(result: Any) -> tuple[str, ...]:
     """Build a bounded read-only summary for the selected Study Result."""
     lines = [
@@ -143,6 +232,53 @@ def _result_lines(result: Any) -> tuple[str, ...]:
         lines.extend(_flatten_result_value(result.metadata, prefix="metadata"))
     if result.value is None:
         lines.append("value: no numerical payload was published")
+    elif str(result.study_type).strip().lower() == "protection":
+        lines.extend(_protection_result_lines(result.value))
+    else:
+        lines.extend(_flatten_result_value(result.value))
+    return tuple(lines)
+
+def _study_event_matches_active_project(application: Any, payload: Any) -> bool:
+    """Reject lifecycle events emitted by a different project activation."""
+    if not hasattr(payload, "get"):
+        return False
+    project_id = payload.get("project_id")
+    generation = payload.get("activation_generation")
+    if project_id is None or generation is None:
+        return False
+    try:
+        lifecycle = application.project_lifecycle
+        context = lifecycle.context
+        active = (
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+        )
+        return bool(
+            active
+            and str(project_id) == str(context.project_id)
+            and int(generation) == int(lifecycle.activation_generation)
+        )
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+
+def _result_lines(result: Any) -> tuple[str, ...]:
+    """Build a bounded read-only summary for the selected Study Result."""
+    lines = [
+        f"Study type: {result.study_type}",
+        f"Status: {result.status}",
+        f"Freshness: {'CURRENT' if result.current else 'STALE'}",
+        f"Project: {result.project_id}",
+        f"Source revision: {result.source_revision}",
+    ]
+    if result.message:
+        lines.append(f"Message: {result.message}")
+    if result.metadata:
+        lines.extend(_flatten_result_value(result.metadata, prefix="metadata"))
+    if result.value is None:
+        lines.append("value: no numerical payload was published")
+    elif str(result.study_type).strip().lower() == "protection":
+        lines.extend(_protection_result_lines(result.value))
     else:
         lines.extend(_flatten_result_value(result.value))
     return tuple(lines)
@@ -232,6 +368,9 @@ class StudyProjection:
             return
 
         if isinstance(event, StudyCaseCreated):
+            payload = getattr(event, "payload", {})
+            if not _study_event_matches_active_project(self._application, payload):
+                return
             self._refresh_all_results()
             self._render()
             payload = getattr(event, "payload", {})
@@ -271,7 +410,11 @@ class StudyProjection:
                 self._show_empty_result()
             return
 
+        if not isinstance(event, (StudyStarted, StudyCompleted, StudyFailed, StudyCancelled)):
+            return
         payload = getattr(event, "payload", {})
+        if not _study_event_matches_active_project(self._application, payload):
+            return
         study_id = payload.get("study_id") if hasattr(payload, "get") else None
         study_type = payload.get("study_type") if hasattr(payload, "get") else None
         if study_id is None:
@@ -553,9 +696,14 @@ class StudyProjection:
         # Keep historical result details inspectable, but never project failed,
         # cancelled, stale, or explicitly non-converged numerical values onto SLD.
         solver_success = getattr(result.value, "success", None)
+        protection_result = str(getattr(result, "study_type", "")).strip().lower() == "protection"
+        # Protection decisions are not confirmed breaker-state transitions.
+        # The generic numerical SLD overlay has no typed protection annotation
+        # contract, so keep those details in the Study Result panel only.
         overlay_result = (
             result
-            if str(getattr(result, "status", "")).strip().lower() == "completed"
+            if not protection_result
+            and str(getattr(result, "status", "")).strip().lower() == "completed"
             and bool(getattr(result, "current", False))
             and solver_success is not False
             else None
