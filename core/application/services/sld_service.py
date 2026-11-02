@@ -409,8 +409,19 @@ class SLDService:
 
             if changed:
                 self.document.mark_modified()
-        except Exception:
-            rollback()
+        except BaseException as primary:
+            try:
+                rollback()
+            except BaseException as recovery_error:
+                # Preserve the activation/reconciliation failure as the primary
+                # exception. A compensation failure is additional diagnostic
+                # evidence and must not replace the cause that triggered rollback.
+                add_note = getattr(primary, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        "SLD Simple Wire reconciliation compensation also failed: "
+                        f"{type(recovery_error).__name__}: {recovery_error}"
+                    )
             raise
 
         return rollback
