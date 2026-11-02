@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 import math
 from dataclasses import replace
 from uuid import uuid4
@@ -32,7 +33,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
-from core.persistence import ProjectPersistenceService
+from core.persistence import ProjectPersistenceService, StudyResultArchive
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
 from core.application.control_signal_mapping import ControlSignalMapping
@@ -168,6 +169,11 @@ def create_application(network: Any) -> Application:
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
     )
+    # Study outputs are durable execution artifacts, stored outside the
+    # canonical project package so ordinary project saves cannot discard them.
+    study_result_archive = StudyResultArchive(Path.home() / ".gridforge" / "study-results")
+    application.study_service.set_result_persister(study_result_archive.save)
+    application.study_result_archive = study_result_archive
 
     # Configure trusted creation contracts at the canonical Application
     # composition boundary. The registry validates all definitions against
