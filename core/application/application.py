@@ -2020,6 +2020,15 @@ class Application:
             left_record_id, right_record_id, project_id=context.project_id,
         )
 
+    def verify_archived_study_results(self, *, activation_generation: int | None = None) -> Any:
+        """Verify active-project archive records without modifying or deleting them."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to verify archived Study Results.")
+        return self._study_read_service.verify_archived_results(
+            project_id=context.project_id, activation_generation=activation_generation,
+        )
+
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
         """Compatibility-only Application lookup retained for non-presentation callers."""
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
