@@ -51,6 +51,8 @@ class TransientEventState:
             new_state=bool(closed),
             previous_machine_states=previous_machine_states,
             pre_event_revision=pre_revision,
+            target_kind="switch",
+            transition_type="breaker_close" if closed else "breaker_open",
         )
 
     def set_equipment(self, equipment_id: str, conducting: bool) -> dict[str, object]:
@@ -77,6 +79,8 @@ class TransientEventState:
             new_state=bool(conducting),
             previous_machine_states=previous_machine_states,
             pre_event_revision=pre_revision,
+            target_kind="equipment",
+            transition_type="equipment_state",
         )
 
     def is_machine_connected(self, machine_id: str) -> bool:
@@ -103,6 +107,8 @@ class TransientEventState:
         new_state: bool,
         previous_machine_states: dict[str, bool],
         pre_event_revision: int | None,
+        target_kind: str,
+        transition_type: str,
     ) -> dict[str, object]:
         machine_transitions = {
             machine_id: {
@@ -112,11 +118,12 @@ class TransientEventState:
             }
             for machine_id, previous_state_for_machine in previous_machine_states.items()
         }
-        return {
-            "transition_type": "switch_close" if new_state else "switch_open",
-            "switch_id": switch_id,
-            "previous_switch_state": previous_state,
-            "new_switch_state": new_state,
+        record = {
+            "transition_type": transition_type,
+            "target_kind": target_kind,
+            "target_id": switch_id,
+            "previous_state": previous_state,
+            "new_state": new_state,
             "switch_available": self.snapshot.switch_available_states.get(switch_id),
             "machine_transitions": machine_transitions,
             "source_topology_revision": self.snapshot.topology_revision,
@@ -124,6 +131,8 @@ class TransientEventState:
             "post_event_revision": self.topology_revision,
             "detached_network_revision": self.topology_revision,
         }
+        record["switch_id" if target_kind == "switch" else "equipment_id"] = switch_id
+        return record
 
     def apply_fault(self, fault: object) -> dict[str, object]:
         if self.active_fault is not None:
