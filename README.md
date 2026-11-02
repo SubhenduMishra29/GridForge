@@ -230,7 +230,58 @@ GridForge/
 - **Merged:** PR #909 — draft Simple Wire preview styling; it does not alter electrical connectivity.
 - **Not merged at this baseline:** PRs #912–#918 are separate open/draft workstreams. Their code must not be described as mainline functionality until reconciled and merged.
 - **Known evidence boundary:** the #908 merge was based on remote source inspection/integration review; no tests or CI were run. Syntax/import integrity, persistence round-trip, numerical fixtures and end-to-end runtime execution remain unverified as recorded in that PR.
-- **Not a production declaration:** phase-domain equipment/source coverage, physical conductor/neutral/earth paths, switching-pole semantics, SLD authoring, protection execution and commissioning each require their own closure evidence.
+- **Coverage is bounded, not absent:** explicit phase-domain pole paths for supported Breaker/Switch/Disconnector/Fuse construction and operating states, transformer winding multiports, grounded-wye neutral/electrode/earth-return paths, and evidence-bound delta-loop MNA states are recorded in D15F-29–37. Their construction inputs, model coverage, numerical fixtures and runtime evidence remain scoped; they are not universal device support.
+- **Remaining gaps:** automatic phase-domain source equivalents for all Grid/Generator/Motor models; unsupported machine/load/arc-fault and other switching primitives; broader neutral CT/CBCT construction and measurement coverage; complete UI configuration/inspection for all physical conductor construction; and end-to-end Protection Study/commissioning evidence.
+- **Known lifecycle integration gap:** the prior source audit found measurement definitions serialized and returned by the loader but not visibly applied to `MeasurementChannelService` during bootstrap activation. Keep this open until the active load/activation call path is re-traced and corrected.
+- **Not a production declaration:** source-level implementation, static inspection, numerical validation, runtime execution and commissioning remain separate evidence levels.
+
+
+## Mutation, lifecycle and engineering workflow
+
+All engineering mutations follow one Application-owned path:
+
+```text
+Engineer → UI / Tool → Controller → Immutable Command
+         → Application handler/service → Transaction
+         → Core mutation → Semantic event/read model → UI projection
+```
+
+The Application command boundary validates and resolves handlers, opens the transaction, executes the operation, commits or rolls back, and records supported history. A failed operation must not leave partial engineering state. Undo/redo belongs to Application command history, not a parallel UI history.
+
+### Project lifecycle and restoration
+
+`.gridforge` is the canonical project package. The lifecycle service coordinates candidate load, structural validation, project activation, save, close and compensation. Project identity and activation-generation provenance must be preserved by project-scoped services. If activation fails, compensations run in reverse order; a failed compensation is a recovery state, not a successful rollback.
+
+Load/reopen restores canonical equipment and terminals, connectivity, derived topology, SLD document collection and supported measurement/protection/control/dynamic configuration before UI projections are rebuilt. Runtime widgets, QGraphicsItems, selections and tool instances are never persisted as engineering truth.
+
+**Open integration finding:** the previous source audit identified a measurement-definition activation gap: definitions are serialized and returned by the loader, but the bootstrap path did not visibly apply `loaded.measurement_definitions` to `MeasurementChannelService`. This remains an open source-trace item until current activation code proves otherwise. Likewise, GF-PROT-042 remains open until the production trigger/timestamp contract and persisted typed function-to-target mapping are demonstrated.
+
+### SLD authoring lifecycle
+
+1. Palette/tool selection creates transient placement intent and preview.
+2. Engineer configures equipment properties and explicit terminal endpoints.
+3. Draft connections remain separate from committed topology.
+4. Application validates and commits equipment/connectivity transactionally.
+5. Canonical SLD projections are rebuilt from semantic/read-model state.
+6. Save/reopen restores the document collection and projects it into runtime graphics.
+
+A graphical crossing, snap, symbol or route never establishes electrical connectivity.
+
+## Engineering domains
+
+| Domain | Responsibility |
+|---|---|
+| Network / topology | Canonical terminal relationships, bus attachment, switching-aware derived topology |
+| Power flow / short circuit | Study-specific numerical preparation and immutable results |
+| Phase-domain conductors | Explicit conductor identities, impedance, physical return paths and supported fault-current execution |
+| Protection | Physical relays, function elements, measurement bindings, decisions, schemes and coordination |
+| Control | Logic, interlocks, permissives, timers and control I/O through defined contracts |
+| Dynamics | Transient state and solver models derived from a compatible operating point |
+| Plugins | Contract-bound domain algorithms, study handlers, editors, tools and reports |
+
+## Repository working and verification policy
+
+The repository change workflow is `FETCH → AUDIT → RECONCILE → CORRECT → CHECK → FREEZE`. Review changes against the current authoritative `main`, preserve implementation provenance, and distinguish static source inspection from runtime, numerical and commissioning evidence. Tests and CI are not acceptance gates unless explicitly requested; never imply they ran when they did not.
 
 ## Engineering change workflow
 
