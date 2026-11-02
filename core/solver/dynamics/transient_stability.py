@@ -266,6 +266,30 @@ class TransientStabilitySolver:
             result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
             result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
 
+        state_signals = []
+        for state_slice in self.dae_solver.machine_system.state_layout:
+            machine = self.dae_solver.machine_system.get_machine(state_slice.machine_id)
+            if state_slice.size == 2:
+                local_descriptors = (
+                    ("rotor_angle_rad", "Rotor angle", "rad"),
+                    ("speed_deviation_pu", "Speed deviation", "p.u."),
+                )
+            else:
+                local_descriptors = tuple(
+                    (f"state_{index}", f"State {index}", "unknown")
+                    for index in range(state_slice.size)
+                )
+            for local_index, (state_name, label, unit) in enumerate(local_descriptors):
+                state_signals.append({
+                    "signal_id": f"state:{state_slice.machine_id}:{local_index}",
+                    "machine_id": str(machine.machine_id),
+                    "state_name": state_name,
+                    "global_index": state_slice.start + local_index,
+                    "label": f"{machine.machine_id} — {label}",
+                    "unit": unit,
+                })
+        result_provenance["state_signals"] = tuple(state_signals)
+
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
             states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
