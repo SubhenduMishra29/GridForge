@@ -79,6 +79,7 @@ class ProtectionActionOutcome:
     physical_acknowledgement: str = "unknown/unavailable"
     postcondition_verification: ProtectionPostconditionVerification | None = None
     field_device_delivery_status: str = "not_configured"
+    field_device_delivery_id: str | None = None
     field_device_acknowledgement_status: str = "unavailable"
     field_device_acknowledgement_id: str | None = None
 
@@ -232,6 +233,7 @@ class ProtectionExecutionService:
                     protection_decision, control_decision, None, None,
                     "stale_provenance_rejected", message,
                     field_device_delivery_status=str(getattr(field_status, "delivery_status", "unknown")) if field_status is not None else "not_configured",
+                    field_device_delivery_id=getattr(field_status, "delivery_id", None) if field_status is not None else None,
                     field_device_acknowledgement_status=str(getattr(field_status, "acknowledgement_status", "unavailable")) if field_status is not None else "unavailable",
                     field_device_acknowledgement_id=getattr(field_status, "acknowledgement_id", None) if field_status is not None else None,
                     physical_acknowledgement=str(getattr(field_status, "acknowledgement_status", "unavailable")) if field_status is not None else "unknown/unavailable",
@@ -276,6 +278,7 @@ class ProtectionExecutionService:
                             message,
                             physical_acknowledgement=acknowledgement_status,
                             field_device_delivery_status=delivery_status,
+                            field_device_delivery_id=getattr(field_status, "delivery_id", None),
                             field_device_acknowledgement_status=acknowledgement_status,
                             field_device_acknowledgement_id=getattr(field_status, "acknowledgement_id", None),
                         ))
@@ -290,6 +293,7 @@ class ProtectionExecutionService:
                         protection_decision, control_decision, command, None,
                         "field_device_delivery_failed", message,
                         field_device_delivery_status="unknown",
+                        field_device_delivery_id=None,
                         field_device_acknowledgement_status="unavailable",
                     ))
                     continue
@@ -443,6 +447,7 @@ class ProtectionExecutionService:
                 core_state_observation=core_state_observation,
                 postcondition_verification=postcondition_verification,
                 field_device_delivery_status=field_delivery_status,
+                field_device_delivery_id=getattr(field_status, "delivery_id", None) if field_status is not None else None,
                 field_device_acknowledgement_status=field_acknowledgement_status,
                 field_device_acknowledgement_id=field_acknowledgement_id,
                 physical_acknowledgement=field_acknowledgement_status,
