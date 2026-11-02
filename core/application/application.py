@@ -76,7 +76,7 @@ from .protection_execution import (
 )
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
-from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
+from core.protection.directional import create_authoritative_directional_snapshot
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
@@ -816,7 +816,7 @@ class Application:
                 continue
             # Seal the exact validated samples and their internally-derived angles.
             # The relay consumes current from this snapshot, never a later live RelayInput read.
-            directional_snapshots[element.element_id] = _create_authoritative_directional_snapshot(
+            directional_snapshots[element.element_id] = create_authoritative_directional_snapshot(
                 element_id=element.element_id,
                 voltage_value=voltage_value,
                 current_value=current_value,
