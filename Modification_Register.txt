@@ -20070,3 +20070,63 @@ Verification:
       remains pending.
 
 ======================================================================
+
+======================================================================
+GF-TS-DAE-965 — TRANSIENT ALGEBRAIC SOLUTION QUALITY CONTRACT
+======================================================================
+
+Finding:
+    The transient DAE accepted finite bus voltages without evidence that
+    they satisfied the exact assembled algebraic network equations.
+    Singular-matrix exceptions were the only matrix-quality diagnostic;
+    no residual, condition estimate, or per-sample quality record was
+    propagated to transient results.
+
+Correction:
+    - Add immutable AlgebraicNetworkSolution with bus voltages, status,
+      acceptance flag, quality-verification flag, solver identity,
+      absolute infinity-norm residual, normalized backward error,
+      acceptance tolerance, condition estimate/limit, reduced Bus
+      identities, topology revision, simulation time, connected machine
+      source IDs, active-fault ID and project/activation/source provenance.
+    - Compute the residual from the exact contracted matrix and source
+      vector used by numpy.linalg.solve:
+          r = YV - I
+      and normalize it using the normwise backward-error denominator:
+          ||Y||_inf * ||V||_inf + ||I||_inf
+    - Default normalized residual tolerance to 1e-10 and condition-number
+      limit to 1e12; both are configurable on TransientNetworkSolver.
+    - Distinguish SINGULAR, ILL_CONDITIONED, RESIDUAL_REJECTED, NON_FINITE
+      and ACCEPTED outcomes. The DAE rejects every non-accepted typed result.
+    - Preserve generic Mapping callbacks for compatibility, but label their
+      quality UNVERIFIED rather than implying a residual check occurred.
+    - Carry algebraic quality through DAESolution and persist one quality
+      record alongside each recorded transient sample, including the
+      post-event algebraic re-evaluation. Enforce exact time-sample alignment.
+    - Preserve #955 detached machine-path gating, switch contraction,
+      disconnected rotor policy and study provenance in the quality record.
+
+Boundaries and coordination:
+    - This adds solution-quality verification; it does not replace the
+      direct linear solver with Newton iteration.
+    - It does not implement post-switching island partitioning, which
+      remains owned by #957. A singular global matrix is reported and
+      rejected with the reduced Bus/source/topology context; no reference
+      source is fabricated.
+    - Legacy generic callbacks remain callable but are explicitly marked
+      UNVERIFIED. Production transient network solving returns verified
+      quality metadata.
+    - No live project state, telemetry or device acknowledgement is added.
+
+Verification:
+    - Source-level inspection only; no tests/CI or numerical benchmarks
+      were run, per project instruction.
+    - Runtime acceptance remains pending for a well-conditioned reference
+      case, a deliberately inaccurate finite solution, singular versus
+      ill-conditioned classification, and event-boundary re-solve metadata.
+
+Status:
+    TYPED ALGEBRAIC QUALITY CONTRACT AND TRANSIENT RESULT PROPAGATION
+    IMPLEMENTED IN SOURCE; RUNTIME NUMERICAL ACCEPTANCE REMAINS PENDING.
+
+======================================================================
