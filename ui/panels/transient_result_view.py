@@ -80,6 +80,7 @@ class TransientResultViewWidget(QWidget):
             f"Study: {model.study_id}",
             f"Activation: {model.activation_generation}",
             f"Source revision: {model.source_revision}",
+            f"Study type/status: {model.study_type} / {model.status}",
             f"Samples: {model.sample_count}",
             f"Signals: {len(model.signals)}",
             f"Events: {len(model.events)}",
@@ -88,6 +89,8 @@ class TransientResultViewWidget(QWidget):
             details.append(f"Archive record: {model.record_id}")
         if model.saved_at:
             details.append(f"Saved at (UTC): {model.saved_at}")
+        if model.message:
+            details.append(f"Message: {model.message}")
         self._provenance.setText(" | ".join(details))
 
         self._event_list.clear()
