@@ -38,6 +38,9 @@ class TransientResultViewWidget(QWidget):
         self._chart_view.setMinimumHeight(260)
         self._event_list = QListWidget(self)
         self._event_details = QLabel("Select an event to inspect its complete transition evidence.", self)
+        self._quality_list = QListWidget(self)
+        self._quality_details = QLabel("Select a recorded sample to inspect algebraic solver quality.", self)
+        self._quality_details.setWordWrap(True)
         self._event_details.setWordWrap(True)
         self._message = QLabel("Select a transient signal to inspect its complete time series.", self)
         self._message.setWordWrap(True)
@@ -54,10 +57,14 @@ class TransientResultViewWidget(QWidget):
         layout.addWidget(QLabel("Event timeline (solver dispatch order)", self))
         layout.addWidget(self._event_list)
         layout.addWidget(self._event_details)
+        layout.addWidget(QLabel("Algebraic solver quality (recorded samples)", self))
+        layout.addWidget(self._quality_list)
+        layout.addWidget(self._quality_details)
         layout.addWidget(self._message)
 
         self._signal_combo.currentIndexChanged.connect(self._render_selected_signal)
         self._event_list.currentRowChanged.connect(self._show_selected_event_details)
+        self._quality_list.currentRowChanged.connect(self._show_selected_quality_details)
         self.setVisible(False)
 
     def set_result(self, model: TransientResultPresentationReadModel) -> None:
@@ -145,6 +152,25 @@ class TransientResultViewWidget(QWidget):
         else:
             self._event_details.setText("No event executions were recorded.")
 
+        self._quality_list.clear()
+        for quality in model.algebraic_quality:
+            if quality.accepted and quality.quality_verified:
+                quality_label = "VERIFIED / ACCEPTED"
+            elif quality.status == "UNVERIFIED" or not quality.quality_verified:
+                quality_label = f"{quality.status} / UNVERIFIED"
+            else:
+                quality_label = f"{quality.status} / REJECTED"
+            self._quality_list.addItem(
+                f"Sample {quality.sample_index} — {quality.time_s:.9g} s — {quality_label}"
+            )
+        if model.algebraic_quality:
+            self._quality_list.setCurrentRow(0)
+        else:
+            self._quality_details.setText(
+                "Algebraic solver quality was not persisted for this result. "
+                "No legacy quality records have been inferred or generated."
+            )
+
         if model.historical:
             self._message.setText(
                 "Historical archive record. This view is read-only and is never projected onto the live SLD."
@@ -167,6 +193,8 @@ class TransientResultViewWidget(QWidget):
         self._signal_combo.clear()
         self._event_list.clear()
         self._event_details.clear()
+        self._quality_list.clear()
+        self._quality_details.clear()
         self._provenance.clear()
         self._solver_provenance.clear()
         self._message.setText("Select a transient result to inspect its time series.")
@@ -202,6 +230,45 @@ class TransientResultViewWidget(QWidget):
                 f"{event.post_event_re_evaluation_failure_message or ''}"
             )
         self._event_details.setText(" | ".join(details))
+
+    def _show_selected_quality_details(self, row: int) -> None:
+        model = self._model
+        if model is None or row < 0 or row >= len(model.algebraic_quality):
+            self._quality_details.setText("Select a recorded sample to inspect algebraic solver quality.")
+            return
+        quality = model.algebraic_quality[row]
+
+        def display(value: object) -> str:
+            return "unavailable" if value is None else str(value)
+
+        details = [
+            f"Recorded sample: {quality.sample_index} at {quality.time_s:.12g} s",
+            f"Solver-reported time: {display(quality.solver_time_s)}",
+            f"Status: {quality.status}",
+            f"Accepted: {quality.accepted}; quality verified: {quality.quality_verified}",
+            f"Solver: {quality.solver_name}",
+            (
+                f"Absolute residual: {display(quality.absolute_residual_norm)}; "
+                f"normalized residual: {display(quality.normalized_residual)}; "
+                f"tolerance: {display(quality.residual_tolerance)}"
+            ),
+            (
+                f"Condition estimate: {display(quality.condition_number)}; "
+                f"limit: {display(quality.condition_limit)}"
+            ),
+            f"Bus IDs: {quality.bus_ids}",
+            f"Topology revision: {display(quality.topology_revision)}",
+            f"Source IDs: {quality.source_ids}",
+            (
+                f"Active fault: {display(quality.active_fault_id)} / "
+                f"{display(quality.active_fault_type)} / Bus {display(quality.active_fault_bus_id)}"
+            ),
+            f"Bus voltages: {dict(quality.bus_voltages)!r}",
+            f"Study provenance: {dict(quality.study_provenance)!r}",
+        ]
+        if quality.diagnostics:
+            details.append(f"Diagnostics: {'; '.join(quality.diagnostics)}")
+        self._quality_details.setText(" | ".join(details))
 
     def _render_selected_signal(self, _index: int = -1) -> None:
         model = self._model

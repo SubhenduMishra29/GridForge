@@ -20287,3 +20287,57 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-TS-QUALITY-998B — TRANSIENT ALGEBRAIC QUALITY READ MODEL AND VIEW
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    The live and archived transient presentation path exposed dynamic states,
+    terminal voltages, electrical powers, event history and general solver
+    provenance, but omitted the per-recorded-sample AlgebraicNetworkSolution
+    evidence introduced by GF-TS-DAE-965.
+
+Correction:
+    - Add an immutable Application TransientAlgebraicQualityReadModel with
+      solver status, acceptance/verification flags, solver identity, residual
+      and tolerance, conditioning estimate and limit, Bus voltages and IDs,
+      topology revision, source IDs, active-fault context, study provenance
+      and diagnostics.
+    - Preserve the solver-reported sample time separately from the sample
+      time assigned by the canonical transient time vector.
+    - Adapt typed live/archive records and the historical schema-v1 generic
+      dataclass mapping shape without mutating or retyping archived source
+      records. Missing legacy quality remains unavailable; no record is
+      synthesized.
+    - Require any supplied quality sequence to contain exactly one record
+      per source sample and validate its original index/time alignment.
+    - Extend the transient result view with per-sample quality selection and
+      explicit verified, unverified and rejected status presentation.
+    - Display solver identity, residual/tolerance, conditioning, Bus/source
+      identities, topology revision, active fault, voltage context,
+      provenance and diagnostics.
+    - Update Modification_Register.txt.
+
+Boundary:
+    Core remains the owner of AlgebraicNetworkSolution truth. Application
+    maps it into a UI-neutral immutable read model. UI renders that read
+    model only; it does not recalculate, infer or upgrade solver quality.
+    Live and archived results use the same presentation contract.
+
+Verification:
+    - Source-level inspection of typed and schema-v1 mapping adaptation,
+      one-to-one sample alignment, DTO immutability and UI rendering paths.
+    - No tests or CI were run, per project instruction.
+    - Runtime live/archive presentation and malformed legacy payload
+      acceptance remain pending.
+
+Status:
+    APPLICATION QUALITY READ MODEL AND PER-SAMPLE PRESENTATION IMPLEMENTED
+    IN SOURCE; RECONCILIATION WITH CURRENT MAIN AND RUNTIME ACCEPTANCE PENDING.
+
+======================================================================

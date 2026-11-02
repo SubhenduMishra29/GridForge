@@ -19,6 +19,7 @@ from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
@@ -37,6 +38,7 @@ from .read_models import (
     SimpleWireReadModel,
     StudyResultReadModel,
     TransientEventReadModel,
+    TransientAlgebraicQualityReadModel,
     TransientSignalReadModel,
     TransientResultPresentationReadModel,
 )
@@ -670,6 +672,7 @@ class StudyReadService:
                 "terminal_voltages": value.terminal_voltages,
                 "electrical_powers": value.electrical_powers,
                 "events": value.events,
+                "algebraic_quality": value.algebraic_quality,
                 "provenance": value.provenance,
             }
         elif isinstance(value, Mapping) and value.get("$dataclass") == (
@@ -877,6 +880,63 @@ class StudyReadService:
                 raise ValueError("Transient event history contains an unknown event record type.")
             event_records.append(TransientEventReadModel(**event_data))
         events = tuple(event_records)
+        quality_source = transient_fields.get("algebraic_quality", ())
+        if quality_source is None:
+            quality_source = ()
+        if not isinstance(quality_source, (tuple, list)):
+            raise ValueError("Transient algebraic_quality must be an ordered sequence.")
+        quality_records = []
+        if "algebraic_quality" in transient_fields and len(quality_source) != sample_count:
+            raise ValueError(
+                "Transient algebraic-quality record count must match the recorded time sample count."
+            )
+        algebraic_solution_name = (
+            f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}"
+        )
+        for sample_index, record in enumerate(quality_source):
+            if isinstance(record, AlgebraicNetworkSolution):
+                quality_fields = record
+                def quality_value(name: str, default: Any = None) -> Any:
+                    return getattr(quality_fields, name, default)
+            elif isinstance(record, Mapping) and record.get("$dataclass") == algebraic_solution_name:
+                legacy_fields = record.get("fields")
+                if not isinstance(legacy_fields, Mapping):
+                    raise ValueError("Legacy AlgebraicNetworkSolution mapping has no canonical fields object.")
+                def quality_value(name: str, default: Any = None) -> Any:
+                    return legacy_fields.get(name, default)
+            else:
+                raise ValueError("Transient algebraic quality contains an unknown record type.")
+            solver_time = quality_value("simulation_time")
+            if solver_time is not None and not math.isclose(
+                float(solver_time), time_s[sample_index], rel_tol=0.0, abs_tol=1e-12
+            ):
+                raise ValueError(
+                    f"Transient algebraic-quality sample {sample_index} time does not match the recorded time vector."
+                )
+            quality_records.append(TransientAlgebraicQualityReadModel(
+                sample_index=sample_index,
+                time_s=time_s[sample_index],
+                status=str(quality_value("status", "UNAVAILABLE")),
+                accepted=bool(quality_value("accepted", False)),
+                quality_verified=bool(quality_value("quality_verified", False)),
+                solver_name=str(quality_value("solver_name", "unavailable")),
+                solver_time_s=None if solver_time is None else float(solver_time),
+                bus_voltages=quality_value("bus_voltages", {}),
+                absolute_residual_norm=quality_value("absolute_residual_norm"),
+                normalized_residual=quality_value("normalized_residual"),
+                residual_tolerance=quality_value("residual_tolerance"),
+                condition_number=quality_value("condition_number"),
+                condition_limit=quality_value("condition_limit"),
+                bus_ids=tuple(quality_value("bus_ids", ())),
+                topology_revision=quality_value("topology_revision"),
+                source_ids=tuple(quality_value("source_ids", ())),
+                active_fault_id=quality_value("active_fault_id"),
+                active_fault_bus_id=quality_value("active_fault_bus_id"),
+                active_fault_type=quality_value("active_fault_type"),
+                study_provenance=quality_value("study_provenance", {}),
+                diagnostics=tuple(quality_value("diagnostics", ())),
+            ))
+        algebraic_quality = tuple(quality_records)
         provenance = dict(provenance_source)
         provenance["execution_identity"] = {
             "study_id": str(row.study_id),
@@ -904,6 +964,7 @@ class StudyReadService:
             signals=tuple(signals),
             events=events,
             provenance=provenance,
+            algebraic_quality=algebraic_quality,
         )
 
     def transient_result(

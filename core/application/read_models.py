@@ -245,6 +245,72 @@ class TransientSignalReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientAlgebraicQualityReadModel:
+    """Solver-quality evidence for one recorded transient sample."""
+
+    sample_index: int
+    time_s: float
+    status: str
+    accepted: bool
+    quality_verified: bool
+    solver_name: str
+    solver_time_s: float | None = None
+    bus_voltages: Mapping[str, complex] = field(default_factory=lambda: MappingProxyType({}))
+    absolute_residual_norm: float | None = None
+    normalized_residual: float | None = None
+    residual_tolerance: float | None = None
+    condition_number: float | None = None
+    condition_limit: float | None = None
+    bus_ids: tuple[str, ...] = ()
+    topology_revision: int | None = None
+    source_ids: tuple[str, ...] = ()
+    active_fault_id: str | None = None
+    active_fault_bus_id: str | None = None
+    active_fault_type: str | None = None
+    study_provenance: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    diagnostics: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.sample_index, bool) or not isinstance(self.sample_index, int) or self.sample_index < 0:
+            raise ValueError("Transient algebraic-quality sample_index must be a non-negative integer.")
+        time_s = float(self.time_s)
+        if not math.isfinite(time_s):
+            raise ValueError("Transient algebraic-quality time_s must be finite.")
+        if not isinstance(self.status, str) or not self.status.strip():
+            raise ValueError("Transient algebraic-quality status must be non-empty.")
+        if not isinstance(self.solver_name, str) or not self.solver_name.strip():
+            raise ValueError("Transient algebraic-quality solver_name must be non-empty.")
+        if not isinstance(self.accepted, bool) or not isinstance(self.quality_verified, bool):
+            raise TypeError("Transient algebraic-quality acceptance flags must be booleans.")
+        if not isinstance(self.bus_voltages, Mapping) or not isinstance(self.study_provenance, Mapping):
+            raise TypeError("Transient algebraic-quality voltage and provenance values must be mappings.")
+        voltages = {str(bus_id): complex(value) for bus_id, value in self.bus_voltages.items()}
+        if any(not (math.isfinite(value.real) and math.isfinite(value.imag)) for value in voltages.values()):
+            raise ValueError("Transient algebraic-quality Bus voltages must be finite.")
+        if self.solver_time_s is not None and not math.isfinite(float(self.solver_time_s)):
+            raise ValueError("Transient algebraic-quality solver_time_s must be finite when supplied.")
+        for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_number", "condition_limit"):
+            value = getattr(self, name)
+            if value is not None and math.isnan(float(value)):
+                raise ValueError(f"Transient algebraic-quality {name} cannot be NaN.")
+        if self.topology_revision is not None and (
+            isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int)
+            or self.topology_revision < 0
+        ):
+            raise ValueError("Transient algebraic-quality topology_revision must be non-negative.")
+        object.__setattr__(self, "time_s", time_s)
+        object.__setattr__(self, "status", self.status.strip())
+        object.__setattr__(self, "solver_name", self.solver_name.strip())
+        if self.solver_time_s is not None:
+            object.__setattr__(self, "solver_time_s", float(self.solver_time_s))
+        object.__setattr__(self, "bus_voltages", MappingProxyType(voltages))
+        object.__setattr__(self, "bus_ids", tuple(str(value) for value in self.bus_ids))
+        object.__setattr__(self, "source_ids", tuple(str(value) for value in self.source_ids))
+        object.__setattr__(self, "study_provenance", _freeze(self.study_provenance))
+        object.__setattr__(self, "diagnostics", tuple(str(value) for value in self.diagnostics))
+
+
+@dataclass(frozen=True, slots=True)
 class TransientEventReadModel:
     """Immutable event-timeline record retaining dispatch and failure evidence."""
 
@@ -315,6 +381,7 @@ class TransientResultPresentationReadModel:
     signals: tuple[TransientSignalReadModel, ...]
     events: tuple[TransientEventReadModel, ...]
     provenance: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    algebraic_quality: tuple[TransientAlgebraicQualityReadModel, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -344,12 +411,22 @@ class TransientResultPresentationReadModel:
         events = tuple(self.events)
         if not all(isinstance(event, TransientEventReadModel) for event in events):
             raise TypeError("Transient presentation events must be TransientEventReadModel values.")
+        algebraic_quality = tuple(self.algebraic_quality)
+        if not all(isinstance(item, TransientAlgebraicQualityReadModel) for item in algebraic_quality):
+            raise TypeError("Transient algebraic quality must contain TransientAlgebraicQualityReadModel values.")
+        if algebraic_quality:
+            if len(algebraic_quality) != count:
+                raise ValueError("Transient algebraic-quality records must align one-to-one with source samples.")
+            for index, item in enumerate(algebraic_quality):
+                if item.sample_index != index or not math.isclose(item.time_s, times[index], rel_tol=0.0, abs_tol=1e-12):
+                    raise ValueError("Transient algebraic-quality records must preserve exact sample order and time alignment.")
         if not isinstance(self.provenance, Mapping):
             raise TypeError("Transient presentation provenance must be a mapping.")
         object.__setattr__(self, "message", str(self.message))
         object.__setattr__(self, "time_s", times)
         object.__setattr__(self, "signals", signals)
         object.__setattr__(self, "events", events)
+        object.__setattr__(self, "algebraic_quality", algebraic_quality)
         object.__setattr__(self, "provenance", _freeze(self.provenance))
 
     @property
@@ -374,6 +451,7 @@ __all__ = [
     "RelayReadModel",
     "StudyResultReadModel",
     "TransientSignalReadModel",
+    "TransientAlgebraicQualityReadModel",
     "TransientEventReadModel",
     "TransientResultPresentationReadModel",
 ]
