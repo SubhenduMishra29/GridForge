@@ -53,11 +53,15 @@ class DetachedTransientNetworkState:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
-        breaker_states = {str(k): bool(v) for k, v in self.breaker_states.items()}
+        if any(type(value) is not bool for value in self.breaker_states.values()):
+            raise TypeError("Detached transient breaker states must be explicit bool values.")
+        breaker_states = {str(k): v for k, v in self.breaker_states.items()}
         equipment_states = {str(k): bool(v) for k, v in self.equipment_states.items()}
         paths = {}
         for machine_id, raw_path in self.machine_connection_paths.items():
             key = str(machine_id).strip()
+            if isinstance(raw_path, (str, bytes)):
+                raise TypeError(f"Machine '{key}' connection path must be an ordered sequence of switch IDs.")
             path = tuple(str(item).strip() for item in raw_path)
             if not key or not path or any(not item for item in path):
                 raise ValueError(f"Machine '{key or machine_id}' requires a non-empty explicit switching path.")
@@ -166,6 +170,7 @@ class PreparedTransientStability:
                 }
                 for machine_id in sorted(self.network.machine_connection_paths)
             },
+            "initial_switch_states": dict(self.network.breaker_states),
         })
 
     @classmethod
