@@ -148,6 +148,7 @@ class Application:
         self._protection_execution_audit_store = protection_execution_audit_store
         self._field_device_command_service = field_device_command_service
         self._pending_field_device_commands: dict[str, tuple[Command, str, int]] = {}
+        self._completed_field_device_commands: set[str] = set()
         self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
         self._protection_cycle_inflight: set[tuple[str, int, str, int]] = set()
         self._protection_cycle_cache_limit = 4096
@@ -789,6 +790,7 @@ class Application:
                                 diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
                                 + "Authenticated device acknowledgement received; corresponding Core Application command applied.",
                             )
+                        self._completed_field_device_commands.add(command_id)
                     except Exception as exc:
                         status = replace(
                             status,
@@ -797,6 +799,16 @@ class Application:
                         )
         elif status.acknowledgement_status == "rejected":
             self._pending_field_device_commands.pop(command_id, None)
+        elif (
+            status.acknowledgement_status == "executed"
+            and pending_entry is None
+            and command_id not in self._completed_field_device_commands
+        ):
+            status = replace(
+                status,
+                diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                + "Authenticated acknowledgement was recovered without its in-memory pending command; Core mutation was withheld for explicit reconciliation.",
+            )
 
         if pending_entry is not None and self._protection_execution_audit_store is not None:
             pending_command, audit_project_id, audit_generation = pending_entry
@@ -1462,7 +1474,9 @@ class Application:
                     self._pending_field_device_commands[str(command.command_id)] = (
                         command, project.project_id, captured_generation
                     )
-                elif status.acknowledgement_status != "executed":
+                elif status.acknowledgement_status == "executed":
+                    self._completed_field_device_commands.add(str(command.command_id))
+                else:
                     self._pending_field_device_commands.pop(str(command.command_id), None)
                 return status
             field_device_dispatcher = dispatch_to_field_device
