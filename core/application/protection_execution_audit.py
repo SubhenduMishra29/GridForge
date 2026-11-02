@@ -167,6 +167,17 @@ class ProtectionExecutionAuditStore:
             payload={"attestation": attestation_data, "execution": self._result_payload(result)},
         )
 
+    def append_execution(self, *, project_id: str, activation_generation: int,
+                         event_id: str, occurred_at: float, metadata: Mapping[str, Any],
+                         result: Any) -> bool:
+        return self.append(
+            project_id=project_id, activation_generation=activation_generation,
+            event_id=event_id, event_type="PROTECTION_CYCLE_EXECUTED",
+            occurred_at=occurred_at,
+            payload={"metadata": self._json_value(metadata),
+                     "execution": self._result_payload(result)},
+        )
+
     def append_watchdog(self, *, project_id: str, activation_generation: int,
                         event_id: str, occurred_at: float, findings: Any) -> bool:
         return self.append(
