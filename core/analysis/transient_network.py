@@ -36,6 +36,7 @@ class DetachedTransientNetworkState:
     transformers: tuple[PreparedTransformer, ...] = ()
     shunts: tuple[PreparedShunt, ...] = ()
     breaker_states: Mapping[str, bool] = MappingProxyType({})
+    switch_available_states: Mapping[str, bool] = MappingProxyType({})
     equipment_states: Mapping[str, bool] = MappingProxyType({})
     machine_connection_paths: Mapping[str, tuple[str, ...]] = MappingProxyType({})
     machine_rotor_policies: Mapping[str, str] = MappingProxyType({})
@@ -55,7 +56,10 @@ class DetachedTransientNetworkState:
         object.__setattr__(self, "shunts", tuple(self.shunts))
         if any(type(value) is not bool for value in self.breaker_states.values()):
             raise TypeError("Detached transient breaker states must be explicit bool values.")
+        if any(type(value) is not bool for value in self.switch_available_states.values()):
+            raise TypeError("Detached transient switch-availability states must be explicit bool values.")
         breaker_states = {str(k): v for k, v in self.breaker_states.items()}
+        switch_available_states = {str(k): v for k, v in self.switch_available_states.items()}
         equipment_states = {str(k): bool(v) for k, v in self.equipment_states.items()}
         paths = {}
         for machine_id, raw_path in self.machine_connection_paths.items():
@@ -68,9 +72,11 @@ class DetachedTransientNetworkState:
             if len(path) != len(set(path)):
                 raise ValueError(f"Machine '{key}' connection path contains duplicate switching equipment IDs.")
             missing = tuple(item for item in path if item not in breaker_states)
-            if missing:
+            unavailable_missing = tuple(item for item in path if item not in switch_available_states)
+            if missing or unavailable_missing:
                 raise ValueError(
-                    f"Machine '{key}' connection path references switch IDs without captured detached states: {missing!r}."
+                    f"Machine '{key}' connection path has incomplete captured switch state; "
+                    f"missing_conduction={missing!r}, missing_availability={unavailable_missing!r}."
                 )
             paths[key] = path
         policies = {str(k): str(v) for k, v in self.machine_rotor_policies.items()}
@@ -80,6 +86,7 @@ class DetachedTransientNetworkState:
             if policy != "continue_with_zero_electrical_power":
                 raise ValueError(f"Machine '{machine_id}' has unsupported disconnected rotor policy {policy!r}.")
         object.__setattr__(self, "breaker_states", MappingProxyType(breaker_states))
+        object.__setattr__(self, "switch_available_states", MappingProxyType(switch_available_states))
         object.__setattr__(self, "equipment_states", MappingProxyType(equipment_states))
         object.__setattr__(self, "machine_connection_paths", MappingProxyType(paths))
         object.__setattr__(self, "machine_rotor_policies", MappingProxyType(policies))
@@ -111,7 +118,7 @@ class DetachedTransientNetworkState:
         except KeyError as exc:
             raise ValueError(f"Dynamic machine '{key}' has no validated detached connection path.") from exc
         # Fail closed if a state key disappears from a detached event view.
-        return all(self.breaker_states.get(item, False) for item in path)
+        return all(self.breaker_states.get(item, False) and self.switch_available_states.get(item, False) for item in path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +178,7 @@ class PreparedTransientStability:
                 for machine_id in sorted(self.network.machine_connection_paths)
             },
             "initial_switch_states": dict(self.network.breaker_states),
+            "switch_availability_states": dict(self.network.switch_available_states),
         })
 
     @classmethod
@@ -186,6 +194,7 @@ class PreparedTransientStability:
         machine_connection_paths: Mapping[str, tuple[str, ...]],
         machine_rotor_policies: Mapping[str, str],
         switch_states: Mapping[str, bool],
+        switch_available_states: Mapping[str, bool],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -243,6 +252,12 @@ class PreparedTransientStability:
             )
         if any(type(value) is not bool for value in switch_states.values()):
             raise TypeError("Captured detached switch states must be explicit bool values.")
+        if set(switch_available_states) != expected_switch_ids:
+            raise ValueError(
+                "Captured switch-availability states must cover exactly the switching IDs in the explicit machine paths."
+            )
+        if any(type(value) is not bool for value in switch_available_states.values()):
+            raise TypeError("Captured detached switch-availability states must be explicit bool values.")
 
         definitions: list[DynamicMachineModelDefinition] = []
         for association in associations:
@@ -285,6 +300,7 @@ class PreparedTransientStability:
             transformers=prepared_power_flow.transformers,
             shunts=prepared_power_flow.shunts,
             breaker_states=switch_states,
+            switch_available_states=switch_available_states,
             machine_connection_paths=machine_connection_paths,
             machine_rotor_policies=machine_rotor_policies,
             project_id=project_id,
