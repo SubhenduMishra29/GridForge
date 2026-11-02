@@ -242,3 +242,23 @@ def test_empty_transient_state_array_shape_round_trips(tmp_path):
     assert restored.result.value.time.shape == (0,)
     assert restored.result.value.states.shape == (0, 3)
     assert restored.result.value.states.flags.writeable is False
+
+
+def test_schema_v2_rejects_unknown_transient_result_fields(tmp_path):
+    archive = StudyResultArchive(tmp_path)
+    original = _study_result(_transient_result())
+    archive.save(original)
+
+    record_path = next(tmp_path.rglob("*.json"))
+    envelope = json.loads(record_path.read_text(encoding="utf-8"))
+    envelope["payload"]["value"]["fields"]["unexpected"] = "must fail closed"
+
+    unsigned = {
+        key: envelope[key]
+        for key in ("format", "schema_version", "record_id", "saved_at", "payload")
+    }
+    envelope["record_sha256"] = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
+    record_path.write_bytes(_canonical_json(envelope))
+
+    with pytest.raises(StudyResultArchiveError, match="TransientStabilityResult fields"):
+        archive.load_all(original.project_id)
