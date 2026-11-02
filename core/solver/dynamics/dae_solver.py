@@ -95,6 +95,29 @@ class AlgebraicNetworkSolution:
             raise ValueError("Accepted algebraic solutions must have ACCEPTED or UNVERIFIED status.")
         if self.quality_verified and self.status == "UNVERIFIED":
             raise ValueError("UNVERIFIED algebraic solutions cannot claim verified quality.")
+        known_statuses = {"ACCEPTED", "UNVERIFIED", "SINGULAR", "ILL_CONDITIONED", "RESIDUAL_REJECTED", "NON_FINITE"}
+        if self.status not in known_statuses:
+            raise ValueError(f"Unsupported algebraic solution status {self.status!r}.")
+        if self.accepted != (self.status in {"ACCEPTED", "UNVERIFIED"}):
+            raise ValueError("Algebraic acceptance flag does not match its solution status.")
+        if self.quality_verified and self.status == "ACCEPTED":
+            required = (
+                self.absolute_residual_norm,
+                self.normalized_residual,
+                self.residual_tolerance,
+                self.condition_number,
+                self.condition_limit,
+            )
+            if any(value is None for value in required):
+                raise ValueError("Verified ACCEPTED solutions require residual and conditioning evidence.")
+            if self.normalized_residual > self.residual_tolerance:
+                raise ValueError("Verified ACCEPTED solution exceeds its normalized residual tolerance.")
+            if self.condition_number > self.condition_limit:
+                raise ValueError("Verified ACCEPTED solution exceeds its condition-number limit.")
+        if self.residual_tolerance is not None and float(self.residual_tolerance) <= 0.0:
+            raise ValueError("residual_tolerance must be positive.")
+        if self.condition_limit is not None and float(self.condition_limit) <= 1.0:
+            raise ValueError("condition_limit must be greater than one.")
         for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_limit"):
             value = getattr(self, name)
             if value is None:
