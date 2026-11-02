@@ -151,6 +151,9 @@ class Application:
         self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
         self._protection_cycle_inflight: set[tuple[str, int, str, int]] = set()
         self._protection_cycle_cache_limit = 4096
+        self._measurement_watchdog_cancel: Callable[[], None] | None = None
+        self._measurement_watchdog_project_key: tuple[str, int] | None = None
+        self._measurement_watchdog_last_status: dict[str, str] = {}
         self._measurement_sample_unsubscribe = None
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
@@ -684,16 +687,63 @@ class Application:
             if any(element.element_id == binding.protection_element_id for element in enabled_elements)
         )
         findings = self.measurement_channel_service.inspect_staleness(tuple(required), current_time=now)
-        if findings and self._protection_execution_audit_store is not None:
-            event_id = f"watchdog:{project.project_id}:{lifecycle.activation_generation}:{now:.9f}"
-            self._protection_execution_audit_store.append_watchdog(
-                project_id=project.project_id,
-                activation_generation=lifecycle.activation_generation,
-                event_id=event_id,
-                occurred_at=now,
-                findings=findings,
-            )
+        project_key = (project.project_id, lifecycle.activation_generation)
+        if self._measurement_watchdog_project_key != project_key:
+            self._measurement_watchdog_project_key = project_key
+            self._measurement_watchdog_last_status = {}
+        current_status = {str(item["channel_id"]): str(item["status"]) for item in findings}
+        if current_status != self._measurement_watchdog_last_status:
+            if self._protection_execution_audit_store is not None:
+                event_id = f"watchdog:{project.project_id}:{lifecycle.activation_generation}:{now:.9f}"
+                self._protection_execution_audit_store.append_watchdog(
+                    project_id=project.project_id,
+                    activation_generation=lifecycle.activation_generation,
+                    event_id=event_id,
+                    occurred_at=now,
+                    findings={
+                        "healthy": not bool(findings),
+                        "transition_from": self._measurement_watchdog_last_status,
+                        "transition_to": current_status,
+                        "findings": findings,
+                    },
+                )
+            self._measurement_watchdog_last_status = current_status
         return findings
+
+    def start_measurement_watchdog(self, scheduler: Any, *, interval_seconds: float) -> Callable[[], None]:
+        """Register periodic polling with a deployment-owned scheduler adapter.
+
+        The scheduler must expose schedule_interval(callback, seconds) and
+        return a cancellation callable. No hidden thread or wall clock is created.
+        """
+        if self._measurement_watchdog_cancel is not None:
+            raise RuntimeError("Measurement watchdog is already scheduled.")
+        if isinstance(interval_seconds, bool) or not isinstance(interval_seconds, (int, float)) or not isfinite(interval_seconds) or interval_seconds <= 0:
+            raise ValueError("interval_seconds must be finite and positive.")
+        schedule = getattr(scheduler, "schedule_interval", None)
+        if not callable(schedule):
+            raise TypeError("scheduler must implement schedule_interval(callback, interval_seconds).")
+        cancel = schedule(self.run_measurement_watchdog, float(interval_seconds))
+        if not callable(cancel):
+            raise TypeError("scheduler.schedule_interval must return a cancellation callable.")
+        self._measurement_watchdog_cancel = cancel
+        return cancel
+
+    def stop_measurement_watchdog(self) -> None:
+        """Cancel the registered external watchdog schedule, if any."""
+        cancel = self._measurement_watchdog_cancel
+        self._measurement_watchdog_cancel = None
+        if cancel is not None:
+            cancel()
+
+    def shutdown(self) -> None:
+        """Release Application-owned subscriptions and scheduled monitoring."""
+        self.stop_measurement_watchdog()
+        unsubscribe = self._measurement_sample_unsubscribe
+        self._measurement_sample_unsubscribe = None
+        if unsubscribe is not None:
+            unsubscribe()
+        self._commit_executor.shutdown(wait=True, cancel_futures=True)
 
     def poll_field_device_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
         """Poll and verify physical feedback independently of Core postconditions."""
