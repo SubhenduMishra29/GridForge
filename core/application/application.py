@@ -769,6 +769,8 @@ class Application:
                     lifecycle.state != "ACTIVE" or project is None
                     or project.project_id != pending_project_id
                     or lifecycle.activation_generation != pending_generation
+                    or status.project_id != pending_project_id
+                    or status.activation_generation != pending_generation
                 ):
                     self._pending_field_device_commands.pop(command_id, None)
                     status = replace(
@@ -824,8 +826,12 @@ class Application:
                 + "Authenticated acknowledgement was recovered without its in-memory pending command; Core mutation was withheld for explicit reconciliation.",
             )
 
-        if pending_entry is not None and self._protection_execution_audit_store is not None:
-            pending_command, audit_project_id, audit_generation = pending_entry
+        audit_project_id = pending_entry[1] if pending_entry is not None else status.project_id
+        audit_generation = pending_entry[2] if pending_entry is not None else status.activation_generation
+        if (
+            audit_project_id is not None and audit_generation is not None
+            and self._protection_execution_audit_store is not None
+        ):
             try:
                 now = self.measurement_channel_service.trusted_now()
                 self._protection_execution_audit_store.append(
@@ -840,6 +846,12 @@ class Application:
                         "acknowledgement_status": status.acknowledgement_status,
                         "delivery_id": status.delivery_id,
                         "acknowledgement_id": status.acknowledgement_id,
+                        "project_id": status.project_id,
+                        "activation_generation": status.activation_generation,
+                        "protection_cycle_id": status.protection_cycle_id,
+                        "device_id": status.device_id,
+                        "acknowledged_at": status.acknowledged_at,
+                        "timestamp_domain": status.timestamp_domain,
                         "diagnostic": status.diagnostic,
                     },
                 )
