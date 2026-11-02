@@ -151,6 +151,14 @@ class DistanceProtectionCoverage:
         expected_local_ct = self.from_ct_id if self.local_end == "FROM" else self.to_ct_id
         if current_binding.instrument_id != expected_local_ct:
             raise ValueError("ANSI 21 current binding instrument must be the CT at the configured local line end.")
+        if current_binding.source_equipment_id != self.protected_equipment_id:
+            raise ValueError("ANSI 21 current binding must identify the protected Line/Cable as its measured source equipment.")
+        if (
+            not current_binding.source_endpoint_reference.is_terminal
+            or current_binding.source_endpoint_reference.object_id != self.protected_equipment_id
+            or current_binding.source_endpoint_reference.terminal_role != self.local_end
+        ):
+            raise ValueError("ANSI 21 current binding source endpoint must be the configured local terminal of the protected Line/Cable.")
         if current_binding.binding_id != self.current_binding_id:
             raise ValueError("ANSI 21 current binding identity does not match distance coverage.")
         if voltage_binding.binding_id != self.voltage_binding_id:
