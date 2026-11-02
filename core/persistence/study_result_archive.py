@@ -203,7 +203,7 @@ class StudyResultArchive:
             "payload": payload,
         }
         digest = hashlib.sha256(_canonical_json(envelope_without_digest)).hexdigest()
-        envelope = {**envelope_without_digest, "payload_sha256": digest}
+        envelope = {**envelope_without_digest, "record_sha256": digest}
         encoded = _canonical_json(envelope)
         directory = (
             self._root
@@ -249,11 +249,16 @@ class StudyResultArchive:
                 raise StudyResultArchiveError("Study Result archive payload must be an object.")
             unsigned = {key: envelope[key] for key in ("format", "schema_version", "record_id", "saved_at", "payload")}
             expected_digest = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
-            if envelope.get("payload_sha256") != expected_digest:
+            if envelope.get("record_sha256") != expected_digest:
                 raise StudyResultArchiveError("Study Result archive checksum mismatch.")
             project_id = payload["project_id"]
+            if not isinstance(project_id, str) or not project_id.strip():
+                raise StudyResultArchiveError("Persisted Study Result project identity is invalid.")
             if expected_project_id is not None and project_id != expected_project_id:
                 raise StudyResultArchiveError("Study Result archive project identity mismatch.")
+            generation = payload["activation_generation"]
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+                raise StudyResultArchiveError("Persisted Study Result activation generation is invalid.")
             revision_data = payload["source_revision"]
             revision = ProjectRevision(
                 model_revision=revision_data["model_revision"],
@@ -267,7 +272,7 @@ class StudyResultArchive:
             result = StudyResult(
                 study_id=UUID(str(payload["study_id"])),
                 project_id=str(project_id),
-                activation_generation=int(payload["activation_generation"]),
+                activation_generation=generation,
                 source_revision=revision,
                 study_type=str(payload["study_type"]),
                 status=str(payload["status"]),
@@ -275,8 +280,13 @@ class StudyResultArchive:
                 message=str(payload.get("message", "")),
                 metadata=metadata,
             )
+            record_id = UUID(str(envelope["record_id"]))
+            if path.name != f"{result.study_id}.{record_id}.json":
+                raise StudyResultArchiveError("Study Result archive filename does not match its record identity.")
+            if path.parent.name != str(result.activation_generation):
+                raise StudyResultArchiveError("Study Result archive directory does not match activation provenance.")
             return ArchivedStudyResult(
-                record_id=UUID(str(envelope["record_id"])),
+                record_id=record_id,
                 saved_at=str(envelope["saved_at"]),
                 result=result,
             )
