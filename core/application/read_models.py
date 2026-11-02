@@ -301,6 +301,7 @@ class TransientResultPresentationReadModel:
     source_revision: ProjectRevision
     study_type: str
     status: str
+    message: str
     current: bool
     historical: bool
     record_id: UUID | None
@@ -350,6 +351,7 @@ class TransientResultPresentationReadModel:
             raise TypeError("Transient presentation events must be TransientEventReadModel values.")
         if not isinstance(self.provenance, Mapping):
             raise TypeError("Transient presentation provenance must be a mapping.")
+        object.__setattr__(self, "message", str(self.message))
         object.__setattr__(self, "time_s", times)
         object.__setattr__(self, "state_samples", states)
         object.__setattr__(self, "terminal_voltage_samples", voltages)
