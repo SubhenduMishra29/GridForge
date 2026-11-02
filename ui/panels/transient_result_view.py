@@ -156,10 +156,12 @@ class TransientResultViewWidget(QWidget):
         for quality in model.algebraic_quality:
             if quality.accepted and quality.quality_verified:
                 quality_label = "VERIFIED / ACCEPTED"
-            elif quality.status == "UNVERIFIED" or not quality.quality_verified:
-                quality_label = f"{quality.status} / UNVERIFIED"
-            else:
+            elif not quality.accepted:
                 quality_label = f"{quality.status} / REJECTED"
+                if not quality.quality_verified:
+                    quality_label += " / quality unverified"
+            else:
+                quality_label = f"{quality.status} / ACCEPTED, UNVERIFIED"
             self._quality_list.addItem(
                 f"Sample {quality.sample_index} — {quality.time_s:.9g} s — {quality_label}"
             )

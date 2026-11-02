@@ -289,10 +289,44 @@ class TransientAlgebraicQualityReadModel:
             raise ValueError("Transient algebraic-quality Bus voltages must be finite.")
         if self.solver_time_s is not None and not math.isfinite(float(self.solver_time_s)):
             raise ValueError("Transient algebraic-quality solver_time_s must be finite when supplied.")
+        known_statuses = {"ACCEPTED", "UNVERIFIED", "SINGULAR", "ILL_CONDITIONED", "RESIDUAL_REJECTED", "NON_FINITE"}
+        if self.status not in known_statuses:
+            raise ValueError(f"Unsupported transient algebraic-quality status {self.status!r}.")
+        if self.accepted != (self.status in {"ACCEPTED", "UNVERIFIED"}):
+            raise ValueError("Transient algebraic-quality acceptance flag does not match its status.")
+        if self.quality_verified and self.status == "UNVERIFIED":
+            raise ValueError("UNVERIFIED transient algebraic quality cannot claim verification.")
         for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_number", "condition_limit"):
             value = getattr(self, name)
-            if value is not None and math.isnan(float(value)):
-                raise ValueError(f"Transient algebraic-quality {name} cannot be NaN.")
+            if value is None:
+                continue
+            numeric = float(value)
+            allow_infinite_residual = (
+                name in {"absolute_residual_norm", "normalized_residual"}
+                and self.status in {"RESIDUAL_REJECTED", "ILL_CONDITIONED"}
+                and math.isinf(numeric)
+            )
+            allow_infinite_condition = name == "condition_number" and self.status == "SINGULAR" and math.isinf(numeric)
+            if math.isnan(numeric) or numeric < 0.0 or (
+                not math.isfinite(numeric) and not (allow_infinite_residual or allow_infinite_condition)
+            ):
+                raise ValueError(f"Transient algebraic-quality {name} is outside its canonical numeric domain.")
+            object.__setattr__(self, name, numeric)
+        if self.residual_tolerance is not None and self.residual_tolerance <= 0.0:
+            raise ValueError("Transient algebraic-quality residual_tolerance must be positive.")
+        if self.condition_limit is not None and self.condition_limit <= 1.0:
+            raise ValueError("Transient algebraic-quality condition_limit must be greater than one.")
+        if self.normalized_residual is not None and self.residual_tolerance is None:
+            raise ValueError("Transient algebraic-quality normalized_residual requires a tolerance.")
+        if self.quality_verified and self.status == "ACCEPTED":
+            required = (
+                self.absolute_residual_norm, self.normalized_residual,
+                self.residual_tolerance, self.condition_number, self.condition_limit,
+            )
+            if any(value is None for value in required):
+                raise ValueError("Verified accepted algebraic quality requires residual and conditioning evidence.")
+            if self.normalized_residual > self.residual_tolerance or self.condition_number > self.condition_limit:
+                raise ValueError("Verified accepted algebraic quality exceeds its residual or conditioning limit.")
         if self.topology_revision is not None and (
             isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int)
             or self.topology_revision < 0
