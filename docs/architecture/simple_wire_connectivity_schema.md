@@ -29,3 +29,11 @@ A dangling Simple Wire is a hard persistence-integrity failure. It is not silent
 ## Presentation
 
 SLD stores only a projection identified by the same `connection_id`. Connection geometry is presentation state and is not used to reconstruct the authoritative relationship.
+
+## Boundary with phase-domain conductors (added 2026-11-02)
+
+A Simple Wire remains a conventional terminal-to-terminal connectivity relationship. It does **not** encode per-phase conductor inventory, neutral/earth return construction, electrode impedance or a phase-domain fault-current path.
+
+The phase-domain conductor graph introduced in the merged PR #908 is a separate, explicit study/physical-network representation with its own node/connection identity, endpoint, conductor-role, impedance and persistence contracts. It must not be synthesized from Simple Wire route geometry, visual crossings or SLD pixel proximity. Conversely, phase-domain graph records do not replace or silently rewrite the canonical Simple Wire relationships.
+
+Both representations refer to the same authoritative equipment/terminal identities where applicable, and both are mutated through Application-owned commands/services. The solver may consume the phase-domain graph only when the required physical path and numerical data are explicitly supported. Missing or ambiguous neutral/earth return paths remain fail-closed.
