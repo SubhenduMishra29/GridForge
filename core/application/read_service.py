@@ -473,7 +473,22 @@ class StudyResultComparisonReadModel:
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
     """Extract only solver values whose unit and engineering bases are explicit."""
     observations: dict[str, tuple[complex | float, str, tuple[Any, ...]]] = {}
+    ambiguous_observations: set[str] = set()
     visited = 0
+
+    def add_observation(
+        identity: str,
+        observation: tuple[complex | float, str, tuple[Any, ...]],
+    ) -> None:
+        # Duplicate physical identities are ambiguous; never let traversal
+        # order silently choose which value participates in a comparison.
+        if identity in ambiguous_observations:
+            return
+        if identity in observations:
+            observations.pop(identity, None)
+            ambiguous_observations.add(identity)
+            return
+        observations[identity] = observation
 
     def visit(item: Any, path: str, depth: int) -> None:
         nonlocal visited
@@ -481,22 +496,67 @@ def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | 
             return
         visited += 1
         if isinstance(item, PowerFlowResult):
-            if item.snapshot_id is None:
+            # Both a stable solver snapshot and stable bus identities are
+            # mandatory. Positional fallback would silently pair different
+            # buses when the result's ordering changes.
+            if item.snapshot_id is None or not item.bus_ids:
                 return
-            identifiers = item.bus_ids or tuple(str(index) for index in range(len(item.voltage_magnitudes)))
-            for bus_id, magnitude, angle in zip(identifiers, item.voltage_magnitudes, item.voltage_angles):
-                prefix = f"{path}.bus:{bus_id}"
-                observations[f"{prefix}.voltage_magnitude"] = (magnitude, "p.u.", (item.snapshot_id,))
-                observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
+            for bus_id, magnitude, angle in zip(item.bus_ids, item.voltage_magnitudes, item.voltage_angles):
+                prefix = f"bus:{bus_id!r}"
+                add_observation(
+                    f"{prefix}.voltage_magnitude",
+                    (magnitude, "p.u.", (item.snapshot_id,)),
+                )
+                add_observation(
+                    f"{prefix}.voltage_angle",
+                    (angle, "deg", (item.snapshot_id,)),
+                )
             return
         if isinstance(item, ShortCircuitConductorCurrent):
-            base = (item.base_mva, item.voltage_base_kv, item.phase_or_sequence, item.reference_direction)
-            observations[f"{path}.current"] = (item.current, "p.u.", base)
+            # Match by physical conductor/terminal identity, never by collection
+            # position. Topology revision is part of the comparison base so a
+            # conductor record from a different topology cannot be paired.
+            identity = (
+                item.equipment_id,
+                item.terminal_role,
+                item.conductor_id,
+                item.bus_id,
+                item.phase_or_sequence,
+            )
+            observation_path = f"conductor:{identity!r}"
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.topology_revision,
+                item.phase_or_sequence,
+                item.reference_direction,
+                item.current_units,
+            )
+            add_observation(
+                f"{observation_path}.current",
+                (item.current, "p.u.", base),
+            )
             return
         if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
-            base = (item.base_mva, item.voltage_base_kv, item.positive_direction)
-            observations[f"{path}.current_a"] = (item.current_a, "A", base)
-            observations[f"{path}.current_pu"] = (item.current_pu, "p.u.", base)
+            # A transformer may contain multiple loops and winding records.
+            # Include all physical identifiers in the key; direction and
+            # current base are also required to agree before calculating delta.
+            identity = (item.transformer_id, item.loop_id, item.winding)
+            observation_path = f"transformer_delta_loop:{identity!r}"
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.current_base_a,
+                item.positive_direction,
+            )
+            add_observation(
+                f"{observation_path}.current_a",
+                (item.current_a, "A", base),
+            )
+            add_observation(
+                f"{observation_path}.current_pu",
+                (item.current_pu, "p.u.", base),
+            )
             return
         if isinstance(item, Mapping):
             for key, nested in item.items():

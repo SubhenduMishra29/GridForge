@@ -351,6 +351,37 @@ class StudyService:
             try:
                 self._persist_result(result)
             except Exception as persistence_exc:
+                if getattr(persistence_exc, "record_committed", False) is True:
+                    # The archive entry is already atomically visible. Do not
+                    # rewrite a completed electrical result as a solver failure
+                    # merely because the directory fsync could not be confirmed.
+                    metadata = dict(result.metadata)
+                    metadata["archive_durability"] = "uncertain"
+                    metadata["archive_record_id"] = str(getattr(persistence_exc, "record_id", ""))
+                    metadata["archive_warning"] = str(persistence_exc)
+                    result = StudyResult(
+                        study_id=result.study_id,
+                        project_id=result.project_id,
+                        activation_generation=result.activation_generation,
+                        source_revision=result.source_revision,
+                        study_type=result.study_type,
+                        status=result.status,
+                        value=result.value,
+                        message=result.message,
+                        metadata=metadata,
+                    )
+                    with self._lock:
+                        self._results[key] = result
+                    terminal_result_committed = True
+                    self._event_bus.publish(
+                        StudyCompleted(metadata={
+                            **self._event_metadata(request, status="completed"),
+                            "archive_durability": "uncertain",
+                            "archive_record_id": str(getattr(persistence_exc, "record_id", "")),
+                            "archive_warning": str(persistence_exc),
+                        })
+                    )
+                    return result
                 failure = StudyResult(
                     study_id=request.study_id,
                     project_id=request.project_id,

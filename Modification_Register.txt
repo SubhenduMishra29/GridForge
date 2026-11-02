@@ -18823,3 +18823,98 @@ Disposition:
     Merge is pending final diff and metadata review.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-46 — STABLE PHYSICAL IDENTITY FOR STUDY RESULT DELTAS
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Correct the numerical Study Result comparison identity contract after
+    post-merge review of D15F-43.
+
+Finding:
+    The initial comparison traversal used the surrounding collection path
+    for Short-Circuit conductor and transformer delta-loop observations.
+    For sequence-backed collections, this could pair unlike physical
+    observations if records were reordered between executions.
+
+Corrections:
+    - Power Flow voltage observations require both a stable solver snapshot
+      identity and explicit stable bus IDs; positional bus-index fallback
+      is prohibited.
+    - ShortCircuitConductorCurrent observations are keyed only by stable
+      equipment, terminal role, conductor, bus and phase/sequence identity;
+      surrounding mapping/list traversal paths are excluded.
+    - Transformer delta-loop observations are keyed only by transformer,
+      loop and winding identity; traversal paths and list positions are
+      excluded.
+    - Duplicate physical observation identities are rejected from the
+      comparison rather than resolved by traversal order.
+    - Conductor comparison bases now include MVA, kV, topology revision,
+      phase/conductor role, reference direction and current units.
+    - Transformer delta-loop observations are keyed by transformer ID,
+      loop ID and winding identity, not collection index.
+    - Delta-loop comparison bases now include MVA, kV, derived current
+      base and declared positive direction.
+    - RIGHT-minus-LEFT arithmetic is emitted only when both the stable
+      observation identity and complete comparison base match.
+
+Engineering boundary:
+    - No conversion or normalization between unlike bases is attempted.
+    - This correction narrows false-positive matches; it does not make
+      two results from different physical topologies comparable merely
+      because display names or list positions happen to match.
+
+Verification:
+    Remote source inspection and focused static review only. No numerical
+    fixture or runtime test was executed.
+
+Status:
+    STABLE PHYSICAL IDENTITY AND TOPOLOGY-AWARE BASE MATCHING IMPLEMENTED —
+    NUMERICAL FIXTURE VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-47 — ARCHIVE COMMIT STATE AND DURABILITY FAILURE SEMANTICS
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Prevent a post-rename directory-fsync failure from converting an
+    already-visible completed Study Result into a false failed study.
+
+Corrections:
+    - Added StudyResultArchiveCommitUncertain for the precise state where
+      the archive record has been atomically published but its directory
+      entry durability cannot be confirmed.
+    - Preserve the completed numerical outcome in StudyService when this
+      post-commit condition occurs; attach archive durability warning and
+      record identity to the in-memory result and completion event.
+    - Pre-commit archive failures retain the existing failure behavior.
+    - Exported the typed persistence exception through the persistence
+      package boundary.
+
+Engineering boundary:
+    - A committed-but-not-confirmed-durable record is not reported as a
+      durable success. Its numerical outcome is not misclassified as a
+      solver failure. The archive verifier remains the subsequent
+      integrity check; no automatic deletion or rollback is attempted.
+
+Verification:
+    Remote source inspection and static control-flow review only. No
+    filesystem fault injection, archive round-trip, tests/CI, syntax or
+    import checks were run.
+
+Status:
+    POST-COMMIT DURABILITY STATE IS EXPLICIT — FAULT-INJECTION
+    VERIFICATION PENDING
+
+======================================================================
