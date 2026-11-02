@@ -117,6 +117,54 @@ class MeasurementChannelService:
     def channels(self) -> Mapping[str, MeasurementChannel]:
         return dict(self._channels)
 
+    def trusted_now(self) -> float:
+        """Return the configured trusted clock reading; never substitute wall-clock time."""
+        if self._clock is None or self._clock_domain is None:
+            raise PermissionError("Trusted measurement clock authority is not configured.")
+        value = self._clock()
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise PermissionError("Trusted measurement clock returned an invalid timestamp.")
+        return float(value)
+
+    def inspect_staleness(self, channel_ids: Sequence[str], *, current_time: float) -> tuple[dict[str, Any], ...]:
+        """Inspect required channels without mutating them or issuing protection actions."""
+        if isinstance(current_time, bool) or not isinstance(current_time, (int, float)) or not math.isfinite(current_time):
+            raise ValueError("current_time must be a finite trusted timestamp.")
+        findings: list[dict[str, Any]] = []
+        for channel_id in sorted(set(channel_ids)):
+            channel = self._channels.get(self._normalize_id(channel_id))
+            if channel is None:
+                findings.append({"channel_id": channel_id, "status": "MISSING_CHANNEL",
+                                 "diagnostic": "required measurement channel is absent from the active registry"})
+                continue
+            timestamp = channel.timestamp
+            if timestamp is None:
+                findings.append({"channel_id": channel.id, "status": "NEVER_RECEIVED",
+                                 "diagnostic": "required measurement channel has never published a sample"})
+                continue
+            stale_after = channel.stale_after
+            if stale_after is None:
+                findings.append({"channel_id": channel.id, "status": "NO_FRESHNESS_LIMIT",
+                                 "timestamp": timestamp,
+                                 "diagnostic": "required measurement channel has no configured stale_after limit"})
+                continue
+            age = float(current_time) - float(timestamp)
+            if age < 0:
+                findings.append({"channel_id": channel.id, "status": "FUTURE_TIMESTAMP",
+                                 "timestamp": timestamp, "age": age,
+                                 "diagnostic": "sample timestamp is later than the trusted watchdog clock"})
+            elif age > stale_after:
+                findings.append({"channel_id": channel.id, "status": "STALE",
+                                 "timestamp": timestamp, "age": age, "stale_after": stale_after,
+                                 "diagnostic": "required measurement sample exceeded its configured freshness limit"})
+            elif channel.quality is not MeasurementQuality.GOOD or not channel.available or not channel.is_usable:
+                findings.append({"channel_id": channel.id, "status": "UNUSABLE",
+                                 "timestamp": timestamp, "age": age,
+                                 "quality": getattr(channel.quality, "value", str(channel.quality)),
+                                 "available": bool(channel.available),
+                                 "diagnostic": "required measurement channel is not GOOD, available and usable"})
+        return tuple(findings)
+
     def get(self, channel_id: str) -> MeasurementChannel | None:
         return self._channels.get(self._normalize_id(channel_id))
 
