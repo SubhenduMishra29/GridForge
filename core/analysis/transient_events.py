@@ -35,6 +35,7 @@ def schedule_breaker_open(
                 for machine_id in state.machines_for_switch(breaker_id)
             },
         },
+        revision_reader=lambda: state.topology_revision,
     )
 
 
@@ -64,6 +65,7 @@ def schedule_breaker_close(
                 for machine_id in state.machines_for_switch(breaker_id)
             },
         },
+        revision_reader=lambda: state.topology_revision,
     )
 
 
@@ -85,15 +87,35 @@ def schedule_equipment_state(manager: EventManager, state: TransientEventState, 
                 for machine_id in machine_ids
             },
         },
+        revision_reader=lambda: state.topology_revision,
     )
 
 
 def schedule_fault_apply(manager: EventManager, state: TransientEventState, time: float, fault: Any, *, event_id: str, priority: int = 0) -> SimulationEvent:
-    return manager.add(time, lambda: state.apply_fault(fault), event_id=event_id, event_type="fault_apply", priority=priority)
+    return manager.add(
+        time,
+        lambda: state.apply_fault(fault),
+        event_id=event_id,
+        event_type="fault_apply",
+        priority=priority,
+        metadata={
+            "fault_id": str(getattr(fault, "fault_id", "")) or None,
+            "fault_bus_id": str(getattr(fault, "bus_id", "")) or None,
+            "fault_type": type(fault).__name__,
+        },
+        revision_reader=lambda: state.topology_revision,
+    )
 
 
 def schedule_fault_clear(manager: EventManager, state: TransientEventState, time: float, *, event_id: str, priority: int = 0) -> SimulationEvent:
-    return manager.add(time, state.clear_fault, event_id=event_id, event_type="fault_clear", priority=priority)
+    return manager.add(
+        time,
+        state.clear_fault,
+        event_id=event_id,
+        event_type="fault_clear",
+        priority=priority,
+        revision_reader=lambda: state.topology_revision,
+    )
 
 
 __all__ = [
