@@ -5,8 +5,8 @@ stores them beside the user's GridForge application data, keyed by project and
 activation provenance, without modifying the canonical .gridforge package.
 
 Schema v1 remains readable with its historical generic-dataclass mapping
-semantics. Schema v2 adds allowlisted reconstruction for transient results
-and EventExecution records, including shaped NumPy arrays.
+semantics. Schema v2 adds allowlisted reconstruction for transient results,
+EventExecution and algebraic-quality records, including shaped NumPy arrays.
 """
 
 from __future__ import annotations
@@ -270,7 +270,7 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                 raise StudyResultArchiveError("Persisted solver enum value is invalid.") from exc
         # Unknown enums remain detached scalar values; never import archive names.
         return decoded
-    if kind in {"solver_result", "event_execution", "dataclass"} and set(value) == {"$type", "class", "fields"}:
+    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "dataclass"} and set(value) == {"$type", "class", "fields"}:
         payload = value["fields"]
         if not isinstance(payload, Mapping):
             raise StudyResultArchiveError("Persisted dataclass fields must be an object.")
