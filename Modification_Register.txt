@@ -20119,3 +20119,77 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-STUDY-ARCHIVE-958 — TYPED TRANSIENT RESULT RECONSTRUCTION
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    StudyResultArchive encoded TransientStabilityResult as a generic
+    dataclass tag because the canonical transient result was absent from the
+    solver-result allowlist. On reload, schema-v1 generic dataclasses became
+    detached dictionaries rather than the canonical typed result. Nested
+    EventExecution records had the same reconstruction gap.
+
+Correction:
+    - Advance new archive writes to schema version 2.
+    - Keep schema-v1 records readable under their historical semantics:
+      generic dataclass tags still decode to detached
+      {"$dataclass": qualified_name, "fields": ...} mappings. No attempt is
+      made to reinterpret old v1 generic payloads as typed results.
+    - Explicitly allowlist TransientStabilityResult as a solver result and
+      EventExecution as a nested event-execution record.
+    - Encode EventExecution using its dedicated event_execution tag and
+      reconstruct only the exact allowlisted class. Unknown classes, wrong
+      tags, missing fields and extra fields fail closed.
+    - Encode NumPy arrays in schema v2 with explicit dtype, shape and data.
+      This preserves zero-row state arrays (for example shape (0, n)) as well
+      as normal time/state arrays without losing dimensions.
+    - Reconstruct TransientStabilityResult through its canonical constructor,
+      restoring finite/dimension validation, read-only NumPy arrays,
+      immutable terminal-voltage/electrical-power mappings and provenance.
+    - Reconstruct every nested EventExecution through its canonical
+      constructor, restoring immutable metadata/action results and all
+      scheduled/dispatch timestamps, status, failure, revision and
+      post-event re-evaluation fields.
+    - Reject generic dataclass fallback for known transient result/event
+      classes in schema v2. No archive-supplied module import or dynamic type
+      loading is used.
+    - Add focused tests for typed result/event round-trip, read-only arrays,
+      immutable event evidence, malformed event/result fields, empty-array
+      shape preservation and schema-v1 legacy mapping semantics.
+    - Update Modification_Register.txt.
+
+Boundary:
+    StudyResultArchive remains the single durable Study Result archive.
+    Study execution results remain outside the canonical .gridforge project
+    configuration package. The explicit class allowlists remain the only
+    reconstruction authority; unknown runtime classes are never imported.
+
+Coordination:
+    - #960 supplies the expanded EventExecution contract reconstructed here.
+    - #955 supplies machine connection-path and switch-transition provenance
+      carried inside transient results/events.
+    - #959 may now consume a canonical typed transient result and its event
+      timeline.
+    - Schema-v1 transient generic dataclass records remain readable as
+      mappings; only schema-v2 records provide canonical typed reconstruction.
+
+Verification:
+    - Source-level inspection of archive schema gate, explicit result/event
+      allowlists, recursive encoder/decoder, NumPy shape handling,
+      TransientStabilityResult validation and EventExecution reconstruction.
+    - Focused round-trip and malformed-payload tests were added as requested.
+    - No tests or CI were run, per project instruction.
+    - Runtime archive v1/v2 loading, checksum validation and typed
+      reconstruction acceptance remain pending.
+
+Status:
+    SCHEMA-V2 TYPED TRANSIENT RESULT AND EVENT RECONSTRUCTION IMPLEMENTED.
+    SCHEMA-V1 LEGACY READ SEMANTICS PRESERVED.
+    RUNTIME / TEST ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
