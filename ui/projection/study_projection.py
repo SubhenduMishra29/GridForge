@@ -196,6 +196,9 @@ class StudyProjection:
         bind_archive_selection = getattr(panel, "set_archive_selection_handler", None)
         if callable(bind_archive_selection):
             bind_archive_selection(self.select_archived_result)
+        bind_archive_comparison = getattr(panel, "set_archive_comparison_handler", None)
+        if callable(bind_archive_comparison):
+            bind_archive_comparison(self.compare_archived_results)
         self._refresh_all_results()
         self._render()
 
@@ -395,6 +398,52 @@ class StudyProjection:
                 archive_setter(tuple(archive_reader()))
             except Exception:
                 _LOGGER.exception("Archived Study Result history refresh failed")
+
+    def compare_archived_results(self, record_ids: tuple[UUID, ...]) -> None:
+        """Render a provenance-aware comparison of exactly two archive records."""
+        if len(record_ids) != 2:
+            self._set_result_details(
+                "Study Result Comparison",
+                ("Select exactly two archived executions, then choose Compare Selected Executions.",),
+            )
+            self._notify_result_changed(None)
+            return
+        compare = getattr(self._application, "compare_archived_study_results", None)
+        if not callable(compare):
+            self._set_result_details("Study Result Comparison", ("Archive comparison is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            result = compare(record_ids[0], record_ids[1])
+        except Exception:
+            _LOGGER.exception("Archived Study Result comparison failed")
+            self._set_result_details("Study Result Comparison", ("The selected executions could not be compared.",))
+            self._notify_result_changed(None)
+            return
+        lines = [
+            f"Compatibility: {'COMPATIBLE' if result.compatible else 'INCOMPATIBLE'}",
+            result.compatibility_message,
+            f"Same source revision: {result.same_source_revision}",
+            f"Same activation generation: {result.same_activation_generation}",
+        ]
+        for label, row in (("LEFT", result.left), ("RIGHT", result.right)):
+            lines.extend((
+                f"--- {label} EXECUTION ---",
+                f"Record: {row.record_id}",
+                f"Saved at (UTC): {row.saved_at}",
+                f"Study Case: {row.study_id}",
+                f"Project: {row.project_id}",
+                f"Activation generation: {row.activation_generation}",
+                f"Source revision: {row.source_revision}",
+                f"Study type/status: {row.study_type} / {row.status}",
+            ))
+            lines.extend(_flatten_result_value(row.value, prefix=f"{label.lower()}.value"))
+            delta_loops = getattr(row, "transformer_delta_loop_currents", ())
+            if delta_loops:
+                lines.append(f"{label} internal delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+                lines.extend(_flatten_result_value(delta_loops, prefix=f"{label.lower()}.delta_loop"))
+        self._set_result_details("Study Result Comparison", tuple(lines))
+        self._notify_result_changed(None)
 
     def select_archived_result(self, record_id: UUID | None) -> None:
         """Inspect a durable execution without projecting it as live SLD data."""
