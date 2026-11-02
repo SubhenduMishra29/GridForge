@@ -189,7 +189,7 @@ _DIRECTIONAL_SNAPSHOT_SEAL = object()
 
 
 @dataclass(frozen=True, slots=True)
-class _AuthoritativeDirectionalSnapshot:
+class AuthoritativeDirectionalSnapshot:
     _seal: object
     element_id: str
     voltage_value: complex
@@ -207,7 +207,7 @@ class _AuthoritativeDirectionalSnapshot:
     runtime_identity: int
 
 
-def _create_authoritative_directional_snapshot(
+def create_authoritative_directional_snapshot(
     *,
     element_id: str,
     voltage_value: complex,
@@ -223,9 +223,16 @@ def _create_authoritative_directional_snapshot(
     activation_generation: int,
     configuration_identity: int,
     runtime_identity: int,
-) -> _AuthoritativeDirectionalSnapshot:
-    """Create a sealed snapshot after Application validates channel provenance."""
-    return _AuthoritativeDirectionalSnapshot(
+) -> AuthoritativeDirectionalSnapshot:
+    """Create a sealed directional sample snapshot for one protection cycle.
+
+    Application is responsible for resolving the active project's measurement
+    channels and validating their sample quality, freshness, identity and
+    activation provenance before calling this factory. The returned immutable
+    record binds those validated phasors and provenance to one protection
+    element; DirectionalRelay accepts only records carrying this Core seal.
+    """
+    return AuthoritativeDirectionalSnapshot(
         _seal=_DIRECTIONAL_SNAPSHOT_SEAL,
         element_id=element_id,
         voltage_value=voltage_value,
@@ -683,7 +690,7 @@ class DirectionalRelay(RelayBase):
     def _authoritative_snapshot(
         self,
         context: ProtectionContext | None,
-    ) -> _AuthoritativeDirectionalSnapshot:
+    ) -> AuthoritativeDirectionalSnapshot:
         """Require an Application-sealed, element-specific phasor snapshot."""
         metadata = getattr(context, "metadata", None) if context is not None else None
         if not isinstance(metadata, Mapping):
@@ -695,7 +702,7 @@ class DirectionalRelay(RelayBase):
                 "caller-supplied angles or provenance are not accepted."
             )
         snapshot = snapshots.get(self.element_id)
-        if not isinstance(snapshot, _AuthoritativeDirectionalSnapshot):
+        if not isinstance(snapshot, AuthoritativeDirectionalSnapshot):
             raise ValueError(f"No authoritative measurement snapshot exists for element {self.element_id!r}.")
         if snapshot._seal is not _DIRECTIONAL_SNAPSHOT_SEAL:
             raise ValueError("Directional measurement snapshot seal is invalid.")
@@ -1283,6 +1290,8 @@ class DirectionalRelay(RelayBase):
 # =====================================================================
 
 __all__ = [
+    "AuthoritativeDirectionalSnapshot",
+    "create_authoritative_directional_snapshot",
     "DirectionalProtectionSettings",
     "DirectionalRelay",
 ]
