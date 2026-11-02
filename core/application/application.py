@@ -129,6 +129,12 @@ class Application:
         if control_signal_mapping is not None and control_service is not None:
             self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._measurement_channel_service = measurement_channel_service
+        self._measurement_sample_unsubscribe = None
+        if self._measurement_channel_service is not None:
+            self._measurement_sample_unsubscribe = self._measurement_channel_service.subscribe_samples(
+                self._on_authenticated_measurement_sample,
+                subscriber_id=f"application-protection-cycle-{id(self)}",
+            )
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
@@ -514,6 +520,55 @@ class Application:
     def measurement_channel_service(self) -> MeasurementChannelService:
         if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
         return self._measurement_channel_service
+
+    def _on_authenticated_measurement_sample(self, attestation: Any, channel: Any) -> Any:
+        """Trigger one live protection evaluation after authenticated sample publication.
+
+        This is an event-driven execution trigger, not a scheduler. Coherent
+        sample timestamps and complete input sets remain mandatory; partial or
+        skewed publication batches return the canonical fail-closed diagnostics.
+        """
+        runtime = getattr(self, "protection_runtime", None)
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if runtime is None or configuration_service is None:
+            return None
+        configuration = getattr(configuration_service, "configuration", None)
+        if configuration is None:
+            return None
+        channel_id = getattr(channel, "id", None)
+        referenced = any(
+            element.enabled and channel_id in element.input_channel_ids.values()
+            for element in configuration.elements
+        ) or any(
+            binding.channel_id == channel_id
+            and any(
+                element.enabled and element.element_id == binding.protection_element_id
+                for element in configuration.elements
+            )
+            for binding in configuration.measurement_bindings
+        )
+        if not referenced:
+            return None
+        try:
+            return self.evaluate_protection_cycle(
+                attestation.timestamp,
+                event_id=f"measurement:{attestation.channel_id}:{attestation.sample_sequence}",
+                event_type="AUTHENTICATED_MEASUREMENT_SAMPLE",
+                evaluation_metadata={
+                    "trigger": "MEASUREMENT_CHANNEL_PUBLICATION",
+                    "producer_id": attestation.producer_id,
+                    "channel_id": attestation.channel_id,
+                    "sample_sequence": attestation.sample_sequence,
+                    "timestamp_domain": attestation.timestamp_domain,
+                },
+            )
+        except Exception as exc:
+            return ProtectionExecutionResult(
+                diagnostics=(
+                    "GF-PROT-042 event-triggered protection cycle failed closed after "
+                    f"authenticated sample publication: {type(exc).__name__}: {exc}",
+                )
+            )
 
     def evaluate_protection_cycle(
         self,
