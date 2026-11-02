@@ -162,11 +162,6 @@ class DistanceProtectionCoverage:
                     f"{end} boundary CT {ct_id!r} external primary side is not conductively connected "
                     f"to configured breaker terminal {breaker_id}:{breaker_role} when the CT is treated as a cut boundary."
                 )
-            # The line-side CT terminal must be in the same committed primary
-            # wire component as the protected Line/Cable terminal.
-            if line_side_terminal not in association.p1_component + association.p2_component:
-                raise ValueError(f"{end} CT line-side primary terminal is not part of its canonical topology component.")
-
         expected_local_ct = self.from_ct_id if self.local_end == "FROM" else self.to_ct_id
         if current_binding.instrument_id != expected_local_ct:
             raise ValueError("ANSI 21 current binding instrument must be the CT at the configured local line end.")
