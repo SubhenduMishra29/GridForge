@@ -19930,3 +19930,52 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-PROT-069 — LIVE PROTECTION PHYSICAL MEASUREMENT BINDING ISOLATION
+======================================================================
+
+Scope:
+    Align canonical live protection input validation with the persisted
+    ProtectionMeasurementBinding contract already consumed by detached
+    Protection Study scenarios.
+
+Corrections:
+    - Require exactly one persisted physical measurement binding for every
+      configured non-derived relay input.
+    - Require the binding channel ID to match the configured RelayInput.
+    - Require measurement type, instrument identity and phase/sequence to
+      match the authoritative MeasurementChannel.
+    - For every enabled live current input, resolve the bound CT from the
+      active project's canonical Network.
+    - Reject a CT that is out of service, has a stale topology revision, or
+      cannot locate the configured measurement endpoint on exactly one of
+      its committed P1/P2 primary connectivity components.
+    - Keep the validation fail-closed in both live Application evaluation
+      and detached Protection Study evaluation through the shared input
+      contract validator.
+
+Architecture and safety:
+    - Reuse ProtectionMeasurementBinding; no duplicate generic binding model
+      or universal ProtectionZone object is introduced.
+    - CT association remains a physical measurement-location result. It does
+      not infer breaker-bounded zone ownership, switching-state reachability,
+      or distance-relay reach.
+    - ANSI 21 remains PARTIAL / unsupported by the canonical execution gate
+      until voltage/current phasor pairing, impedance base and units,
+      direction/polarization and zone characteristics are specified.
+    - GF-PROT-042 remains open: this change does not create a production
+      scheduler or claim end-to-end live cycle triggering/acknowledgement.
+
+Verification:
+    - Source-level inspection of the modified Application and Core paths.
+    - No tests or CI were run, per project instruction.
+    - Syntax/import checks and runtime project fixtures remain unverified.
+
+Status:
+    LIVE INPUT-TO-INSTRUMENT BINDING AND CT PRIMARY-SIDE ASSOCIATION
+    VALIDATION IMPLEMENTED IN SOURCE; SWITCHING-AWARE PROTECTION-ZONE
+    OWNERSHIP AND ANSI 21 REMAIN OPEN.
+
+======================================================================
