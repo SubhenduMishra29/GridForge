@@ -670,7 +670,12 @@ class Application:
         return result
 
     def run_measurement_watchdog(self) -> tuple[dict[str, Any], ...]:
-        """Poll required live inputs for missing/stale data; never issues a trip."""
+        """Poll required live inputs under the shared Application execution lock."""
+        with self._execution_lock:
+            return self._run_measurement_watchdog_locked()
+
+    def _run_measurement_watchdog_locked(self) -> tuple[dict[str, Any], ...]:
+        """Inspect missing/stale data without mutating Core or issuing a trip."""
         lifecycle = self.project_lifecycle
         project = lifecycle.context
         configuration_service = self.protection_configuration_service
@@ -773,6 +778,7 @@ class Application:
                     or status.activation_generation != pending_generation
                 ):
                     self._pending_field_device_commands.pop(command_id, None)
+                    self._completed_field_device_commands.add(command_id)
                     status = replace(
                         status,
                         diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
@@ -808,6 +814,7 @@ class Application:
                             )
                         self._completed_field_device_commands.add(command_id)
                     except Exception as exc:
+                        self._completed_field_device_commands.add(command_id)
                         status = replace(
                             status,
                             diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
