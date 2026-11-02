@@ -30,6 +30,7 @@ class TransientEventState:
     ) -> dict[str, object]:
         breaker_id = str(breaker_id)
         previous_state = self.breaker_states.get(breaker_id)
+        pre_revision = self.topology_revision
         if closed and breaker_id in self.snapshot.switch_available_states and not self.snapshot.switch_available_states[breaker_id]:
             raise ValueError(
                 f"Cannot close switching target '{breaker_id}': it is failed, out of service, "
@@ -49,11 +50,13 @@ class TransientEventState:
             previous_state=previous_state,
             new_state=bool(closed),
             previous_machine_states=previous_machine_states,
+            pre_event_revision=pre_revision,
         )
 
     def set_equipment(self, equipment_id: str, conducting: bool) -> dict[str, object]:
         key = str(equipment_id)
         previous_state = self.breaker_states.get(key, self.equipment_states.get(key))
+        pre_revision = self.topology_revision
         if conducting and key in self.snapshot.switch_available_states and not self.snapshot.switch_available_states[key]:
             raise ValueError(
                 f"Cannot restore switching target '{key}': it is failed, out of service, "
@@ -73,6 +76,7 @@ class TransientEventState:
             previous_state=previous_state,
             new_state=bool(conducting),
             previous_machine_states=previous_machine_states,
+            pre_event_revision=pre_revision,
         )
 
     def is_machine_connected(self, machine_id: str) -> bool:
@@ -98,6 +102,7 @@ class TransientEventState:
         previous_state: bool | None,
         new_state: bool,
         previous_machine_states: dict[str, bool],
+        pre_event_revision: int | None,
     ) -> dict[str, object]:
         machine_transitions = {
             machine_id: {
@@ -108,26 +113,54 @@ class TransientEventState:
             for machine_id, previous_state_for_machine in previous_machine_states.items()
         }
         return {
+            "transition_type": "switch_close" if new_state else "switch_open",
             "switch_id": switch_id,
             "previous_switch_state": previous_state,
             "new_switch_state": new_state,
             "switch_available": self.snapshot.switch_available_states.get(switch_id),
             "machine_transitions": machine_transitions,
             "source_topology_revision": self.snapshot.topology_revision,
+            "pre_event_revision": pre_event_revision,
+            "post_event_revision": self.topology_revision,
             "detached_network_revision": self.topology_revision,
         }
 
-    def apply_fault(self, fault: object) -> None:
+    def apply_fault(self, fault: object) -> dict[str, object]:
         if self.active_fault is not None:
             raise ValueError("A transient fault is already active.")
+        pre_revision = self.topology_revision
         self.active_fault = fault
         self._advance_revision()
+        return {
+            "transition_type": "fault_apply",
+            "fault_id": str(getattr(fault, "fault_id", "")) or None,
+            "fault_type": str(getattr(getattr(fault, "fault_type", None), "value", getattr(fault, "fault_type", type(fault).__name__))),
+            "fault_bus_id": str(getattr(fault, "bus_id", "")) or None,
+            "previous_fault_active": False,
+            "new_fault_active": True,
+            "source_topology_revision": self.snapshot.topology_revision,
+            "pre_event_revision": pre_revision,
+            "post_event_revision": self.topology_revision,
+        }
 
-    def clear_fault(self) -> None:
+    def clear_fault(self) -> dict[str, object]:
         if self.active_fault is None:
             raise ValueError("Cannot clear a transient fault when no fault is active.")
+        previous_fault = self.active_fault
+        pre_revision = self.topology_revision
         self.active_fault = None
         self._advance_revision()
+        return {
+            "transition_type": "fault_clear",
+            "fault_id": str(getattr(previous_fault, "fault_id", "")) or None,
+            "fault_type": str(getattr(getattr(previous_fault, "fault_type", None), "value", getattr(previous_fault, "fault_type", type(previous_fault).__name__))),
+            "fault_bus_id": str(getattr(previous_fault, "bus_id", "")) or None,
+            "previous_fault_active": True,
+            "new_fault_active": False,
+            "source_topology_revision": self.snapshot.topology_revision,
+            "pre_event_revision": pre_revision,
+            "post_event_revision": self.topology_revision,
+        }
 
     def is_conducting(self, equipment_id: str, default: bool = True) -> bool:
         return self.equipment_states.get(str(equipment_id), default)
