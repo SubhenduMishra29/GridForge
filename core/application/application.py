@@ -780,6 +780,16 @@ class Application:
                     self._pending_field_device_commands.pop(command_id, None)
                     try:
                         with self._execution_lock:
+                            current_lifecycle = self.project_lifecycle
+                            current_project = current_lifecycle.context
+                            if (
+                                current_lifecycle.state != "ACTIVE" or current_project is None
+                                or current_project.project_id != pending_project_id
+                                or current_lifecycle.activation_generation != pending_generation
+                            ):
+                                raise StaleProtectionExecutionError(
+                                    "project activation changed before applying the acknowledged device command"
+                                )
                             application_result = self.execute(pending_command)
                         if not application_result.success:
                             status = replace(
