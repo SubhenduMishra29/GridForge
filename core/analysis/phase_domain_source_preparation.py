@@ -1,9 +1,10 @@
 """Fail-closed source primitive preparation for the physical phase-domain solver.
 
-Only canonical, in-service Grid and Generator models with complete explicit
-sequence construction data are admitted. Per-unit impedances are converted
-from their declared equipment bases to SI ohms before symmetrical-component
-transformation. No load-flow or nameplate quantity is used as a substitute.
+Only canonical, in-service Grid/Generator models and running Motor models
+with complete explicit sequence construction data are admitted. Per-unit
+impedances are converted from declared equipment bases to SI ohms before
+symmetrical-component transformation. No load-flow or nameplate quantity is
+used as a substitute.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from typing import Any
 
 from core.model.generator import Generator
 from core.model.grid import Grid
+from core.model.motor import Motor
 from core.network.phase_domain_conductor_network import (
     PhaseDomainConductorNetwork,
     PhaseDomainNodeKind,
@@ -61,11 +63,13 @@ def prepare_phase_domain_source_equivalents(
     network: Any,
     graph: PhaseDomainConductorNetwork,
 ) -> tuple[PhaseDomainMultiConductorSource | PhaseDomainGroundedMultiConductorSource, ...]:
-    """Derive ABC source primitives from registered Grid/Generator models.
+    """Derive ABC source primitives from registered Grid/Generator and running Motor models.
 
     A source must have one canonical terminal, exactly one A/B/C graph node
     for that terminal, an endpoint Bus with a matching declared impedance
     voltage base, and complete Z0/Z1/Z2 plus explicit source voltage data.
+    Running Motors use locked-rotor Z1 and require an explicit physical
+    neutral/electrode path; their dynamic decay is not represented here.
     Grid and Generator Z0 values represent source-internal zero-sequence
     impedance only; each source neutral grounding impedance is represented
     by a separate physical GROUND_ELECTRODE connection.
@@ -76,19 +80,17 @@ def prepare_phase_domain_source_equivalents(
         node for node in graph.nodes
         if node.kind is PhaseDomainNodeKind.EQUIPMENT_TERMINAL
     )
-    for motor in tuple(network.motors):
-        if getattr(motor, "in_service", None) is True and getattr(motor, "running", None) is True:
-            motor_id = str(getattr(motor, "id", "<unknown>"))
-            raise ValueError(f"Running Motor {motor_id!r} has no validated phase-domain source decay model; automatic source preparation fails closed.")
-    supported_equipment = tuple(network.grids) + tuple(network.generators)
+    supported_equipment = tuple(network.grids) + tuple(network.generators) + tuple(network.motors)
     sources: list[PhaseDomainMultiConductorSource | PhaseDomainGroundedMultiConductorSource] = []
     for equipment in supported_equipment:
         equipment_id = str(getattr(equipment, "id", ""))
         if not equipment_id or network.get_by_identity(equipment_id) is not equipment:
-            raise ValueError("Automatic phase-domain source preparation requires canonical registered Grid/Generator objects.")
+            raise ValueError("Automatic phase-domain source preparation requires canonical registered source objects.")
         if getattr(equipment, "in_service", None) is not True:
             continue
-        if not isinstance(equipment, (Grid, Generator)):
+        if isinstance(equipment, Motor) and equipment.running is not True:
+            continue
+        if not isinstance(equipment, (Grid, Generator, Motor)):
             raise TypeError(f"Unsupported registered source model for {equipment_id!r}.")
         terminals = tuple(getattr(equipment, "terminals", ()) or ())
         if len(terminals) != 1 or terminals[0].owner is not equipment or terminals[0].role != "terminal":
@@ -116,7 +118,7 @@ def prepare_phase_domain_source_equivalents(
             if any(value is None for value in (z1_pu, z2_pu, z0_pu)):
                 raise ValueError(f"Grid source {equipment_id!r} requires explicit Z1, Z2 and Z0; short-circuit MVA alone is insufficient.")
             internal_voltage_pu = float(voltage_pu)
-        else:
+        elif isinstance(equipment, Generator):
             if equipment.neutral_grounded is not True:
                 raise ValueError(f"Generator source {equipment_id!r} neutral is not explicitly grounded; zero-sequence source return is unavailable.")
             z1_pu, z2_pu, z0_pu = equipment.z1_subtransient_pu, equipment.z2_pu, equipment.z0_pu
@@ -124,6 +126,14 @@ def prepare_phase_domain_source_equivalents(
             angle_deg = equipment.short_circuit_internal_angle_deg
             if any(value is None for value in (z1_pu, z2_pu, z0_pu, internal_voltage_pu)):
                 raise ValueError(f"Generator source {equipment_id!r} requires explicit subtransient Z1, Z2, Z0 and internal voltage.")
+        else:
+            # Static initial fault-source equivalent only: motor decay and
+            # rotor-flux time constants are not inferred from locked-rotor Z.
+            z1_pu, z2_pu, z0_pu = equipment.locked_rotor_z1_pu, equipment.z2_pu, equipment.z0_pu
+            internal_voltage_pu = equipment.short_circuit_internal_voltage_pu
+            angle_deg = equipment.short_circuit_internal_angle_deg
+            if any(value is None for value in (z1_pu, z2_pu, z0_pu, internal_voltage_pu)):
+                raise ValueError(f"Running Motor source {equipment_id!r} requires explicit locked-rotor Z1, Z2, Z0 and internal voltage.")
         z_base = (base_kv * 1000.0) ** 2 / (base_mva * 1.0e6)
         z1 = _finite_complex(z1_pu, f"{equipment_id}.Z1") * z_base
         z2 = _finite_complex(z2_pu, f"{equipment_id}.Z2") * z_base
@@ -138,13 +148,7 @@ def prepare_phase_domain_source_equivalents(
         if any(node.equipment_id != equipment_id or node.terminal_role != "terminal" for node in nodes if node.node_id in phase_nodes.values()):
             raise ValueError(f"Source {equipment_id!r} graph nodes do not match its canonical terminal.")
         neutral_node_id = None
-        if isinstance(equipment, (Grid, Generator)):
-            zn = equipment.neutral_grounding_impedance_ohm
-            if zn is None:
-                raise ValueError(f"Grounded source {equipment_id!r} requires explicit neutral grounding impedance.")
-            zn = complex(zn)
-            if not math.isfinite(zn.real) or not math.isfinite(zn.imag) or zn.real < 0.0 or zn == 0j:
-                raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must be finite and non-zero; ideal grounding current is not individually resolvable.")
+        if isinstance(equipment, (Grid, Generator, Motor)):
             neutral_matches = [node for node in nodes if node.equipment_id == equipment_id and node.terminal_role == "terminal" and node.conductor_role == "N"]
             if len(neutral_matches) != 1:
                 raise ValueError(f"Grounded source {equipment_id!r} requires exactly one explicit N equipment-terminal graph node.")
@@ -153,8 +157,19 @@ def prepare_phase_domain_source_equivalents(
             if len(grounding_edges) != 1:
                 raise ValueError(f"Source {equipment_id!r} requires exactly one source-referenced neutral GROUND_ELECTRODE connection.")
             grounding_edge = grounding_edges[0]
-            if not math.isclose(grounding_edge.impedance_ohm.real, zn.real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(grounding_edge.impedance_ohm.imag, zn.imag, rel_tol=1e-9, abs_tol=1e-12):
-                raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must match its physical GROUND_ELECTRODE connection.")
+            if isinstance(equipment, Motor):
+                # The Motor model has no independent neutral-grounding field;
+                # the exact physical graph edge is the grounding authority.
+                zn = grounding_edge.impedance_ohm
+            else:
+                zn = equipment.neutral_grounding_impedance_ohm
+                if zn is None:
+                    raise ValueError(f"Grounded source {equipment_id!r} requires explicit neutral grounding impedance.")
+                zn = complex(zn)
+                if not math.isclose(grounding_edge.impedance_ohm.real, zn.real, rel_tol=1e-9, abs_tol=1e-12) or not math.isclose(grounding_edge.impedance_ohm.imag, zn.imag, rel_tol=1e-9, abs_tol=1e-12):
+                    raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must match its physical GROUND_ELECTRODE connection.")
+            if not math.isfinite(zn.real) or not math.isfinite(zn.imag) or zn.real < 0.0 or zn == 0j:
+                raise ValueError(f"Source {equipment_id!r} neutral grounding impedance must be finite and non-zero; ideal grounding current is not individually resolvable.")
             earth_node_id = grounding_edge.to_node_id if grounding_edge.from_node_id == neutral_node_id else grounding_edge.from_node_id
             if graph.node(earth_node_id).kind is not PhaseDomainNodeKind.EARTH_NODE or not graph.earth_reachable(earth_node_id):
                 raise ValueError(f"Source {equipment_id!r} requires a local EARTH_NODE with an explicit path to EARTH_REFERENCE.")
@@ -167,12 +182,12 @@ def prepare_phase_domain_source_equivalents(
             phase_voltage_base * float(internal_voltage_pu) * cmath.exp(1j * (angle + offset))
             for offset in phase_angles
         )
-        if isinstance(equipment, (Grid, Generator)):
+        if isinstance(equipment, (Grid, Generator, Motor)):
             sources.append(PhaseDomainGroundedMultiConductorSource(source_id=equipment_id, phase_node_ids=tuple(phase_nodes[phase] for phase in ("A", "B", "C")), neutral_node_id=neutral_node_id, internal_phase_voltage_v=voltages, phase_impedance_matrix_ohm=zabc))
         else:
             sources.append(PhaseDomainMultiConductorSource(source_id=equipment_id, node_ids=tuple(phase_nodes[phase] for phase in ("A", "B", "C")), internal_voltage_v=voltages, impedance_matrix_ohm=zabc))
     if not sources:
-        raise ValueError("No supported in-service Grid/Generator source with complete explicit phase-domain construction data was found.")
+        raise ValueError("No supported in-service Grid/Generator or running Motor source with complete explicit phase-domain construction data was found.")
     return tuple(sources)
 
 
