@@ -570,6 +570,10 @@ class Application:
             return ProtectionExecutionResult(diagnostics=(
                 "GF-PROT-042 authenticated sample received, but active protection configuration/runtime authority is unavailable.",
             ))
+        if self._protection_execution_audit_store is None:
+            return ProtectionExecutionResult(diagnostics=(
+                "GF-PROT-042 live protection execution refused: durable cycle idempotency/audit storage is not configured.",
+            ))
         channel_id = getattr(channel, "id", None)
         referenced = any(
             element.enabled and channel_id in element.input_channel_ids.values()
