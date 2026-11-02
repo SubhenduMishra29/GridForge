@@ -9,6 +9,9 @@ from __future__ import annotations
 from typing import Callable, Iterable
 from uuid import UUID
 
+from ui.panels.transient_result_view import TransientResultViewWidget
+from core.application.read_models import TransientResultPresentationReadModel
+
 from ui.core.qt import (
     QComboBox, QFormLayout, QLabel, QLineEdit, QListWidget,
     QPushButton, QVBoxLayout, QWidget,
@@ -69,6 +72,7 @@ class StudyCasesPanelWidget(QWidget):
 
         self._result_heading = QLabel("Study Results", self)
         self._result_list = QListWidget(self)
+        self._transient_result_view = TransientResultViewWidget(self)
         self._archive_heading = QLabel("Archived Executions", self)
         self._archive_search = QLineEdit(self)
         self._archive_search.setPlaceholderText("Search archived Study Case, type, status or record ID…")
@@ -92,6 +96,7 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._run)
         layout.addWidget(self._result_heading)
         layout.addWidget(self._result_list)
+        layout.addWidget(self._transient_result_view)
         layout.addWidget(self._archive_heading)
         layout.addWidget(self._archive_search)
         layout.addWidget(self._archive_list)
@@ -224,7 +229,22 @@ class StudyCasesPanelWidget(QWidget):
         if self._archive_selection_handler is not None:
             self._archive_selection_handler(self.selected_archived_record_id())
 
+    def set_transient_result(self, result: TransientResultPresentationReadModel) -> None:
+        """Display complete aligned transient samples and their event timeline."""
+        self._result_heading.setText(
+            "Archived Transient Stability Result"
+            if result.historical
+            else "Transient Stability Result"
+        )
+        self._result_list.clear()
+        self._result_list.addItem(
+            "Complete engineering series and event history are shown below."
+        )
+        self._transient_result_view.set_result(result)
+        self._transient_result_view.setVisible(True)
+
     def set_result_details(self, title: str, lines: Iterable[str]) -> None:
+        self._transient_result_view.setVisible(False)
         self._result_heading.setText(str(title))
         self._result_list.clear()
         values = tuple(str(line) for line in lines)
