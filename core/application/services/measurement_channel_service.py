@@ -92,6 +92,7 @@ class MeasurementChannelService:
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
+        self._sample_subscribers: dict[str, Callable[[MeasurementSampleAttestation, MeasurementChannel], Any]] = {}
 
     def bind_execution_lock(self, execution_lock: Any) -> None:
         """Use the Application command lock so publication cannot race breaker authorization."""
@@ -130,6 +131,28 @@ class MeasurementChannelService:
         for channel_id in channel_ids:
             self.require(channel_id)
 
+    def subscribe_samples(
+        self,
+        callback: Callable[[MeasurementSampleAttestation, MeasurementChannel], Any],
+        *,
+        subscriber_id: str,
+    ) -> Callable[[], None]:
+        """Register one Application-owned callback for authenticated sample publication."""
+        if not isinstance(subscriber_id, str) or not subscriber_id.strip():
+            raise ValueError("subscriber_id must be a non-empty string.")
+        if not callable(callback):
+            raise TypeError("sample publication callback must be callable.")
+        key = subscriber_id.strip()
+        if key in self._sample_subscribers:
+            raise ValueError(f"Measurement sample subscriber already registered: {key!r}.")
+        self._sample_subscribers[key] = callback
+
+        def unsubscribe() -> None:
+            if self._sample_subscribers.get(key) is callback:
+                self._sample_subscribers.pop(key, None)
+
+        return unsubscribe
+
     def publish_sample(
         self,
         channel_id: str,
@@ -138,7 +161,7 @@ class MeasurementChannelService:
         attestation: MeasurementSampleAttestation,
         quality: MeasurementQuality,
         available: bool = True,
-    ) -> None:
+    ) -> tuple[Any, ...]:
         """Publish only a signed, project-bound sample with trusted clock validation.
 
         The deployment verifier must authenticate producer identity and the
@@ -192,6 +215,14 @@ class MeasurementChannelService:
                 available=available,
                 sample_sequence=attestation.sample_sequence,
             )
+
+        # The sample is authenticated and committed before consumers are
+        # notified. Callbacks run outside the measurement lock so Application
+        # evaluation cannot hold the producer publication critical section.
+        outcomes = []
+        for subscriber_id, callback in tuple(sorted(self._sample_subscribers.items())):
+            outcomes.append((subscriber_id, callback(attestation, channel)))
+        return tuple(outcomes)
 
     def activate(
         self,
