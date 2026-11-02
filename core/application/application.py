@@ -592,12 +592,24 @@ class Application:
                 f"Duplicate protection cycle suppressed while in flight: {cycle_key!r}.",
             ))
         self._protection_cycle_inflight.add(cycle_key)
+        event_id = f"measurement:{attestation.project_id}:{attestation.activation_generation}:{attestation.channel_id}:{attestation.sample_sequence}"
         try:
-            # Use the trusted Application clock, not the producer timestamp, as
-            # evaluation time. The producer timestamp remains in the attestation
-            # and the input snapshot freshness check.
+            # Reserve the authenticated sample identity durably before evaluating
+            # or dispatching any protection command. A process restart therefore
+            # cannot replay the same sample into a second trip command.
             evaluation_time = self.measurement_channel_service.trusted_now()
-            event_id = f"measurement:{attestation.project_id}:{attestation.activation_generation}:{attestation.channel_id}:{attestation.sample_sequence}"
+            if self._protection_execution_audit_store is not None:
+                claimed = self._protection_execution_audit_store.claim_cycle(
+                    project_id=attestation.project_id,
+                    activation_generation=attestation.activation_generation,
+                    event_id=event_id,
+                    occurred_at=evaluation_time,
+                    attestation=attestation,
+                )
+                if not claimed:
+                    return ProtectionExecutionResult(diagnostics=(
+                        f"Duplicate authenticated protection cycle refused by durable idempotency ledger: {event_id}",
+                    ))
             result = self.evaluate_protection_cycle(
                 evaluation_time,
                 event_id=event_id,
@@ -612,7 +624,6 @@ class Application:
                 },
             )
         except Exception as exc:
-            event_id = f"measurement:{attestation.project_id}:{attestation.activation_generation}:{attestation.channel_id}:{attestation.sample_sequence}"
             result = ProtectionExecutionResult(diagnostics=(
                 "GF-PROT-042 event-triggered protection cycle failed closed after authenticated sample publication: "
                 f"{type(exc).__name__}: {exc}",
