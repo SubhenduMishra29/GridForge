@@ -49,6 +49,12 @@ class TransientStabilityResult:
             raise ValueError("Every recorded time sample must have one electrical-power output sample.")
         if self.algebraic_quality and len(self.algebraic_quality) != time.shape[0]:
             raise ValueError("Every recorded time sample must have one algebraic quality record.")
+        if self.algebraic_quality:
+            for sample_time, quality in zip(time, self.algebraic_quality):
+                if quality.simulation_time is None or not np.isclose(
+                    quality.simulation_time, sample_time, rtol=0.0, atol=1e-12
+                ):
+                    raise ValueError("Algebraic quality metadata must match its recorded simulation-time sample.")
         if not np.all(np.isfinite(time)) or not np.all(np.isfinite(states)):
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
