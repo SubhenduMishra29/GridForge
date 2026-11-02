@@ -19979,3 +19979,81 @@ Status:
     OWNERSHIP AND ANSI 21 REMAIN OPEN.
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-070 — SWITCHING-AWARE REACHABILITY, ANSI 21 COVERAGE AND LIVE TRIGGER
+======================================================================
+
+1. Switching-aware conductive reachability
+    - Added ConductiveReachabilityResolver over canonical Network collections.
+    - Composes committed SimpleWire/Junction edges with internal conductive
+      paths through in-service closed breakers/switches/disconnectors, intact
+      fuses, in-service CT primary paths, and in-service two-terminal
+      Lines/Cables.
+    - Open/failed/out-of-service switching devices contribute no internal
+      conductive edge.
+    - Transformer windings are not treated as one galvanic conductor path.
+    - Supports explicit equipment exclusion when proving a CT boundary cut.
+    - Returns deterministic paths with topology revision provenance.
+
+2. Breaker-bounded ANSI 21 physical coverage
+    - Added typed DistanceProtectionCoverage, stored in the ANSI 21 element
+      metadata as distance_coverage.
+    - Requires explicit protected Line/Cable, distinct FROM/TO CTs and
+      breakers, CT line-side polarity, breaker terminal references, local
+      line end, and current/voltage binding identities.
+    - Validates each CT's declared line side against committed CT primary
+      topology and proves its external side reaches the declared breaker
+      terminal while excluding the CT's internal conductive path.
+    - Verifies the local current binding and local PT/CVT primary voltage
+      association against the active Network.
+    - Coverage is physical equipment ownership; ANSI 21 Zone 1/2/3 remain
+      impedance-reach/time characteristics, not separate physical zones.
+
+3. ANSI 21 voltage/current pairing and impedance basis
+    - The input contract now admits the baseline ANSI 21 V/I input shape
+      only with explicit impedance_unit='ohm',
+      measurement_reference_basis='PRIMARY', and
+      voltage_current_pairing='SAME_PHASE_TO_NEUTRAL'.
+    - Physical voltage/current bindings must declare primary reference basis.
+    - Live evaluation requires distinct complex phasors, same A/B/C phase,
+      exact sample timestamp coherence, and non-zero usable magnitudes.
+    - Typed DistanceProtectionSettings carries the required basis fields.
+    - ANSI 21 catalog status remains PARTIAL; the existing baseline
+      magnitude-only characteristic is not promoted to a production
+      directional distance function. Factory continues to fail closed for
+      PARTIAL functions pending directional supervision/characteristic work.
+
+4. GF-PROT-042 event-driven live cycle execution
+    - MeasurementChannelService now exposes authenticated sample publication
+      subscriptions and notifies subscribers only after signature, producer,
+      project, activation generation, timestamp and monotonic sequence checks
+      and after the sample has been committed.
+    - Application subscribes and invokes evaluate_protection_cycle for every
+      authenticated sample on an enabled protection input.
+    - Incoherent or incomplete V/I publication sets fail closed through the
+      existing timestamp/quality/freshness gates.
+    - Existing persisted function-to-target mapping and Application command
+      dispatch path are used; no fabricated field-device acknowledgement is
+      emitted. Core-state postcondition is not device acknowledgement.
+
+Limitations / safety:
+    - This is an event-driven trigger from the authenticated measurement
+      publication path, not a periodic scheduler. A deployment source must
+      publish each required channel with a coherent timestamp and configured
+      trusted verifier/clock.
+    - ANSI 21 remains PARTIAL and cannot be composed by the canonical factory
+      until directional supervision and a production-grade characteristic
+      are implemented.
+    - No universal ProtectionZone model was added.
+    - No tests or CI were run. Source-level review only; syntax/import and
+      runtime electrical fixtures remain unverified.
+
+Status:
+    SWITCHING-AWARE REACHABILITY AND EXPLICIT BREAKER/CT COVERAGE CONTRACT
+    ADDED; ANSI 21 BASIS/PAIRING GATES ADDED; GF-PROT-042 NOW HAS AN
+    AUTHENTICATED EVENT-DRIVEN APPLICATION CYCLE TRIGGER. PRODUCTION
+    DIRECTIONAL ANSI 21 AND DEPLOYMENT SOURCE INTEGRATION REMAIN OPEN.
+
+======================================================================
