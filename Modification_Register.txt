@@ -19930,3 +19930,50 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-TS-EVENT-954 — DISPATCH EVENTS DUE AT CURRENT SIMULATION TIME
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    TransientStabilitySolver.run() dispatched initial-time events only when
+    record_initial=True. With record_initial=False, next_event_time() excluded
+    events at or within the scheduler tolerance of the current time, allowing
+    them to remain pending while simulation time advanced. The incremental
+    step() API shared the same omission.
+
+Correction:
+    - Add one solver-owned _process_due_events() boundary helper.
+    - Dispatch EventManager.process(current_time) independently of sample
+      recording, both at run initialization and before each integration step.
+    - Dispatch due events before next-future-event lookup in step().
+    - Re-evaluate the algebraic DAE state at the current time after any due
+      event action so event state changes are reflected before integration.
+    - Reuse EventManager's existing tolerance and deterministic event ordering;
+      no second scheduler or altered event priority policy is introduced.
+
+Tolerance policy:
+    An event is due when its scheduled time is at or before
+    current_time + EventManager.tolerance. This permits early dispatch only
+    inside the already configured tolerance window. Events outside that window
+    remain future events and are integrated to as explicit boundaries.
+
+Boundary:
+    EventManager remains the authoritative event scheduler. This correction
+    does not change EventExecution schema, failure propagation, event
+    persistence or transient result contracts.
+
+Verification:
+    - Source-level inspection of run(), step(), EventManager.process() and
+      next_event_time().
+    - No tests or CI were run, per project instruction.
+    - Runtime comparison of run()/step() dispatch traces remains pending.
+
+Status:
+    CURRENT-TIME EVENT DISPATCH CORRECTION IMPLEMENTED IN SOURCE.
+    RUNTIME EVENT-TRACE ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
