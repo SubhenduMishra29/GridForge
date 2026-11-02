@@ -147,7 +147,16 @@ def _encode_value(value: Any) -> Any:
     if isinstance(value, Enum):
         return {"$type": "enum", "class": _qualified_name(value), "value": _encode_value(value.value)}
     if isinstance(value, np.ndarray):
-        return _encode_value(value.tolist())
+        if value.dtype.kind not in "biufc" or value.dtype.hasobject:
+            raise StudyResultArchiveError(
+                f"Study Result contains an unsupported NumPy array dtype: {value.dtype}."
+            )
+        return {
+            "$type": "ndarray",
+            "dtype": value.dtype.str,
+            "shape": list(value.shape),
+            "data": _encode_value(value.tolist()),
+        }
     if isinstance(value, np.generic):
         return _encode_value(value.item())
     if isinstance(value, Mapping):
@@ -196,6 +205,27 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             )
     if kind in {"solver_result", "event_execution"} and set(value) != {"$type", "class", "fields"}:
         raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
+    if kind == "ndarray":
+        if schema_version < 2:
+            raise StudyResultArchiveError("NumPy ndarray tags require Study Result archive schema v2.")
+        if set(value) != {"$type", "dtype", "shape", "data"}:
+            raise StudyResultArchiveError("Persisted NumPy ndarray tag contains missing or unknown fields.")
+        try:
+            dtype = np.dtype(value["dtype"])
+            shape_data = value["shape"]
+            if dtype.kind not in "biufc" or dtype.hasobject:
+                raise ValueError("unsupported numeric dtype")
+            if not isinstance(shape_data, list) or any(
+                isinstance(item, bool) or not isinstance(item, int) or item < 0
+                for item in shape_data
+            ):
+                raise ValueError("invalid array shape")
+            decoded_data = _decode_value(value["data"], schema_version=schema_version)
+            array = np.asarray(decoded_data, dtype=dtype)
+            array = array.reshape(tuple(shape_data))
+            return array
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise StudyResultArchiveError(f"Persisted NumPy ndarray payload is invalid: {exc}") from exc
     if kind == "float" and set(value) == {"$type", "value"}:
         special = value["value"]
         if special == "nan":
