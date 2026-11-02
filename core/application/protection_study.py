@@ -34,6 +34,14 @@ from core.protection.configuration_fingerprint import canonical_configuration_va
 from core.protection.decision import ProtectionDecision
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.protection.runtime import ProtectionRuntime
+from core.protection.coordination_grading import (
+    CoordinationRelayCharacteristic,
+    CoordinationPair as ProtectionCoordinationPair,
+    FaultCurrentScenario,
+    RelayOperatingTimeEnvelope,
+    ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
 
 
 def _freeze_mapping(value: Any, field_name: str) -> Any:
@@ -54,12 +62,96 @@ def _freeze_mapping(value: Any, field_name: str) -> Any:
     return value
 
 
+
+@dataclass(frozen=True, slots=True)
+class ProtectionCoordinationTimingEnvelopeConfiguration:
+    """Manufacturer/test timing bounds tied to one function and exact scenario current."""
+
+    function_id: str
+    current_a: float
+    minimum_time_s: float
+    maximum_time_s: float
+    evidence_reference: str
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "evidence_reference"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("current_a", "minimum_time_s", "maximum_time_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"{name} must be numeric.") from exc
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        if self.current_a <= 0.0:
+            raise ValueError("current_a must be positive for an inverse-time timing envelope.")
+        if self.maximum_time_s < self.minimum_time_s:
+            raise ValueError("maximum_time_s must be >= minimum_time_s.")
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionCoordinationPairConfiguration:
+    """Explicit Application binding from two protection functions to scenario CT samples."""
+
+    downstream_element_id: str
+    upstream_element_id: str
+    downstream_binding_id: str
+    upstream_binding_id: str
+    downstream_breaker_clearing_time_s: float
+    required_cti_s: float
+    downstream_breaker_clearing_time_max_s: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "downstream_element_id", "upstream_element_id",
+            "downstream_binding_id", "upstream_binding_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if self.downstream_element_id == self.upstream_element_id:
+            raise ValueError("A coordination pair must reference two different protection functions.")
+        if self.downstream_binding_id == self.upstream_binding_id:
+            raise ValueError("A coordination pair must use distinct downstream and upstream measurement bindings.")
+        for name in ("downstream_breaker_clearing_time_s", "required_cti_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"{name} must be numeric.") from exc
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        maximum = self.downstream_breaker_clearing_time_max_s
+        if maximum is not None:
+            if isinstance(maximum, bool):
+                raise TypeError("downstream_breaker_clearing_time_max_s must be numeric, not bool.")
+            try:
+                maximum = float(maximum)
+            except (TypeError, ValueError) as exc:
+                raise TypeError("downstream_breaker_clearing_time_max_s must be numeric.") from exc
+            if not isfinite(maximum) or maximum < self.downstream_breaker_clearing_time_s:
+                raise ValueError("Maximum breaker clearing time must be finite and >= nominal clearing time.")
+            object.__setattr__(self, "downstream_breaker_clearing_time_max_s", maximum)
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionFaultScenario:
     """One explicitly configured fault case evaluated from a detached project snapshot."""
 
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
+    coordination_timing_envelopes: tuple[ProtectionCoordinationTimingEnvelopeConfiguration, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -67,6 +159,13 @@ class ProtectionFaultScenario:
         object.__setattr__(self, "scenario_id", self.scenario_id.strip())
         if not isinstance(self.configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
+        envelopes = tuple(self.coordination_timing_envelopes)
+        if any(not isinstance(item, ProtectionCoordinationTimingEnvelopeConfiguration) for item in envelopes):
+            raise TypeError("coordination_timing_envelopes must contain typed timing-envelope configurations.")
+        function_ids = tuple(item.function_id for item in envelopes)
+        if len(set(function_ids)) != len(function_ids):
+            raise ValueError("A fault scenario may declare only one timing envelope per function.")
+        object.__setattr__(self, "coordination_timing_envelopes", envelopes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +177,8 @@ class ProtectionFaultScenarioResult:
     short_circuit_result: ShortCircuitResult
     execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
     relay_evaluation_completed: bool = False
+    coordination_report: ProtectionCoordinationReport | None = None
+    coordination_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -91,6 +192,10 @@ class ProtectionFaultScenarioResult:
             raise TypeError("execution must be a ProtectionExecutionResult.")
         if not isinstance(self.relay_evaluation_completed, bool):
             raise TypeError("relay_evaluation_completed must be a boolean.")
+        if self.coordination_report is not None and not isinstance(self.coordination_report, ProtectionCoordinationReport):
+            raise TypeError("coordination_report must be ProtectionCoordinationReport or None.")
+        diagnostics = tuple(str(item) for item in self.coordination_diagnostics)
+        object.__setattr__(self, "coordination_diagnostics", diagnostics)
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -123,7 +228,7 @@ class ProtectionFaultScenarioResult:
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return tuple(self.short_circuit_result.diagnostics)
+        return tuple(self.short_circuit_result.diagnostics) + tuple(self.coordination_diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +249,7 @@ class ProtectionStudyConfiguration:
     supervision: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     fault_scenarios: tuple[ProtectionFaultScenario, ...] = ()
+    coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.evaluation_time, bool):
@@ -192,6 +298,15 @@ class ProtectionStudyConfiguration:
         if len(set(scenario_ids)) != len(scenario_ids):
             raise ValueError("fault_scenarios must not contain duplicate scenario IDs.")
         object.__setattr__(self, "fault_scenarios", scenarios)
+        pairs = tuple(self.coordination_pairs)
+        if any(not isinstance(item, ProtectionCoordinationPairConfiguration) for item in pairs):
+            raise TypeError("coordination_pairs must contain ProtectionCoordinationPairConfiguration values.")
+        pair_keys = tuple((item.downstream_element_id, item.upstream_element_id) for item in pairs)
+        if len(set(pair_keys)) != len(pair_keys):
+            raise ValueError("coordination_pairs must not contain duplicate downstream/upstream pairs.")
+        if pairs and not scenarios:
+            raise ValueError("Coordination grading requires explicit short-circuit fault scenarios.")
+        object.__setattr__(self, "coordination_pairs", pairs)
 
     @classmethod
     def from_project_configuration(
@@ -206,6 +321,7 @@ class ProtectionStudyConfiguration:
         supervision: Mapping[str, Any] | None = None,
         metadata: Mapping[str, Any] | None = None,
         fault_scenarios: tuple[ProtectionFaultScenario, ...] = (),
+        coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = (),
     ) -> "ProtectionStudyConfiguration":
         if not isinstance(configuration, ProtectionProjectConfiguration):
             raise TypeError("configuration must be a ProtectionProjectConfiguration.")
@@ -219,6 +335,7 @@ class ProtectionStudyConfiguration:
             supervision={} if supervision is None else supervision,
             metadata={} if metadata is None else metadata,
             fault_scenarios=fault_scenarios,
+            coordination_pairs=coordination_pairs,
         )
 
     @property
@@ -311,6 +428,8 @@ class ProtectionStudyResult:
             or item.status is not ShortCircuitStatus.COMPLETE
             or not item.measurement_contributions_complete
             or bool(item.execution.diagnostics)
+            or bool(item.coordination_diagnostics)
+            or (item.coordination_report is not None and not item.coordination_report.fully_evaluable)
             for item in self.fault_scenarios
         ):
             return "partial"
@@ -517,12 +636,122 @@ class ProtectionStudyHandler:
                         protection_runtime=scenario_runtime,
                     )
                 relay_evaluation_completed = not scenario_execution.diagnostics
+            coordination_report = None
+            coordination_diagnostics: list[str] = []
+            if configuration.coordination_pairs:
+                try:
+                    samples_by_binding = {sample.binding_id: sample for sample in scenario_samples}
+                    relay_characteristics: dict[str, CoordinationRelayCharacteristic] = {}
+                    pair_inputs: list[ProtectionCoordinationPair] = []
+                    scenario_currents: dict[str, float] = {}
+                    function_bindings: dict[str, str] = {}
+                    for pair_config in configuration.coordination_pairs:
+                        for element_id, binding_id in (
+                            (pair_config.downstream_element_id, pair_config.downstream_binding_id),
+                            (pair_config.upstream_element_id, pair_config.upstream_binding_id),
+                        ):
+                            element_config = configured_elements.get(element_id)
+                            if element_config is None:
+                                raise ValueError(f"Coordination function {element_id!r} is not enabled in the captured project configuration.")
+                            if element_config.function_code not in {"51", "51N"}:
+                                raise ValueError(
+                                    f"Coordination function {element_id!r} uses ANSI {element_config.function_code}; "
+                                    "this integration currently grades IEC/IEEE inverse-time 51/51N elements only."
+                                )
+                            previous_binding = function_bindings.get(element_id)
+                            if previous_binding is not None and previous_binding != binding_id:
+                                raise ValueError(
+                                    f"Function {element_id!r} is assigned multiple measurement bindings in one coordination study."
+                                )
+                            function_bindings[element_id] = binding_id
+                            sample = samples_by_binding.get(binding_id)
+                            if sample is None or sample.protection_element_id != element_id:
+                                raise ValueError(
+                                    f"Explicit CT sample binding {binding_id!r} is missing or belongs to another protection function."
+                                )
+                            settings = element_config.settings
+                            required_settings = {"pickup", "curve", "TMS"}
+                            if not required_settings.issubset(settings):
+                                raise ValueError(
+                                    f"Function {element_id!r} lacks required inverse-time settings {sorted(required_settings - set(settings))}."
+                                )
+                            characteristic = CoordinationRelayCharacteristic(
+                                function_id=element_id,
+                                pickup_current_a=float(settings["pickup"]),
+                                curve_standard=str(settings.get("curve_standard", "IEC")),
+                                curve=str(settings["curve"]),
+                                time_dial=float(settings["TMS"]),
+                            )
+                            existing = relay_characteristics.get(element_id)
+                            if existing is not None and existing != characteristic:
+                                raise ValueError(f"Conflicting characteristic settings for function {element_id!r}.")
+                            relay_characteristics[element_id] = characteristic
+                            sample_current = abs(sample.value)
+                            if element_config.function_code == "51N":
+                                residual_mode = sample.provenance.get("residual_source_mode")
+                                if residual_mode not in {"NEUTRAL_CT", "CBCT"}:
+                                    raise ValueError(
+                                        f"ANSI 51N function {element_id!r} requires an explicitly converted "
+                                        "NEUTRAL_CT or CBCT sample for coordination; three-phase residual "
+                                        "aggregation is not inferred from one binding."
+                                    )
+                                ratio = sample.provenance.get("instrument_ratio")
+                                if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                    raise ValueError(f"ANSI 51N sample {binding_id!r} lacks a valid authoritative CT ratio.")
+                                # Scenario samples are CT-secondary A; ANSI 51N's
+                                # derived RelayInput and pickup setting are primary A.
+                                sample_current *= float(ratio)
+                            previous_current = scenario_currents.get(element_id)
+                            if previous_current is not None and abs(previous_current - sample_current) > max(1e-9, abs(sample_current) * 1e-9):
+                                raise ValueError(
+                                    f"Function {element_id!r} resolves to conflicting scenario currents."
+                                )
+                            scenario_currents[element_id] = sample_current
+                        pair_inputs.append(ProtectionCoordinationPair(
+                            downstream_function_id=pair_config.downstream_element_id,
+                            upstream_function_id=pair_config.upstream_element_id,
+                            downstream_breaker_clearing_time_s=pair_config.downstream_breaker_clearing_time_s,
+                            required_cti_s=pair_config.required_cti_s,
+                            downstream_breaker_clearing_time_max_s=pair_config.downstream_breaker_clearing_time_max_s,
+                        ))
+                    timing_envelopes = {
+                        item.function_id: RelayOperatingTimeEnvelope(
+                            function_id=item.function_id,
+                            current_a=item.current_a,
+                            minimum_time_s=item.minimum_time_s,
+                            maximum_time_s=item.maximum_time_s,
+                            evidence_reference=item.evidence_reference,
+                        )
+                        for item in scenario.coordination_timing_envelopes
+                    }
+                    unknown_envelope_functions = set(timing_envelopes) - set(scenario_currents)
+                    if unknown_envelope_functions:
+                        raise ValueError(
+                            "Timing envelopes reference functions outside the explicit coordination pairs: "
+                            + ", ".join(sorted(unknown_envelope_functions))
+                        )
+                    coordination_report = grade_protection_coordination(
+                        functions=tuple(relay_characteristics.values()),
+                        pairs=tuple(pair_inputs),
+                        scenarios=(FaultCurrentScenario(
+                            scenario_id=scenario.scenario_id,
+                            function_currents_a=scenario_currents,
+                            function_timing_envelopes=timing_envelopes,
+                        ),),
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    coordination_diagnostics.append(
+                        f"Protection coordination grading refused for scenario {scenario.scenario_id!r}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
                 short_circuit_result=short_circuit_result,
                 execution=scenario_execution,
                 relay_evaluation_completed=relay_evaluation_completed,
+                coordination_report=coordination_report,
+                coordination_diagnostics=tuple(coordination_diagnostics),
             ))
             if cancellation.cancelled:
                 return None
@@ -592,6 +821,8 @@ class ProtectionStudyHandler:
 
 __all__ = [
     "ProtectionFaultScenario",
+    "ProtectionCoordinationTimingEnvelopeConfiguration",
+    "ProtectionCoordinationPairConfiguration",
     "ProtectionFaultScenarioResult",
     "ProtectionStudyConfiguration",
     "ProtectionStudyResult",
