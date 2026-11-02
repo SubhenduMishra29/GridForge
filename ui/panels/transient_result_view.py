@@ -35,6 +35,8 @@ class TransientResultViewWidget(QWidget):
         self._chart_view = QChartView(self)
         self._chart_view.setMinimumHeight(260)
         self._event_list = QListWidget(self)
+        self._event_details = QLabel("Select an event to inspect its complete transition evidence.", self)
+        self._event_details.setWordWrap(True)
         self._message = QLabel("Select a transient signal to inspect its complete time series.", self)
         self._message.setWordWrap(True)
 
@@ -48,9 +50,11 @@ class TransientResultViewWidget(QWidget):
         layout.addWidget(self._chart_view)
         layout.addWidget(QLabel("Event timeline (solver dispatch order)", self))
         layout.addWidget(self._event_list)
+        layout.addWidget(self._event_details)
         layout.addWidget(self._message)
 
         self._signal_combo.currentIndexChanged.connect(self._render_selected_signal)
+        self._event_list.currentRowChanged.connect(self._show_selected_event_details)
         self.setVisible(False)
 
     def set_result(self, model: TransientResultPresentationReadModel) -> None:
@@ -112,6 +116,10 @@ class TransientResultViewWidget(QWidget):
                     f"{event.post_event_re_evaluation_failure_message or ''}"
                 )
             self._event_list.addItem(line)
+        if model.events:
+            self._event_list.setCurrentRow(0)
+        else:
+            self._event_details.setText("No event executions were recorded.")
 
         if model.historical:
             self._message.setText(
@@ -134,10 +142,37 @@ class TransientResultViewWidget(QWidget):
         self._model = None
         self._signal_combo.clear()
         self._event_list.clear()
+        self._event_details.clear()
         self._provenance.clear()
         self._message.setText("Select a transient result to inspect its time series.")
         self._chart_view.setChart(QChart())
         self.setVisible(False)
+
+    def _show_selected_event_details(self, row: int) -> None:
+        model = self._model
+        if model is None or row < 0 or row >= len(model.events):
+            self._event_details.setText("Select an event to inspect its transition evidence.")
+            return
+        event = model.events[row]
+        details = [
+            f"Event: {event.event_id} ({event.event_type})",
+            f"Status: {event.status}; priority: {event.priority}",
+            f"Description: {event.description or '—'}",
+            f"Scheduled: {event.scheduled_time:.12g} s; dispatched: {event.dispatch_time:.12g} s",
+            f"Detached revision: {event.pre_event_revision} → {event.post_event_revision}",
+            f"Post-event algebraic solve: {event.post_event_re_evaluation_status}",
+            f"Metadata: {dict(event.metadata)!r}",
+            f"Transition result: {event.result!r}",
+        ]
+        if event.failure_type:
+            details.append(f"Action failure: {event.failure_type}: {event.failure_message or ''}")
+        if event.post_event_re_evaluation_failure_type:
+            details.append(
+                "Post-event solve failure: "
+                f"{event.post_event_re_evaluation_failure_type}: "
+                f"{event.post_event_re_evaluation_failure_message or ''}"
+            )
+        self._event_details.setText(" | ".join(details))
 
     def _render_selected_signal(self, _index: int = -1) -> None:
         model = self._model
