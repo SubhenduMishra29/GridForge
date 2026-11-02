@@ -657,7 +657,10 @@ class StudyProjection:
             setter = getattr(self._panel, "set_transient_result", None)
             if callable(presentation_reader) and callable(setter):
                 try:
-                    presentation = presentation_reader(record_id)
+                    presentation = presentation_reader(
+                        record_id,
+                        activation_generation=getattr(record, "activation_generation", None),
+                    )
                 except Exception:
                     _LOGGER.exception("Archived transient result presentation could not be loaded")
                     presentation = None
