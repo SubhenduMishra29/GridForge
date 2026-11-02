@@ -20,4 +20,7 @@ from core.protection.distance.distance_relay import (
 
 __all__ = [
     "DistanceRelay",
+    "DistanceProtectionCoverage",
 ]
+
+from core.protection.distance.coverage import DistanceProtectionCoverage
