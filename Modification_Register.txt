@@ -19122,3 +19122,62 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-059 — TRUSTED, PROJECT-BOUND MEASUREMENT SAMPLE PUBLICATION
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Port the trusted measurement producer contract from PR #912 onto
+    current main without importing its stale project synchronism bootstrap.
+
+Core measurement channel:
+    - Add timestamp-domain identity to each sample.
+    - Seal project-managed channel sample state behind an Application-owned
+      update capability.
+    - Seal source identity, terminal association, producer identity and
+      engineering configuration after project activation.
+    - Require timestamp, timestamp domain and monotonically increasing
+      sample sequence for project-managed sample updates.
+
+Application measurement service:
+    - Add immutable MeasurementSampleAttestation producer envelopes.
+    - Require exact producer, channel, project and activation-generation
+      binding.
+    - Require signed quality and availability to match the published values.
+    - Verify the attestation against the complete sample through an injected
+      deployment trust adapter.
+    - Require an injected trusted clock and matching clock domain.
+    - Reject future-skewed, backwards-timestamped and replayed samples.
+    - Serialize producer identity and timestamp domain as channel definition
+      metadata; never persist live sample state.
+    - Bind publication to the shared Application execution lock so sample
+      updates cannot race breaker authorization.
+
+Composition:
+    - Expose optional verifier, trusted clock, clock domain and skew policy
+      through create_application.
+    - Bind MeasurementChannelService to the Application execution lock.
+    - Export MeasurementSampleAttestation from the Application services
+      package.
+
+Fail-closed behavior:
+    - No verifier, trusted clock or clock domain means publication is denied.
+    - No producer identity on a channel means no attestation can match.
+    - No default production verifier or trusted clock is fabricated.
+    - This pass does not yet activate a project-scoped ANSI 25 guard.
+
+Verification:
+    - Source-level reconciliation against PR #912 and current main.
+    - No tests/CI, syntax/import checks, persistence round-trip or runtime
+      sample publication performed.
+
+Status:
+    TRUSTED SAMPLE PUBLICATION CONTRACT IMPLEMENTED IN SOURCE.
+    DEPLOYMENT TRUST ADAPTERS AND ANSI 25 GUARD COMPOSITION REMAIN PENDING.
+
+======================================================================
+

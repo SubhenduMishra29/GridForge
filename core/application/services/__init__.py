@@ -12,7 +12,7 @@ Application service package exports for the frozen V2 boundary.
 from __future__ import annotations
 
 from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
-from .measurement_channel_service import MeasurementChannelService
+from .measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
 from .ct_measurement_association_service import CTMeasurementAssociationService
 from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
 from .phase_domain_conductor_service import PhaseDomainConductorNetworkCommandHandlers, PhaseDomainConductorNetworkService
@@ -24,6 +24,7 @@ __all__ = [
     "ElectricalConnectionCommandHandlers",
     "ElectricalConnectionService",
     "MeasurementChannelService",
+    "MeasurementSampleAttestation",
     "CTMeasurementAssociationService",
     "SimpleWireConnectionCommandHandlers",
     "SimpleWireConnectionService",
