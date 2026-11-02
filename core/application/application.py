@@ -147,7 +147,7 @@ class Application:
         self.protection_runtime: ProtectionRuntime | None = None
         self._protection_execution_audit_store = protection_execution_audit_store
         self._field_device_command_service = field_device_command_service
-        self._pending_field_device_commands: dict[str, Command] = {}
+        self._pending_field_device_commands: dict[str, tuple[Command, str, int]] = {}
         self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
         self._protection_cycle_inflight: set[tuple[str, int, str, int]] = set()
         self._protection_cycle_cache_limit = 4096
@@ -695,12 +695,26 @@ class Application:
         status = service.poll_acknowledgement(command_id)
         lifecycle = self.project_lifecycle
         project = lifecycle.context
+        pending_entry = self._pending_field_device_commands.get(command_id)
         if status.acknowledgement_status == "executed":
-            pending_command = self._pending_field_device_commands.pop(command_id, None)
-            if pending_command is not None:
-                try:
-                    with self._execution_lock:
-                        application_result = self.execute(pending_command)
+            if pending_entry is not None:
+                pending_command, pending_project_id, pending_generation = pending_entry
+                if (
+                    lifecycle.state != "ACTIVE" or project is None
+                    or project.project_id != pending_project_id
+                    or lifecycle.activation_generation != pending_generation
+                ):
+                    self._pending_field_device_commands.pop(command_id, None)
+                    status = replace(
+                        status,
+                        diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                        + "Authenticated device acknowledgement belongs to a previous project activation; Core mutation was refused.",
+                    )
+                else:
+                    self._pending_field_device_commands.pop(command_id, None)
+                    try:
+                        with self._execution_lock:
+                            application_result = self.execute(pending_command)
                     if not application_result.success:
                         status = replace(
                             status,
@@ -714,21 +728,22 @@ class Application:
                             diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
                             + "Authenticated device acknowledgement received; corresponding Core Application command applied.",
                         )
-                except Exception as exc:
-                    status = replace(
-                        status,
-                        diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
-                        + f"Device acknowledged execution, but Core command application failed or is indeterminate: {type(exc).__name__}: {exc}",
-                    )
+                    except Exception as exc:
+                        status = replace(
+                            status,
+                            diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                            + f"Device acknowledged execution, but Core command application failed or is indeterminate: {type(exc).__name__}: {exc}",
+                        )
         elif status.acknowledgement_status == "rejected":
             self._pending_field_device_commands.pop(command_id, None)
 
-        if project is not None and self._protection_execution_audit_store is not None:
+        if pending_entry is not None and self._protection_execution_audit_store is not None:
+            pending_command, audit_project_id, audit_generation = pending_entry
             try:
                 now = self.measurement_channel_service.trusted_now()
                 self._protection_execution_audit_store.append(
-                    project_id=project.project_id,
-                    activation_generation=lifecycle.activation_generation,
+                    project_id=audit_project_id,
+                    activation_generation=audit_generation,
                     event_id=f"device-ack:{command_id}:{status.acknowledgement_id or status.acknowledgement_status}",
                     event_type="FIELD_DEVICE_ACKNOWLEDGEMENT",
                     occurred_at=now,
@@ -1383,7 +1398,9 @@ class Application:
                 )
                 status = self._field_device_command_service.deliver(request)
                 if status.acknowledgement_status == "pending":
-                    self._pending_field_device_commands[str(command.command_id)] = command
+                    self._pending_field_device_commands[str(command.command_id)] = (
+                        command, project.project_id, captured_generation
+                    )
                 elif status.acknowledgement_status != "executed":
                     self._pending_field_device_commands.pop(str(command.command_id), None)
                 return status
