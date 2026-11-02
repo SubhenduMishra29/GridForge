@@ -67,9 +67,9 @@ The SLD editor uses the canonical CanvasComposition, SLDCanvasProjection, SLDCan
 
 ## Phase-domain conductor editor boundary
 
-PR #908 added Application-owned graph-edit commands and persistence foundations for phase-domain conductor graph data. This does not mean the SLD currently provides a complete graph editor.
+PR #908 and the subsequent mainline D15F increments provide Application-owned graph-edit commands and SLD-derived graph construction for supported Line/Cable conductors, Breaker/Switch/Disconnector/Fuse pole paths, and Transformer winding/neutral/earth paths. The graph builder resolves canonical equipment terminals and Bus attachment slots from committed topology and explicit Core construction; it does not infer physical paths from canvas coordinates.
 
-The required UI capability is a dedicated, explicit authoring/inspection workflow for supported phase-domain nodes, conductor segments, phase/neutral/earth roles, physical grounding paths and electrical parameters. It must use canonical equipment/terminal identities and submit changes through Application commands. No graph edge may be inferred from screen coordinates or ordinary Simple Wire geometry.
+The remaining UI gap is a complete engineer-facing configuration and inspection workflow for all supported physical-conductor construction data, plus a general-purpose graph editor for explicit nodes/segments not generated from equipment construction. Such tools must preview without mutation, validate through Application, commit transactionally, and expose unsupported paths. Ordinary Simple Wire route geometry must never synthesize phase-domain graph edges.
 
 ## Qt and persistence
 
