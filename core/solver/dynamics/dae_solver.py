@@ -413,6 +413,8 @@ class DAESolver:
                 context = (
                     f"status={solution.status}, buses={solution.bus_ids}, "
                     f"topology_revision={solution.topology_revision}, "
+                    f"source_ids={solution.source_ids}, active_fault_id={solution.active_fault_id}, "
+                    f"study_provenance={dict(solution.study_provenance)}, "
                     f"residual={solution.normalized_residual}, "
                     f"condition_number={solution.condition_number}"
                 )
