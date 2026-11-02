@@ -199,8 +199,27 @@ class TransientStabilitySolver:
             self._time = float(solution.time)
 
             if event_boundary and next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-                executions.extend(self.event_manager.process_interval(previous_time, self._time))
-                solution = self.dae_solver.evaluate(self._state, self._time)
+                event_batch = self.event_manager.process_interval(previous_time, self._time)
+                try:
+                    solution = self.dae_solver.evaluate(self._state, self._time)
+                except Exception as exc:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=False,
+                            failure=exc,
+                        )
+                    )
+                    raise TransientStabilityError(
+                        f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                    ) from exc
+                if event_batch:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=True,
+                        )
+                    )
 
             self._record(solution, times, states, voltages, powers)
 
@@ -251,8 +270,23 @@ class TransientStabilitySolver:
         self._state = solution.state.copy()
         self._time = float(solution.time)
         if next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-            self.event_manager.process_interval(previous_time, self._time)
-            solution = self.dae_solver.evaluate(self._state, self._time)
+            event_batch = self.event_manager.process_interval(previous_time, self._time)
+            try:
+                solution = self.dae_solver.evaluate(self._state, self._time)
+            except Exception as exc:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=False,
+                    failure=exc,
+                )
+                raise TransientStabilityError(
+                    f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                ) from exc
+            if event_batch:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=True,
+                )
         return solution
 
     def _process_due_events(self) -> tuple[EventExecution, ...]:
@@ -265,9 +299,23 @@ class TransientStabilitySolver:
         if self._state is None:
             return ()
         executions = self.event_manager.process(self._time)
-        if executions:
+        if not executions:
+            return ()
+        try:
             self.dae_solver.evaluate(self._state, self._time)
-        return executions
+        except Exception as exc:
+            failed = self.event_manager.annotate_post_event_re_evaluation(
+                executions,
+                succeeded=False,
+                failure=exc,
+            )
+            raise TransientStabilityError(
+                f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+            ) from exc
+        return self.event_manager.annotate_post_event_re_evaluation(
+            executions,
+            succeeded=True,
+        )
 
     def reset(self) -> None:
         self._state = None
