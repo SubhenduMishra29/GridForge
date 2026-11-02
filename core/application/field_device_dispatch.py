@@ -6,6 +6,8 @@ physical delivery, and delivery is not proof of device execution.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from threading import RLock
 from typing import Any, Protocol, Callable
 
 
@@ -26,8 +28,10 @@ class FieldDeviceCommandRequest:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be non-empty.")
-        if isinstance(self.activation_generation, bool) or self.activation_generation < 1:
-            raise ValueError("activation_generation must be positive.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if isinstance(self.issued_at, bool) or not isinstance(self.issued_at, (int, float)) or not math.isfinite(self.issued_at):
+            raise ValueError("issued_at must be a finite trusted timestamp.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +65,8 @@ class FieldDeviceAcknowledgement:
                 raise ValueError(f"{name} is required.")
         if self.status not in {"executed", "rejected"}:
             raise ValueError("acknowledgement status must be executed or rejected.")
+        if isinstance(self.acknowledged_at, bool) or not isinstance(self.acknowledged_at, (int, float)) or not math.isfinite(self.acknowledged_at):
+            raise ValueError("acknowledged_at must be a finite timestamp.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,23 +95,30 @@ class FieldDeviceCommandService:
         self._adapter = adapter
         self._acknowledgement_verifier = acknowledgement_verifier
         self._deliveries: dict[str, FieldDeviceDeliveryReceipt] = {}
+        self._lock = RLock()
 
     def deliver(self, request: FieldDeviceCommandRequest) -> FieldDeviceExecutionStatus:
         if not isinstance(request, FieldDeviceCommandRequest):
             raise TypeError("request must be FieldDeviceCommandRequest.")
-        receipt = self._adapter.send(request)
+        with self._lock:
+            existing = self._deliveries.get(request.command_id)
+            if existing is not None:
+                return self.poll_acknowledgement(request.command_id)
+            receipt = self._adapter.send(request)
         if not isinstance(receipt, FieldDeviceDeliveryReceipt):
             raise TypeError("field-device adapter must return FieldDeviceDeliveryReceipt.")
         if receipt.command_id != request.command_id:
             return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="adapter receipt command identity mismatch")
-        self._deliveries[request.command_id] = receipt
+        with self._lock:
+            self._deliveries[request.command_id] = receipt
         if receipt.status != "accepted":
             return FieldDeviceExecutionStatus(receipt.status, "unavailable", receipt.delivery_id,
                                               diagnostic=receipt.diagnostic or "device transport did not accept the command")
         return self.poll_acknowledgement(request.command_id)
 
     def poll_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
-        receipt = self._deliveries.get(command_id)
+        with self._lock:
+            receipt = self._deliveries.get(command_id)
         if receipt is None:
             return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="no accepted delivery is registered for this command")
         acknowledgement = self._adapter.poll_acknowledgement(command_id)
