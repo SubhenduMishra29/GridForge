@@ -94,6 +94,11 @@ class ConductiveReachabilityResolver:
     def _adjacency(
         self, excluded_equipment_ids: frozenset[str] = frozenset()
     ) -> dict[TopologyEndpointReference, set[TopologyEndpointReference]]:
+        state = self._network.state
+        if bool(getattr(state, "topology_dirty", False)) or not bool(getattr(state, "topology_valid", False)):
+            raise ConnectivityError(
+                "Switching-aware conductive reachability requires a clean, valid committed topology snapshot."
+            )
         resolved = ConnectivityResolver(self._network).resolve()
         graph: dict[TopologyEndpointReference, set[TopologyEndpointReference]] = {
             source: set(targets) for source, targets in resolved.topology_adjacency
