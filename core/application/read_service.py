@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -571,12 +571,19 @@ class StudyReadService:
             raise ValueError("status must be completed, failed, cancelled, or None.")
         if study_type is not None and (not isinstance(study_type, str) or not study_type.strip()):
             raise ValueError("study_type must be a non-empty string or None.")
-        for label, value in (("saved_after", saved_after), ("saved_before", saved_before)):
-            if value is not None:
-                try:
-                    datetime.fromisoformat(value.replace("Z", "+00:00"))
-                except (AttributeError, ValueError) as exc:
-                    raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+        def parse_timestamp(value: str | None, label: str) -> datetime | None:
+            if value is None:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (AttributeError, ValueError) as exc:
+                raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+        after = parse_timestamp(saved_after, "saved_after")
+        before = parse_timestamp(saved_before, "saved_before")
+        if after is not None and before is not None and after > before:
+            raise ValueError("saved_after must not be later than saved_before.")
         records = self._archive.load_all(
             project_id,
             activation_generation=activation_generation,
@@ -590,9 +597,10 @@ class StudyReadService:
                 continue
             if status is not None and row.status != status:
                 continue
-            if saved_after is not None and row.saved_at < saved_after:
+            saved_at = parse_timestamp(row.saved_at, "archived saved_at")
+            if after is not None and (saved_at is None or saved_at < after):
                 continue
-            if saved_before is not None and row.saved_at > saved_before:
+            if before is not None and (saved_at is None or saved_at > before):
                 continue
             if needle:
                 haystack = " ".join((
