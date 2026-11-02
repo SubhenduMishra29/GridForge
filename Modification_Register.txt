@@ -19931,89 +19931,68 @@ Status:
 ======================================================================
 
 ======================================================================
-GF-TS-EVENT-954 — DISPATCH EVENTS DUE AT CURRENT SIMULATION TIME
+GF-SC-TOPO-949 — VALIDATE SHORT-CIRCUIT TOPOLOGY AND MODEL SCOPE
 ======================================================================
 
 Date:
     2026-11-02
 
 Finding:
-    TransientStabilitySolver.run() dispatched initial-time events only when
-    record_initial=True. With record_initial=False, next_event_time() excluded
-    events at or within the scheduler tolerance of the current time, allowing
-    them to remain pending while simulation time advanced. The incremental
-    step() API shared the same omission.
+    ShortCircuitPreparation accepted a caller-supplied TopologySnapshot
+    without proving that its project/activation provenance and canonical
+    topology content belonged to the Network whose live equipment models
+    were used to prepare the numerical case. The conventional sequence path
+    lacked the phase-domain path's equivalent initial scope gate.
 
 Correction:
-    - Add one solver-owned _process_due_events() boundary helper.
-    - Dispatch EventManager.process(current_time) independently of sample
-      recording, both at run initialization and before each integration step.
-    - Dispatch due events before next-future-event lookup in step().
-    - Re-evaluate the algebraic DAE state at the current time after any due
-      event action so event state changes are reflected before integration.
-    - Reuse EventManager's existing tolerance and deterministic event ordering;
-      no second scheduler or altered event priority policy is introduced.
+    - Require a current, valid Network-owned canonical TopologySnapshot.
+    - Validate supplied snapshot type and compare project_id,
+      activation_generation and topology_revision independently, emitting
+      actionable provenance-specific errors.
+    - Compare bus IDs, adjacency, equipment terminal attachments, conductive
+      edges and island membership with the canonical Network snapshot.
+    - Reject dirty topology rather than silently mixing a supplied snapshot
+      with current Network equipment.
+    - Capture topology revision and verify canonical topology remains
+      unchanged before returning either phase-domain or sequence input.
+    - Capture a deterministic in-process value signature of all registered
+      Core electrical model objects before preparation and compare it again
+      before returning either numerical input. This catches in-place changes
+      to registered model attributes during preparation without introducing
+      a second mutable revision counter.
+    - Preserve caller-supplied source and fault declarations as study inputs;
+      Network-derived graph, topology and equipment primitives remain
+      authoritative.
 
-Tolerance policy:
-    An event is due when its scheduled time is at or before
-    current_time + EventManager.tolerance. This permits early dispatch only
-    inside the already configured tolerance window. Events outside that window
-    remain future events and are integrated to as explicit boundaries.
+Implementation notes:
+    The model signature is a preparation-window stability guard, not a
+    persisted revision identifier or cross-process snapshot identity. It
+    traverses registered Core equipment values and canonical object
+    references; it does not replace a future explicit immutable Network
+    model snapshot/revision contract.
 
 Boundary:
-    EventManager remains the authoritative event scheduler. This correction
-    does not change EventExecution schema, failure propagation, event
-    persistence or transient result contracts.
+    Validation remains in ShortCircuitPreparation. Core TopologySnapshot
+    remains authoritative. Solver input remains detached. No UI/Qt dependency,
+    topology ownership duplication or solver-side live Network access added.
 
 Verification:
-    - Source-level inspection of run(), step(), EventManager.process() and
-      next_event_time().
+    - Source-level inspection of conventional and phase-domain return paths,
+      canonical topology fields, Network topology lifecycle and registry
+      object inventory.
     - No tests or CI were run, per project instruction.
-    - Runtime comparison of run()/step() dispatch traces remains pending.
+    - Runtime cross-project/cross-activation/stale-content rejection and
+      concurrent model mutation checks remain pending.
 
 Status:
-    CURRENT-TIME EVENT DISPATCH CORRECTION IMPLEMENTED IN SOURCE.
-    RUNTIME EVENT-TRACE ACCEPTANCE REMAINS PENDING.
+    SHARED TOPOLOGY PROVENANCE AND PREPARATION-WINDOW MODEL GUARDS
+    IMPLEMENTED IN SOURCE. RUNTIME ACCEPTANCE REMAINS PENDING.
+
+======================================================================
 
 ======================================================================
 
 GF-APP-PERSIST-945 — SERIALIZE PROJECT SAVES AGAINST ASYNC DRAFT COMMITS
-======================================================================
-
-Date:
-    2026-11-02
-
-Scope:
-    Prevent project persistence from overlapping an asynchronous DraftNetwork
-    commit or advancing the persisted revision baseline after an intervening
-    project revision change.
-
-Correction:
-    - Run save and Save As under the existing Application _execution_lock.
-    - Reject save while an asynchronous DraftNetwork commit is in flight.
-    - Serialize the transition to _commit_in_flight under the same execution
-      lock, preventing a commit from starting after save has passed its guard.
-    - Recheck the project revision after the synchronous saver returns and
-      before marking that revision persisted or publishing ProjectSaved.
-    - Reuse the existing Application execution lock and commit-state guard;
-      no second lock, transaction manager or persistence scheduler is added.
-
-Boundary:
-    ProjectLifecycleService and ProjectPersistence retain their existing
-    ownership and .gridforge serialization contract. This correction serializes
-    the existing synchronous save path against Application-owned mutations;
-    it does not introduce asynchronous persistence or change the package format.
-
-Verification:
-    - Source-level inspection of Application save, async commit and lifecycle
-      boundaries.
-    - No tests or CI were run, per project instruction.
-    - Runtime concurrency stress and filesystem snapshot verification remain
-      pending.
-
-Status:
-    SAVE/ASYNC-COMMIT SERIALIZATION GUARD IMPLEMENTED IN SOURCE.
-    RUNTIME CONCURRENCY ACCEPTANCE REMAINS PENDING.
 
 ======================================================================
-
+GF-TS-EVENT-954 — DISPATCH EVENTS DUE AT CURRENT SIMULATION TIME
