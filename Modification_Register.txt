@@ -20193,3 +20193,94 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-TS-UI-959 — COMPLETE LIVE / ARCHIVED TRANSIENT RESULT PRESENTATION
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    Study Projection routed TransientStabilityResult through the generic
+    bounded text flattener. Large time/state arrays and per-sample terminal
+    voltage/electrical-power outputs could be truncated, and the Study Cases
+    panel had no selectable time-series or event-timeline presentation.
+
+Correction:
+    - Add UI-neutral TransientSignalReadModel, TransientEventReadModel and
+      TransientResultPresentationReadModel in Application.
+    - Preserve the full time vector, state matrix rows, complex terminal
+      voltage samples, P/Q samples, ordered EventExecution details and solver
+      provenance in the presentation contract.
+    - Validate exact sample-count alignment across time, states, terminal
+      voltages and electrical powers. Require every selectable signal to
+      retain every original source sample index in original order.
+    - Publish machine/state signal descriptors from the solver's global
+      MultiMachineSystem state layout (rotor angle and speed deviation for
+      the classical machine model); legacy results without descriptors expose
+      explicit unlabeled State N channels rather than dropping columns.
+    - Expose voltage real/imaginary components and active/reactive power as
+      direct components of the recorded complex phasor/PQ samples. The full
+      complex voltage and P/Q sample maps remain present in the read model.
+    - Require stable Bus and machine identities across all samples. Reject
+      inconsistent sample identities instead of silently reordering or
+      filling missing values.
+    - Preserve event tuple order. Event marker time is actual dispatch_time;
+      scheduled_time, priority, status, failure evidence, revision transition,
+      post-event re-evaluation outcome, metadata and action result remain
+      separately inspectable.
+    - Use one StudyReadService presentation adapter for live and archived
+      transient results. Archive record_id, saved_at, project, activation and
+      source revision remain visible in the historical view.
+    - Adapt schema-v1 generic transient dataclass mappings in the Application
+      read service without changing the archive's documented legacy mapping
+      semantics. Legacy EventExecution mappings expose only the fields they
+      historically recorded; missing dispatch/failure/revision evidence is
+      not fabricated.
+    - Add Application facade reads for live and archived transient
+      presentations.
+    - Route live and archived transient results to a dedicated PySide6
+      transient view rather than the bounded generic text formatter.
+    - Add selectable state, voltage and P/Q signals; plot all source samples
+      using original indices and time values, with no down-sampling or
+      interpolation.
+    - Add vertical event markers at recorded dispatch times and an ordered
+      event timeline with complete transition metadata/result details.
+    - Show live/current, live/stale or archived/historical status, source
+      revision, activation, archive record identity and saved timestamp.
+    - Archived results always notify the SLD projection with None; historical
+      values cannot become current SLD overlays.
+    - Keep Power Flow, Short-Circuit and Protection generic result paths
+      unchanged.
+    - Update Modification_Register.txt.
+
+Boundary:
+    Core/solver remains the numerical result authority. Application owns
+    typed, UI-neutral read/presentation models and validates sample alignment.
+    UI owns selection, charting and event timeline rendering. No Qt dependency
+    is introduced into Core or Application. No UI result path recalculates,
+    interpolates, reorders or silently truncates source samples.
+
+Coordination:
+    - #956 prepared-study provenance remains a related Application contract.
+    - #958 supplies schema-v2 typed TransientStabilityResult/EventExecution
+      reconstruction and schema-v1 compatibility.
+    - #960 supplies dispatch-time, failure, revision and post-event
+      re-evaluation evidence.
+    - #955 supplies machine connection-path and switch transition provenance.
+
+Verification:
+    - Source-level inspection of live/archived StudyReadService adapters,
+      sample alignment checks, state layout descriptors, archive record
+      identity, StudyProjection routing and dedicated PySide6 chart/event view.
+    - No tests or CI were run, per project instruction.
+    - Runtime live/archive equivalence, large-sample rendering, event marker
+      alignment and historical no-overlay behavior remain pending.
+
+Status:
+    COMPLETE UI-NEUTRAL TRANSIENT PRESENTATION CONTRACT AND DEDICATED LIVE /
+    ARCHIVED RESULT VIEW IMPLEMENTED IN SOURCE.
+    RUNTIME ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
