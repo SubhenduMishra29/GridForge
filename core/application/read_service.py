@@ -713,6 +713,26 @@ class StudyReadService:
             compatible = False
         else:
             message = "Same project and study type; compare values with source-revision and activation provenance shown."
+        numeric_deltas: list[StudyResultNumericDeltaReadModel] = []
+        if compatible:
+            left_values = _study_result_numeric_observations(left.value)
+            right_values = _study_result_numeric_observations(right.value)
+            for path in sorted(set(left_values).intersection(right_values)):
+                left_value, left_unit, left_base = left_values[path]
+                right_value, right_unit, right_base = right_values[path]
+                if left_unit != right_unit or left_base != right_base:
+                    continue
+                finite = all(
+                    math.isfinite(part)
+                    for value in (left_value, right_value)
+                    for part in ((value.real, value.imag) if isinstance(value, complex) else (float(value),))
+                )
+                if not finite:
+                    continue
+                numeric_deltas.append(StudyResultNumericDeltaReadModel(
+                    path=path, left_value=left_value, right_value=right_value,
+                    delta=right_value - left_value, unit=left_unit, base=left_base,
+                ))
         return StudyResultComparisonReadModel(
             left=left,
             right=right,
@@ -720,6 +740,8 @@ class StudyReadService:
             compatibility_message=message,
             same_source_revision=left.source_revision == right.source_revision,
             same_activation_generation=left.activation_generation == right.activation_generation,
+            numeric_deltas=tuple(numeric_deltas),
+            numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
         )
 
     def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
@@ -734,6 +756,7 @@ __all__ = [
     "ArchivedStudyResultReadModel",
     "StudyReadService",
     "StudyResultComparisonReadModel",
+    "StudyResultNumericDeltaReadModel",
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",
