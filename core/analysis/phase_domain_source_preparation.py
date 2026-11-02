@@ -1,9 +1,10 @@
 """Fail-closed source primitive preparation for the physical phase-domain solver.
 
 Only canonical, in-service Grid/Generator models and running Motor models
-with complete explicit sequence construction data are admitted. Per-unit impedances are converted
-from their declared equipment bases to SI ohms before symmetrical-component
-transformation. No load-flow or nameplate quantity is used as a substitute.
+with complete explicit sequence construction data are admitted. Per-unit
+impedances are converted from declared equipment bases to SI ohms before
+symmetrical-component transformation. No load-flow or nameplate quantity is
+used as a substitute.
 """
 from __future__ import annotations
 
@@ -84,7 +85,7 @@ def prepare_phase_domain_source_equivalents(
     for equipment in supported_equipment:
         equipment_id = str(getattr(equipment, "id", ""))
         if not equipment_id or network.get_by_identity(equipment_id) is not equipment:
-            raise ValueError("Automatic phase-domain source preparation requires canonical registered Grid/Generator objects.")
+            raise ValueError("Automatic phase-domain source preparation requires canonical registered source objects.")
         if getattr(equipment, "in_service", None) is not True:
             continue
         if isinstance(equipment, Motor) and equipment.running is not True:
