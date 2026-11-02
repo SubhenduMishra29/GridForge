@@ -340,7 +340,7 @@ class PhaseDomainShortCircuitSolution:
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
     transformer_terminal_currents_a: Mapping[str, Mapping[str, complex]] | None = None
-    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, TransformerDeltaLoopCurrentResult]] | None = None
+    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] | None = None
 
     def __post_init__(self) -> None:
         residual = float(self.kcl_residual_a)
