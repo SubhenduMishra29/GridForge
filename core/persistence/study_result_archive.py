@@ -47,6 +47,21 @@ class StudyResultArchiveError(RuntimeError):
     """Raised when a Study Result archive cannot be written or restored."""
 
 
+class StudyResultArchiveCommitUncertain(StudyResultArchiveError):
+    """The record was atomically published, but directory durability is uncertain."""
+
+    record_committed = True
+    durability_confirmed = False
+
+    def __init__(self, record_id: UUID, saved_at: str, cause: OSError) -> None:
+        self.record_id = record_id
+        self.saved_at = saved_at
+        super().__init__(
+            f"Study Result {record_id} is visible in the archive, but directory "
+            f"durability could not be confirmed: {cause}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ArchivedStudyResult:
     """One durable StudyResult plus its archive record identity and timestamp."""
@@ -300,17 +315,24 @@ class StudyResultArchive:
                         os.fsync(stream.fileno())
                     os.replace(temporary_name, target)
                     if os.name != "nt":
-                        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
                         try:
-                            os.fsync(directory_fd)
-                        finally:
-                            os.close(directory_fd)
+                            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                            try:
+                                os.fsync(directory_fd)
+                            finally:
+                                os.close(directory_fd)
+                        except OSError as durability_exc:
+                            raise StudyResultArchiveCommitUncertain(
+                                record_id, saved_at, durability_exc
+                            ) from durability_exc
                 except Exception:
                     try:
                         os.unlink(temporary_name)
                     except FileNotFoundError:
                         pass
                     raise
+            except StudyResultArchiveCommitUncertain:
+                raise
             except Exception as exc:
                 raise StudyResultArchiveError(f"Unable to archive Study Result: {exc}") from exc
         return ArchivedStudyResult(record_id=record_id, saved_at=saved_at, result=result)
@@ -474,4 +496,5 @@ __all__ = [
     "StudyResultArchiveVerification",
     "StudyResultArchive",
     "StudyResultArchiveError",
+    "StudyResultArchiveCommitUncertain",
 ]
