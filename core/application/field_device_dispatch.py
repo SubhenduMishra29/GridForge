@@ -119,28 +119,38 @@ class FieldDeviceCommandService:
     def poll_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
         with self._lock:
             receipt = self._deliveries.get(command_id)
-        if receipt is None:
-            return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="no accepted delivery is registered for this command")
         acknowledgement = self._adapter.poll_acknowledgement(command_id)
         if acknowledgement is None:
-            return FieldDeviceExecutionStatus("accepted", "pending", receipt.delivery_id,
-                                              diagnostic="delivery accepted; physical acknowledgement has not arrived")
+            return FieldDeviceExecutionStatus(
+                "accepted" if receipt is not None else "unknown",
+                "pending" if receipt is not None else "unavailable",
+                receipt.delivery_id if receipt is not None else None,
+                diagnostic="physical acknowledgement has not arrived" if receipt is not None
+                else "no in-memory delivery receipt; adapter has no recoverable acknowledgement",
+            )
         if not isinstance(acknowledgement, FieldDeviceAcknowledgement):
-            return FieldDeviceExecutionStatus("accepted", "invalid", receipt.delivery_id,
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else None,
                                               diagnostic="adapter returned an invalid acknowledgement type")
-        if acknowledgement.command_id != command_id or acknowledgement.delivery_id != receipt.delivery_id:
-            return FieldDeviceExecutionStatus("accepted", "invalid", receipt.delivery_id,
+        if acknowledgement.command_id != command_id or (
+            receipt is not None and acknowledgement.delivery_id != receipt.delivery_id
+        ):
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
                                               diagnostic="acknowledgement correlation identity mismatch")
         try:
             verified = self._acknowledgement_verifier(acknowledgement)
         except Exception as exc:
-            return FieldDeviceExecutionStatus("accepted", "invalid", receipt.delivery_id,
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
                                               diagnostic=f"acknowledgement verification failed: {type(exc).__name__}: {exc}")
         if verified is not True:
-            return FieldDeviceExecutionStatus("accepted", "invalid", receipt.delivery_id,
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
                                               diagnostic="physical acknowledgement signature was not authenticated")
         return FieldDeviceExecutionStatus(
-            "accepted", acknowledgement.status, receipt.delivery_id,
+            "accepted" if receipt is not None else "unknown", acknowledgement.status,
+            receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
             acknowledgement_id=acknowledgement.acknowledgement_id,
         )
 
