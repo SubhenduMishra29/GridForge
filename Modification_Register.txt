@@ -19930,3 +19930,47 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-PROT-ARCH-947 — PUBLIC DIRECTIONAL MEASUREMENT SNAPSHOT CONTRACT
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    Application imported the private
+    _create_authoritative_directional_snapshot helper directly from the
+    DirectionalRelay implementation module. This coupled Application
+    orchestration to a private Core implementation detail.
+
+Correction:
+    - Publish AuthoritativeDirectionalSnapshot as the typed immutable
+      Core-owned snapshot record.
+    - Publish create_authoritative_directional_snapshot as the Core factory.
+    - Export both through core.protection.directional package API.
+    - Update DirectionalRelay's internal type contract to consume the public
+      snapshot type while retaining the private Core seal check.
+    - Update Application to import and call only the package-level public
+      factory; measurement resolution, sample validation and project /
+      activation provenance checks remain in Application.
+    - No duplicate snapshot implementation or calculation was introduced.
+
+Boundary:
+    Core retains ownership of the directional protection snapshot semantics
+    and relay-side seal validation. Application remains responsible for
+    selecting and validating active project measurement samples. The public
+    factory does not replace or weaken those Application provenance checks.
+
+Verification:
+    - Source-level inspection of module exports, package facade, Application
+      import/call sites and DirectionalRelay snapshot validation.
+    - Repository code-search query returned no additional matches; this result
+      was incomplete and is not treated as exhaustive.
+    - No tests or CI were run, per project instruction.
+
+Status:
+    PUBLIC CORE SNAPSHOT CONTRACT IMPLEMENTED IN SOURCE.
+    IMPORT / RUNTIME INTEGRITY VERIFICATION REMAINS PENDING.
+
+======================================================================
+
