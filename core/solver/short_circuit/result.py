@@ -247,6 +247,47 @@ class ShortCircuitConductorCurrent:
 
 
 @dataclass(frozen=True, slots=True)
+class ShortCircuitTransformerDeltaLoopCurrent:
+    """Internal transformer delta-loop current; never an external CT conductor."""
+
+    transformer_id: str
+    loop_id: str
+    winding: str
+    current_a: complex
+    base_mva: float
+    voltage_base_kv: float
+    current_base_a: float
+    current_pu: complex
+    positive_direction: str
+    measurement_scope: str = "INTERNAL_DELTA_LOOP"
+    external_ct_measurement_eligible: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("transformer_id", "loop_id", "positive_direction"):
+            object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
+        winding = str(self.winding).strip().upper()
+        if winding not in {"HV", "LV"}:
+            raise ValueError("Delta-loop current winding must be HV or LV.")
+        object.__setattr__(self, "winding", winding)
+        for name in ("base_mva", "voltage_base_kv", "current_base_a"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"Delta-loop current {name} must be finite and positive.")
+            object.__setattr__(self, name, value)
+        current = _validate_current(self.current_a, "delta-loop current A")
+        pu = _validate_current(self.current_pu, "delta-loop current pu")
+        expected_base = self.base_mva * 1.0e6 / (math.sqrt(3.0) * self.voltage_base_kv * 1.0e3)
+        if not math.isclose(self.current_base_a, expected_base, rel_tol=1.0e-10, abs_tol=1.0e-12):
+            raise ValueError("Delta-loop current base is inconsistent with its MVA and kV bases.")
+        if not math.isclose(abs(pu - current / self.current_base_a), 0.0, rel_tol=1.0e-10, abs_tol=1.0e-12):
+            raise ValueError("Delta-loop per-unit current is inconsistent with signed primary current.")
+        if self.measurement_scope != "INTERNAL_DELTA_LOOP" or self.external_ct_measurement_eligible is not False:
+            raise ValueError("Internal delta-loop current is not eligible as an external CT conductor measurement.")
+        object.__setattr__(self, "current_a", current)
+        object.__setattr__(self, "current_pu", pu)
+
+
+@dataclass(frozen=True, slots=True)
 class ShortCircuitResult:
     """Completed short-circuit result detached from all live Core objects."""
 
@@ -275,9 +316,11 @@ class ShortCircuitResult:
     conductor_currents: Mapping[str, ShortCircuitConductorCurrent] = field(default_factory=dict)
     conductor_current_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
     conductor_current_diagnostics: tuple[str, ...] = ()
+    transformer_delta_loop_currents: Mapping[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", _freeze_value(self.values))
+        object.__setattr__(self, "transformer_delta_loop_currents", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in self.transformer_delta_loop_currents.items()}))
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise TypeError("fault_bus_index must be an integer.")
         if self.fault_current is not None:
@@ -408,6 +451,7 @@ class ShortCircuitResult:
             "conductor_currents": dict(self.conductor_currents),
             "conductor_current_status": self.conductor_current_status,
             "conductor_current_diagnostics": self.conductor_current_diagnostics,
+            "transformer_delta_loop_currents": {key: dict(value) for key, value in self.transformer_delta_loop_currents.items()},
             "provenance": dict(self.provenance),
         })
         return result
@@ -421,5 +465,6 @@ __all__ = [
     "ShortCircuitEquipmentCurrent",
     "ShortCircuitTerminalCurrent",
     "ShortCircuitConductorCurrent",
+    "ShortCircuitTransformerDeltaLoopCurrent",
     "ShortCircuitResult",
 ]
