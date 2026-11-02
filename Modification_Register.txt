@@ -19517,3 +19517,87 @@ Safety:
 
 Limitations:
     No tests or CI were run; cross-project runtime fixtures remain unverified.
+
+
+======================================================================
+GF-PROT-061 — STANDARD-DISPATCHED IEEE C37.112 CURVES AND TCC READ MODEL
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Add the IEEE C37.112 inverse-time characteristic alongside the existing
+    IEC 60255 curve engine and expose standard-dispatched TCC engineering data.
+
+Implementation:
+    - Add Moderately Inverse, Very Inverse and Extremely Inverse IEEE curves
+      using the published A, B and p coefficient form.
+    - Normalize canonical curve identifiers and supported aliases.
+    - Use expm1(p*log(M)) for stable denominator evaluation near pickup.
+    - Return infinity below or at pickup; validate finite numeric inputs.
+    - Generate logarithmically spaced current-multiple/TCC samples.
+    - Add immutable ProtectionTCCPoint and ProtectionTCCReadModel records.
+    - Dispatch the TCC read model to IEC 60255 or IEEE C37.112.
+    - Validate read-model points for finite positive values, increasing
+      current/multiple and non-increasing operating time.
+    - Integrate selected curve standard into IECOvercurrentSettings,
+      IECOvercurrentRelay operating-time evaluation and TCC generation.
+      ANSI 51N inherits the same engine through its existing relay class.
+
+Boundary:
+    Numerical curves and TCC data remain Core calculations/read models.
+    Rendering and logarithmic plot presentation remain UI responsibilities.
+    The numerical engine does not trip breakers or coordinate other relays.
+
+Verification:
+    - Source-level inspection only.
+    - No tests/CI, syntax/import checks or independent numerical reference-point
+      comparisons were run.
+
+Status:
+    IEC/IEEE CURVE AND TCC DATA PATH IMPLEMENTED IN SOURCE.
+    INDEPENDENT STANDARD REFERENCE VALIDATION REMAINS PENDING.
+
+======================================================================
+
+
+======================================================================
+GF-PROT-062 — HONEST PARTIAL STATUS FOR INCOMPLETE ANSI FUNCTIONS
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Prevent relay classes with incomplete engineering contracts from being
+    advertised as fully implemented through the canonical protection catalog.
+
+Correction:
+    - Add ProtectionFunctionStatus.PARTIAL.
+    - Reclassify ANSI 21, 46, 49 and 67 as PARTIAL while retaining their
+      existing implementation classes and explicit input contracts.
+    - Keep ANSI 87 NOT_IMPLEMENTED; a differential numerical kernel alone
+      does not constitute an executable differential relay.
+    - ProtectionFactory continues to construct only IMPLEMENTED functions,
+      so PARTIAL functions fail closed through the canonical creation path.
+
+Rationale:
+    ANSI 21 still lacks validated impedance units/base conversion, complete
+    zone characteristics/timing and directional/polarizing supervision.
+    ANSI 49 still lacks complete thermal model selection, memory/cooling and
+    restart semantics.
+    ANSI 67 still lacks authoritative phasor derivation and directional
+    polarizing supervision.
+    ANSI 46 still lacks the full time-dependent negative-sequence and thermal
+    withstand coordination contract.
+
+Verification:
+    - Source-level inspection of the canonical catalog and factory gate.
+    - No tests/CI or runtime factory checks were run.
+
+Status:
+    CATALOGUE STATUS HONESTY IMPLEMENTED — FULL FUNCTIONAL CLOSURE REMAINS OPEN.
+
+======================================================================
+
