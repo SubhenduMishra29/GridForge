@@ -48,6 +48,7 @@ class RevisionService:
         "model.put_battery_in_service", "model.take_battery_out_of_service",
         "model.create_breaker", "model.delete_breaker",
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
+        "control.execute_trip_batch",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
         "connectivity.insert_equipment_into_connection",
         "connectivity.create_phase_domain_node",

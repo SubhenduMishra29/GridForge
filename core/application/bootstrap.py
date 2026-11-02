@@ -44,6 +44,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .control_dispatch import ControlTripBatchCommand
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
@@ -52,6 +53,7 @@ from .services.phase_domain_conductor_service import PhaseDomainConductorNetwork
 from .services.junction_service import JunctionCommandHandlers
 from .services.electrical_insertion_service import ElectricalInsertionService, ElectricalInsertionCommandHandlers
 from .command_manager import CommandManager
+from .results import ApplicationResult
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
@@ -219,6 +221,36 @@ def create_application(
             signal_mapping_setter=lambda mapping: application.configure_control_signal_mapping(mapping),
         ).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
+
+        def execute_control_trip_batch(command: Any, _context: Any, transaction: Any) -> Any:
+            """Execute all breaker trips in one shared transaction and history record."""
+            children = tuple(command.payload.get("commands", ()))
+            expected_ids = tuple(command.payload.get("breaker_ids", ()))
+            if len(children) < 2 or len(children) != len(expected_ids):
+                raise ValueError("Coordinated breaker-trip batch payload is incomplete.")
+            actual_ids = tuple(
+                str(child.payload.get("breaker_id", "")).strip()
+                for child in children
+            )
+            if actual_ids != expected_ids or len(set(actual_ids)) != len(actual_ids):
+                raise ValueError("Coordinated breaker-trip batch identity validation failed.")
+            for child in children:
+                if child.command_type != "model.trip_breaker":
+                    raise ValueError("Only canonical breaker trip commands are permitted in this batch.")
+                command_manager.execute_in_transaction(child, transaction)
+            return ApplicationResult.success_result(
+                message=f"Atomically executed {len(children)} coordinated breaker trips.",
+                metadata={
+                    "breaker_ids": expected_ids,
+                    "child_command_ids": tuple(str(child.command_id) for child in children),
+                    "atomic": True,
+                },
+            )
+
+        command_manager.register_handler(
+            ControlTripBatchCommand.COMMAND_TYPE,
+            execute_control_trip_batch,
+        )
         insertion_service = ElectricalInsertionService(
             command_executor=command_manager.execute_in_transaction,
         )

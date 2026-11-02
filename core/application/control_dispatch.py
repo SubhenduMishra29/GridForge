@@ -9,6 +9,7 @@ Author: Subhendu Mishra
 from __future__ import annotations
 
 from collections.abc import Callable
+from uuid import uuid4
 
 from core.application.command import Command
 from core.application.command_manager import CommandManager
@@ -45,6 +46,27 @@ from core.control.decision import ControlActionType, ControlDecision, ControlTar
 
 class InvalidApplicationResultError(TypeError):
     """The configured Application executor violated its result contract."""
+
+
+class ControlTripBatchCommand(Command):
+    """One atomic Application transaction for a coordinated breaker-trip set."""
+
+    COMMAND_TYPE = "control.execute_trip_batch"
+
+    def __init__(self, commands: tuple[Command, ...]) -> None:
+        items = tuple(commands)
+        if len(items) < 2:
+            raise ValueError("A coordinated trip batch requires at least two breaker commands.")
+        if any(not isinstance(item, Command) or item.command_type != "model.trip_breaker" for item in items):
+            raise TypeError("A coordinated trip batch accepts only canonical TripBreakerCommand values.")
+        breaker_ids = tuple(str(item.payload.get("breaker_id", "")).strip() for item in items)
+        if any(not item for item in breaker_ids) or len(set(breaker_ids)) != len(breaker_ids):
+            raise ValueError("A coordinated trip batch requires distinct, non-empty breaker IDs.")
+        super().__init__(
+            command_type=self.COMMAND_TYPE,
+            payload={"commands": items, "breaker_ids": breaker_ids},
+            command_id=uuid4(),
+        )
 
 
 class ControlCommandTranslator:
@@ -169,5 +191,13 @@ class ControlCommandDispatcher:
         """Backward-compatible translation and execution of one Control decision."""
         return self.execute_command(ControlCommandTranslator.to_command(decision))
 
+    def execute_trip_batch(self, decisions: tuple[ControlDecision, ...]) -> ApplicationResult:
+        """Execute simultaneous breaker trips in one Application transaction."""
+        items = tuple(decisions)
+        if len(items) < 2:
+            raise ValueError("execute_trip_batch requires at least two decisions.")
+        commands = tuple(ControlCommandTranslator.to_command(item) for item in items)
+        return self.execute_command(ControlTripBatchCommand(commands))
 
-__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher", "InvalidApplicationResultError"]
+
+__all__ = ["ControlCommandTranslator", "ControlCommandDispatcher", "ControlTripBatchCommand", "InvalidApplicationResultError"]

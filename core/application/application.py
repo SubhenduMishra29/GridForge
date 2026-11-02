@@ -3385,6 +3385,26 @@ class Application:
         elif command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type == "control.execute_trip_batch":
+            breaker_ids = tuple(command.payload.get("breaker_ids", ()))
+            batch_metadata = {
+                **metadata,
+                "breaker_ids": breaker_ids,
+                "atomic": True,
+                "command_type": command.command_type,
+            }
+            self._event_bus.publish(TopologyChanged(
+                operation=operation,
+                metadata=batch_metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
+            self._event_bus.publish(NetworkChanged(
+                operation=operation,
+                metadata=batch_metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
         elif command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
         elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)
