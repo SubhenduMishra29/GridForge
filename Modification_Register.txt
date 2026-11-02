@@ -19740,3 +19740,48 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-PROT-056 — Protection Function Operational Status Reconciliation
+======================================================================
+
+Scope:
+    Correct the canonical protection catalogue so that registration of a
+    relay class is not represented as complete standards-level operational
+    support where its measurement contract or execution coverage is still
+    incomplete.
+
+Corrections:
+    - Added PARTIAL to ProtectionFunctionStatus.
+    - Reclassified ANSI 21, 46, 49 and 67 as PARTIAL.
+    - Retained their existing implementation classes and explicit input
+      contracts for engineering visibility and future closure work.
+    - ProtectionFactory continues to construct only IMPLEMENTED functions;
+      PARTIAL functions therefore fail closed and cannot be newly configured
+      through the canonical factory as production-complete elements.
+    - ANSI 87 remains NOT_IMPLEMENTED; the differential numerical kernel is
+      not promoted to an executable relay element.
+
+Rationale:
+    - ANSI 21 reach settings still lack a validated engineering-unit and
+      impedance-base contract.
+    - ANSI 49 lacks typed temperature semantics and a thermal model/input
+      contract.
+    - ANSI 67 lacks authoritative voltage/current phasor-angle derivation
+      from provenance-verified channel samples.
+    - ANSI 46 currently implements instantaneous negative-sequence pickup;
+      timed negative-sequence protection remains outstanding.
+    - ANSI 87 still requires scheme-specific compensation and complete
+      executable relay/factory/Application integration.
+
+Verification:
+    - Source-level inspection of catalogue, input contracts, factory and
+      function implementations.
+    - No tests or CI were run, per project instruction.
+    - Syntax/import integrity and runtime factory behaviour remain
+      unverified; this change is a fail-closed status correction, not a
+      claim of completed ANSI function implementation.
+
+Status:
+    CATALOGUE HONESTY / FAIL-CLOSED FACTORY GATE IMPLEMENTED —
+    FULL FUNCTIONAL CLOSURE REMAINS OPEN
+
