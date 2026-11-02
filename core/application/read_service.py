@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 import math
 from datetime import datetime, timezone
@@ -17,6 +18,9 @@ from uuid import UUID
 from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
+from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
+from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
@@ -33,6 +37,10 @@ from .read_models import (
     RelayReadModel,
     SimpleWireReadModel,
     StudyResultReadModel,
+    TransientEventReadModel,
+    TransientAlgebraicQualityReadModel,
+    TransientSignalReadModel,
+    TransientResultPresentationReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -645,6 +653,355 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             value=result.value,
+        )
+
+    @staticmethod
+    def _transient_presentation(
+        row: Any,
+        *,
+        historical: bool,
+        record_id: UUID | None = None,
+        saved_at: str | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        value = getattr(row, "value", None)
+        transient_fields: Mapping[str, Any] | None = None
+        if isinstance(value, TransientStabilityResult):
+            transient_fields = {
+                "time": value.time,
+                "states": value.states,
+                "terminal_voltages": value.terminal_voltages,
+                "electrical_powers": value.electrical_powers,
+                "events": value.events,
+                "algebraic_quality": value.algebraic_quality,
+                "provenance": value.provenance,
+            }
+        elif isinstance(value, Mapping) and value.get("$dataclass") == (
+            f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
+        ):
+            # Schema-v1 archive records deliberately retain their historical
+            # generic-dataclass mapping semantics. Adapt the known payload
+            # shape here without mutating/retyping the archived source record.
+            candidate = value.get("fields")
+            if not isinstance(candidate, Mapping):
+                raise ValueError("Legacy transient result mapping has no canonical fields object.")
+            transient_fields = candidate
+        else:
+            return None
+
+        time_s = tuple(float(item) for item in transient_fields.get("time", ()))
+        raw_states = transient_fields.get("states", ())
+        voltage_samples = tuple(dict(sample) for sample in transient_fields.get("terminal_voltages", ()))
+        power_samples = tuple(dict(sample) for sample in transient_fields.get("electrical_powers", ()))
+        sample_count = len(time_s)
+        source_indices = tuple(range(sample_count))
+        signals: list[TransientSignalReadModel] = []
+
+        # State column labels are authored by the solver from its global
+        # MultiMachineSystem state layout. Legacy results without descriptors
+        # remain fully inspectable through explicit unlabeled State N signals.
+        provenance_source = transient_fields.get("provenance", {})
+        if not isinstance(provenance_source, Mapping):
+            raise ValueError("Transient solver provenance must be a mapping.")
+        state_descriptors = provenance_source.get("state_signals", ())
+        if getattr(raw_states, "ndim", None) == 2:
+            state_width = int(raw_states.shape[1])
+        elif len(raw_states):
+            state_width = len(raw_states[0])
+        else:
+            state_width = 0
+        if len(raw_states) != sample_count:
+            raise ValueError("Transient time and state sample counts must match exactly.")
+        if any(len(sample) != state_width for sample in raw_states):
+            raise ValueError("Transient state rows must retain a consistent column width.")
+        if len(voltage_samples) != sample_count or len(power_samples) != sample_count:
+            raise ValueError("Transient time, voltage and electrical-power sample counts must match exactly.")
+        if state_descriptors:
+            if not isinstance(state_descriptors, (tuple, list)):
+                raise ValueError("Transient solver state_signals provenance must be an ordered sequence.")
+            descriptors = []
+            for descriptor in state_descriptors:
+                if not isinstance(descriptor, Mapping):
+                    raise ValueError("Transient state signal descriptor must be a mapping.")
+                global_index = descriptor.get("global_index")
+                if (
+                    isinstance(global_index, bool)
+                    or not isinstance(global_index, int)
+                    or global_index < 0
+                    or global_index >= state_width
+                ):
+                    raise ValueError("Transient state signal descriptor has an invalid global_index.")
+                descriptors.append(descriptor)
+            indices = tuple(int(item["global_index"]) for item in descriptors)
+            if len(indices) != len(set(indices)) or set(indices) != set(range(state_width)):
+                raise ValueError("Transient state signal descriptors must cover every state column exactly once.")
+        else:
+            descriptors = tuple(
+                {
+                    "signal_id": f"state:{index}",
+                    "global_index": index,
+                    "label": f"State {index} (unlabeled)",
+                    "state_name": f"state_{index}",
+                    "unit": "unknown",
+                    "machine_id": None,
+                }
+                for index in range(state_width)
+            )
+
+        for descriptor in descriptors:
+            index = int(descriptor["global_index"])
+            signals.append(TransientSignalReadModel(
+                signal_id=str(descriptor.get("signal_id") or f"state:{index}"),
+                label=str(descriptor.get("label") or f"State {index}"),
+                quantity=str(descriptor.get("state_name") or f"state_{index}"),
+                unit=str(descriptor.get("unit") or "unknown"),
+                values=tuple(float(sample[index]) for sample in raw_states),
+                source_indices=source_indices,
+                machine_id=(
+                    None if descriptor.get("machine_id") is None
+                    else str(descriptor.get("machine_id"))
+                ),
+            ))
+
+        bus_ids: tuple[str, ...] = ()
+        if voltage_samples:
+            bus_ids = tuple(sorted(str(bus_id) for bus_id in voltage_samples[0]))
+            expected = set(bus_ids)
+            for sample_index, sample in enumerate(voltage_samples):
+                if set(sample) != expected:
+                    raise ValueError(
+                        f"Transient terminal-voltage Bus identities changed at sample {sample_index}; "
+                        "the Application read model will not reorder or silently fill missing samples."
+                    )
+        for bus_id in bus_ids:
+            signals.extend((
+                TransientSignalReadModel(
+                    signal_id=f"voltage:{bus_id}:real",
+                    label=f"{bus_id} — Re(V)",
+                    quantity="terminal_voltage_real",
+                    unit="p.u.",
+                    values=tuple(float(sample[bus_id].real) for sample in voltage_samples),
+                    source_indices=source_indices,
+                    bus_id=bus_id,
+                    component="real",
+                ),
+                TransientSignalReadModel(
+                    signal_id=f"voltage:{bus_id}:imag",
+                    label=f"{bus_id} — Im(V)",
+                    quantity="terminal_voltage_imag",
+                    unit="p.u.",
+                    values=tuple(float(sample[bus_id].imag) for sample in voltage_samples),
+                    source_indices=source_indices,
+                    bus_id=bus_id,
+                    component="imag",
+                ),
+            ))
+
+        machine_ids: tuple[str, ...] = ()
+        if power_samples:
+            machine_ids = tuple(sorted(str(machine_id) for machine_id in power_samples[0]))
+            expected = set(machine_ids)
+            for sample_index, sample in enumerate(power_samples):
+                if set(sample) != expected:
+                    raise ValueError(
+                        f"Transient electrical-power machine identities changed at sample {sample_index}; "
+                        "the Application read model will not reorder or silently fill missing samples."
+                    )
+        for machine_id in machine_ids:
+            for component_index, component, label in (
+                (0, "active_power", "P"),
+                (1, "reactive_power", "Q"),
+            ):
+                values = []
+                for sample_index, sample in enumerate(power_samples):
+                    pair = sample[machine_id]
+                    if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                        raise ValueError(
+                            f"Transient electrical-power sample {sample_index} for machine '{machine_id}' "
+                            "must contain exactly P and Q."
+                        )
+                    values.append(float(pair[component_index]))
+                signals.append(TransientSignalReadModel(
+                    signal_id=f"power:{machine_id}:{component}",
+                    label=f"{machine_id} — {label}",
+                    quantity=component,
+                    unit="p.u.",
+                    values=tuple(values),
+                    source_indices=source_indices,
+                    machine_id=machine_id,
+                    component=component,
+                ))
+
+        event_records = []
+        event_class_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
+        for event in transient_fields.get("events", ()):
+            if isinstance(event, EventExecution):
+                event_data = {
+                    "event_id": event.event_id,
+                    "event_type": event.event_type,
+                    "scheduled_time": event.scheduled_time,
+                    "dispatch_time": event.dispatch_time,
+                    "priority": event.priority,
+                    "description": event.description,
+                    "status": event.status,
+                    "metadata": event.metadata,
+                    "result": event.result,
+                    "failure_type": event.failure_type,
+                    "failure_message": event.failure_message,
+                    "pre_event_revision": event.pre_event_revision,
+                    "post_event_revision": event.post_event_revision,
+                    "post_event_re_evaluation_status": event.post_event_re_evaluation_status,
+                    "post_event_re_evaluation_failure_type": event.post_event_re_evaluation_failure_type,
+                    "post_event_re_evaluation_failure_message": event.post_event_re_evaluation_failure_message,
+                }
+            elif isinstance(event, Mapping) and event.get("$dataclass") == event_class_name:
+                legacy_event_fields = event.get("fields")
+                if not isinstance(legacy_event_fields, Mapping):
+                    raise ValueError("Legacy EventExecution mapping has no canonical fields object.")
+                scheduled_time = float(legacy_event_fields["time"])
+                event_data = {
+                    "event_id": str(legacy_event_fields["event_id"]),
+                    "event_type": str(legacy_event_fields["event_type"]),
+                    "scheduled_time": scheduled_time,
+                    "dispatch_time": None,
+                    "priority": None,
+                    "description": None,
+                    "status": "succeeded",
+                    "metadata": {},
+                    "result": legacy_event_fields.get("result"),
+                    "failure_type": None,
+                    "failure_message": None,
+                    "pre_event_revision": None,
+                    "post_event_revision": None,
+                    "post_event_re_evaluation_status": "unavailable",
+                    "post_event_re_evaluation_failure_type": None,
+                    "post_event_re_evaluation_failure_message": None,
+                }
+            else:
+                raise ValueError("Transient event history contains an unknown event record type.")
+            event_records.append(TransientEventReadModel(**event_data))
+        events = tuple(event_records)
+        quality_source = transient_fields.get("algebraic_quality", ())
+        if quality_source is None:
+            quality_source = ()
+        if not isinstance(quality_source, (tuple, list)):
+            raise ValueError("Transient algebraic_quality must be an ordered sequence.")
+        quality_records = []
+        if "algebraic_quality" in transient_fields and len(quality_source) != sample_count:
+            raise ValueError(
+                "Transient algebraic-quality record count must match the recorded time sample count."
+            )
+        algebraic_solution_name = (
+            f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}"
+        )
+        for sample_index, record in enumerate(quality_source):
+            if isinstance(record, AlgebraicNetworkSolution):
+                quality_fields = record
+                def quality_value(name: str, default: Any = None) -> Any:
+                    return getattr(quality_fields, name, default)
+            elif isinstance(record, Mapping) and record.get("$dataclass") == algebraic_solution_name:
+                legacy_fields = record.get("fields")
+                if not isinstance(legacy_fields, Mapping):
+                    raise ValueError("Legacy AlgebraicNetworkSolution mapping has no canonical fields object.")
+                def quality_value(name: str, default: Any = None) -> Any:
+                    return legacy_fields.get(name, default)
+            else:
+                raise ValueError("Transient algebraic quality contains an unknown record type.")
+            solver_time = quality_value("simulation_time")
+            if solver_time is not None and not math.isclose(
+                float(solver_time), time_s[sample_index], rel_tol=0.0, abs_tol=1e-12
+            ):
+                raise ValueError(
+                    f"Transient algebraic-quality sample {sample_index} time does not match the recorded time vector."
+                )
+            quality_records.append(TransientAlgebraicQualityReadModel(
+                sample_index=sample_index,
+                time_s=time_s[sample_index],
+                status=quality_value("status", "UNAVAILABLE"),
+                accepted=quality_value("accepted", False),
+                quality_verified=quality_value("quality_verified", False),
+                solver_name=quality_value("solver_name", "unavailable"),
+                solver_time_s=None if solver_time is None else float(solver_time),
+                bus_voltages=quality_value("bus_voltages", {}),
+                absolute_residual_norm=quality_value("absolute_residual_norm"),
+                normalized_residual=quality_value("normalized_residual"),
+                residual_tolerance=quality_value("residual_tolerance"),
+                condition_number=quality_value("condition_number"),
+                condition_limit=quality_value("condition_limit"),
+                bus_ids=tuple(quality_value("bus_ids", ())),
+                topology_revision=quality_value("topology_revision"),
+                source_ids=tuple(quality_value("source_ids", ())),
+                active_fault_id=quality_value("active_fault_id"),
+                active_fault_bus_id=quality_value("active_fault_bus_id"),
+                active_fault_type=quality_value("active_fault_type"),
+                study_provenance=quality_value("study_provenance", {}),
+                diagnostics=tuple(quality_value("diagnostics", ())),
+            ))
+        algebraic_quality = tuple(quality_records)
+        provenance = dict(provenance_source)
+        provenance["execution_identity"] = {
+            "study_id": str(row.study_id),
+            "project_id": row.project_id,
+            "activation_generation": row.activation_generation,
+            "source_revision": row.source_revision,
+            "current": bool(getattr(row, "current", False)) if not historical else False,
+            "historical": historical,
+            "record_id": None if record_id is None else str(record_id),
+            "saved_at": saved_at,
+        }
+        return TransientResultPresentationReadModel(
+            study_id=row.study_id,
+            project_id=row.project_id,
+            activation_generation=row.activation_generation,
+            source_revision=row.source_revision,
+            study_type=row.study_type,
+            status=row.status,
+            message=str(getattr(row, "message", "") or ""),
+            current=bool(getattr(row, "current", False)) if not historical else False,
+            historical=historical,
+            record_id=record_id,
+            saved_at=saved_at,
+            time_s=time_s,
+            signals=tuple(signals),
+            events=events,
+            provenance=provenance,
+            algebraic_quality=algebraic_quality,
+        )
+
+    def transient_result(
+        self,
+        study_id: UUID,
+        *,
+        project_id: str,
+        activation_generation: int,
+        current_revision: ProjectRevision | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        row = self.result(
+            study_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+            current_revision=current_revision,
+        )
+        if row is None:
+            return None
+        return self._transient_presentation(row, historical=False)
+
+    def archived_transient_result(
+        self,
+        record_id: UUID,
+        *,
+        project_id: str,
+        activation_generation: int | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        row = self.archived_result(
+            record_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+        )
+        return self._transient_presentation(
+            row,
+            historical=True,
+            record_id=row.record_id,
+            saved_at=row.saved_at,
         )
 
     def result(
