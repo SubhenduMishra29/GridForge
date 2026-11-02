@@ -185,6 +185,17 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
     if not isinstance(value, Mapping):
         return value
     kind = value.get("$type")
+    qualified_hint = value.get("class")
+    transient_result_name = f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
+    event_execution_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
+    if schema_version >= 2 and qualified_hint in {transient_result_name, event_execution_name}:
+        expected_kind = "solver_result" if qualified_hint == transient_result_name else "event_execution"
+        if kind != expected_kind:
+            raise StudyResultArchiveError(
+                f"Known transient type {qualified_hint} must use the {expected_kind!r} archive tag in schema v2."
+            )
+    if kind in {"solver_result", "event_execution"} and set(value) != {"$type", "class", "fields"}:
+        raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
     if kind == "float" and set(value) == {"$type", "value"}:
         special = value["value"]
         if special == "nan":
@@ -271,7 +282,7 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                 f"Known transient type {qualified} cannot use the generic dataclass archive tag in schema v2."
             )
         return {"$dataclass": qualified, "fields": decoded_fields}
-    return {key: _decode_value(item) for key, item in value.items()}
+    return {key: _decode_value(item, schema_version=schema_version) for key, item in value.items()}
 
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
