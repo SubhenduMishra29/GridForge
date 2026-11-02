@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from core.application.command import Command
 from core.application.control_dispatch import (
@@ -78,6 +78,9 @@ class ProtectionActionOutcome:
     core_state_observation: str = "unknown/unavailable"
     physical_acknowledgement: str = "unknown/unavailable"
     postcondition_verification: ProtectionPostconditionVerification | None = None
+    field_device_delivery_status: str = "not_configured"
+    field_device_acknowledgement_status: str = "unavailable"
+    field_device_acknowledgement_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.protection_decision, ProtectionDecision):
@@ -146,6 +149,7 @@ class ProtectionExecutionService:
         action_resolver: Callable[[ProtectionDecision], ControlDecision | None],
         pre_dispatch_guard: Callable[[], None] | None = None,
         state_observer: Callable[[ControlDecision, Command, ApplicationResult], ProtectionPostconditionVerification | str] | None = None,
+        field_device_dispatcher: Callable[[ControlDecision, Command], Any] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
             raise TypeError("dispatcher must be a ControlCommandDispatcher.")
@@ -159,6 +163,9 @@ class ProtectionExecutionService:
         if state_observer is not None and not callable(state_observer):
             raise TypeError("state_observer must be callable or None.")
         self._state_observer = state_observer
+        if field_device_dispatcher is not None and not callable(field_device_dispatcher):
+            raise TypeError("field_device_dispatcher must be callable or None.")
+        self._field_device_dispatcher = field_device_dispatcher
 
     @property
     def dispatcher(self) -> ControlCommandDispatcher:
@@ -361,10 +368,31 @@ class ProtectionExecutionService:
                     )
                     diagnostics.append(message)
 
+            field_delivery_status = "not_configured"
+            field_acknowledgement_status = "unavailable"
+            field_acknowledgement_id = None
+            if result.success and self._field_device_dispatcher is not None:
+                try:
+                    field_status = self._field_device_dispatcher(control_decision, command)
+                    field_delivery_status = str(getattr(field_status, "delivery_status", "unknown"))
+                    field_acknowledgement_status = str(getattr(field_status, "acknowledgement_status", "unavailable"))
+                    field_acknowledgement_id = getattr(field_status, "acknowledgement_id", None)
+                    field_diagnostic = str(getattr(field_status, "diagnostic", "") or "")
+                    if field_diagnostic:
+                        diagnostics.append(f"Field-device delivery/acknowledgement for command '{command.command_id}': {field_diagnostic}")
+                except Exception as exc:
+                    field_delivery_status = "unknown"
+                    field_acknowledgement_status = "unavailable"
+                    diagnostics.append(f"Field-device delivery failed or is indeterminate for command '{command.command_id}': {type(exc).__name__}: {exc}")
+
             outcomes.append(ProtectionActionOutcome(
                 protection_decision, control_decision, command, result, status, message,
                 core_state_observation=core_state_observation,
                 postcondition_verification=postcondition_verification,
+                field_device_delivery_status=field_delivery_status,
+                field_device_acknowledgement_status=field_acknowledgement_status,
+                field_device_acknowledgement_id=field_acknowledgement_id,
+                physical_acknowledgement=field_acknowledgement_status,
             ))
 
         return ProtectionExecutionResult(
