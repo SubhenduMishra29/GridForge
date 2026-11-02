@@ -147,6 +147,7 @@ class Application:
         self.protection_runtime: ProtectionRuntime | None = None
         self._protection_execution_audit_store = protection_execution_audit_store
         self._field_device_command_service = field_device_command_service
+        self._authenticated_measurement_execution_authority = object()
         self._pending_field_device_commands: dict[str, tuple[Command, str, int]] = {}
         self._completed_field_device_commands: set[str] = set()
         self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
@@ -622,6 +623,7 @@ class Application:
                 evaluation_time,
                 event_id=event_id,
                 event_type="AUTHENTICATED_MEASUREMENT_SAMPLE",
+                _execution_authority=self._authenticated_measurement_execution_authority,
                 evaluation_metadata={
                     "trigger": "MEASUREMENT_CHANNEL_PUBLICATION",
                     "producer_id": attestation.producer_id,
@@ -886,6 +888,7 @@ class Application:
         event_type: str | None = None,
         supervision: Mapping[str, Any] | None = None,
         network_state: TopologySnapshot | None = None,
+        _execution_authority: Any | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -1496,6 +1499,10 @@ class Application:
         field_device_dispatcher = None
         if self._field_device_command_service is not None:
             def dispatch_to_field_device(control_decision: Any, command: Command) -> FieldDeviceExecutionStatus:
+                if _execution_authority is not self._authenticated_measurement_execution_authority:
+                    raise PermissionError(
+                        "Physical field-device dispatch is restricted to the authenticated measurement publication path."
+                    )
                 ensure_current_protection_provenance()
                 request = FieldDeviceCommandRequest(
                     project_id=project.project_id,
