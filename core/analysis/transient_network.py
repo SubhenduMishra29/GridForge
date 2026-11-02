@@ -263,25 +263,19 @@ class PreparedTransientStability:
             for path in machine_connection_paths.values()
             for switch_id in path
         }
-        if set(switch_states) != expected_switch_ids:
+        missing_switch_ids = expected_switch_ids - set(switch_states)
+        if missing_switch_ids:
             raise ValueError(
-                "Captured switch states must cover exactly the switching IDs in the explicit machine paths; "
-                f"missing={sorted(expected_switch_ids - set(switch_states))!r}, "
-                f"unexpected={sorted(set(switch_states) - expected_switch_ids)!r}."
+                "Captured switch states are missing machine-path targets: "
+                f"{sorted(missing_switch_ids)!r}."
             )
         if any(type(value) is not bool for value in switch_states.values()):
             raise TypeError("Captured detached switch states must be explicit bool values.")
-        if set(switch_available_states) != expected_switch_ids:
-            raise ValueError(
-                "Captured switch-availability states must cover exactly the switching IDs in the explicit machine paths."
-            )
+        if set(switch_available_states) != set(switch_states):
+            raise ValueError("Switch conduction and availability states must cover identical canonical switch identities.")
         if any(type(value) is not bool for value in switch_available_states.values()):
             raise TypeError("Captured detached switch-availability states must be explicit bool values.")
-        if set(switch_connections) != expected_switch_ids:
-            raise ValueError(
-                "Captured switch Bus connections must cover exactly the switching IDs in the explicit machine paths."
-            )
-        if set(switch_states) != set(switch_connections) or set(switch_available_states) != set(switch_connections):
+        if set(switch_connections) != set(switch_states):
             raise ValueError("Switch Bus connections, conduction states and availability states must have identical identities.")
 
         definitions: list[DynamicMachineModelDefinition] = []
