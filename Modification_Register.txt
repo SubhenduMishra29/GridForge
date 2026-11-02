@@ -20038,3 +20038,35 @@ Status:
 
 ======================================================================
 
+
+
+======================================================================
+GF-TS-NORTON-955A — DETACHED EVENT / DAE CONNECTIVITY PARITY
+======================================================================
+
+Finding:
+    TransientEventState.is_machine_connected() checked only the detached
+    breaker position, while DetachedTransientNetworkState.is_machine_connected()
+    also required the captured switching device to be available. A device
+    captured as failed, blown or out of service but initially closed could
+    therefore be excluded from Norton injection yet still contribute
+    electrical power to the rotor swing equation. Event transition records
+    could also report the wrong connected-before/after state.
+
+Correction:
+    - Apply the same fail-closed predicate in TransientEventState: every
+      switching device in the machine's explicit path must be closed and
+      explicitly available in the captured snapshot.
+    - A missing availability entry is treated as unavailable, matching the
+      detached network solver's connectivity contract.
+    - Event transition records and DAESolver's inferred connectivity callback
+      now consume the same effective machine connection state as Norton
+      source assembly.
+
+Verification:
+    - Source-level inspection of both detached connectivity predicates and
+      their runtime consumers.
+    - No tests or CI were run, per project instruction. Runtime verification
+      remains pending.
+
+======================================================================
