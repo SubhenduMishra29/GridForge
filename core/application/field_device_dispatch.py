@@ -53,9 +53,10 @@ class FieldDeviceAcknowledgement:
     acknowledged_at: float
     signature: str
     payload_digest: str
+    acknowledgement_id: str
 
     def __post_init__(self) -> None:
-        for name in ("command_id", "delivery_id", "device_id", "signature", "payload_digest"):
+        for name in ("command_id", "delivery_id", "device_id", "signature", "payload_digest", "acknowledgement_id"):
             if not getattr(self, name):
                 raise ValueError(f"{name} is required.")
         if self.status not in {"executed", "rejected"}:
@@ -127,7 +128,7 @@ class FieldDeviceCommandService:
                                               diagnostic="physical acknowledgement signature was not authenticated")
         return FieldDeviceExecutionStatus(
             "accepted", acknowledgement.status, receipt.delivery_id,
-            acknowledgement_id=acknowledgement.payload_digest,
+            acknowledgement_id=acknowledgement.acknowledgement_id,
         )
 
 
