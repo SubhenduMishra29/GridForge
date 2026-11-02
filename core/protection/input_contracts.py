@@ -236,12 +236,13 @@ def validate_protection_input_contracts(
                         "reference_basis='PRIMARY'; secondary quantities cannot be compared to primary-ohm reach."
                     )
                 endpoint = binding.source_endpoint_reference
-                role = (endpoint.terminal_role or "").upper() if endpoint.is_terminal else ""
-                primary_roles = {"P1", "P2", "PRIMARY_A", "PRIMARY_B", "H1", "H2"}
-                if not endpoint.is_terminal or role not in primary_roles:
-                    diagnostics.append(
-                        f"{prefix}, input={input_name!r}: ANSI 21 requires an explicit physical primary instrument terminal."
-                    )
+                if input_name == "voltage":
+                    role = (endpoint.terminal_role or "").upper() if endpoint.is_terminal else ""
+                    primary_roles = {"PRIMARY_A", "PRIMARY_B", "H1", "H2"}
+                    if not endpoint.is_terminal or role not in primary_roles:
+                        diagnostics.append(
+                            f"{prefix}, input='voltage': ANSI 21 requires an explicit PT/CVT primary terminal."
+                        )
         if contract is None:
             diagnostics.append(f"{prefix}: canonical catalog has no declared input contract; function is fail-closed.")
             continue
