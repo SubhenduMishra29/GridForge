@@ -14,7 +14,7 @@ from typing import Callable, Mapping
 
 import numpy as np
 
-from .dae_solver import DAESolution, DAESolver
+from .dae_solver import AlgebraicNetworkSolution, DAESolution, DAESolver
 from .events import EventExecution, EventManager
 
 
@@ -32,6 +32,7 @@ class TransientStabilityResult:
     electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
     events: tuple[EventExecution, ...] = ()
     provenance: Mapping[str, object] = field(default_factory=dict)
+    algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
@@ -46,6 +47,16 @@ class TransientStabilityResult:
             raise ValueError("Every recorded time sample must have one terminal-voltage output sample.")
         if len(self.electrical_powers) != time.shape[0]:
             raise ValueError("Every recorded time sample must have one electrical-power output sample.")
+        if self.algebraic_quality and len(self.algebraic_quality) != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one algebraic quality record.")
+        if self.algebraic_quality:
+            if any(not isinstance(item, AlgebraicNetworkSolution) for item in self.algebraic_quality):
+                raise TypeError("Transient algebraic quality samples must be canonical AlgebraicNetworkSolution records.")
+            for sample_time, quality in zip(time, self.algebraic_quality):
+                if quality.simulation_time is None or not np.isclose(
+                    quality.simulation_time, sample_time, rtol=0.0, atol=1e-12
+                ):
+                    raise ValueError("Algebraic quality metadata must match its recorded simulation-time sample.")
         if not np.all(np.isfinite(time)) or not np.all(np.isfinite(states)):
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
@@ -54,6 +65,11 @@ class TransientStabilityResult:
             raise TypeError("Transient terminal-voltage samples must be mappings.")
         if any(not isinstance(sample, Mapping) for sample in self.electrical_powers):
             raise TypeError("Transient electrical-power samples must be mappings.")
+        events = tuple(self.events)
+        if any(not isinstance(event, EventExecution) for event in events):
+            raise TypeError("Transient result events must contain canonical EventExecution records.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Transient result provenance must be a mapping.")
         immutable_voltages = tuple(
             MappingProxyType({str(bus_id): complex(value) for bus_id, value in sample.items()})
             for sample in self.terminal_voltages
@@ -62,17 +78,13 @@ class TransientStabilityResult:
             MappingProxyType({str(machine_id): (float(values[0]), float(values[1])) for machine_id, values in sample.items()})
             for sample in self.electrical_powers
         )
-        events = tuple(self.events)
-        if any(not isinstance(event, EventExecution) for event in events):
-            raise TypeError("Transient result events must contain canonical EventExecution records.")
-        if not isinstance(self.provenance, Mapping):
-            raise TypeError("Transient result provenance must be a mapping.")
         time.setflags(write=False)
         states.setflags(write=False)
         object.__setattr__(self, "time", time)
         object.__setattr__(self, "states", states)
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
+        object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
@@ -160,40 +172,22 @@ class TransientStabilitySolver:
         states: list[np.ndarray] = []
         voltages: list[dict[str, complex]] = []
         powers: list[dict[str, tuple[float, float]]] = []
+        algebraic_quality: list[AlgebraicNetworkSolution] = []
         executions: list[EventExecution] = []
 
-        if record_initial and not (should_cancel is not None and should_cancel()):
-            initial_events = self.event_manager.process(self._time)
-            try:
+        if not (should_cancel is not None and should_cancel()):
+            executions.extend(self._process_due_events())
+            if record_initial:
                 initial = self.dae_solver.evaluate(self._state, self._time)
-            except Exception as exc:
-                executions.extend(
-                    self.event_manager.annotate_post_event_re_evaluation(
-                        initial_events,
-                        succeeded=False,
-                        failure=exc,
-                    )
-                )
-                message = (
-                    "Initial post-event algebraic re-evaluation failed"
-                    if initial_events
-                    else "Initial algebraic evaluation failed"
-                )
-                raise TransientStabilityError(
-                    f"{message} at t={self._time:.12g} s."
-                ) from exc
-            if initial_events:
-                executions.extend(
-                    self.event_manager.annotate_post_event_re_evaluation(
-                        initial_events,
-                        succeeded=True,
-                    )
-                )
-            self._record(initial, times, states, voltages, powers)
+                self._record(initial, times, states, voltages, powers, algebraic_quality)
 
         while self._time < self.end_time - self.event_manager.tolerance:
             if should_cancel is not None and should_cancel():
                 break
+            # Dispatch events due at the current simulation time before asking
+            # the scheduler for a strictly-future event boundary. This is
+            # independent of whether the caller records an initial sample.
+            executions.extend(self._process_due_events())
             previous_time = self._time
             next_event_time = self.event_manager.next_event_time(previous_time)
             target_time = min(previous_time + self.dt, self.end_time)
@@ -249,7 +243,7 @@ class TransientStabilitySolver:
                         )
                     )
 
-            self._record(solution, times, states, voltages, powers)
+            self._record(solution, times, states, voltages, powers, algebraic_quality)
 
         cancelled = should_cancel is not None and should_cancel()
         if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
@@ -266,36 +260,13 @@ class TransientStabilitySolver:
             result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
             result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
 
-        state_signals = []
-        for state_slice in self.dae_solver.machine_system.state_layout:
-            machine = self.dae_solver.machine_system.get_machine(state_slice.machine_id)
-            if state_slice.size == 2:
-                local_descriptors = (
-                    ("rotor_angle_rad", "Rotor angle", "rad"),
-                    ("speed_deviation_pu", "Speed deviation", "p.u."),
-                )
-            else:
-                local_descriptors = tuple(
-                    (f"state_{index}", f"State {index}", "unknown")
-                    for index in range(state_slice.size)
-                )
-            for local_index, (state_name, label, unit) in enumerate(local_descriptors):
-                state_signals.append({
-                    "signal_id": f"state:{state_slice.machine_id}:{local_index}",
-                    "machine_id": str(machine.machine_id),
-                    "state_name": state_name,
-                    "global_index": state_slice.start + local_index,
-                    "label": f"{machine.machine_id} — {label}",
-                    "unit": unit,
-                })
-        result_provenance["state_signals"] = tuple(state_signals)
-
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
             states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
             terminal_voltages=tuple(voltages),
             electrical_powers=tuple(powers),
             events=tuple(executions),
+            algebraic_quality=tuple(algebraic_quality),
             provenance=result_provenance,
         )
 
@@ -307,6 +278,9 @@ class TransientStabilitySolver:
             raise ValueError("dt must be greater than zero.")
         if self._time >= self.end_time - self.event_manager.tolerance:
             raise TransientStabilityError("Simulation has reached end_time.")
+        # Keep incremental stepping consistent with run(): dispatch events
+        # already due (including the current-time tolerance window) first.
+        self._process_due_events()
         previous_time = self._time
         step_end = min(previous_time + requested_dt, self.end_time)
         next_event_time = self.event_manager.next_event_time(previous_time)
@@ -338,6 +312,34 @@ class TransientStabilitySolver:
                 )
         return solution
 
+    def _process_due_events(self) -> tuple[EventExecution, ...]:
+        """Dispatch events due at the current time and refresh algebraic state.
+
+        EventManager.process() owns the tolerance policy: events at or before
+        current_time + tolerance are due. Calling it before future-boundary
+        lookup prevents an event at the initial/current time from being skipped.
+        """
+        if self._state is None:
+            return ()
+        executions = self.event_manager.process(self._time)
+        if not executions:
+            return ()
+        try:
+            self.dae_solver.evaluate(self._state, self._time)
+        except Exception as exc:
+            failed = self.event_manager.annotate_post_event_re_evaluation(
+                executions,
+                succeeded=False,
+                failure=exc,
+            )
+            raise TransientStabilityError(
+                f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+            ) from exc
+        return self.event_manager.annotate_post_event_re_evaluation(
+            executions,
+            succeeded=True,
+        )
+
     def reset(self) -> None:
         self._state = None
         self._time = self.start_time
@@ -350,11 +352,25 @@ class TransientStabilitySolver:
         states: list[np.ndarray],
         voltages: list[dict[str, complex]],
         powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
     ) -> None:
         times.append(float(solution.time))
         states.append(np.asarray(solution.state, dtype=float).copy())
         voltages.append(dict(solution.terminal_voltages))
         powers.append(self._electrical_powers(solution.state, solution.terminal_voltages))
+        quality = solution.algebraic_quality
+        if quality is None:
+            quality = AlgebraicNetworkSolution(
+                bus_voltages=solution.terminal_voltages,
+                status="UNVERIFIED",
+                accepted=True,
+                quality_verified=False,
+                solver_name="legacy-DAESolution",
+                bus_ids=tuple(solution.terminal_voltages),
+                simulation_time=solution.time,
+                diagnostics=("DAESolution did not carry algebraic quality metadata.",),
+            )
+        algebraic_quality.append(quality)
 
     def _electrical_powers(
         self,

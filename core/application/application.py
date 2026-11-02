@@ -139,6 +139,7 @@ class Application:
         self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
         self._commit_state_lock = RLock()
         self._commit_in_flight = False
+        self._save_in_progress = False
         self._pending_async_commit_command: CommitNetworkCommand | None = None
         # Recovery artifacts live outside the project file and preserve the
         # Application-owned draft separately from authoritative Core state.
@@ -1794,6 +1795,21 @@ class Application:
         return context
 
     def _save_project_scoped(self, path: str | None = None, *, save_as: bool = False) -> ProjectContext:
+        """Serialize persistence against all Application-owned network mutations."""
+        with self._execution_lock:
+            with self._commit_state_lock:
+                if self._commit_in_flight:
+                    raise RuntimeError("A DraftNetwork commit is in progress; retry project save after it completes.")
+                if self._save_in_progress:
+                    raise RuntimeError("A project save is already in progress.")
+                self._save_in_progress = True
+            try:
+                return self._save_project_scoped_locked(path, save_as=save_as)
+            finally:
+                with self._commit_state_lock:
+                    self._save_in_progress = False
+
+    def _save_project_scoped_locked(self, path: str | None = None, *, save_as: bool = False) -> ProjectContext:
         """Persist one captured project activation without contaminating a later activation.
 
         The lifecycle saver is synchronous today, but serializers/savers may call
@@ -1813,6 +1829,14 @@ class Application:
             lifecycle.save_project_as(path) if save_as
             else lifecycle.save_project(path)
         )
+
+        # Do not advance the persisted baseline if a re-entrant callback changed
+        # the project while the synchronous saver was running.
+        if self._revision_service.revision != revision_snapshot:
+            raise RuntimeError(
+                "Project revision changed during save; persisted revision baseline "
+                "and ProjectSaved event were not updated."
+            )
 
         if (
             lifecycle.context is None
@@ -1969,18 +1993,6 @@ class Application:
             current_revision=self.revision,
         )
 
-    def read_transient_study_result(self, study_id) -> Any:
-        """Return the complete aligned transient presentation read model for a live result."""
-        context = self.project_lifecycle.context
-        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
-            return None
-        return self._study_read_service.transient_result(
-            study_id,
-            project_id=context.project_id,
-            activation_generation=self.project_lifecycle.activation_generation,
-            current_revision=self.revision,
-        )
-
     def read_study_results(self) -> tuple[Any, ...]:
         """Return all study result read models for the active project generation."""
         context = self.project_lifecycle.context
@@ -2011,22 +2023,6 @@ class Application:
             saved_after=saved_after,
             saved_before=saved_before,
             search=search,
-        )
-
-    def read_archived_transient_study_result(
-        self,
-        record_id: UUID,
-        *,
-        activation_generation: int | None = None,
-    ) -> Any:
-        """Return a complete historical transient presentation without SLD projection."""
-        context = self.project_lifecycle.context
-        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
-            raise RuntimeError("An active project is required to read archived transient results.")
-        return self._study_read_service.archived_transient_result(
-            record_id,
-            project_id=context.project_id,
-            activation_generation=activation_generation,
         )
 
     def read_archived_study_result(self, record_id: UUID, *, activation_generation: int | None = None) -> Any:
@@ -3087,11 +3083,17 @@ class Application:
         draft_payload = draft.to_dict()
         source_revision = self.revision
         command = CommitNetworkCommand(project_id=project_id, activation_generation=activation_generation, draft_network=draft_payload)
-        with self._commit_state_lock:
-            if self._commit_in_flight:
-                raise RuntimeError("A DraftNetwork commit is already in progress.")
-            self._commit_in_flight = True
-            self._pending_async_commit_command = command
+        # Serialize the transition into the in-flight state with project saves.
+        # A save holds this same execution lock for its complete persistence window,
+        # so a commit cannot become pending after the save has passed its guard.
+        with self._execution_lock:
+            with self._commit_state_lock:
+                if self._commit_in_flight:
+                    raise RuntimeError("A DraftNetwork commit is already in progress.")
+                if self._save_in_progress:
+                    raise RuntimeError("Project persistence is in progress; retry the DraftNetwork commit afterward.")
+                self._commit_in_flight = True
+                self._pending_async_commit_command = command
 
         def execute_captured_commit() -> ApplicationResult:
             try:
@@ -3153,6 +3155,8 @@ class Application:
         with self._commit_state_lock:
             if self._commit_in_flight:
                 raise RuntimeError("Another DraftNetwork commit is in progress; retry after it completes.")
+            if self._save_in_progress:
+                raise RuntimeError("Project persistence is in progress; retry the mutation after save completes.")
 
     def read_draft_network(self) -> Mapping[str, Any] | None:
         """Return an isolated serialized snapshot for Application read/projection consumers."""
