@@ -101,6 +101,8 @@ def create_application(
         raise TypeError("synchronism_bypass_provider must be callable when supplied.")
     if (field_device_adapter is None) != (field_device_acknowledgement_verifier is None):
         raise ValueError("field_device_adapter and field_device_acknowledgement_verifier must be supplied together.")
+    if field_device_adapter is not None and (measurement_clock is None or not measurement_clock_domain):
+        raise ValueError("Field-device delivery requires the configured trusted measurement clock and clock domain.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -127,7 +129,12 @@ def create_application(
         )
     )
     field_device_command_service = (
-        FieldDeviceCommandService(field_device_adapter, field_device_acknowledgement_verifier)
+        FieldDeviceCommandService(
+            field_device_adapter,
+            field_device_acknowledgement_verifier,
+            clock=measurement_channel_service.trusted_now,
+            clock_domain=measurement_clock_domain,
+        )
         if field_device_adapter is not None else None
     )
 
