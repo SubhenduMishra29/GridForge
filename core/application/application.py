@@ -558,12 +558,20 @@ class Application:
     def _on_measurement_sample_published(
         self,
         channel_id: str,
-        timestamp: float,
+        sample_timestamp: float,
+        trusted_evaluation_time: float,
     ) -> ProtectionExecutionResult | None:
-        """Drive protection from the trusted, active measurement ingress."""
+        """Drive protection using trusted time, not the source sample's age-zero timestamp."""
         lifecycle = self._project_lifecycle
         if lifecycle is None or lifecycle.state != "ACTIVE" or not lifecycle.has_project:
             return None
+        if (
+            isinstance(trusted_evaluation_time, bool)
+            or not isinstance(trusted_evaluation_time, (int, float))
+            or not isfinite(trusted_evaluation_time)
+            or trusted_evaluation_time < sample_timestamp
+        ):
+            raise ValueError("Trusted protection evaluation time must be finite and not precede the attested sample.")
         configuration_service = getattr(self, "protection_configuration_service", None)
         configuration = getattr(configuration_service, "configuration", None)
         if configuration is None:
@@ -574,7 +582,7 @@ class Application:
         ):
             return None
         try:
-            return self.evaluate_protection_cycle(timestamp)
+            return self.evaluate_protection_cycle(float(trusted_evaluation_time))
         except Exception as exc:
             project = lifecycle.context
             self._event_bus.publish(ProtectionChanged(
@@ -583,7 +591,8 @@ class Application:
                     "project_id": None if project is None else str(project.project_id),
                     "activation_generation": lifecycle.activation_generation,
                     "channel_id": channel_id,
-                    "sample_timestamp": float(timestamp),
+                    "sample_timestamp": float(sample_timestamp),
+                    "evaluation_time": float(trusted_evaluation_time),
                     "diagnostic": f"{type(exc).__name__}: {exc}",
                     "physical_acknowledgement": "unknown/unavailable",
                 },
