@@ -490,13 +490,40 @@ def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | 
                 observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
             return
         if isinstance(item, ShortCircuitConductorCurrent):
-            base = (item.base_mva, item.voltage_base_kv, item.phase_or_sequence, item.reference_direction)
-            observations[f"{path}.current"] = (item.current, "p.u.", base)
+            # Match by physical conductor/terminal identity, never by collection
+            # position. Topology revision is part of the comparison base so a
+            # conductor record from a different topology cannot be paired.
+            identity = (
+                f"{item.equipment_id!r}|{item.terminal_role!r}|"
+                f"{item.conductor_id!r}|{item.bus_id!r}"
+            )
+            observation_path = f"{path}.conductor[{identity}]"
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.topology_revision,
+                item.phase_or_sequence,
+                item.reference_direction,
+                item.current_units,
+            )
+            observations[f"{observation_path}.current"] = (item.current, "p.u.", base)
             return
         if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
-            base = (item.base_mva, item.voltage_base_kv, item.positive_direction)
-            observations[f"{path}.current_a"] = (item.current_a, "A", base)
-            observations[f"{path}.current_pu"] = (item.current_pu, "p.u.", base)
+            # A transformer may contain multiple loops and winding records.
+            # Include all physical identifiers in the key; direction and
+            # current base are also required to agree before calculating delta.
+            observation_path = (
+                f"{path}.transformer[{item.transformer_id!r}]"
+                f".loop[{item.loop_id!r}].winding[{item.winding!r}]"
+            )
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.current_base_a,
+                item.positive_direction,
+            )
+            observations[f"{observation_path}.current_a"] = (item.current_a, "A", base)
+            observations[f"{observation_path}.current_pu"] = (item.current_pu, "p.u.", base)
             return
         if isinstance(item, Mapping):
             for key, nested in item.items():
