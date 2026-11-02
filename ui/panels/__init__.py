@@ -12,6 +12,7 @@ from .panel_manager import PanelManager
 from .panel_registry import PanelRegistry
 from .panel_state import PanelState
 from .panel_presentation_bridge import PanelPresentationBridge, PanelPresentationState
+from .transient_result_view import TransientResultViewWidget
 
 __all__ = [
     "PanelBase",
@@ -23,4 +24,5 @@ __all__ = [
     "PanelState",
     "PanelPresentationBridge",
     "PanelPresentationState",
+    "TransientResultViewWidget",
 ]
