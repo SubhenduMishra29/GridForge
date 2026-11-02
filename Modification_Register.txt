@@ -18656,3 +18656,108 @@ Status:
     CANONICAL POWER-FLOW / SHORT-CIRCUIT RESTORATION AND EXPLICIT
     NON-FINITE FLOAT ENCODING IMPLEMENTED — ROUND-TRIP VERIFICATION PENDING
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-43
+======================================================================
+
+Scope:
+    Compare archived electrical study values as numerical differences
+    without mixing unlike units, engineering bases or reference directions.
+
+Corrections:
+    - Added StudyResultNumericDeltaReadModel and exposed it through the
+      Application read-model package.
+    - Power Flow voltage magnitude/angle comparison is keyed by stable bus
+      identity and requires the same explicit solver snapshot identity.
+    - Short-Circuit physical conductor current comparison requires matching
+      MVA/kV bases, conductor phase and reference direction.
+    - Internal transformer delta-loop current comparison exposes both A and
+      per-unit deltas and requires matching MVA/kV bases and positive
+      direction. It remains diagnostic-only and is not a CT/CBCT source.
+    - Every delta is RIGHT minus LEFT. Non-finite numeric observations are
+      excluded. Missing or unlike bases are not silently normalized.
+    - Study Results comparison UI now displays numerical deltas, units and
+      the exact base descriptor; it explicitly reports when no compatible
+      numeric observations exist.
+
+Engineering boundary:
+    - The comparison does not infer bases from display labels or unrelated
+      metadata. Power Flow values require a shared snapshot identity.
+    - Short-Circuit values without explicit physical current bases are not
+      promoted into numerical comparisons.
+
+Verification:
+    Remote source review only. No numerical comparison fixture or UI runtime
+    execution was performed.
+
+Status:
+    BASE-AWARE NUMERICAL STUDY RESULT COMPARISON IMPLEMENTED —
+    NUMERICAL FIXTURE / UI RUNTIME VERIFICATION PENDING
+
+======================================================================
+GF-SC-D15F-44
+======================================================================
+
+Scope:
+    Make transformer internal delta-loop MNA equation reconciliation an
+    explicit part of the phase-domain solver result.
+
+Corrections:
+    - For each internal loop, the solver independently evaluates
+      C^T * V_terminal against Z_loop * I_loop after solving.
+    - A non-finite or out-of-tolerance voltage residual fails the solve.
+    - Successful per-loop reconciliation reports coupling voltage,
+      impedance drop, residual, tolerance and declared positive direction.
+    - PhaseDomainShortCircuitSolution exposes immutable nested
+      transformer_delta_loop_reconciliation diagnostics.
+    - Existing global MNA residual continues to include internal loop
+      unknowns; this adds a transformer-specific engineering diagnostic.
+
+Engineering boundary:
+    - This verifies consistency of the supplied coupling/impedance model
+      and its solved state. It does not independently derive manufacturer
+      parameters or validate the physical accuracy of supplied data.
+    - No numerical fixture was run; the new reconciliation has not yet
+      been exercised against a known transformer case.
+
+Status:
+    EXPLICIT TRANSFORMER DELTA-LOOP MNA RECONCILIATION IMPLEMENTED —
+    NUMERICAL FIXTURE VERIFICATION PENDING
+
+======================================================================
+GF-SC-D15F-45
+======================================================================
+
+Scope:
+    Strengthen Study Result archive durability and add a non-destructive
+    integrity/recovery inspection path.
+
+Corrections:
+    - After atomic replacement, POSIX archive writes fsync the containing
+      directory so the rename is included in the durability boundary.
+    - Added StudyResultArchive.verify(project_id, activation_generation)
+      to inspect all records in scope, validating envelope, checksum,
+      project/generation identity and canonical typed restoration.
+    - Verification returns valid record UUIDs and per-file failure details.
+      It never deletes, rewrites, quarantines or silently skips corrupt data.
+    - Exposed the verification report through StudyReadService and the
+      active-project-scoped Application facade.
+    - Existing strict load_all behaviour remains fail-closed on corruption.
+
+Engineering boundary:
+    - Verification is an integrity report, not an automatic repair tool.
+      Recovery from a damaged record remains an explicit operator action.
+    - POSIX directory fsync is applied where supported; Windows retains
+      atomic same-directory replacement and file fsync.
+
+Verification:
+    Remote source review only. No filesystem crash simulation, archive
+    round-trip, corruption fixture or recovery exercise was performed.
+
+Status:
+    ARCHIVE DURABILITY HARDENING AND NON-DESTRUCTIVE INTEGRITY REPORT
+    IMPLEMENTED — FILESYSTEM / RECOVERY EXERCISE PENDING
+
+======================================================================
