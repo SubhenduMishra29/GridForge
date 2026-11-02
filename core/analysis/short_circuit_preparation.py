@@ -384,13 +384,14 @@ class ShortCircuitPreparation:
         if active is None:
             active = set()
         if isinstance(value, dict):
-            return tuple(sorted(
+            frozen_items = [
                 (
                     cls._freeze_model_value(key, active),
                     cls._freeze_model_value(item, active),
                 )
                 for key, item in value.items()
-            , key=repr))
+            ]
+            return tuple(sorted(frozen_items, key=repr))
         if isinstance(value, (tuple, list)):
             return tuple(cls._freeze_model_value(item, active) for item in value)
         if isinstance(value, (set, frozenset)):
