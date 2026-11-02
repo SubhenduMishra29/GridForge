@@ -3,6 +3,10 @@
 Study outputs are execution artifacts, not project configuration. This archive
 stores them beside the user's GridForge application data, keyed by project and
 activation provenance, without modifying the canonical .gridforge package.
+
+Schema v1 remains readable with its historical generic-dataclass mapping
+semantics. Schema v2 adds allowlisted reconstruction for transient results
+and EventExecution records, including shaped NumPy arrays.
 """
 
 from __future__ import annotations
