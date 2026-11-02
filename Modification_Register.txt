@@ -20003,9 +20003,11 @@ GF-PROT-070 — SWITCHING-AWARE REACHABILITY, ANSI 21 COVERAGE AND LIVE TRIGGER
     - Requires explicit protected Line/Cable, distinct FROM/TO CTs and
       breakers, CT line-side polarity, breaker terminal references, local
       line end, and current/voltage binding identities.
-    - Validates each CT's declared line side against committed CT primary
-      topology and proves its external side reaches the declared breaker
-      terminal while excluding the CT's internal conductive path.
+    - Uses switching-aware reachability from each protected Line/Cable
+      end to both CT primary terminals, requiring exactly the declared line
+      side to be reachable while excluding the CT's internal conductive path.
+    - Proves the CT external side reaches the declared breaker terminal and
+      rejects an alternate path bypassing the CT boundary.
     - Verifies the local current binding and local PT/CVT primary voltage
       association against the active Network.
     - Coverage is physical equipment ownership; ANSI 21 Zone 1/2/3 remain
