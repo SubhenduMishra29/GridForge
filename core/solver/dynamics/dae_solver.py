@@ -95,10 +95,14 @@ class AlgebraicNetworkSolution:
             raise ValueError("Accepted algebraic solutions must have ACCEPTED or UNVERIFIED status.")
         if self.quality_verified and self.status == "UNVERIFIED":
             raise ValueError("UNVERIFIED algebraic solutions cannot claim verified quality.")
-        for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_number", "condition_limit"):
+        for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_limit"):
             value = getattr(self, name)
             if value is not None and (not np.isfinite(float(value)) or float(value) < 0.0):
                 raise ValueError(f"{name} must be finite and non-negative when supplied.")
+        if self.condition_number is not None:
+            condition = float(self.condition_number)
+            if np.isnan(condition) or condition < 0.0 or (np.isinf(condition) and self.status != "SINGULAR"):
+                raise ValueError("condition_number must be non-negative and finite except for SINGULAR status.")
         if self.normalized_residual is not None and self.residual_tolerance is None:
             raise ValueError("A normalized residual requires an acceptance tolerance.")
         if self.topology_revision is not None and (not isinstance(self.topology_revision, int) or self.topology_revision < 0):
