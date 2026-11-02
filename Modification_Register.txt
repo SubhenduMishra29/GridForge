@@ -18918,3 +18918,50 @@ Status:
     VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-138 — SCOPE-AWARE DRAFT EQUIPMENT REMOVAL
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Preserve canonical Core-scoped connections when removing a DraftNetwork
+    equipment object whose transient ID collides with a Core object ID.
+
+Finding:
+    DraftEndpointReference identity includes scope (draft or core), but
+    DraftNetwork.remove_equipment() previously compared only object_id.
+    A draft item and an independent Core endpoint with the same ID string
+    could therefore cause an unrelated committed connection to be removed.
+
+Correction:
+    - Remove only connections whose source or target has scope="draft"
+      and object_id equal to the removed draft ID.
+    - Preserve Core-scoped terminal and Bus attachment references regardless
+      of an object_id string collision.
+    - Keep the correction inside Application-owned DraftNetwork state;
+      no Core topology mutation or UI dependency is introduced.
+
+Architecture:
+    - Scope remains part of endpoint identity.
+    - Draft removal is not a Core deletion command.
+    - Graphical snapping and route coordinates remain presentation-only.
+
+Verification:
+    - Confirmed the defect in the current main implementation.
+    - Confirmed DraftEndpointReference validates and serializes scope.
+    - Reviewed the replacement against both terminal and Bus endpoint forms.
+    - No tests/CI, syntax/import checks or runtime collision fixture were run.
+
+Status:
+    SCOPE-AWARE DRAFT CONNECTION CLEANUP IMPLEMENTED ON A MAIN-BASED
+    CORRECTION BRANCH — REVIEW / MERGE PENDING
+
+======================================================================
