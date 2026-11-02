@@ -13,7 +13,7 @@ from typing import Any
 from .command import Command
 from .commands.model_commands import (
     UpdateBusCommand, UpdateGridCommand, UpdateGeneratorCommand, UpdateLoadCommand,
-    UpdateShuntCommand, UpdateTransformerCommand, UpdateCableCommand,
+    UpdateShuntCommand, UpdateTransformerCommand, UpdateCableCommand, UpdateLineCommand,
     UpdateSwitchCommand, UpdateDisconnectorCommand, UpdateFuseCommand,
 )
 from .commands.breaker_commands import UpdateBreakerCommand
@@ -36,6 +36,8 @@ _UPDATE_COMMANDS = {
     "shunt": (UpdateShuntCommand, "shunt_id"),
     "transformer": (UpdateTransformerCommand, "transformer_id"),
     "cable": (UpdateCableCommand, "cable_id"),
+    "line": (UpdateLineCommand, "line_id"),
+    "lines": (UpdateLineCommand, "line_id"),
     "switch": (UpdateSwitchCommand, "switch_id"),
     "disconnector": (UpdateDisconnectorCommand, "disconnector_id"),
     "fuse": (UpdateFuseCommand, "fuse_id"),
@@ -47,8 +49,10 @@ _UPDATE_COMMANDS = {
     "synchronous_machines": (UpdateSynchronousMachineCommand, "synchronous_machine_id"),
     "solar": (UpdateSolarCommand, "solar_id"),
     "battery": (UpdateBatteryCommand, "battery_id"),
+    "ct": (UpdateCurrentTransformerCommand, "transformer_id"),
     "current_transformer": (UpdateCurrentTransformerCommand, "transformer_id"),
     "current_transformers": (UpdateCurrentTransformerCommand, "transformer_id"),
+    "pt": (UpdatePTCommand, "pt_id"),
     "potential_transformer": (UpdatePTCommand, "pt_id"),
     "potential_transformers": (UpdatePTCommand, "pt_id"),
     "cvt": (UpdateCapacitiveVoltageTransformerCommand, "transformer_id"),

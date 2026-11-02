@@ -78,7 +78,7 @@ def test_draft_engineering_update_reaches_draft_network_and_emits_event():
     assert updated.draft_id == "transformer-draft-1"
     assert application.read_network().elements == ()
     assert len(events) == 1
-    assert events[0].metadata["operation"] == "execute"
+    assert events[0].payload["operation"] == "execute"
     assert application.revision == before_revision
 
 

@@ -93,6 +93,11 @@ from typing import Any, Mapping
 from core.protection.context import ProtectionContext
 from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
+from core.protection.ieee_curves import ieee_inverse_time, normalize_ieee_curve
+from core.protection.tcc_read_model import (
+    ProtectionTCCReadModel,
+    build_protection_tcc_read_model,
+)
 from core.protection.relay_functions import (
     current_multiplier,
     iec_pickup,
@@ -145,8 +150,13 @@ class IECOvercurrentSettings:
     pickup: float
     curve: str = DEFAULT_CURVE
     TMS: float = DEFAULT_TMS
+    curve_standard: str = "IEC"
 
     def __post_init__(self) -> None:
+        if isinstance(self.pickup, bool):
+            raise TypeError("pickup must be numeric, not boolean.")
+        if isinstance(self.TMS, bool):
+            raise TypeError("TMS must be numeric, not boolean.")
         try:
             pickup = float(self.pickup)
         except (TypeError, ValueError) as exc:
@@ -159,8 +169,13 @@ class IECOvercurrentSettings:
                 "pickup must be finite and positive."
             )
 
-        curve = normalize_iec_curve(
-            self.curve
+        standard = str(self.curve_standard).strip().upper()
+        if standard not in {"IEC", "IEEE"}:
+            raise ValueError("curve_standard must be IEC or IEEE.")
+        curve = (
+            normalize_iec_curve(self.curve)
+            if standard == "IEC"
+            else normalize_ieee_curve(self.curve)
         )
 
         try:
@@ -188,11 +203,8 @@ class IECOvercurrentSettings:
             curve,
         )
 
-        object.__setattr__(
-            self,
-            "TMS",
-            TMS,
-        )
+        object.__setattr__(self, "TMS", TMS)
+        object.__setattr__(self, "curve_standard", standard)
 
 
 # =====================================================================
@@ -262,6 +274,7 @@ class IECOvercurrentRelay(RelayBase):
                 "pickup": settings.pickup,
                 "curve": settings.curve,
                 "TMS": settings.TMS,
+                "curve_standard": settings.curve_standard,
             },
             enabled=enabled,
             blocked=blocked,
@@ -322,9 +335,15 @@ class IECOvercurrentRelay(RelayBase):
 
     @property
     def TMS(self) -> float:
-        """Return configured IEC Time Multiplier Setting."""
+        """Return configured time multiplier / IEEE time dial."""
 
         return self._iec_settings.TMS
+
+    @property
+    def curve_standard(self) -> str:
+        """Return the selected inverse-time characteristic standard."""
+
+        return self._iec_settings.curve_standard
 
     # =================================================================
     # MEASUREMENT
@@ -485,11 +504,36 @@ class IECOvercurrentRelay(RelayBase):
         if current is None:
             current = self.current_value()
 
+        if self.curve_standard == "IEEE":
+            return ieee_inverse_time(
+                current=current,
+                pickup=self.pickup,
+                curve=self.curve,
+                time_dial=self.TMS,
+            )
         return iec_time(
             current=current,
             pickup=self.pickup,
             curve=self.curve,
             TMS=self.TMS,
+        )
+
+    def tcc_read_model(
+        self,
+        *,
+        minimum_multiple: float = 1.01,
+        maximum_multiple: float = 20.0,
+        points: int = 200,
+    ) -> ProtectionTCCReadModel:
+        """Return numerical TCC data using this element's active standard."""
+        return build_protection_tcc_read_model(
+            self.pickup,
+            curve_standard=self.curve_standard,
+            curve=self.curve,
+            time_dial=self.TMS,
+            minimum_multiple=minimum_multiple,
+            maximum_multiple=maximum_multiple,
+            points=points,
         )
 
     # =================================================================
@@ -555,6 +599,7 @@ class IECOvercurrentRelay(RelayBase):
                     "current": self._last_current,
                     "pickup": self.pickup,
                     "curve": self.curve,
+                    "curve_standard": self.curve_standard,
                     "TMS": self.TMS,
                     "latched": True,
                 },
@@ -640,6 +685,7 @@ class IECOvercurrentRelay(RelayBase):
                         current
                     ),
                     "curve": self.curve,
+                    "curve_standard": self.curve_standard,
                     "TMS": self.TMS,
                 },
             )
@@ -710,6 +756,7 @@ class IECOvercurrentRelay(RelayBase):
                 current
             ),
             "curve": self.curve,
+            "curve_standard": self.curve_standard,
             "TMS": self.TMS,
             "pickup_start_time": self._pickup_start_time,
             "elapsed_time": elapsed,
@@ -1006,6 +1053,7 @@ class IECOvercurrentRelay(RelayBase):
                 "function_code": self.FUNCTION_CODE,
                 "pickup": self.pickup,
                 "curve": self.curve,
+                "curve_standard": self.curve_standard,
                 "TMS": self.TMS,
                 "current": current,
                 "current_multiple": (

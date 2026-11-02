@@ -92,8 +92,10 @@ class Controller(QObject):
     def _on_tool_manager_changed(self, tool_id: str | None, previous_tool_id: str | None) -> None:
         """Receive authoritative tool lifecycle changes from ToolManager."""
         self._ensure_active()
-        if tool_id == previous_tool_id:
-            return
+        # A same-ID notification is meaningful when ToolManager starts a
+        # fresh CreationDraft for the already-active equipment tool. The panel
+        # uses this signal to refresh its creation form; ordinary activation
+        # paths notify only when the active tool actually changes.
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()
 
@@ -137,6 +139,25 @@ class Controller(QObject):
         self.state_changed.emit()
         return result
 
+    def commit_network_async(self) -> Any:
+        """Schedule the canonical DraftNetwork commit on the Application worker."""
+        self._ensure_active()
+        return self._require_application().commit_draft_network_async()
+
+    def complete_network_commit(self, result: Any) -> Any:
+        """Finalize an asynchronous commit on the UI thread and refresh projections."""
+        self._ensure_active()
+        completed = self._require_application().complete_async_commit(result)
+        self.state_changed.emit()
+        return completed
+
+    def abort_network_commit(self) -> None:
+        """Release Application commit state after a failed background operation."""
+        application = self._require_application()
+        abort = getattr(application, "abort_async_commit", None)
+        if callable(abort):
+            abort()
+
     def place_creation_draft(self) -> bool:
         """Persist the active placement into the Application DraftNetwork."""
         self._ensure_active()
@@ -177,21 +198,27 @@ class Controller(QObject):
         application = self._require_application()
         if command is None:
             raise ValueError("command must not be None.")
-        result = application.execute(command)
-        self.state_changed.emit()
-        return result
+        try:
+            return application.execute(command)
+        finally:
+            # Failure can still change the command manager's integrity state
+            # (for example, rollback/history restoration may fail). Refresh
+            # presentation state without masking the original exception.
+            self.state_changed.emit()
 
     def undo(self) -> Any:
         """Delegate undo to Application."""
-        result = self._require_application().undo()
-        self.state_changed.emit()
-        return result
+        try:
+            return self._require_application().undo()
+        finally:
+            self.state_changed.emit()
 
     def redo(self) -> Any:
         """Delegate redo to Application."""
-        result = self._require_application().redo()
-        self.state_changed.emit()
-        return result
+        try:
+            return self._require_application().redo()
+        finally:
+            self.state_changed.emit()
 
     def can_undo(self) -> bool:
         return self._require_application().can_undo()

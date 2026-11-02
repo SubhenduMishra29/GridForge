@@ -118,7 +118,10 @@ def _topology_endpoint(
     if isinstance(value, TopologyEndpointReference):
         return value
     if isinstance(value, EndpointReference):
-        return TopologyEndpointReference.from_terminal(value)
+        if value.is_terminal:
+            return TopologyEndpointReference.from_terminal(value)
+        if value.is_bus:
+            return TopologyEndpointReference.from_bus(value)
     raise TypeError(
         "Simple Wire endpoints must be terminal EndpointReference or "
         "TopologyEndpointReference values."

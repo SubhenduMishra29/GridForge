@@ -26,6 +26,17 @@ from ..results import ApplicationResult
 from ..transaction import Transaction
 
 
+def _normalize_topology_endpoint(value: EndpointReference | TopologyEndpointReference) -> TopologyEndpointReference:
+    if isinstance(value, TopologyEndpointReference):
+        return value
+    if isinstance(value, EndpointReference):
+        if value.is_terminal:
+            return TopologyEndpointReference.from_terminal(value)
+        if value.is_bus:
+            return TopologyEndpointReference.from_bus(value)
+    raise TypeError("Simple Wire endpoints must identify a terminal, Bus attachment, or registered topology junction.")
+
+
 class SimpleWireConnectionService:
     """Own Simple Wire command orchestration without owning presentation state."""
 
@@ -52,7 +63,20 @@ class SimpleWireConnectionService:
                 message="Simple Wire endpoints must be topology endpoint references.",
                 details={},
             )
-        if source == target:
+        try:
+            normalized_source = _normalize_topology_endpoint(source)
+            normalized_target = _normalize_topology_endpoint(target)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                message="Simple Wire endpoints must identify terminals or registered topology junctions.",
+                details={},
+            ) from exc
+
+        # Compare canonical topology identities, not their input wrapper types:
+        # an EndpointReference and a TopologyEndpointReference can represent
+        # the same terminal while comparing unequal before normalization.
+        if normalized_source == normalized_target:
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINTS",
                 message="Simple Wire endpoints must be distinct.",
@@ -60,8 +84,8 @@ class SimpleWireConnectionService:
             )
         return CreateSimpleWireConnectionCommand(
             connection_id=connection_id.strip(),
-            endpoint_a=source,
-            endpoint_b=target,
+            endpoint_a=normalized_source,
+            endpoint_b=normalized_target,
         )
 
     def execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
@@ -107,6 +131,17 @@ class SimpleWireConnectionService:
                 except (EndpointCompatibilityError, ResourceError, ValidationError) as exc:
                     if isinstance(exc, ValidationError):
                         raise
+                    raise ValidationError(
+                        code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                        message=str(exc),
+                        details={"endpoint": str(endpoint)},
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.BUS:
+                try:
+                    EndpointCompatibility.validate_reference(endpoint.bus_reference, network)
+                except EndpointCompatibilityError as exc:
                     raise ValidationError(
                         code="INVALID_SIMPLE_WIRE_ENDPOINT",
                         message=str(exc),
@@ -192,6 +227,26 @@ class SimpleWireConnectionService:
         network = self._network(context)
         connection_id = str(command.payload["connection_id"])
         connection = network.get_simple_wire_connection(connection_id)
+
+        # Reversible remove commands carry endpoint snapshots. Check those
+        # snapshots before mutation so a stale inverse cannot remove a
+        # different relationship if an identifier has been reused or a
+        # command has become inconsistent with the canonical Network.
+        expected_a = command.payload.get("endpoint_a")
+        expected_b = command.payload.get("endpoint_b")
+        if expected_a is not None and expected_a != connection.endpoint_a:
+            raise ValidationError(
+                code="SIMPLE_WIRE_ENDPOINT_SNAPSHOT_MISMATCH",
+                message="The requested Simple Wire removal does not match endpoint A of the registered relationship.",
+                details={"connection_id": connection_id, "endpoint": "endpoint_a"},
+            )
+        if expected_b is not None and expected_b != connection.endpoint_b:
+            raise ValidationError(
+                code="SIMPLE_WIRE_ENDPOINT_SNAPSHOT_MISMATCH",
+                message="The requested Simple Wire removal does not match endpoint B of the registered relationship.",
+                details={"connection_id": connection_id, "endpoint": "endpoint_b"},
+            )
+
         removed = network.remove_simple_wire_connection(connection_id)
         transaction.record_undo(
             lambda connection=removed, network=network: network.add_simple_wire_connection(connection)

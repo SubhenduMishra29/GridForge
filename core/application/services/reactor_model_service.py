@@ -39,17 +39,28 @@ class ReactorModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(reactor_id, "reactor_id"); reactor = self._get_required("reactor", reactor_id, "Reactor"); self._require_type(reactor, Reactor, reactor_id, "Reactor")
         if all(value is None for value in (name, reactive_power_injection_mvar, in_service)): raise DomainError(code="NO_REACTOR_UPDATE", message="At least one mutable Reactor property must be specified.", details={"reactor_id": reactor_id})
         old = {"name": reactor.name, "reactive_power_injection_mvar": reactor.reactive_power_injection_mvar, "in_service": reactor.in_service}
+        service_state_changed = in_service is not None and in_service != old["in_service"]
+        def restore_snapshot() -> None:
+            reactor.name = old["name"]
+            reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]
+            reactor.in_service = old["in_service"]
         try:
             if name is not None: reactor.name = name
             if reactive_power_injection_mvar is not None: reactor.reactive_power_injection_mvar = reactive_power_injection_mvar
             if in_service is not None: reactor.in_service = in_service
-            if in_service is not None: self._network.invalidate_topology()
             reactor.validate_parameters()
         except Exception:
-            reactor.name = old["name"]; reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; reactor.in_service = old["in_service"]; raise
+            restore_snapshot()
+            raise
+        if service_state_changed:
+            self._network.invalidate_topology()
         def restore() -> None:
-            reactor.name = old["name"]; reactor.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; reactor.in_service = old["in_service"]; reactor.validate_parameters(); self._network.invalidate_topology()
-        transaction.record_undo(restore); return self._success(reactor, "reactor", reactor_id, f"Reactor updated: {reactor_id}")
+            restore_snapshot()
+            reactor.validate_parameters()
+            if service_state_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore)
+        return self._success(reactor, "reactor", reactor_id, f"Reactor updated: {reactor_id}")
 
     def delete_reactor(self, *, reactor_id: str, transaction: Transaction) -> ApplicationResult[Reactor]:
         self._require_transaction(transaction); self._require_id(reactor_id, "reactor_id"); reactor = self._get_required("reactor", reactor_id, "Reactor"); self._require_type(reactor, Reactor, reactor_id, "Reactor"); self._network.remove_reactor(reactor); transaction.record_undo(lambda reactor=reactor: self._network.add_reactor(reactor)); return self._success(reactor, "reactor", reactor_id, f"Reactor deleted: {reactor_id}")

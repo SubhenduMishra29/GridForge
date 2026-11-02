@@ -477,7 +477,13 @@ class ProjectLifecycleService:
                 "Project lifecycle is in ROLLBACK_FAILED state and requires recovery before another transition."
             ) from self._rollback_error
         if context is not None:
-            self._validate_candidate(context, loaded, network, presentation)
+            self._validate_candidate(
+                context,
+                loaded,
+                network,
+                presentation,
+                presentation_collection=presentation_collection,
+            )
         elif loaded is not None:
             raise ValueError("An empty activation cannot carry loaded project data.")
 
@@ -534,18 +540,18 @@ class ProjectLifecycleService:
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
             return context if context is not None else previous_context
-        except Exception as activation_error:
+        except BaseException as activation_error:
             # Restore the previous Application presentation authority before
             # compensation callbacks run. This is required because SLDService
             # rollback itself is guarded by the same authoritative identity
             # invariant as forward binding.
             self._presentation = old_presentation
 
-            rollback_errors: list[Exception] = []
+            rollback_errors: list[BaseException] = []
             for rollback in reversed(rollback_stack):
                 try:
                     rollback()
-                except Exception as rollback_error:
+                except BaseException as rollback_error:
                     rollback_errors.append(rollback_error)
 
             self._network = old_network
@@ -598,6 +604,8 @@ class ProjectLifecycleService:
         loaded: LoadedProject | None,
         network: Any,
         presentation: Any | None,
+        *,
+        presentation_collection: ProjectPresentationCollection | None = None,
     ) -> None:
         if not isinstance(context, ProjectContext):
             raise TypeError("Candidate project context must be a ProjectContext.")
@@ -616,9 +624,12 @@ class ProjectLifecycleService:
         if loaded is not None and loaded.context.project_id != context.project_id:
             raise ValueError("Loaded project context does not match the candidate context.")
 
-        collection = getattr(loaded, "presentation_collection", None) if loaded is not None else None
-        if collection is not None:
-            self._validate_presentation_collection(context, collection)
+        # Validate the typed collection produced by the configured
+        # deserializer. LoadedProject retains the raw persistence mapping;
+        # validating that raw payload here bypasses the deserialization
+        # boundary and rejects every valid persisted collection.
+        if presentation_collection is not None:
+            self._validate_presentation_collection(context, presentation_collection)
 
         if self._project_state_validator is None:
             raise RuntimeError("Application-owned candidate validator is not configured.")

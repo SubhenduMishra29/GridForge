@@ -215,12 +215,13 @@ class CoordinateSystem:
         """
         Convert viewport coordinates into scene coordinates.
 
-        QGraphicsView.mapToScene() remains the authoritative
-        viewport-to-scene transformation.
+        The inverse viewport transform preserves fractional mouse
+        coordinates. QGraphicsView.mapToScene() only accepts integer
+        viewport points in the supported Qt API, so converting QPointF
+        through toPoint() loses subpixel motion during pan/placement.
 
-        Qt mouse positions may be QPointF-compatible objects.
-        QGraphicsView's integer viewport mapping path is used when
-        the supplied point exposes toPoint().
+        Views without viewportTransform() retain the mapToScene fallback
+        for lightweight adapters that expose only the legacy contract.
         """
 
         self._validate_point(
@@ -228,31 +229,41 @@ class CoordinateSystem:
             "viewport_pos",
         )
 
-        map_to_scene = getattr(
+        viewport_transform = getattr(
             self._view,
-            "mapToScene",
+            "viewportTransform",
             None,
         )
+        result = None
+        if callable(viewport_transform):
+            transform = viewport_transform()
+            inverted_result = transform.inverted()
+            if isinstance(inverted_result, tuple):
+                inverse, invertible = inverted_result
+            else:
+                inverse, invertible = inverted_result, True
+            if invertible:
+                point = QPointF(
+                    float(viewport_pos.x()),
+                    float(viewport_pos.y()),
+                )
+                result = inverse.map(point)
 
-        if not callable(map_to_scene):
-            raise TypeError(
-                "view must provide mapToScene()."
+        if result is None:
+            map_to_scene = getattr(
+                self._view,
+                "mapToScene",
+                None,
             )
-
-        position = viewport_pos
-
-        to_point = getattr(
-            position,
-            "toPoint",
-            None,
-        )
-
-        if callable(to_point):
-            position = to_point()
-
-        result = map_to_scene(
-            position
-        )
+            if not callable(map_to_scene):
+                raise TypeError(
+                    "view must provide viewportTransform() or mapToScene()."
+                )
+            position = viewport_pos
+            to_point = getattr(position, "toPoint", None)
+            if callable(to_point):
+                position = to_point()
+            result = map_to_scene(position)
 
         self._validate_point(
             result,

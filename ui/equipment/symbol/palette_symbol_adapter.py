@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import QBrush, QIcon, QPainter, QPixmap, Qt, QRectF
+from ui.core.qt import QBrush, QIcon, QLineF, QPainter, QPixmap, Qt, QRectF
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.styling.presentation_style import VisualState, palette_visual_pen, visual_font
@@ -106,25 +106,31 @@ class PaletteSymbolAdapter:
         kind = primitive.get("kind")
         if kind == "line":
             painter.drawLine(
-                float(primitive["x1"]),
-                float(primitive["y1"]),
-                float(primitive["x2"]),
-                float(primitive["y2"]),
+                QLineF(
+                    float(primitive["x1"]),
+                    float(primitive["y1"]),
+                    float(primitive["x2"]),
+                    float(primitive["y2"]),
+                )
             )
         elif kind == "rect":
             painter.drawRect(
-                float(primitive["x"]),
-                float(primitive["y"]),
-                float(primitive["width"]),
-                float(primitive["height"]),
+                QRectF(
+                    float(primitive["x"]),
+                    float(primitive["y"]),
+                    float(primitive["width"]),
+                    float(primitive["height"]),
+                )
             )
         elif kind == "circle":
             radius = float(primitive["r"])
             painter.drawEllipse(
-                float(primitive["cx"]) - radius,
-                float(primitive["cy"]) - radius,
-                radius * 2.0,
-                radius * 2.0,
+                QRectF(
+                    float(primitive["cx"]) - radius,
+                    float(primitive["cy"]) - radius,
+                    radius * 2.0,
+                    radius * 2.0,
+                )
             )
         elif kind == "text":
             # Engineering labels are part of the canonical SymbolDefinition

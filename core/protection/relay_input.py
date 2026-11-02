@@ -100,6 +100,29 @@ if TYPE_CHECKING:
     from core.measurement.measurement_channel import MeasurementChannel
 
 
+class DerivedRelayMeasurement:
+    """Typed non-physical relay signal populated by Application snapshots."""
+
+    __slots__ = ("id",)
+
+    def __init__(self, identifier: str) -> None:
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("Derived relay measurement identity must be non-empty.")
+        self.id = identifier.strip()
+
+    @property
+    def engineering_value(self) -> Any:
+        return None
+
+    @property
+    def available(self) -> bool:
+        return False
+
+    @property
+    def is_usable(self) -> bool:
+        return False
+
+
 class RelayInput:
     """
     Protection-facing binding to one authoritative
@@ -163,7 +186,8 @@ class RelayInput:
 
         normalized_name = self._normalize_name(name)
 
-        self._validate_channel(channel)
+        if not isinstance(channel, DerivedRelayMeasurement):
+            self._validate_channel(channel)
 
         if not isinstance(required, bool):
             raise TypeError(
@@ -258,7 +282,7 @@ class RelayInput:
 
         if channel is None:
             raise ValueError(
-                "RelayInput requires a MeasurementChannel."
+                "RelayInput requires a MeasurementChannel or typed DerivedRelayMeasurement."
             )
 
         required_attributes = (
@@ -859,4 +883,5 @@ class RelayInput:
 
 __all__ = [
     "RelayInput",
+    "DerivedRelayMeasurement",
 ]

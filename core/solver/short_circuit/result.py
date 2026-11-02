@@ -166,6 +166,163 @@ class ShortCircuitEquipmentCurrent:
 
 
 @dataclass(frozen=True, slots=True)
+class ShortCircuitTerminalCurrent:
+    """Current at one physical equipment terminal, positive INTO equipment."""
+
+    equipment_id: str
+    equipment_type: str
+    terminal_role: str
+    bus_id: str
+    current: complex
+    sequence_currents: Mapping[str, complex] = field(default_factory=dict)
+    phase_currents: Mapping[str, complex] = field(default_factory=dict)
+    reference_direction: str = "INTO_EQUIPMENT"
+    current_units: str = "per_unit"
+    sequence_provenance: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("equipment_id", "equipment_type", "terminal_role", "bus_id"):
+            object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
+        object.__setattr__(self, "current", _validate_current(self.current, "terminal current"))
+        object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
+        object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
+        if not isinstance(self.sequence_provenance, Mapping):
+            raise TypeError("sequence_provenance must be a mapping.")
+        object.__setattr__(self, "sequence_provenance", _freeze_value(self.sequence_provenance))
+        if self.reference_direction != "INTO_EQUIPMENT":
+            raise ValueError("Terminal current reference_direction must be INTO_EQUIPMENT.")
+        if self.current_units != "per_unit":
+            raise ValueError("Terminal current current_units must be per_unit.")
+
+
+@dataclass(frozen=True, slots=True)
+class ShortCircuitConductorCurrent:
+    """Immutable current through one explicitly identified physical conductor.
+
+    The record is terminal-scoped: the same physical conductor has a distinct
+    current record at each equipment terminal. Positive direction is explicit
+    relative to the owning equipment, never inferred from list ordering.
+    """
+
+    conductor_id: str
+    equipment_id: str
+    equipment_type: str
+    terminal_role: str
+    bus_id: str
+    phase_or_sequence: str
+    current: complex
+    topology_revision: int
+    base_mva: float
+    voltage_base_kv: float
+    reference_direction: str = "INTO_EQUIPMENT"
+    current_units: str = "per_unit"
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("conductor_id", "equipment_id", "equipment_type", "terminal_role", "bus_id"):
+            object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
+        phase = _validate_identity(self.phase_or_sequence, "phase_or_sequence").upper()
+        if phase not in {"A", "B", "C", "N", "PE", "SHIELD", "PILOT", "OTHER"}:
+            raise ValueError("Conductor current phase_or_sequence must identify a declared physical conductor role.")
+        object.__setattr__(self, "phase_or_sequence", phase)
+        object.__setattr__(self, "current", _validate_current(self.current, "conductor current"))
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
+            raise ValueError("Conductor current topology_revision must be a non-negative integer.")
+        for name in ("base_mva", "voltage_base_kv"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError("Conductor current {} must be finite and positive.".format(name))
+            object.__setattr__(self, name, value)
+        if self.reference_direction not in {"INTO_EQUIPMENT", "OUT_OF_EQUIPMENT"}:
+            raise ValueError("Conductor current reference_direction must be explicit.")
+        if self.current_units != "per_unit":
+            raise ValueError("Conductor current current_units must be per_unit.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Conductor current provenance must be a mapping.")
+        object.__setattr__(self, "provenance", _freeze_value(self.provenance))
+
+    @property
+    def record_id(self) -> str:
+        return "{}:{}:{}".format(self.equipment_id, self.terminal_role, self.conductor_id)
+
+
+@dataclass(frozen=True, slots=True)
+class ShortCircuitTransformerDeltaLoopCurrent:
+    """Internal transformer delta-loop current; never an external CT conductor."""
+
+    transformer_id: str
+    loop_id: str
+    winding: str
+    current_a: complex
+    base_mva: float
+    voltage_base_kv: float
+    current_base_a: float
+    current_pu: complex
+    positive_direction: str
+    measurement_scope: str = "INTERNAL_DELTA_LOOP"
+    external_ct_measurement_eligible: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible, explicitly typed diagnostic record."""
+        return {
+            "transformer_id": self.transformer_id,
+            "loop_id": self.loop_id,
+            "winding": self.winding,
+            "current_a": {"real": self.current_a.real, "imag": self.current_a.imag},
+            "base_mva": self.base_mva,
+            "voltage_base_kv": self.voltage_base_kv,
+            "current_base_a": self.current_base_a,
+            "current_pu": {"real": self.current_pu.real, "imag": self.current_pu.imag},
+            "positive_direction": self.positive_direction,
+            "measurement_scope": self.measurement_scope,
+            "external_ct_measurement_eligible": self.external_ct_measurement_eligible,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ShortCircuitTransformerDeltaLoopCurrent":
+        """Restore a persisted record without weakening its validation contract."""
+        if not isinstance(data, Mapping):
+            raise TypeError("Delta-loop current payload must be a mapping.")
+        def read_complex(name: str) -> complex:
+            value = data.get(name)
+            if not isinstance(value, Mapping) or set(value) != {"real", "imag"}:
+                raise ValueError(f"Delta-loop {name} must contain exactly real and imag values.")
+            return complex(float(value["real"]), float(value["imag"]))
+        return cls(
+            transformer_id=data["transformer_id"], loop_id=data["loop_id"], winding=data["winding"],
+            current_a=read_complex("current_a"), base_mva=data["base_mva"],
+            voltage_base_kv=data["voltage_base_kv"], current_base_a=data["current_base_a"],
+            current_pu=read_complex("current_pu"), positive_direction=data["positive_direction"],
+            measurement_scope=data.get("measurement_scope", "INTERNAL_DELTA_LOOP"),
+            external_ct_measurement_eligible=data.get("external_ct_measurement_eligible", False),
+        )
+
+    def __post_init__(self) -> None:
+        for name in ("transformer_id", "loop_id", "positive_direction"):
+            object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
+        winding = str(self.winding).strip().upper()
+        if winding not in {"HV", "LV"}:
+            raise ValueError("Delta-loop current winding must be HV or LV.")
+        object.__setattr__(self, "winding", winding)
+        for name in ("base_mva", "voltage_base_kv", "current_base_a"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"Delta-loop current {name} must be finite and positive.")
+            object.__setattr__(self, name, value)
+        current = _validate_current(self.current_a, "delta-loop current A")
+        pu = _validate_current(self.current_pu, "delta-loop current pu")
+        expected_base = self.base_mva * 1.0e6 / (math.sqrt(3.0) * self.voltage_base_kv * 1.0e3)
+        if not math.isclose(self.current_base_a, expected_base, rel_tol=1.0e-10, abs_tol=1.0e-12):
+            raise ValueError("Delta-loop current base is inconsistent with its MVA and kV bases.")
+        if not math.isclose(abs(pu - current / self.current_base_a), 0.0, rel_tol=1.0e-10, abs_tol=1.0e-12):
+            raise ValueError("Delta-loop per-unit current is inconsistent with signed primary current.")
+        if self.measurement_scope != "INTERNAL_DELTA_LOOP" or self.external_ct_measurement_eligible is not False:
+            raise ValueError("Internal delta-loop current is not eligible as an external CT conductor measurement.")
+        object.__setattr__(self, "current_a", current)
+        object.__setattr__(self, "current_pu", pu)
+
+
+@dataclass(frozen=True, slots=True)
 class ShortCircuitResult:
     """Completed short-circuit result detached from all live Core objects."""
 
@@ -188,9 +345,31 @@ class ShortCircuitResult:
     status: ShortCircuitStatus | str | None = None
     contribution_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
     diagnostics: tuple[str, ...] = ()
+    terminal_currents: Mapping[str, ShortCircuitTerminalCurrent] = field(default_factory=dict)
+    terminal_current_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
+    terminal_current_diagnostics: tuple[str, ...] = ()
+    conductor_currents: Mapping[str, ShortCircuitConductorCurrent] = field(default_factory=dict)
+    conductor_current_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
+    conductor_current_diagnostics: tuple[str, ...] = ()
+    transformer_delta_loop_currents: Mapping[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", _freeze_value(self.values))
+        delta_records: dict[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] = {}
+        for transformer_id, records in self.transformer_delta_loop_currents.items():
+            if not isinstance(transformer_id, str) or not transformer_id.strip() or not isinstance(records, Mapping):
+                raise ValueError("transformer_delta_loop_currents must be keyed by transformer identity.")
+            normalized: dict[str, ShortCircuitTransformerDeltaLoopCurrent] = {}
+            for loop_id, record in records.items():
+                if not isinstance(loop_id, str) or not loop_id.strip():
+                    raise ValueError("Delta-loop current keys must be non-empty loop identities.")
+                if not isinstance(record, ShortCircuitTransformerDeltaLoopCurrent):
+                    raise TypeError("Delta-loop current values must be ShortCircuitTransformerDeltaLoopCurrent records.")
+                if record.transformer_id != transformer_id or record.loop_id != loop_id:
+                    raise ValueError("Delta-loop current key must match its transformer and loop identities.")
+                normalized[loop_id] = record
+            delta_records[transformer_id] = MappingProxyType(normalized)
+        object.__setattr__(self, "transformer_delta_loop_currents", MappingProxyType(delta_records))
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise TypeError("fault_bus_index must be an integer.")
         if self.fault_current is not None:
@@ -209,6 +388,25 @@ class ShortCircuitResult:
         object.__setattr__(self, "source_contributions", self._freeze_records(self.source_contributions, ShortCircuitSourceContribution, "source_contributions"))
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
+        object.__setattr__(self, "terminal_currents", self._freeze_terminal_records(self.terminal_currents))
+        object.__setattr__(self, "conductor_currents", self._freeze_conductor_records(self.conductor_currents))
+        try:
+            terminal_status = ContributionStatus(self.terminal_current_status)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported terminal current status: {self.terminal_current_status!r}.") from exc
+        object.__setattr__(self, "terminal_current_status", terminal_status)
+        object.__setattr__(self, "terminal_current_diagnostics", tuple(str(item) for item in self.terminal_current_diagnostics))
+        try:
+            conductor_status = ContributionStatus(self.conductor_current_status)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported conductor current status: {self.conductor_current_status!r}.") from exc
+        object.__setattr__(self, "conductor_current_status", conductor_status)
+        object.__setattr__(self, "conductor_current_diagnostics", tuple(str(item) for item in self.conductor_current_diagnostics))
+        if self.conductor_currents and conductor_status is ContributionStatus.UNAVAILABLE:
+            raise ValueError("Conductor-current records cannot be marked UNAVAILABLE.")
+        if not self.conductor_currents and conductor_status is ContributionStatus.COMPLETE:
+            raise ValueError("Conductor-current coverage cannot be COMPLETE without records.")
+
         object.__setattr__(self, "provenance", _freeze_value(self.provenance))
         status = self.status
         if status is None:
@@ -240,6 +438,39 @@ class ShortCircuitResult:
             frozen[key] = value
         return MappingProxyType(frozen)
 
+    @staticmethod
+    def _freeze_terminal_records(values: Mapping[str, ShortCircuitTerminalCurrent]) -> Mapping[str, ShortCircuitTerminalCurrent]:
+        frozen: dict[str, ShortCircuitTerminalCurrent] = {}
+        for key, value in values.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("terminal_currents keys must be non-empty identifiers.")
+            if not isinstance(value, ShortCircuitTerminalCurrent):
+                raise TypeError("terminal_currents values must be ShortCircuitTerminalCurrent records.")
+            if key != f"{value.equipment_id}:{value.terminal_role}":
+                raise ValueError("terminal current key must match equipment ID and terminal role.")
+            frozen[key] = value
+        return MappingProxyType(frozen)
+
+    @staticmethod
+    def _freeze_conductor_records(values: Mapping[str, ShortCircuitConductorCurrent]) -> Mapping[str, ShortCircuitConductorCurrent]:
+        frozen: dict[str, ShortCircuitConductorCurrent] = {}
+        for key, value in values.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("conductor_currents keys must be non-empty identifiers.")
+            if not isinstance(value, ShortCircuitConductorCurrent):
+                raise TypeError("conductor_currents values must be ShortCircuitConductorCurrent records.")
+            if key != value.record_id:
+                raise ValueError("Conductor current key must match equipment, terminal and conductor identity.")
+            frozen[key] = value
+        return MappingProxyType(frozen)
+
+    def get_conductor_current(self, *, equipment_id: str, terminal_role: str, conductor_id: str) -> ShortCircuitConductorCurrent:
+        key = "{}:{}:{}".format(equipment_id, terminal_role, conductor_id)
+        try:
+            return self.conductor_currents[key]
+        except KeyError as exc:
+            raise KeyError("No conductor-current record exists for {!r}.".format(key)) from exc
+
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
 
@@ -263,6 +494,16 @@ class ShortCircuitResult:
             "source_contributions": dict(self.source_contributions),
             "equipment_currents": dict(self.equipment_currents),
             "branch_currents": dict(self.branch_currents),
+            "terminal_currents": dict(self.terminal_currents),
+            "terminal_current_status": self.terminal_current_status,
+            "terminal_current_diagnostics": self.terminal_current_diagnostics,
+            "conductor_currents": dict(self.conductor_currents),
+            "conductor_current_status": self.conductor_current_status,
+            "conductor_current_diagnostics": self.conductor_current_diagnostics,
+            "transformer_delta_loop_currents": {
+                transformer_id: {loop_id: record.to_dict() for loop_id, record in records.items()}
+                for transformer_id, records in self.transformer_delta_loop_currents.items()
+            },
             "provenance": dict(self.provenance),
         })
         return result
@@ -274,5 +515,8 @@ __all__ = [
     "ShortCircuitSourceContribution",
     "ShortCircuitBranchCurrent",
     "ShortCircuitEquipmentCurrent",
+    "ShortCircuitTerminalCurrent",
+    "ShortCircuitConductorCurrent",
+    "ShortCircuitTransformerDeltaLoopCurrent",
     "ShortCircuitResult",
 ]

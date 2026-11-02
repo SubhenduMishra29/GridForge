@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
@@ -40,10 +42,20 @@ class StudyPreparationService:
     def prepare_power_flow(self, configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         if not isinstance(configuration, PowerFlowStudyConfiguration):
             raise TypeError("configuration must be PowerFlowStudyConfiguration.")
-        return PowerFlowPreparation.prepare(
+        prepared = PowerFlowPreparation.prepare(
             self._execution_context.project_snapshot.network,
             configuration,
             topology_snapshot=self.topology,
+        )
+        revision = self._execution_context.source_revision
+        return replace(
+            prepared,
+            source_revision=(
+                revision.model_revision,
+                revision.topology_revision,
+                revision.presentation_revision,
+                revision.persisted_revision,
+            ),
         )
 
     def prepare_short_circuit(self, configuration: ShortCircuitStudyConfiguration) -> ShortCircuitInput:
@@ -51,7 +63,7 @@ class StudyPreparationService:
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
         preparation = ShortCircuitPreparation(
             self._execution_context.project_snapshot.network,
-            base_mva=configuration.metadata.get("base_mva"),
+            base_mva=(configuration.base_mva if configuration.base_mva is not None else configuration.metadata.get("base_mva")),
         )
         return preparation.prepare(
             configuration.fault_type,
@@ -59,6 +71,9 @@ class StudyPreparationService:
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
             topology_snapshot=self.topology,
+            phase_domain_case=configuration.phase_domain_case,
+            phase_domain_sources=configuration.phase_domain_sources or None,
+            phase_domain_faults=configuration.phase_domain_faults or None,
         )
 
     def prepare_transient_stability(
@@ -77,6 +92,51 @@ class StudyPreparationService:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+
+        revision = self._execution_context.source_revision
+        expected_revision = (
+            revision.model_revision,
+            revision.topology_revision,
+            revision.presentation_revision,
+            revision.persisted_revision,
+        )
+        if prepared_power_flow.source_revision is None:
+            raise ValueError(
+                "Transient stability requires a Power Flow snapshot prepared by the active "
+                "Application study context; unversioned operating points are not accepted."
+            )
+        # Presentation and persistence revisions do not change electrical inputs.
+        if prepared_power_flow.source_revision[:2] != expected_revision[:2]:
+            raise ValueError(
+                "Power Flow operating point model/topology revision does not match the active "
+                "StudyExecutionContext; rerun Power Flow before transient stability."
+            )
+        if prepared_power_flow.project_id != self._execution_context.project_id:
+            raise ValueError("Power Flow operating point belongs to a different project.")
+        if prepared_power_flow.activation_generation != self._execution_context.activation_generation:
+            raise ValueError("Power Flow operating point belongs to a different project activation.")
+        if prepared_power_flow.topology_revision != self.topology.topology_revision:
+            raise ValueError("Power Flow operating point topology revision is stale.")
+
+        # A transient operating point is valid only when the successful
+        # numerical result belongs to this exact detached Power Flow input.
+        # Bus ordering alone is insufficient: separate snapshots can share
+        # identical Bus IDs while carrying different model parameters.
+        if not power_flow_result.success:
+            raise ValueError(
+                "Transient Stability requires a converged initial Power Flow result."
+            )
+        if power_flow_result.bus_ids != prepared_power_flow.bus_ids:
+            raise ValueError(
+                "Initial Power Flow result bus ordering does not match the "
+                "prepared Power Flow snapshot."
+            )
+        expected_snapshot_id = prepared_power_flow.input.snapshot_id
+        if power_flow_result.snapshot_id != expected_snapshot_id:
+            raise ValueError(
+                "Initial Power Flow result snapshot identity does not match "
+                "the prepared Power Flow input."
+            )
 
         # Dynamics inherits canonical Bus identity from the same topology
         # snapshot used to prepare Power Flow. Dynamic-model associations

@@ -44,6 +44,31 @@ from core.analysis.transient_stability import (
     TransientStabilityAnalysis,
 )
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
+from core.analysis.physical_conductor_preparation import (
+    PreparedPhysicalConductorBranch,
+    PhysicalConductorImpedanceSnapshot,
+    PhysicalConductorBranchCurrentSolution,
+    prepare_physical_conductor_impedance_snapshot,
+    solve_physical_conductor_branch_currents,
+)
+from core.analysis.phase_domain_network_preparation import (
+    PhaseDomainAdmittanceSnapshot,
+    assemble_phase_domain_admittance,
+)
+from core.analysis.transformer_multiport_preparation import prepare_transformer_phase_domain_multiport
+from core.analysis.transformer_zero_sequence_t_equivalent import (
+    TransformerZeroSequenceTEquivalent,
+    derive_transformer_zero_sequence_t_equivalent,
+    TransformerZeroSequenceTwoBusStamp,
+    build_transformer_zero_sequence_two_bus_stamp,
+)
+from core.analysis.transformer_zero_sequence import (
+    TransformerZeroSequencePath,
+    TransformerZeroSequenceTopology,
+    TransformerZeroSequenceShunt,
+    build_transformer_zero_sequence_shunt,
+    classify_transformer_zero_sequence,
+)
 from core.analysis.contingency import (
     ContingencyAnalysis,
     ContingencyResult,
@@ -79,6 +104,23 @@ __all__ = [
     "TransientStabilityStudyResult",
     "TransientStabilityAnalysis",
     "SequenceNetworkPreparation",
+    "PreparedPhysicalConductorBranch",
+    "PhysicalConductorImpedanceSnapshot",
+    "PhysicalConductorBranchCurrentSolution",
+    "prepare_physical_conductor_impedance_snapshot",
+    "solve_physical_conductor_branch_currents",
+    "PhaseDomainAdmittanceSnapshot",
+    "assemble_phase_domain_admittance",
+    "prepare_transformer_phase_domain_multiport",
+    "TransformerZeroSequencePath",
+    "TransformerZeroSequenceTopology",
+    "TransformerZeroSequenceShunt",
+    "TransformerZeroSequenceTEquivalent",
+    "derive_transformer_zero_sequence_t_equivalent",
+    "TransformerZeroSequenceTwoBusStamp",
+    "build_transformer_zero_sequence_two_bus_stamp",
+    "build_transformer_zero_sequence_shunt",
+    "classify_transformer_zero_sequence",
     "FaultType",
     "ContingencyAnalysis",
     "ContingencyResult",

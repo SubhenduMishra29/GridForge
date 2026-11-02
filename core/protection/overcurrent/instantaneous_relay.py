@@ -35,6 +35,8 @@ class InstantaneousOvercurrentSettings:
     pickup: float
 
     def __post_init__(self) -> None:
+        if isinstance(self.pickup, bool):
+            raise TypeError("pickup must be numeric, not boolean.")
         try:
             pickup = float(self.pickup)
         except (TypeError, ValueError) as exc:

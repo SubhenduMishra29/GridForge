@@ -86,14 +86,23 @@ class MenuPlugin(QObject):
                     definition = router.definition(action_spec.action_id)
                     if action_spec.separator_before:
                         menu.addSeparator()
-                    action = QAction(definition.title, self)
+                    # MenuActionSpec owns the menu-specific label; the
+                    # canonical definition supplies shared descriptive metadata.
+                    action = QAction(action_spec.text, self)
                     action.setObjectName(action_spec.action_id)
                     action.setToolTip(definition.description)
                     action.setStatusTip(definition.description)
                     action.setEnabled(router.is_enabled(action_spec.action_id))
-                    if definition.shortcut:
-                        action.setShortcut(definition.shortcut)
-                    action.triggered.connect(lambda _checked=False, action_id=action_spec.action_id: router.dispatch(action_id))
+                    # MenuActionSpec declares the shortcut for this concrete menu
+                    # entry. Fall back to canonical action metadata only when the
+                    # menu intentionally leaves the shortcut unspecified.
+                    shortcut = action_spec.shortcut or definition.shortcut
+                    if shortcut:
+                        action.setShortcut(shortcut)
+                    action.triggered.connect(
+                        lambda _checked=False, action_id=action_spec.action_id:
+                            self._dispatch_action(action_id)
+                    )
                     menu.addAction(action)
                     self._actions[action_spec.action_id] = action
             self._initialized = True
@@ -118,6 +127,19 @@ class MenuPlugin(QObject):
         router = self._context.action_router
         for action_id, action in tuple(self._actions.items()):
             action.setEnabled(router.is_enabled(action_id))
+
+    def _dispatch_action(self, action_id: str) -> None:
+        """Recheck canonical availability and refresh menu presentation around dispatch."""
+        if self._context is None:
+            return
+        router = self._context.action_router
+        if not router.is_enabled(action_id):
+            self.refresh_enabled_states()
+            return
+        try:
+            router.dispatch(action_id)
+        finally:
+            self.refresh_enabled_states()
 
     def action(self, action_id: str) -> QAction | None:
         return self._actions.get(action_id)
@@ -164,9 +186,9 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.equipment_browser", "Equipment Browser", None, True),
         )),
         MenuSpec("sld", "SLD", (
-            a("tool.select", "Select"),
-            a("tool.bus", "Place Bus"),
-            a("tool.wire", "Wire"),
+            a("tool.sld.select", "Select"),
+            a("tool.sld.bus", "Place Bus"),
+            a("tool.sld.wire", "Wire"),
             a("network.commit_draft", "Commit Draft", "Ctrl+Shift+Enter", True),
         )),
         MenuSpec("study", "Study", (

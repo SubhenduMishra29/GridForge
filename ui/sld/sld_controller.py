@@ -26,6 +26,7 @@ from core.application.commands.sld_commands import (
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
     SetSLDNodePropertiesCommand,
+    SetSLDAnnotationBlocksCommand,
     SetSLDConnectionRouteCommand,
 )
 
@@ -219,6 +220,16 @@ class SLDController:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
+    def set_annotation_blocks(self, annotation_blocks: list[dict[str, Any]]) -> None:
+        """Persist annotation edits through Application command history."""
+        self._require_active_document()
+        result = self.application.execute(
+            SetSLDAnnotationBlocksCommand(annotation_blocks=annotation_blocks)
+        )
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         self._require_active_document()
         result = self.application.execute(SetSLDNodePositionCommand(node_id=node_id, x=x, y=y))
@@ -267,8 +278,23 @@ class SLDController:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
-    def set_connection_route(self, connection_id: str, points: tuple[tuple[float, float], ...] | list[tuple[float, float]], *, routing_mode: str = "manual") -> None:
-        self._require_active_document()
+    def set_connection_route(
+        self,
+        connection_id: str,
+        points: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+        *,
+        routing_mode: str = "manual",
+        core_connection_id: str | None = None,
+    ) -> None:
+        document = self._require_active_document()
+        if core_connection_id is not None:
+            connection = document.model.get_connection(connection_id)
+            bound_core_id = connection.properties.get("core_connection_id")
+            if bound_core_id != core_connection_id:
+                raise ValueError(
+                    "SLD route edit rejected because the presentation connection "
+                    "is not bound to the requested Core connection identity."
+                )
         result = self.application.execute(SetSLDConnectionRouteCommand(
             connection_id=connection_id,
             route={"routing_mode": routing_mode, "ownership": "engineer", "points": [list(point) for point in points]},

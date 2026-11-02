@@ -8,17 +8,53 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+import math
+from threading import RLock
+from typing import Any, Callable
 
 from core.application.endpoint_resolver import resolve_terminal_reference
 from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
     MeasurementPhase,
+    MeasurementQuality,
     MeasurementSignalType,
 )
 from core.measurement.measurement_provisioning import MeasurementProvisioning
 from core.network.network import Network
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementSampleAttestation:
+    """Signed producer envelope; verification is delegated to a deployment trust adapter."""
+
+    producer_id: str
+    project_id: str
+    activation_generation: int
+    timestamp: float
+    timestamp_domain: str
+    sample_sequence: int
+    signature: str
+    channel_id: str
+    quality: MeasurementQuality
+    available: bool
+
+    def __post_init__(self) -> None:
+        for name in ("producer_id", "project_id", "timestamp_domain", "signature", "channel_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip() or value != value.strip():
+                raise ValueError(f"{name} must be a canonical non-empty string.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if isinstance(self.sample_sequence, bool) or not isinstance(self.sample_sequence, int) or self.sample_sequence < 0:
+            raise ValueError("sample_sequence must be a non-negative integer.")
+        if isinstance(self.timestamp, bool) or not isinstance(self.timestamp, (int, float)) or not math.isfinite(self.timestamp):
+            raise ValueError("timestamp must be finite.")
+        if not isinstance(self.quality, MeasurementQuality):
+            raise TypeError("quality must be a MeasurementQuality.")
+        if not isinstance(self.available, bool):
+            raise TypeError("available must be bool.")
 
 
 class MeasurementChannelService:
@@ -29,11 +65,39 @@ class MeasurementChannelService:
     the source equipment and terminals.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        source_verifier: Callable[[MeasurementSampleAttestation, MeasurementChannel, float | complex], bool] | None = None,
+        clock: Callable[[], float] | None = None,
+        clock_domain: str | None = None,
+        max_source_clock_skew_seconds: float = 2.0,
+        execution_lock: Any | None = None,
+    ) -> None:
+        if source_verifier is not None and not callable(source_verifier):
+            raise TypeError("source_verifier must be callable when provided.")
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable when provided.")
+        if clock_domain is not None and (not isinstance(clock_domain, str) or not clock_domain.strip() or clock_domain != clock_domain.strip()):
+            raise ValueError("clock_domain must be a canonical non-empty string.")
+        if isinstance(max_source_clock_skew_seconds, bool) or not isinstance(max_source_clock_skew_seconds, (int, float)) or not math.isfinite(max_source_clock_skew_seconds) or max_source_clock_skew_seconds <= 0:
+            raise ValueError("max_source_clock_skew_seconds must be finite and positive.")
+        self._source_verifier = source_verifier
+        self._clock = clock
+        self._clock_domain = clock_domain
+        self._max_source_clock_skew_seconds = float(max_source_clock_skew_seconds)
+        self._execution_lock = execution_lock if execution_lock is not None else RLock()
+        self._sample_update_authority = object()
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
+
+    def bind_execution_lock(self, execution_lock: Any) -> None:
+        """Use the Application command lock so publication cannot race breaker authorization."""
+        if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
+            raise TypeError("execution_lock must be a context-manager lock.")
+        self._execution_lock = execution_lock
 
     @property
     def project_id(self) -> str | None:
@@ -66,6 +130,69 @@ class MeasurementChannelService:
         for channel_id in channel_ids:
             self.require(channel_id)
 
+    def publish_sample(
+        self,
+        channel_id: str,
+        value: float | complex,
+        *,
+        attestation: MeasurementSampleAttestation,
+        quality: MeasurementQuality,
+        available: bool = True,
+    ) -> None:
+        """Publish only a signed, project-bound sample with trusted clock validation.
+
+        The deployment verifier must authenticate producer identity and the
+        complete attestation/value tuple (for example, using a device certificate
+        and signature). Caller-supplied clock labels alone are never trusted.
+        """
+        with self._execution_lock:
+            if self._source_verifier is None or self._clock is None or self._clock_domain is None:
+                raise PermissionError("Trusted measurement source verification and clock authority are not configured.")
+            if not isinstance(attestation, MeasurementSampleAttestation):
+                raise TypeError("attestation must be MeasurementSampleAttestation.")
+            if not isinstance(quality, MeasurementQuality):
+                raise TypeError("quality must be MeasurementQuality.")
+            if not isinstance(available, bool):
+                raise TypeError("available must be bool.")
+            channel = self.require(channel_id)
+            if attestation.channel_id != channel.id:
+                raise PermissionError("Measurement attestation is bound to a different channel identity.")
+            if attestation.quality is not quality or attestation.available is not available:
+                raise PermissionError("Published quality/availability must exactly match the signed measurement attestation.")
+            if getattr(channel, "producer_id", None) != attestation.producer_id:
+                raise PermissionError("Measurement producer identity does not match the configured channel producer.")
+            if attestation.project_id != self._project_id or attestation.activation_generation != self._activation_generation:
+                raise PermissionError("Measurement attestation belongs to a different project activation.")
+            if attestation.timestamp_domain != self._clock_domain or channel.timestamp_domain != self._clock_domain:
+                raise PermissionError("Measurement source clock domain does not match the trusted Application clock domain.")
+            try:
+                trusted_now = self._clock()
+            except Exception as exc:
+                raise PermissionError("Trusted measurement clock is unavailable.") from exc
+            if isinstance(trusted_now, bool) or not isinstance(trusted_now, (int, float)) or not math.isfinite(trusted_now):
+                raise PermissionError("Trusted measurement clock returned an invalid timestamp.")
+            if attestation.timestamp > trusted_now + self._max_source_clock_skew_seconds:
+                raise PermissionError("Measurement source timestamp is too far ahead of the trusted clock.")
+            try:
+                verified = self._source_verifier(attestation, channel, value)
+            except Exception as exc:
+                raise PermissionError("Measurement source attestation verification failed.") from exc
+            if verified is not True:
+                raise PermissionError("Measurement source attestation was not authenticated.")
+            if channel.sample_sequence is not None and attestation.sample_sequence <= channel.sample_sequence:
+                raise ValueError("Measurement sample sequence must increase monotonically.")
+            if channel.timestamp is not None and attestation.timestamp < channel.timestamp:
+                raise ValueError("Measurement source timestamp cannot move backwards.")
+            channel.update(
+                value,
+                _authority=self._sample_update_authority,
+                timestamp=float(attestation.timestamp),
+                timestamp_domain=attestation.timestamp_domain,
+                quality=quality,
+                available=available,
+                sample_sequence=attestation.sample_sequence,
+            )
+
     def activate(
         self,
         context: Any | None,
@@ -88,6 +215,9 @@ class MeasurementChannelService:
                 channel = self._provision_definition(context, network, definition)
                 if channel.id in next_channels:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
+                # Bind immutable producer identity before sealing the channel.
+                channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
+                channel._bind_sample_update_authority(self._sample_update_authority)
                 next_channels[channel.id] = channel
 
         previous = self.snapshot_state()
@@ -174,6 +304,7 @@ class MeasurementChannelService:
             nominal_value=float(definition.get("nominal_value", 0.0)),
             scale=float(definition.get("scale", 1.0)),
             polarity=float(definition.get("polarity", 1.0)),
+            timestamp_domain=definition.get("timestamp_domain"),
         )
 
     @staticmethod
@@ -199,6 +330,14 @@ class MeasurementChannelService:
             raise ValueError(f"Invalid measurement {field}: {value!r}") from exc
 
     @staticmethod
+    def _normalize_optional_id(value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise ValueError("Measurement producer_id must be a canonical non-empty string.")
+        return value
+
+    @staticmethod
     def _normalize_id(value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Measurement channel IDs and source IDs must be non-empty strings.")
@@ -220,6 +359,8 @@ class MeasurementChannelService:
             "nominal_value": channel.nominal_value,
             "scale": channel.scale,
             "polarity": channel.polarity,
+            "timestamp_domain": channel.timestamp_domain,
+            "producer_id": getattr(channel, "producer_id", None),
         }
 
 

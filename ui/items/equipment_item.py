@@ -6,15 +6,77 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from math import isfinite
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QFont, QGraphicsItem, QPainter, QPen, QRectF, QPointF, Qt, QColor, Signal
+from ui.core.qt import QBrush, QFont, QGraphicsItem, QLineF, QPainter, QPen, QRectF, QPointF, QTransform, Qt, QColor, Signal
 from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.styling.presentation_style import PresentationState, VisualState, visual_brush, visual_font, visual_pen, token_color
 
 from .base_item import BaseItem
+
+
+_PRIMITIVE_FIELDS = {
+    "line": ("x1", "y1", "x2", "y2"),
+    "rect": ("x", "y", "width", "height"),
+    "circle": ("cx", "cy", "r"),
+    "text": ("x", "y", "width", "height", "text"),
+}
+
+
+def _validate_symbol_primitives(definition: SymbolDefinition) -> None:
+    """Reject unsupported or malformed primitives before Qt invokes paint()."""
+    for index, primitive in enumerate(definition.primitives):
+        if not isinstance(primitive, Mapping):
+            raise TypeError(
+                f"Symbol {definition.symbol_id!r} primitive {index} must be a mapping."
+            )
+        kind = primitive.get("kind")
+        if not isinstance(kind, str):
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} kind must be a string."
+            )
+        fields = _PRIMITIVE_FIELDS.get(kind)
+        if fields is None:
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} has unsupported kind {kind!r}."
+            )
+        missing = tuple(field for field in fields if field not in primitive)
+        if missing:
+            raise ValueError(
+                f"Symbol {definition.symbol_id!r} primitive {index} ({kind}) "
+                f"is missing required fields: {', '.join(missing)}."
+            )
+        for field in fields:
+            if kind == "text" and field == "text":
+                if not isinstance(primitive[field], str):
+                    raise TypeError(
+                        f"Symbol {definition.symbol_id!r} primitive {index} text must be a string."
+                    )
+                continue
+            value = primitive[field]
+            if isinstance(value, bool):
+                raise TypeError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be numeric."
+                )
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be numeric."
+                ) from exc
+            if not isfinite(number):
+                raise ValueError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be finite."
+                )
+            if field in {"width", "height", "r"} and number <= 0:
+                raise ValueError(
+                    f"Symbol {definition.symbol_id!r} primitive {index} field {field!r} must be greater than zero."
+                )
 
 
 class EquipmentItem(BaseItem):
@@ -37,6 +99,23 @@ class EquipmentItem(BaseItem):
             raise ValueError("element_type must be a non-empty string")
         if not isinstance(symbol_definition, SymbolDefinition):
             raise TypeError("symbol_definition must be a SymbolDefinition")
+        _validate_symbol_primitives(symbol_definition)
+        for primitive in symbol_definition.primitives:
+            if "stroke_width" in primitive:
+                width = primitive["stroke_width"]
+                if (
+                    isinstance(width, bool)
+                    or not isinstance(width, (int, float))
+                    or not isfinite(float(width))
+                    or float(width) <= 0
+                ):
+                    raise ValueError(
+                        "primitive stroke_width must be a finite positive number"
+                    )
+                if primitive.get("kind") != "line":
+                    raise ValueError(
+                        "stroke_width is currently supported only for line primitives"
+                    )
         if not isinstance(equipment, EquipmentBase):
             raise TypeError("equipment must be an EquipmentBase")
         super().__init__(object_id, parent)
@@ -61,8 +140,17 @@ class EquipmentItem(BaseItem):
         self.setAcceptHoverEvents(True)
         mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
         mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-        self.setScale(self._symbol_instance.scale * (-1.0 if mirror_x else 1.0))
-        self.setRotation(self._symbol_instance.rotation + (180.0 if mirror_x and mirror_y else 0.0))
+        # Apply reflection once to the graphics transform. Drawing and
+        # mapToScene() then share the same coordinate transform, so terminal
+        # anchors remain attached to the rendered symbol for every mirror state.
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(self._symbol_instance.scale)
+        self.setRotation(self._symbol_instance.rotation)
         self.setVisible(self._symbol_instance.visible)
         if position is not None:
             self.setPos(position)
@@ -106,11 +194,11 @@ class EquipmentItem(BaseItem):
         points = []
         for terminal in self._equipment.terminals:
             local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
-            mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
-            mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
-            local_x = -float(local_anchor[0]) if mirror_x else float(local_anchor[0])
-            local_y = -float(local_anchor[1]) if mirror_y else float(local_anchor[1])
-            scene_point = self.mapToScene(QPointF(local_x, local_y))
+            # The item's transform already applies symbol reflections;
+            # do not mirror local anchor coordinates a second time.
+            scene_point = self.mapToScene(
+                QPointF(float(local_anchor[0]), float(local_anchor[1]))
+            )
             points.append({
                 "position": scene_point,
                 "object_id": self.object_id,
@@ -120,11 +208,25 @@ class EquipmentItem(BaseItem):
         return tuple(points)
 
     def boundingRect(self) -> QRectF:
+        # QGraphicsItem bounds must include the painted pen extents. Keep a
+        # stable margin around the declared logical symbol box so terminals
+        # at its edges and heavier IEEE/ANSI busbar strokes are not clipped.
+        margin = max(
+            2.0,
+            max(
+                (
+                    float(primitive.get("stroke_width", 1.8)) / 2.0
+                    for primitive in self._symbol_definition.primitives
+                    if primitive.get("kind") == "line"
+                ),
+                default=0.9,
+            ) + 0.2,
+        )
         return QRectF(
-            -self._symbol_definition.width / 2,
-            -self._symbol_definition.height / 2,
-            self._symbol_definition.width,
-            self._symbol_definition.height,
+            -self._symbol_definition.width / 2 - margin,
+            -self._symbol_definition.height / 2 - margin,
+            self._symbol_definition.width + 2 * margin,
+            self._symbol_definition.height + 2 * margin,
         )
 
     def _effective_state(self) -> VisualState:
@@ -144,40 +246,72 @@ class EquipmentItem(BaseItem):
         painter.setPen(visual_pen(role, state, width=1.8))
         painter.setBrush(visual_brush(role, state))
         painter.setFont(visual_font("engineering"))
+        base_pen = visual_pen(role, state, width=1.8)
         for primitive in self._symbol_definition.primitives:
             kind = primitive.get("kind")
             if kind == "line":
+                line_width = float(primitive.get("stroke_width", 1.8))
+                painter.setPen(visual_pen(role, state, width=line_width))
                 painter.drawLine(
-                    float(primitive["x1"]), float(primitive["y1"]),
-                    float(primitive["x2"]), float(primitive["y2"]),
+                    QLineF(
+                        float(primitive["x1"]), float(primitive["y1"]),
+                        float(primitive["x2"]), float(primitive["y2"]),
+                    )
                 )
             elif kind == "rect":
+                painter.setPen(base_pen)
                 painter.drawRect(
-                    float(primitive["x"]), float(primitive["y"]),
-                    float(primitive["width"]), float(primitive["height"]),
-                )
-            elif kind == "circle":
-                radius = float(primitive["r"])
-                painter.drawEllipse(
-                    float(primitive["cx"]) - radius,
-                    float(primitive["cy"]) - radius,
-                    radius * 2.0,
-                    radius * 2.0,
-                )
-            elif kind == "text":
-                # SLD canvas is deliberately white; engineering annotations must
-                # use the canonical dark-on-light text token rather than the
-                # light symbol stroke used for geometry.
-                painter.setPen(QPen(token_color("text_inverse")))
-                painter.setFont(visual_font("engineering"))
-                painter.drawText(
                     QRectF(
                         float(primitive["x"]), float(primitive["y"]),
                         float(primitive["width"]), float(primitive["height"]),
-                    ),
+                    )
+                )
+            elif kind == "circle":
+                painter.setPen(base_pen)
+                radius = float(primitive["r"])
+                painter.drawEllipse(
+                    QRectF(
+                        float(primitive["cx"]) - radius,
+                        float(primitive["cy"]) - radius,
+                        radius * 2.0,
+                        radius * 2.0,
+                    )
+                )
+            elif kind == "text":
+                # IEEE/ANSI 315 drafting practice says letters and numbers
+                # that form part of a symbol must not be mirror-imaged. The
+                # graphics-item transform mirrors the geometry, so cancel its
+                # reflection locally around the text rectangle's centre.
+                painter.setPen(QPen(token_color("text_inverse")))
+                painter.setFont(visual_font("engineering"))
+                text_x = float(primitive["x"])
+                text_y = float(primitive["y"])
+                text_width = float(primitive["width"])
+                text_height = float(primitive["height"])
+                text_rect = QRectF(text_x, text_y, text_width, text_height)
+                mirror_x = bool(self._symbol_instance.get_property("mirror_x", False))
+                mirror_y = bool(self._symbol_instance.get_property("mirror_y", False))
+                # Current item transform is scale-X reflection, plus a 180°
+                # rotation when both mirror flags are set. Its net reflection
+                # is horizontal for X-only and vertical for X+Y.
+                reflect_text_x = mirror_x and not mirror_y
+                reflect_text_y = mirror_x and mirror_y
+                painter.save()
+                if reflect_text_x or reflect_text_y:
+                    center_x = text_x + text_width / 2.0
+                    center_y = text_y + text_height / 2.0
+                    painter.translate(center_x, center_y)
+                    painter.scale(
+                        -1.0 if reflect_text_x else 1.0,
+                        -1.0 if reflect_text_y else 1.0,
+                    )
+                    painter.translate(-center_x, -center_y)
+                painter.drawText(
+                    text_rect,
                     Qt.AlignmentFlag.AlignCenter,
                     str(primitive["text"]),
                 )
+                painter.restore()
 
     def hoverEnterEvent(self, event: Any) -> None:
         if self._visual_state == VisualState.NORMAL:

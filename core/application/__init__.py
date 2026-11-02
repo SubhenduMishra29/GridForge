@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from .application import Application
+from .bootstrap import create_application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
     ControlCommandDispatcher,
@@ -43,15 +44,35 @@ from .read_models import (
     RelayInputBindingReadModel,
     RelayReadModel,
     SimpleWireReadModel,
+    StudyResultReadModel,
 )
-from .read_service import NetworkReadService, ProtectionReadService, ReadService
+from .read_service import (
+    ArchivedStudyResultReadModel,
+    NetworkReadService,
+    ProtectionReadService,
+    ReadService,
+    StudyReadService,
+    StudyResultComparisonReadModel,
+    StudyResultNumericDeltaReadModel,
+)
 from .revision import ProjectRevision
+from .study import StudyCaseDefinition, StudyRequest, StudyResult
+from .protection_study import (
+    ProtectionFaultScenario,
+    ProtectionCoordinationTimingEnvelopeConfiguration,
+    ProtectionCoordinationPairConfiguration,
+    ProtectionTransientCurrentTraceConfiguration,
+    ProtectionFaultScenarioResult,
+    ProtectionStudyConfiguration,
+    ProtectionStudyResult,
+)
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
 
 __all__ = [
     "Application",
+    "create_application",
     "ControlDiagnostic",
     "ControlCycleResult",
     "ControlCycleService",
@@ -83,6 +104,18 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "SimpleWireReadModel",
+    "StudyResultReadModel",\n    "ArchivedStudyResultReadModel",\n    "StudyResultComparisonReadModel",
+    "StudyResultNumericDeltaReadModel",\n    "StudyReadService",
+    "StudyCaseDefinition",
+    "StudyRequest",
+    "StudyResult",
+    "ProtectionFaultScenario",
+    "ProtectionCoordinationTimingEnvelopeConfiguration",
+    "ProtectionCoordinationPairConfiguration",
+    "ProtectionTransientCurrentTraceConfiguration",
+    "ProtectionFaultScenarioResult",
+    "ProtectionStudyConfiguration",
+    "ProtectionStudyResult",
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",

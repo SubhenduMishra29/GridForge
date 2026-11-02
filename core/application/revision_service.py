@@ -44,18 +44,33 @@ class RevisionService:
         "model.create_fuse", "model.delete_fuse",
         "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
+        "model.put_capacitor_in_service", "model.take_capacitor_out_of_service",
+        "model.put_battery_in_service", "model.take_battery_out_of_service",
         "model.create_breaker", "model.delete_breaker",
         "model.open_breaker", "model.close_breaker", "model.trip_breaker",
+        "control.execute_trip_batch",
         "model.put_breaker_in_service", "model.take_breaker_out_of_service",
         "connectivity.insert_equipment_into_connection",
+        "connectivity.create_phase_domain_node",
+        "connectivity.remove_phase_domain_node",
+        "connectivity.create_phase_domain_connection",
+        "connectivity.remove_phase_domain_connection",
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
     _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "pt", "relay"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
         "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
+        # Shunt service state and Bus attachment affect the electrical network
+        # consumed by topology snapshots and study preparation.
+        "model.update_capacitor",
         "model.update_disconnector",
         "model.update_fuse",
+        # These branch/equipment states alter the electrically connected
+        # network used by topology snapshots and numerical preparation.
+        "model.update_line",
+        "model.update_transformer",
+        "model.update_cable",
     })
 
     def __init__(self) -> None:
@@ -253,12 +268,22 @@ class RevisionService:
         """Restore model/presentation revision while adopting the actual Core topology revision."""
         if not self._undo:
             raise RuntimeError("No revision transition is available to undo.")
-        transition = self._undo.pop()
+        transition = self._undo[-1]
         if transition.after != self._current:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
         before = transition.before
         if topology_revision is not None:
-            before = ProjectRevision(model_revision=before.model_revision, topology_revision=int(topology_revision), presentation_revision=before.presentation_revision, persisted_revision=before.persisted_revision)
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
+                raise ValueError("topology_revision must be a non-negative integer.")
+            before = ProjectRevision(
+                model_revision=before.model_revision,
+                topology_revision=topology_revision,
+                presentation_revision=before.presentation_revision,
+                persisted_revision=before.persisted_revision,
+            )
+        # Validate and construct the complete target state before mutating either
+        # revision stack. A bad topology revision must not consume the transition.
+        self._undo.pop()
         self._current = before
         self._redo.append(_RevisionTransition(before, transition.after, transition.command_id))
         return self._current
@@ -267,7 +292,7 @@ class RevisionService:
         """Restore the exact revision state represented by the latest redo transition."""
         if not self._redo:
             raise RuntimeError("No revision transition is available to redo.")
-        transition = self._redo.pop()
+        transition = self._redo[-1]
         if transition.before != self._current:
             raise RuntimeError("Revision redo state is inconsistent with current revision.")
         after = transition.after
@@ -280,6 +305,9 @@ class RevisionService:
                 presentation_revision=after.presentation_revision,
                 persisted_revision=after.persisted_revision,
             )
+        # Do not consume redo history until all consistency checks and target
+        # revision construction have succeeded.
+        self._redo.pop()
         self._current = after
         self._undo.append(_RevisionTransition(transition.before, after, transition.command_id))
         return self._current
@@ -294,6 +322,16 @@ class RevisionService:
         self._redo.clear()
         self._persisted_generation = 0
         return self._current
+
+    def clear_transitions(self) -> None:
+        """Clear undo/redo revision journals without changing dirty-state truth.
+
+        This must accompany an explicit Application command-history clear.
+        Revision counters and the persisted baseline describe project state,
+        not whether the user can still undo to an earlier state.
+        """
+        self._undo.clear()
+        self._redo.clear()
 
     def reset_for_project(self) -> ProjectRevision:
         """Reset revision/history state only after successful project activation."""

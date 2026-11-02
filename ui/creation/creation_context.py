@@ -48,12 +48,14 @@ class CreationRequirements:
 
     @classmethod
     def from_definition(cls, definition: CreationDefinition) -> "CreationRequirements":
-        topology = tuple(item for item in definition.topology_requirements if item.required)
+        # Endpoint acquisition is a commit requirement unless a terminal is
+        # explicitly marked initial_endpoint_required. Equipment must remain
+        # placeable before it is wired into the draft network.
         terminals = tuple(item for item in definition.terminal_requirements if item.initial_endpoint_required)
-        endpoint_required = bool(topology or terminals)
+        endpoint_required = bool(terminals)
         multi_endpoint_required = (
-            len(topology) + len(terminals) > 1
-            or any(item.cardinality in {"pair", "multiple"} for item in (*topology, *terminals))
+            len(terminals) > 1
+            or any(item.cardinality in {"pair", "multiple"} for item in terminals)
         )
         return cls(
             configuration_required=definition.configuration_required,
@@ -168,9 +170,6 @@ class CreationDraft:
         errors: list[str] = []
         if self.definition.placement_required and self.placement_position is None:
             errors.append("Placement position is required.")
-        for requirement in self.definition.topology_requirements:
-            if requirement.required and self.endpoints.get(requirement.name) is None:
-                errors.append(f"Required topology endpoint {requirement.name!r} is missing.")
         self.validation_state["placement"] = tuple(errors)
         self.validation_state["endpoint"] = tuple(
             error for error in errors if "endpoint" in error.lower()
@@ -181,6 +180,10 @@ class CreationDraft:
         self.mark_validating()
         configuration_ok = self.validate_configuration()
         placement_ok = self.validate_placement()
+        # Wiring lives in the Application DraftNetwork connection graph. Do not
+        # validate topology against this per-item UI context, whose endpoint
+        # declarations are not the authoritative graph.
+        self.validation_state["topology"] = ()
         self.validation_state["terminal"] = tuple(
             f"Required terminal {item.terminal_name!r} is not acquired."
             for item in self.definition.terminal_requirements
@@ -269,13 +272,39 @@ class CreationContext:
         draft.set_endpoints(endpoints)
         return draft
 
+    @staticmethod
+    def _clone_draft(draft: CreationDraft) -> CreationDraft:
+        """Copy mutable authoring state without copying immutable schemas or UI adapters.
+
+        CreationDefinition/parameter metadata may contain immutable mapping
+        proxies and adapter callables; deep-copying them is unnecessary and can
+        fail when a preview endpoint carries a Qt-backed adapter. The snapshot
+        owns independent mutable value/validation/preview dictionaries while
+        retaining immutable schema and endpoint identity objects.
+        """
+        return CreationDraft(
+            definition=draft.definition,
+            equipment_type=draft.equipment_type,
+            tool_id=draft.tool_id,
+            parameter_schema=draft.parameter_schema,
+            values=deepcopy(draft.values),
+            validation_state=deepcopy(draft.validation_state),
+            configuration_complete=draft.configuration_complete,
+            placement_position=draft.placement_position,
+            orientation=draft.orientation,
+            endpoints=dict(draft.endpoints),
+            preview_state=deepcopy(draft.preview_state),
+            phase=draft.phase,
+            requirements=draft.requirements,
+        )
+
     def snapshot_draft(self) -> CreationDraft | None:
-        return None if self._draft is None else deepcopy(self._draft)
+        return None if self._draft is None else self._clone_draft(self._draft)
 
     def restore_draft(self, draft: CreationDraft | None) -> None:
         if draft is not None and not isinstance(draft, CreationDraft):
             raise TypeError('draft must be a CreationDraft or None.')
-        self._draft = deepcopy(draft) if draft is not None else None
+        self._draft = self._clone_draft(draft) if draft is not None else None
 
     def require_draft(self) -> CreationDraft:
         if self._draft is None:

@@ -15,6 +15,7 @@ UPDATE_PROTECTION_CONFIGURATION = "protection.update_configuration"
 DELETE_PROTECTION_CONFIGURATION = "protection.delete_configuration"
 BIND_PROTECTION_MEASUREMENT = "protection.bind_measurement"
 UNBIND_PROTECTION_MEASUREMENT = "protection.unbind_measurement"
+SET_SYNCHRONISM_CHECK_CONFIGURATION = "protection.set_synchronism_check_configuration"
 
 
 def _command(command_type: str, payload: dict[str, Any], *, command_id: UUID | None = None,
@@ -84,8 +85,33 @@ class DeleteProtectionConfigurationCommand(Command):
                                    command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
+
+class SetSynchronismCheckConfigurationCommand(Command):
+    """Replace or disable the active project's typed ANSI 25 breaker-policy registry."""
+
+    def __init__(
+        self,
+        *,
+        configuration: Mapping[str, Any] | None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if configuration is not None and not isinstance(configuration, Mapping):
+            raise TypeError("configuration must be a mapping or None.")
+        payload = None if configuration is None else dict(configuration)
+        super().__init__(**_command(
+            SET_SYNCHRONISM_CHECK_CONFIGURATION,
+            {"configuration": payload},
+            command_id=command_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        ))
+
+
 __all__ = [
-    "CREATE_PROTECTION_CONFIGURATION", "UPDATE_PROTECTION_CONFIGURATION", "DELETE_PROTECTION_CONFIGURATION", "BIND_PROTECTION_MEASUREMENT", "UNBIND_PROTECTION_MEASUREMENT",
+    "CREATE_PROTECTION_CONFIGURATION", "UPDATE_PROTECTION_CONFIGURATION", "DELETE_PROTECTION_CONFIGURATION", "BIND_PROTECTION_MEASUREMENT", "UNBIND_PROTECTION_MEASUREMENT", "SET_SYNCHRONISM_CHECK_CONFIGURATION",
     "CreateProtectionConfigurationCommand", "UpdateProtectionConfigurationCommand",
     "DeleteProtectionConfigurationCommand", "BindProtectionMeasurementCommand", "UnbindProtectionMeasurementCommand",
+    "SetSynchronismCheckConfigurationCommand",
 ]

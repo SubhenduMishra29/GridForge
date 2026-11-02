@@ -140,6 +140,11 @@ class SequenceNetwork:
             "zero": None,
         }
 
+        # Detached physical-conductor preparation remains separate from sequence matrices.
+        self.physical_conductor_topology = None
+        self.physical_conductor_impedances = None
+        self.physical_conductor_impedance_diagnostics: tuple[str, ...] = ()
+
     # =========================================================
     # VALIDATION
     # =========================================================
@@ -777,6 +782,10 @@ class SequenceNetwork:
             self._matrices[
                 sequence
             ] = None
+
+        self.physical_conductor_topology = None
+        self.physical_conductor_impedances = None
+        self.physical_conductor_impedance_diagnostics = ()
 
     # =========================================================
     # DIAGNOSTICS

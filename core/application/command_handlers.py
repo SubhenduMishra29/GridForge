@@ -10,7 +10,7 @@ from .transaction import Transaction
 from .commands.model_commands import (
     CREATE_BUS, UPDATE_BUS, DELETE_BUS, CREATE_GRID, UPDATE_GRID, DELETE_GRID,
     CREATE_GENERATOR, UPDATE_GENERATOR, DELETE_GENERATOR, CREATE_LOAD, UPDATE_LOAD, DELETE_LOAD,
-    CREATE_SHUNT, UPDATE_SHUNT, DELETE_SHUNT, CREATE_LINE, DELETE_LINE,
+    CREATE_SHUNT, UPDATE_SHUNT, DELETE_SHUNT, CREATE_LINE, UPDATE_LINE, DELETE_LINE,
     CREATE_TRANSFORMER, UPDATE_TRANSFORMER, DELETE_TRANSFORMER, CREATE_CABLE, UPDATE_CABLE, DELETE_CABLE,
     CREATE_SWITCH, UPDATE_SWITCH, DELETE_SWITCH, OPEN_SWITCH, CLOSE_SWITCH,
     PUT_SWITCH_IN_SERVICE, TAKE_SWITCH_OUT_OF_SERVICE, CREATE_DISCONNECTOR, UPDATE_DISCONNECTOR,
@@ -68,7 +68,7 @@ class ModelCommandHandlers:
             CREATE_SHUNT: self.create_shunt, UPDATE_SHUNT: self.update_shunt, DELETE_SHUNT: self.delete_shunt,
             CREATE_REACTOR: self.create_reactor, UPDATE_REACTOR: self.update_reactor, DELETE_REACTOR: self.delete_reactor,
             CREATE_SOLAR: self.create_solar, UPDATE_SOLAR: self.update_solar, DELETE_SOLAR: self.delete_solar,
-            CREATE_LINE: self.create_line, DELETE_LINE: self.delete_line,
+            CREATE_LINE: self.create_line, UPDATE_LINE: self.update_line, DELETE_LINE: self.delete_line,
             CREATE_TRANSFORMER: self.create_transformer, UPDATE_TRANSFORMER: self.update_transformer, DELETE_TRANSFORMER: self.delete_transformer,
             CREATE_CABLE: self.create_cable, UPDATE_CABLE: self.update_cable, DELETE_CABLE: self.delete_cable,
             CREATE_SWITCH: self.create_switch, UPDATE_SWITCH: self.update_switch, DELETE_SWITCH: self.delete_switch,
@@ -171,6 +171,7 @@ class ModelCommandHandlers:
     def update_solar(self, command, context, transaction): return self._model_service.update_solar(transaction=transaction, **command.payload)
     def delete_solar(self, command, context, transaction): return self._model_service.delete_solar(transaction=transaction, **command.payload)
     def create_line(self, command, context, transaction): return self._model_service.create_line(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
+    def update_line(self, command, context, transaction): return self._model_service.update_line(transaction=transaction, **command.payload)
     def delete_line(self, command, context, transaction): return self._model_service.delete_line(transaction=transaction, **command.payload)
     def create_transformer(self, command, context, transaction): return self._model_service.create_transformer(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def update_transformer(self, command, context, transaction): return self._model_service.update_transformer(transaction=transaction, **command.payload)

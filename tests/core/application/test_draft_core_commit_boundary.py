@@ -5,6 +5,9 @@ import pytest
 from core.application.bootstrap import create_application
 from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.creation import CreationCommitIntent, CreationCommandPreparer
+from core.application.creation_schema import creation_contracts_from_definitions
+
+_CANONICAL_CREATION_CONTRACTS = creation_contracts_from_definitions()
 from core.application.draft.network import (
     DraftConnection,
     DraftEndpointReference,
@@ -31,11 +34,20 @@ def _equipment(
     placement: tuple[float, float] = (10.0, 20.0),
     endpoints: dict[str, DraftEndpointReference] | None = None,
 ) -> DraftEquipment:
+    contract = _CANONICAL_CREATION_CONTRACTS[equipment_type]
+    if tuple(terminal_contract) != tuple(contract["terminal_contract"]):
+        raise ValueError(f"{equipment_type}: test fixture terminal inventory is not canonical.")
+    if command_type != contract["command_type"] or id_field != contract["id_field"]:
+        raise ValueError(f"{equipment_type}: test fixture command identity is not canonical.")
+    if dict(parameter_mapping) != dict(contract["parameter_mapping"]):
+        raise ValueError(f"{equipment_type}: test fixture parameter mapping is not canonical.")
+    if dict(endpoint_mapping or {}) != dict(contract["endpoint_mapping"]):
+        raise ValueError(f"{equipment_type}: test fixture endpoint mapping is not canonical.")
     return DraftEquipment(
         draft_id=draft_id,
         equipment_type=equipment_type,
         display_name=equipment_type.title(),
-        terminal_contract=terminal_contract,
+        terminal_contract=tuple(contract["terminal_contract"]),
         engineering_data=values,
         endpoints=endpoints or {},
         placement=placement,
@@ -43,6 +55,9 @@ def _equipment(
         id_field=id_field,
         parameter_mapping=parameter_mapping,
         endpoint_mapping=endpoint_mapping or {},
+        required_connection_terminals=tuple(contract["required_connection_terminals"]),
+        parameter_contract=tuple(contract["parameter_contract"]),
+        conditional_requirements=tuple(contract["conditional_requirements"]),
     )
 
 
@@ -122,6 +137,7 @@ def _breaker(draft_id: str) -> DraftEquipment:
             "closed": "closed",
             "in_service": "in_service",
         },
+        endpoint_mapping={"from": "endpoint_from", "to": "endpoint_to"},
     )
 
 
@@ -136,8 +152,37 @@ def _commit(app, draft: DraftNetwork):
     )
 
 
+
+
+def _connect_terminal(
+    draft: DraftNetwork,
+    *,
+    connection_id: str,
+    bus_id: str,
+    attachment_id: str,
+    equipment_id: str,
+    equipment_type: str,
+    terminal_role: str,
+    route: dict | None = None,
+) -> None:
+    """Connect one required equipment terminal to a canonical Bus attachment."""
+    connection_fields = {
+        "connection_id": connection_id,
+        "source": DraftEndpointReference.bus(bus_id=bus_id, attachment_id=attachment_id),
+        "target": DraftEndpointReference.terminal(
+            draft_id=equipment_id,
+            equipment_type=equipment_type,
+            terminal_role=terminal_role,
+        ),
+    }
+    if route is not None:
+        connection_fields["route"] = route
+    draft.add_connection(DraftConnection(**connection_fields))
+
+
 def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker():
     preparer = CreationCommandPreparer()
+    canonical_contracts = creation_contracts_from_definitions()
 
     intents = (
         CreationCommitIntent(
@@ -149,30 +194,42 @@ def test_creation_intent_matches_canonical_preparer_for_bus_transformer_breaker(
             values=dict(_bus("b1").engineering_data),
             endpoints={},
             position=(1.0, 2.0),
+            parameter_contract=tuple(canonical_contracts["bus"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["bus"]["conditional_requirements"]),
+            equipment_type="bus",
         ),
         CreationCommitIntent(
             command_type="model.create_transformer",
             id_field="transformer_id",
             object_id="transformer-t1",
             parameter_mapping=_transformer("t1").parameter_mapping,
-            endpoint_mapping={},
+            endpoint_mapping=dict(_transformer("t1").endpoint_mapping),
             values=dict(_transformer("t1").engineering_data),
             endpoints={},
             position=(3.0, 4.0),
+            parameter_contract=tuple(canonical_contracts["transformer"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["transformer"]["conditional_requirements"]),
+            equipment_type="transformer",
         ),
         CreationCommitIntent(
             command_type="model.create_breaker",
             id_field="breaker_id",
             object_id="breaker-k1",
             parameter_mapping=_breaker("k1").parameter_mapping,
-            endpoint_mapping={},
+            endpoint_mapping=dict(_breaker("k1").endpoint_mapping),
             values=dict(_breaker("k1").engineering_data),
             endpoints={},
             position=(5.0, 6.0),
+            parameter_contract=tuple(canonical_contracts["breaker"]["parameter_contract"]),
+            conditional_requirements=tuple(canonical_contracts["breaker"]["conditional_requirements"]),
+            equipment_type="breaker",
         ),
     )
 
-    commands = tuple(preparer.prepare(intent) for intent in intents)
+    commands = tuple(
+        preparer.prepare(intent, canonical_contract=canonical_contracts[intent.equipment_type])
+        for intent in intents
+    )
 
     assert [command.command_type for command in commands] == [
         "model.create_bus",
@@ -189,7 +246,13 @@ def test_commit_prepares_multiple_equipment_deterministically_and_clears_draft()
     draft = DraftNetwork("project-1", 1)
     draft.add_equipment(_transformer("t2"))
     draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_bus("b2"))
+    draft.add_equipment(_bus("b3"))
     draft.add_equipment(_breaker("k1"))
+    _connect_terminal(draft, connection_id="wire-t2-from", bus_id="b1", attachment_id="attachment-0", equipment_id="t2", equipment_type="transformer", terminal_role="FROM")
+    _connect_terminal(draft, connection_id="wire-t2-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t2", equipment_type="transformer", terminal_role="TO")
+    _connect_terminal(draft, connection_id="wire-k1-from", bus_id="b2", attachment_id="attachment-1", equipment_id="k1", equipment_type="breaker", terminal_role="from")
+    _connect_terminal(draft, connection_id="wire-k1-to", bus_id="b3", attachment_id="attachment-0", equipment_id="k1", equipment_type="breaker", terminal_role="to")
 
     result = _commit(app, draft)
 
@@ -296,9 +359,9 @@ def _route() -> dict:
         "routing_mode": "orthogonal",
         "ownership": "engineer",
         "points": [
-            {"x": 100.0, "y": 200.0},
-            {"x": 150.0, "y": 200.0},
-            {"x": 150.0, "y": 300.0},
+            [100.0, 200.0],
+            [150.0, 200.0],
+            [150.0, 300.0],
         ],
     }
 
@@ -306,7 +369,13 @@ def _route() -> dict:
 def _commit_with_sld(draft: DraftNetwork):
     app = create_application(Network())
     document = SLDDocument("route:sld", project_id=draft.project_id)
-    app.attach_sld_service(SLDService(document))
+    app.attach_sld_service(SLDService(
+        document,
+        symbol_presentation_factory=lambda element_type: {
+            "symbol_id": f"test-symbol-{element_type}",
+            "definition_id": f"test-definition-{element_type}",
+        },
+    ))
     app.set_draft_network(draft)
     result = app.execute(CommitNetworkCommand(
         project_id=draft.project_id,
@@ -321,21 +390,10 @@ def test_valid_draft_connection_commits_as_core_simple_wire():
     bus = _bus("b1")
     transformer = _transformer("t1")
     draft.add_equipment(bus)
+    draft.add_equipment(_bus("b2"))
     draft.add_equipment(transformer)
-    draft.add_connection(
-        DraftConnection(
-            connection_id="wire-1",
-            source=DraftEndpointReference.bus(
-                bus_id="b1",
-                attachment_id="attachment-0",
-            ),
-            target=DraftEndpointReference.terminal(
-                draft_id="t1",
-                equipment_type="transformer",
-                terminal_role="FROM",
-            ),
-        )
-    )
+    _connect_terminal(draft, connection_id="wire-1", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM")
+    _connect_terminal(draft, connection_id="wire-2", bus_id="b2", attachment_id="attachment-1", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     result = _commit(app, draft)
 
@@ -351,14 +409,11 @@ def test_valid_draft_connection_commits_as_core_simple_wire():
 def test_commit_persists_engineer_authored_draft_route_structurally():
     draft = DraftNetwork("project-route", 1)
     draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_bus("b2"))
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
-    draft.add_connection(DraftConnection(
-        connection_id="wire-route",
-        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
-        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
-        route=authored_route,
-    ))
+    _connect_terminal(draft, connection_id="wire-route", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
+    _connect_terminal(draft, connection_id="wire-route-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
 
@@ -371,14 +426,11 @@ def test_commit_persists_engineer_authored_draft_route_structurally():
 def test_commit_route_is_not_replaced_by_generated_routing():
     draft = DraftNetwork("project-route-generated", 1)
     draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_bus("b2"))
     draft.add_equipment(_transformer("t1"))
-    authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [{"x": 901.0, "y": 902.0}, {"x": 903.0, "y": 904.0}, {"x": 905.0, "y": 906.0}]}
-    draft.add_connection(DraftConnection(
-        connection_id="wire-distinctive",
-        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
-        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
-        route=authored_route,
-    ))
+    authored_route = {"routing_mode": "orthogonal", "ownership": "engineer", "points": [[901.0, 902.0], [903.0, 904.0], [905.0, 906.0]]}
+    _connect_terminal(draft, connection_id="wire-distinctive", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
+    _connect_terminal(draft, connection_id="wire-distinctive-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
 
@@ -389,14 +441,11 @@ def test_commit_route_is_not_replaced_by_generated_routing():
 def test_commit_route_undo_redo_restores_the_same_persistent_sld_route():
     draft = DraftNetwork("project-route-history", 1)
     draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_bus("b2"))
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
-    draft.add_connection(DraftConnection(
-        connection_id="wire-history",
-        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
-        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
-        route=authored_route,
-    ))
+    _connect_terminal(draft, connection_id="wire-history", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
+    _connect_terminal(draft, connection_id="wire-history-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
     assert result.success
@@ -412,14 +461,11 @@ def test_commit_route_undo_redo_restores_the_same_persistent_sld_route():
 def test_commit_route_save_reload_preserves_persistent_sld_route(tmp_path):
     draft = DraftNetwork("project-route-persistence", 1)
     draft.add_equipment(_bus("b1"))
+    draft.add_equipment(_bus("b2"))
     draft.add_equipment(_transformer("t1"))
     authored_route = _route()
-    draft.add_connection(DraftConnection(
-        connection_id="wire-persist",
-        source=DraftEndpointReference.bus(bus_id="b1", attachment_id="attachment-0"),
-        target=DraftEndpointReference.terminal(draft_id="t1", equipment_type="transformer", terminal_role="FROM"),
-        route=authored_route,
-    ))
+    _connect_terminal(draft, connection_id="wire-persist", bus_id="b1", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="FROM", route=authored_route)
+    _connect_terminal(draft, connection_id="wire-persist-to", bus_id="b2", attachment_id="attachment-0", equipment_id="t1", equipment_type="transformer", terminal_role="TO")
 
     app, result, document = _commit_with_sld(draft)
     assert result.success

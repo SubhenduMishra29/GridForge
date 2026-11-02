@@ -207,8 +207,8 @@ class BusItem(BaseItem):
         painter.setPen(visual_pen("bus", state, width=self.DEFAULT_LINE_WIDTH))
         painter.setBrush(visual_brush("bus", state))
         painter.drawLine(self._start, self._end)
-        painter.drawEllipse(self._start.x() - self._radius, self._start.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
-        painter.drawEllipse(self._end.x() - self._radius, self._end.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
+        painter.drawEllipse(QRectF(self._start.x() - self._radius, self._start.y() - self._radius, self._radius * 2.0, self._radius * 2.0))
+        painter.drawEllipse(QRectF(self._end.x() - self._radius, self._end.y() - self._radius, self._radius * 2.0, self._radius * 2.0))
 
 
     def set_visual_state(self, state: VisualState | str) -> None:

@@ -6,17 +6,23 @@
 
 import pytest
 
-from ui.workspace.panel_area import PanelArea
-from ui.workspace.workspace_definition import WorkspaceDefinition, WorkspacePlacement
+from ui.workspace.area import AreaDefinition
+from ui.workspace.editor import EditorDefinition
+from ui.workspace.workspace_definition import WorkspaceDefinition
 from ui.workspace.workspace_layout import WorkspaceLayout
 from ui.workspace.workspace_manager import WorkspaceManager
 
 
 def _definition(workspace_id: str) -> WorkspaceDefinition:
+    editor = EditorDefinition(
+        editor_id="sld",
+        editor_type="sld",
+        title="Single Line Diagram",
+    )
     return WorkspaceDefinition(
         workspace_id=workspace_id,
         title="Engineering",
-        placements=(WorkspacePlacement("sld", PanelArea.CENTER),),
+        areas=(AreaDefinition("center", editor),),
     )
 
 
@@ -60,8 +66,8 @@ def test_failed_external_realization_can_leave_state_uncommitted() -> None:
 
 def test_prepare_layout_requires_active_workspace() -> None:
     manager = WorkspaceManager({"WS-001": _definition("WS-001")})
-    layout = WorkspaceLayout.from_placements(
-        [WorkspacePlacement("sld", PanelArea.CENTER)]
+    layout = WorkspaceLayout.from_areas(
+        [AreaDefinition("center", EditorDefinition("sld", "sld", "Single Line Diagram"))]
     )
 
     with pytest.raises(RuntimeError):

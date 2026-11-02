@@ -40,6 +40,15 @@ class SynchronousMachineModelService(ModelServiceSupport):
         values = (name, active_power_injection_mw, reactive_power_injection_mvar, rated_power_mva, rated_voltage_kv, frequency_hz, in_service)
         if all(value is None for value in values): raise DomainError(code="NO_SYNCHRONOUS_MACHINE_UPDATE", message="At least one mutable SynchronousMachine property must be specified.", details={"synchronous_machine_id": synchronous_machine_id})
         old = {"name": machine.name, "active_power_injection_mw": machine.active_power_injection_mw, "reactive_power_injection_mvar": machine.reactive_power_injection_mvar, "rated_power_mva": machine.rated_power_mva, "rated_voltage_kv": machine.rated_voltage_kv, "frequency_hz": machine.frequency_hz, "in_service": machine.in_service}
+        service_state_changed = in_service is not None and in_service != old["in_service"]
+        def restore_snapshot() -> None:
+            machine.name = old["name"]
+            machine.active_power_injection_mw = old["active_power_injection_mw"]
+            machine.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]
+            machine.rated_power_mva = old["rated_power_mva"]
+            machine.rated_voltage_kv = old["rated_voltage_kv"]
+            machine.frequency_hz = old["frequency_hz"]
+            machine.in_service = old["in_service"]
         try:
             if name is not None: machine.name = name
             if active_power_injection_mw is not None or reactive_power_injection_mvar is not None: machine.set_power(machine.active_power_injection_mw if active_power_injection_mw is None else active_power_injection_mw, machine.reactive_power_injection_mvar if reactive_power_injection_mvar is None else reactive_power_injection_mvar)
@@ -47,14 +56,19 @@ class SynchronousMachineModelService(ModelServiceSupport):
             if rated_voltage_kv is not None: machine.rated_voltage_kv = rated_voltage_kv
             if frequency_hz is not None: machine.frequency_hz = frequency_hz
             if in_service is not None: machine.put_in_service() if in_service else machine.take_out_of_service()
-            if in_service is not None: self._network.invalidate_topology()
             machine.validate_parameters()
         except Exception:
-            machine.name = old["name"]; machine.active_power_injection_mw = old["active_power_injection_mw"]; machine.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; machine.rated_power_mva = old["rated_power_mva"]; machine.rated_voltage_kv = old["rated_voltage_kv"]; machine.frequency_hz = old["frequency_hz"]; machine.in_service = old["in_service"]; raise
+            restore_snapshot()
+            raise
+        if service_state_changed:
+            self._network.invalidate_topology()
         def restore() -> None:
-            machine.name = old["name"]; machine.active_power_injection_mw = old["active_power_injection_mw"]; machine.reactive_power_injection_mvar = old["reactive_power_injection_mvar"]; machine.rated_power_mva = old["rated_power_mva"]; machine.rated_voltage_kv = old["rated_voltage_kv"]; machine.frequency_hz = old["frequency_hz"]; machine.in_service = old["in_service"]; machine.validate_parameters()
-            if in_service is not None: self._network.invalidate_topology()
-        transaction.record_undo(restore); return self._success(machine, "synchronous_machine", synchronous_machine_id, f"SynchronousMachine updated: {synchronous_machine_id}")
+            restore_snapshot()
+            machine.validate_parameters()
+            if service_state_changed:
+                self._network.invalidate_topology()
+        transaction.record_undo(restore)
+        return self._success(machine, "synchronous_machine", synchronous_machine_id, f"SynchronousMachine updated: {synchronous_machine_id}")
 
     def delete_synchronous_machine(self, *, synchronous_machine_id: str, transaction: Transaction) -> ApplicationResult[SynchronousMachine]:
         self._require_transaction(transaction); self._require_id(synchronous_machine_id, "synchronous_machine_id"); machine = self._get_required("synchronous_machine", synchronous_machine_id, "SynchronousMachine"); self._require_type(machine, SynchronousMachine, synchronous_machine_id, "SynchronousMachine"); self._network.remove_synchronous_machine(machine); transaction.record_undo(lambda machine=machine: self._network.add_synchronous_machine(machine)); return self._success(machine, "synchronous_machine", synchronous_machine_id, f"SynchronousMachine deleted: {synchronous_machine_id}")

@@ -72,6 +72,12 @@ Redo:
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import tempfile
 from typing import Any
 
 from .command import Command
@@ -97,6 +103,7 @@ PreCommitHook = Callable[
     [Command, ApplicationResult[Any], Transaction],
     None,
 ]
+RecoverySnapshotProvider = Callable[[], Mapping[str, Any]]
 
 
 # ============================================================
@@ -134,8 +141,11 @@ class CommandManager:
             else CommandHistory()
         )
         self._integrity_state = "CLEAN"
-        self._integrity_error: Exception | None = None
+        self._integrity_error: BaseException | None = None
         self._pre_commit_hook: PreCommitHook | None = None
+        self._recovery_snapshot_provider: RecoverySnapshotProvider | None = None
+        self._recovery_directory: Path | None = None
+        self._recovery_record: Mapping[str, Any] | None = None
 
     # ========================================================
     # PROPERTIES
@@ -157,14 +167,40 @@ class CommandManager:
         return tuple(self._handlers.keys())
 
     @property
+    def pre_commit_hook(self) -> PreCommitHook | None:
+        """Return the currently configured pre-commit hook for composition guards."""
+        return self._pre_commit_hook
+
+    @property
     def integrity_state(self) -> str:
         """Return CLEAN or DEGRADED for the command/Core synchronization boundary."""
         return self._integrity_state
 
     @property
-    def integrity_error(self) -> Exception | None:
+    def integrity_error(self) -> BaseException | None:
         """Return the failure that caused a degraded command boundary, if any."""
         return self._integrity_error
+
+    @property
+    def recovery_record(self) -> Mapping[str, Any] | None:
+        """Return a detached copy of the last recovery diagnostic record."""
+        return None if self._recovery_record is None else deepcopy(self._recovery_record)
+
+    def configure_recovery(
+        self,
+        *,
+        snapshot_provider: RecoverySnapshotProvider | None,
+        recovery_directory: str | Path | None,
+    ) -> None:
+        """Configure best-effort draft snapshot capture for degraded transactions."""
+        if snapshot_provider is not None and not callable(snapshot_provider):
+            raise TypeError("snapshot_provider must be callable or None.")
+        if recovery_directory is not None and not isinstance(recovery_directory, (str, Path)):
+            raise TypeError("recovery_directory must be a path or None.")
+        self._recovery_snapshot_provider = snapshot_provider
+        self._recovery_directory = (
+            None if recovery_directory is None else Path(recovery_directory).expanduser()
+        )
 
     def set_pre_commit_hook(self, hook: PreCommitHook | None) -> None:
         """Install the Application-owned coordinated mutation hook."""
@@ -184,13 +220,91 @@ class CommandManager:
                 cause=self._integrity_error,
             )
 
-    def _mark_degraded(self, error: Exception) -> None:
+    def _mark_degraded(self, error: BaseException) -> None:
+        first_degradation = self._integrity_state != "DEGRADED"
         self._integrity_state = "DEGRADED"
         self._integrity_error = error
+        if first_degradation:
+            self._capture_recovery_record(error)
+
+    def _capture_recovery_record(self, error: BaseException) -> None:
+        """Capture draft state and atomically persist a recovery artifact if configured."""
+        record: dict[str, Any] = {
+            "schema": "gridforge.recovery-snapshot.v1",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "integrity_state": "DEGRADED",
+            "failure_type": type(error).__name__,
+            "failure_message": str(error),
+            "snapshot": None,
+            "artifact_path": None,
+            "capture_error": None,
+        }
+        try:
+            if self._recovery_snapshot_provider is not None:
+                snapshot = self._recovery_snapshot_provider()
+                if not isinstance(snapshot, Mapping):
+                    raise TypeError("Recovery snapshot provider must return a mapping.")
+                record["snapshot"] = dict(snapshot)
+                json.dumps(record["snapshot"], ensure_ascii=False, allow_nan=False)
+            else:
+                record["capture_error"] = "No recovery snapshot provider is configured."
+        except BaseException as capture_exc:
+            record["snapshot"] = None
+            record["capture_error"] = f"Snapshot capture failed: {type(capture_exc).__name__}: {capture_exc}"
+
+        if self._recovery_directory is not None:
+            temporary_path: str | None = None
+            try:
+                self._recovery_directory.mkdir(parents=True, exist_ok=True)
+                artifact = self._recovery_directory / (
+                    "recovery-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".json"
+                )
+                record["artifact_path"] = str(artifact)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", newline="\n", dir=self._recovery_directory,
+                    prefix=".gridforge-recovery-", suffix=".tmp", delete=False,
+                ) as stream:
+                    temporary_path = stream.name
+                    json.dump(record, stream, ensure_ascii=False, indent=2, allow_nan=False)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary_path, artifact)
+                temporary_path = None
+            except BaseException as write_exc:
+                record["capture_error"] = (
+                    (str(record["capture_error"]) + "; ") if record["capture_error"] else ""
+                ) + f"Recovery artifact write failed: {type(write_exc).__name__}: {write_exc}"
+            finally:
+                if temporary_path is not None:
+                    try:
+                        os.unlink(temporary_path)
+                    except OSError:
+                        pass
+        self._recovery_record = record
 
     # ========================================================
     # HANDLER REGISTRATION
     # ========================================================
+
+    def handler_registry_snapshot(self) -> dict[str, CommandHandler]:
+        """Return a shallow snapshot for atomic Application composition rollback."""
+        return dict(self._handlers)
+
+    def restore_handler_registry(
+        self,
+        snapshot: Mapping[str, CommandHandler],
+    ) -> None:
+        """Restore a previously captured handler registry without changing handler objects."""
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("handler registry snapshot must be a mapping.")
+        restored: dict[str, CommandHandler] = {}
+        for command_type, handler in snapshot.items():
+            self._validate_command_type(command_type)
+            if not callable(handler):
+                raise TypeError("handler registry snapshot contains a non-callable handler.")
+            restored[command_type] = handler
+        self._handlers = restored
 
     def register_handler(
         self,
@@ -386,6 +500,12 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
+        except BaseException:
+            # Process-level interruptions during pre-commit still leave this
+            # execution path responsible for rolling back its active scope.
+            self._rollback_safely(transaction)
+            raise
+
         # ----------------------------------------------------
         # COMMIT
         # ----------------------------------------------------
@@ -399,12 +519,20 @@ class CommandManager:
         try:
             undo_journal = transaction.commit()
 
-        except ApplicationError:
-            self._rollback_safely(transaction)
-            raise
+        except BaseException as exc:
+            # A commit interruption may occur after Transaction has left OPEN.
+            # In that case rollback is not legal and Core/history consistency
+            # cannot be assumed, so fail closed.
+            if transaction.active:
+                self._rollback_safely(transaction)
+            else:
+                self._mark_degraded(exc)
 
-        except Exception as exc:
-            self._rollback_safely(transaction)
+            if isinstance(exc, ApplicationError):
+                raise
+
+            if not isinstance(exc, Exception):
+                raise
 
             raise ExecutionError(
                 code="COMMAND_COMMIT_FAILED",
@@ -438,11 +566,21 @@ class CommandManager:
                 clear_redo=clear_redo,
             )
 
-        except ApplicationError:
-            raise
-
-        except Exception as exc:
+        except BaseException as exc:
+            # Core is already committed. Any failure while recording history
+            # leaves Core/history synchronization uncertain, regardless of
+            # the exception class or whether the history record was partly
+            # written.
             self._mark_degraded(exc)
+
+            if isinstance(exc, ApplicationError):
+                raise
+
+            if not isinstance(exc, Exception):
+                # Preserve process-level interruption semantics after
+                # protecting the Core/history integrity boundary.
+                raise
+
             raise ExecutionError(
                 code="COMMAND_HISTORY_RECORD_FAILED",
                 message=(
@@ -553,8 +691,10 @@ class CommandManager:
             if completed == 0:
                 try:
                     self._history.restore_undo(record)
-                except Exception as restore_exc:
+                except BaseException as restore_exc:
                     self._mark_degraded(restore_exc)
+                    if not isinstance(restore_exc, Exception):
+                        raise
                     raise ExecutionError(
                         code="HISTORY_RESTORE_FAILED",
                         message=(
@@ -570,8 +710,18 @@ class CommandManager:
                         },
                         cause=exc,
                     ) from restore_exc
+                # An inverse can mutate state and then raise before the
+                # journal loop increments its completed-operation count.
+                # Treat every inverse failure as an uncertain Core/history
+                # boundary and block further commands until recovery.
+                self._mark_degraded(exc)
             else:
                 self._mark_degraded(exc)
+
+            if exc.cause is not None and not isinstance(exc.cause, Exception):
+                # Preserve KeyboardInterrupt/SystemExit only after history is
+                # restored where possible and the manager is fail-closed.
+                raise exc.cause
 
             raise ExecutionError(
                 code="UNDO_FAILED",
@@ -589,8 +739,10 @@ class CommandManager:
 
         try:
             self._history.move_undo_to_redo(record)
-        except Exception as history_exc:
+        except BaseException as history_exc:
             self._mark_degraded(history_exc)
+            if not isinstance(history_exc, Exception):
+                raise
             raise ExecutionError(
                 code="HISTORY_TRANSITION_FAILED",
                 message=(
@@ -629,7 +781,7 @@ class CommandManager:
         for operation in reversed(record.undo_operations):
             try:
                 operation()
-            except Exception as exc:
+            except BaseException as exc:
                 raise ExecutionError(
                     code="UNDO_OPERATION_FAILED",
                     message="An inverse operation failed during undo.",
@@ -719,6 +871,32 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
+        except BaseException as exc:
+            # Pre-commit interruptions can leave the manager CLEAN after a
+            # successful rollback. Restore the popped redo entry before
+            # propagating the interruption; post-commit ambiguity is already
+            # marked DEGRADED by _execute_command and must remain fail-closed.
+            if self._integrity_state == "CLEAN":
+                try:
+                    self._history.restore_redo(record)
+                except BaseException as restore_exc:
+                    self._mark_degraded(restore_exc)
+                    if not isinstance(restore_exc, Exception):
+                        raise
+                    raise ExecutionError(
+                        code="HISTORY_RESTORE_FAILED",
+                        message=(
+                            "Redo was interrupted cleanly, but restoring "
+                            "the redo history record failed."
+                        ),
+                        details={
+                            "command_type": record.command_type,
+                            "command_id": str(record.command_id),
+                        },
+                        cause=restore_exc,
+                    ) from restore_exc
+            raise
+
     # ========================================================
     # HISTORY STATE
     # ========================================================
@@ -750,9 +928,16 @@ class CommandManager:
         return self._history.redo_count()
 
     def clear_history(self) -> None:
-        """Clear undo and redo history."""
+        """Clear undo and redo history, failing closed if clearing is interrupted."""
 
-        self._history.clear()
+        try:
+            self._history.clear()
+        except BaseException as exc:
+            # A partial clear can leave only one history direction available.
+            # Block further commands instead of continuing with uncertain
+            # history state, while preserving interruption semantics.
+            self._mark_degraded(exc)
+            raise
 
     def undo_commands(
         self,
@@ -843,14 +1028,46 @@ class CommandManager:
         )
 
         if handler is None:
+            registered = tuple(sorted(self._handlers))
+            namespace = (
+                command.command_type.split(".", 1)[0]
+                if "." in command.command_type
+                else command.command_type
+            )
+            namespace_candidates = tuple(
+                name for name in registered
+                if name.split(".", 1)[0] == namespace
+            )
+            # Diagnose registration/composition failures without guessing a
+            # handler or silently dispatching to a different command.
             raise ExecutionError(
                 code="COMMAND_HANDLER_NOT_FOUND",
                 message=(
                     "No handler registered for command type: "
-                    f"{command.command_type}"
+                    f"{command.command_type}. "
+                    f"Registered handlers: {len(registered)}."
                 ),
                 details={
                     "command_type": command.command_type,
+                    "registered_command_types": registered,
+                    "command_namespace": namespace,
+                    "same_namespace_candidates": namespace_candidates,
+                    "registration_state": (
+                        "EMPTY" if not registered else "PARTIAL_OR_MISMATCHED"
+                    ),
+                    "diagnostic": (
+                        "No handlers are registered with this CommandManager."
+                        if not registered
+                        else (
+                            "Handlers exist in the same command namespace; "
+                            "check command-type spelling and registration wiring."
+                            if namespace_candidates
+                            else (
+                                "No handler exists in this command namespace; "
+                                "check Application composition and handler registration."
+                            )
+                        )
+                    ),
                 },
             )
 
@@ -885,8 +1102,12 @@ class CommandManager:
         try:
             transaction.rollback()
 
-        except Exception as exc:
+        except BaseException as exc:
             self._mark_degraded(exc)
+            if not isinstance(exc, Exception):
+                # Preserve process-level interruption semantics, but never
+                # leave the manager CLEAN after rollback has failed.
+                raise
             raise ExecutionError(
                 code="TRANSACTION_ROLLBACK_FAILED",
                 message="Transaction rollback failed.",

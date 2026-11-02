@@ -61,7 +61,7 @@ def test_trip_execution_failure_is_reported_without_bypassing_application():
     service = _service(lambda command: (_ for _ in ()).throw(RuntimeError("command failure")))
     result = service.execute([_decision(trip=True)])
     assert result.commands == ()
-    assert "execution failed" in result.diagnostics[0]
+    assert "dispatch failed" in result.diagnostics[0]
 
 
 def test_decision_input_is_strictly_typed():

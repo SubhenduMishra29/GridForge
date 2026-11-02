@@ -8,20 +8,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+import math
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF, QGraphicsRectItem, QGraphicsTextItem
+from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
 
 from .semantic_presentation_realization import SemanticPresentationRealization
-from .sld_canvas_projection import SLDCanvasSnapshot, CompositeSLDCanvasSnapshot
+from .sld_canvas_projection import SLDCanvasSnapshot, SLDCanvasAnnotation, CompositeSLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
 from .draft_sld_projection import DraftSLDCanvasSnapshot, DraftSLDCanvasNode, DraftSLDCanvasConnection
 from .draft_presentation_factory import DraftPresentationFactory
 from ui.styling.presentation_style import VisualState
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +49,17 @@ class RenderDiagnostic:
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
+    DEFAULT_ANNOTATION_MIN_ZOOM = 0.65
+
+    # Explicit, deterministic scene layers: wires behind equipment, labels above.
+    CONNECTION_Z_VALUE = 10.0
+    EQUIPMENT_Z_VALUE = 20.0
+    ANNOTATION_Z_VALUE = 30.0
+
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
-                 selection_manager: Any = None) -> None:
+                 selection_manager: Any = None,
+                 annotation_min_zoom: float = DEFAULT_ANNOTATION_MIN_ZOOM) -> None:
         if scene is None:
             raise ValueError("scene must not be None")
         if not isinstance(item_factory, SLDGraphicsItemFactory):
@@ -69,16 +82,31 @@ class SLDCanvasRenderSystem:
                 raise ValueError("SLDCanvasRenderSystem snap_system must target the same active SLD scene.")
             if not callable(getattr(snap_system, "register_item", None)) or not callable(getattr(snap_system, "unregister_item", None)):
                 raise TypeError("snap_system must expose canonical register_item()/unregister_item() lifecycle APIs.")
+        if isinstance(annotation_min_zoom, bool) or not isinstance(annotation_min_zoom, (int, float)):
+            raise TypeError("annotation_min_zoom must be numeric.")
+        annotation_min_zoom = float(annotation_min_zoom)
+        if not math.isfinite(annotation_min_zoom) or annotation_min_zoom <= 0.0:
+            raise ValueError("annotation_min_zoom must be finite and greater than zero.")
+        self._annotation_min_zoom = annotation_min_zoom
+        self._zoom_level = 1.0
+        self._annotations_zoom_visible = self._zoom_level >= self._annotation_min_zoom
+        self._navigation_controller: Any = None
+        self._annotation_base_visibility: dict[str, bool] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
         self._degraded_node_ids: set[str] = set()
+        self._degraded_diagnostics: dict[str, RenderDiagnostic] = {}
+        self._reported_diagnostics: dict[str, tuple[str, ...]] = {}
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
+        # Track only connections established by this renderer. Qt may emit a
+        # RuntimeWarning (rather than raising) when disconnecting an absent slot.
+        self._route_edit_bound_items: dict[int, Any] = {}
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -101,6 +129,48 @@ class SLDCanvasRenderSystem:
     def unsupported_presentations(self) -> dict[str, str]:
         """Return authored node IDs whose presentation could not be realized."""
         return dict(self._unsupported_presentations)
+
+    def bind_navigation_controller(self, navigation_controller: Any) -> None:
+        """Observe the canonical viewport zoom to keep annotation density readable."""
+        if navigation_controller is None:
+            raise ValueError("navigation_controller must not be None")
+        add_listener = getattr(navigation_controller, "add_zoom_changed_listener", None)
+        remove_listener = getattr(navigation_controller, "remove_zoom_changed_listener", None)
+        get_zoom_level = getattr(navigation_controller, "get_zoom_level", None)
+        if not callable(add_listener) or not callable(remove_listener) or not callable(get_zoom_level):
+            raise TypeError("navigation_controller must expose zoom listener and state APIs")
+        if self._navigation_controller is navigation_controller:
+            self.set_zoom_level(get_zoom_level())
+            return
+        self._unbind_navigation_controller()
+        self._navigation_controller = navigation_controller
+        self.set_zoom_level(get_zoom_level())
+        add_listener(self.set_zoom_level)
+
+    def _unbind_navigation_controller(self) -> None:
+        controller = self._navigation_controller
+        self._navigation_controller = None
+        remove_listener = getattr(controller, "remove_zoom_changed_listener", None)
+        if callable(remove_listener):
+            remove_listener(self.set_zoom_level)
+
+    def set_zoom_level(self, level: float) -> None:
+        """Update transient annotation visibility without changing saved SLD settings."""
+        if isinstance(level, bool) or not isinstance(level, (int, float)):
+            raise TypeError("zoom level must be numeric")
+        level = float(level)
+        if not math.isfinite(level) or level <= 0.0:
+            raise ValueError("zoom level must be finite and greater than zero")
+        self._zoom_level = level
+        annotations_visible_at_zoom = level >= self._annotation_min_zoom
+        if annotations_visible_at_zoom == self._annotations_zoom_visible:
+            return
+        self._annotations_zoom_visible = annotations_visible_at_zoom
+        for render_id, base_visible in tuple(self._annotation_base_visibility.items()):
+            items = self._items.get(render_id, ())
+            for item in items:
+                if item is not None:
+                    item.setVisible(base_visible and annotations_visible_at_zoom)
 
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
         """Bind an optional application/UI diagnostic consumer."""
@@ -194,17 +264,36 @@ class SLDCanvasRenderSystem:
         self._bind_route_edit_items()
 
     def _bind_route_edit_items(self) -> None:
-        controller = self._route_edit_controller
-        if controller is None:
+        if self._route_edit_controller is None:
             return
-        callback = controller.handle_route_edit_request
         for items in tuple(self._items.values()):
             for item in items:
-                signal = getattr(item, "route_edit_requested", None)
-                if signal is not None and callable(getattr(signal, "connect", None)):
-                    signal.connect(callback)
+                self._bind_route_edit_item(item)
+
+    def _bind_route_edit_item(self, item: Any) -> None:
+        """Connect one route-edit signal at most once for this renderer."""
+        controller = self._route_edit_controller
+        if controller is None or item is None:
+            return
+        item_key = id(item)
+        if item_key in self._route_edit_bound_items:
+            return
+        signal = getattr(item, "route_edit_requested", None)
+        connect = getattr(signal, "connect", None) if signal is not None else None
+        if not callable(connect):
+            return
+        connect(controller.handle_route_edit_request)
+        # Keep a strong reference until the matching disconnect is attempted.
+        self._route_edit_bound_items[item_key] = item
 
     def _unbind_route_edit_item(self, item: Any) -> None:
+        if item is None:
+            return
+        item_key = id(item)
+        bound_item = self._route_edit_bound_items.pop(item_key, None)
+        if bound_item is not item:
+            # Never ask Qt to disconnect a slot this renderer did not connect.
+            return
         controller = self._route_edit_controller
         if controller is None:
             return
@@ -214,6 +303,7 @@ class SLDCanvasRenderSystem:
             try:
                 disconnect(controller.handle_route_edit_request)
             except (RuntimeError, TypeError):
+                # The QObject/signal may already have been destroyed during teardown.
                 pass
 
     def _unbind_route_edit_controller(self) -> None:
@@ -244,8 +334,12 @@ class SLDCanvasRenderSystem:
 
         desired_ids = {node.node_id for node in committed.nodes}
         desired_ids.update(connection.connection_id for connection in committed.connections)
+        desired_ids.update(self._annotation_render_id(annotation.block_id) for annotation in committed.annotations)
         desired_ids.update(self._draft_render_id(node.draft_id) for node in draft.nodes)
         desired_ids.update(self._draft_render_id(connection.connection_id) for connection in draft.connections)
+        for diagnostic_id in tuple(self._reported_diagnostics):
+            if diagnostic_id not in desired_ids:
+                self._reported_diagnostics.pop(diagnostic_id, None)
         for item_id in tuple(self._items):
             if item_id not in desired_ids:
                 self._remove_realized(item_id)
@@ -269,9 +363,19 @@ class SLDCanvasRenderSystem:
                 self._restore_node_selection(node, realized[node.node_id])
                 continue
 
-            if node.node_id in self._items:
-                self._remove_realized(node.node_id)
+            # A degraded placeholder is not a successful realization. Retry it
+            # on the next explicit snapshot synchronization, but retain the
+            # current visible item until a replacement is ready.
+            previous_degraded = (
+                self._items.get(node.node_id, (None,))[0]
+                if node.node_id in self._degraded_node_ids else None
+            )
+            # Preserve the current item until the replacement is realized.
+            previous_items = self._items.get(node.node_id, ())
+            previous_item = previous_items[0] if previous_items else None
             try:
+                if node.equipment_id is None:
+                    raise ValueError("Committed SLD equipment requires an authoritative equipment identity.")
                 selection = self._semantic_realization.realize(node)
                 item = self._item_factory.create_node(node, selection)
             except Exception as exc:
@@ -300,24 +404,65 @@ class SLDCanvasRenderSystem:
                     code=code,
                     realization_stage="SemanticPresentationRealization -> SLDGraphicsItemFactory.create_node",
                 )
-                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-                degraded = self._create_degraded_realization(node, message, code)
-                self._scene.addItem(degraded)
-                self._items[node.node_id] = (degraded,)
+                # Missing/unresolved domain identity must not be represented
+                # by a fabricated generic equipment placeholder. Remove any
+                # stale realization before recording the new diagnostic.
+                if code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}:
+                    self._remove_realized(node.node_id)
+                    self._render_signatures.pop(node.node_id, None)
+                    self._degraded_node_ids.add(node.node_id)
+                    self._degraded_diagnostics[node.node_id] = diagnostic
+                    self._record_diagnostic(node.node_id, diagnostic)
+                    continue
+                self._record_diagnostic(node.node_id, diagnostic)
+                self._degraded_diagnostics[node.node_id] = diagnostic
+                # Missing or unresolved domain identity is not a presentation
+                # degradation: fabricating a generic equipment placeholder
+                # would imply an object the Application read model cannot
+                # establish. Remove any stale realization and expose only the
+                # structured diagnostic until authoritative identity returns.
+                if code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}:
+                    self._remove_realized(node.node_id)
+                    self._render_signatures.pop(node.node_id, None)
+                    self._degraded_node_ids.add(node.node_id)
+                    continue
+                degraded = previous_degraded
+                if degraded is None and previous_item is not None:
+                    # Retain the last-good visible item, but leave its prior
+                    # signature untouched so the next synchronization retries.
+                    previous_item.setToolTip(
+                        f"SLD refresh failed [{code}]\n"
+                        f"node={node.node_id} equipment={getattr(previous_item, 'object_id', node.node_id)}\n{message}"
+                    )
+                    self._degraded_node_ids.add(node.node_id)
+                    realized[node.node_id] = previous_item
+                    self._restore_node_selection(node, previous_item)
+                    continue
+                if degraded is None:
+                    degraded = self._create_degraded_realization(node, message, code)
+                    degraded.setZValue(self.EQUIPMENT_Z_VALUE)
+                    self._scene.addItem(degraded)
+                    self._items[node.node_id] = (degraded,)
+                else:
+                    degraded.setToolTip(
+                        f"Unsupported presentation [{code}]\n"
+                        f"node={node.node_id} equipment={getattr(degraded, 'object_id', node.node_id)}\n{message}"
+                    )
                 self._render_signatures[node.node_id] = signature
                 self._degraded_node_ids.add(node.node_id)
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
-                if self._diagnostic_sink is not None:
-                    self._diagnostic_sink(diagnostic)
                 continue
+            item.setZValue(self.EQUIPMENT_Z_VALUE)
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
-            self._scene.addItem(item)
-            if self._snap_system is not None and callable(getattr(item, "snap_points", None)):
-                self._snap_system.register_item(item)
+            self._attach_realized_item(item, register_snap=True)
+            if previous_item is not None:
+                self._remove_realized(node.node_id)
             self._items[node.node_id] = (item,)
             self._render_signatures[node.node_id] = signature
+            self._degraded_diagnostics.pop(node.node_id, None)
+            self._clear_reported_diagnostic(node.node_id)
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
             self._restore_node_selection(node, item)
@@ -330,38 +475,91 @@ class SLDCanvasRenderSystem:
             if (
                 self._render_signatures.get(render_id) == signature
                 and render_id in self._items
+                and render_id not in self._degraded_node_ids
             ):
                 realized[render_id] = self._items[render_id][0]
                 continue
-            if render_id in self._items:
+            # A fallback is visible but is not a successful symbol realization.
+            # Keep it in place until a real symbol can replace it.
+            previous_degraded = (
+                self._items.get(render_id, (None,))[0]
+                if render_id in self._degraded_node_ids else None
+            )
+            if render_id in self._items and previous_degraded is None:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
-                item.setZValue(1.0)
-                self._scene.addItem(item)
-                if self._snap_system is not None:
-                    self._snap_system.register_item(item)
+                item.setZValue(self.EQUIPMENT_Z_VALUE)
+                self._attach_realized_item(item, register_snap=True)
+                if previous_degraded is not None:
+                    self._remove_realized(render_id)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
+                self._clear_reported_diagnostic(render_id)
                 self._degraded_node_ids.discard(render_id)
                 realized[render_id] = item
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
+                code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
+                symbol_id = None
+                # Diagnose catalogue failures by the failing lookup stage rather
+                # than parsing exception text; retain the original realization
+                # exception as the primary failure.
+                try:
+                    definition = self._item_factory.equipment_registry.require(
+                        node.equipment_type
+                    )
+                except KeyError as lookup_error:
+                    code = "DRAFT_EQUIPMENT_DEFINITION_MISSING"
+                    message = f"{message}; equipment catalogue lookup: {lookup_error}"
+                else:
+                    symbol_id = definition.symbol_id
+                    try:
+                        self._item_factory.symbol_registry.require(symbol_id)
+                    except KeyError as lookup_error:
+                        code = "DRAFT_SYMBOL_DEFINITION_MISSING"
+                        message = f"{message}; symbol catalogue lookup: {lookup_error}"
                 self._unsupported_presentations[render_id] = message
                 diagnostic = RenderDiagnostic(
                     node_id=render_id,
                     equipment_id=node.draft_id,
                     equipment_type=node.equipment_type,
-                    symbol_id=None,
+                    symbol_id=symbol_id,
                     requested_presentation="symbol",
                     category="draft_presentation_realization",
                     message=message,
-                    code="DRAFT_PRESENTATION_REALIZATION_FAILED",
+                    code=code,
                     realization_stage="DraftPresentationFactory -> SymbolPreviewItem",
                 )
-                self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-                if self._diagnostic_sink is not None:
-                    self._diagnostic_sink(diagnostic)
+                self._record_diagnostic(render_id, diagnostic)
+                # A failed symbol lookup must not make placed draft equipment
+                # silently disappear. Keep a selectable, visible fallback in
+                # the same scene and expose the underlying error as its tooltip.
+                fallback = previous_degraded
+                if fallback is None:
+                    fallback = QGraphicsRectItem(-70.0, -34.0, 140.0, 68.0)
+                    fallback.object_id = node.draft_id
+                    fallback.draft_id = node.draft_id
+                    fallback.is_draft_presentation = True
+                    fallback.setPos(float(node.x), float(node.y))
+                    fallback.setZValue(self.EQUIPMENT_Z_VALUE)
+                    label = QGraphicsTextItem(
+                        f"Symbol unavailable\n{node.display_name}", fallback
+                    )
+                    label.setPos(-62.0, -24.0)
+                    fallback.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True
+                    )
+                    fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+                    self._scene.addItem(fallback)
+                    self._items[render_id] = (fallback,)
+                fallback.setToolTip(
+                    f"Draft symbol unavailable [{code}]\n"
+                    f"draft={node.draft_id} type={node.equipment_type}\n{message}"
+                )
+                self._render_signatures[render_id] = signature
+                self._degraded_node_ids.add(render_id)
+                realized[render_id] = fallback
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
@@ -369,44 +567,115 @@ class SLDCanvasRenderSystem:
             if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
                 self._restore_connection_selection(connection, self._items[connection.connection_id][0])
                 continue
-            if connection.connection_id in self._items:
-                self._remove_realized(connection.connection_id)
+            previous_items = self._items.get(connection.connection_id, ())
+            previous_item = previous_items[0] if previous_items else None
             if connection.source_node_id not in realized:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "SOURCE_NODE_NOT_FOUND", f"No realized SLD node for source {connection.source_node_id!r}.")
                 continue
             if connection.target_node_id not in realized:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TARGET_NODE_NOT_FOUND", f"No realized SLD node for target {connection.target_node_id!r}.")
                 continue
             if connection.source_endpoint is None:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "SOURCE_ENDPOINT_NOT_FOUND", "Persisted SLD connection has no source endpoint identity.")
                 continue
             if connection.target_endpoint is None:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TARGET_ENDPOINT_NOT_FOUND", "Persisted SLD connection has no target endpoint identity.")
                 continue
             try:
                 source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
                 target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
             except (KeyError, TypeError, ValueError) as exc:
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TERMINAL_ANCHOR_NOT_FOUND", f"{type(exc).__name__}: {exc}")
                 continue
-            route_points = connection.route.points
-            if connection.route.ownership == "auto":
-                route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
-                route_points = tuple(route.points[1:-1])
+            item = None
             try:
-                item = self._item_factory.create_connection(connection, source, target)
-                item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
-                if self._route_edit_controller is not None:
-                    item.route_edit_requested.connect(
-                        self._route_edit_controller.handle_route_edit_request
+                route_points = connection.route.points
+                if connection.route.ownership == "auto":
+                    # Route around realized non-endpoint SLD objects. These
+                    # bounds are presentation geometry only; endpoint identity
+                    # and Core topology remain owned by the canonical model.
+                    obstacle_bounds = []
+                    for node_id, obstacle_item in realized.items():
+                        if node_id in (connection.source_node_id, connection.target_node_id):
+                            continue
+                        bounds_getter = getattr(obstacle_item, "sceneBoundingRect", None)
+                        if not callable(bounds_getter):
+                            continue
+                        bounds = bounds_getter()
+                        obstacle_bounds.append((
+                            float(bounds.left()),
+                            float(bounds.top()),
+                            float(bounds.right()),
+                            float(bounds.bottom()),
+                        ))
+                    # Existing realized connection paths are presentation
+                    # geometry only. Use them as a soft routing cost so new
+                    # automatic routes prefer fewer overlaps/crossings without
+                    # changing endpoint identity or electrical connectivity.
+                    existing_routes = []
+                    for existing_id, existing_items in tuple(self._items.items()):
+                        if existing_id == connection.connection_id:
+                            continue
+                        for existing_item in existing_items:
+                            endpoints_getter = getattr(existing_item, "visual_endpoints", None)
+                            route_getter = getattr(existing_item, "route_points", None)
+                            if not callable(endpoints_getter) or not callable(route_getter):
+                                continue
+                            try:
+                                visual_source, visual_target = endpoints_getter()
+                                route_points_existing = tuple(route_getter())
+                                map_to_scene = getattr(existing_item, "mapToScene", None)
+                                if callable(map_to_scene):
+                                    def scene_point(point):
+                                        mapped = map_to_scene(QPointF(float(point[0]), float(point[1])))
+                                        return (float(mapped.x()), float(mapped.y()))
+                                    visual_source = scene_point(visual_source)
+                                    visual_target = scene_point(visual_target)
+                                    route_points_existing = tuple(
+                                        scene_point(point) for point in route_points_existing
+                                    )
+                                existing_routes.append((
+                                    tuple(visual_source),
+                                    *route_points_existing,
+                                    tuple(visual_target),
+                                ))
+                            except (TypeError, ValueError, RuntimeError):
+                                # Stale or unsupported presentation geometry is
+                                # ignored; it must never block electrical work.
+                                continue
+                    route = self._connection_router.route(
+                        (source.x(), source.y()),
+                        (target.x(), target.y()),
+                        obstacles=obstacle_bounds,
+                        existing_routes=existing_routes,
                     )
+                    route_points = tuple(route.points[1:-1])
+                item = self._item_factory.create_connection(connection, source, target)
+                item.setZValue(self.CONNECTION_Z_VALUE)
+                item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
+                self._bind_route_edit_item(item)
                 if callable(getattr(item, "set_visual_state", None)):
                     item.set_visual_state(VisualState.NORMAL)
                 self._restore_connection_selection(connection, item)
-                self._scene.addItem(item)
+                self._attach_realized_item(item)
+                if previous_item is not None:
+                    self._remove_realized(connection.connection_id)
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
+                self._clear_reported_diagnostic(connection.connection_id)
             except Exception as exc:
+                if item is not None:
+                    self._unbind_route_edit_item(item)
                 self._record_connection_failure(
                     connection, "CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}"
@@ -414,14 +683,25 @@ class SLDCanvasRenderSystem:
 
         for connection in draft.connections:
             render_id = self._draft_render_id(connection.connection_id)
-            signature = self._draft_connection_signature(connection)
-            if self._render_signatures.get(render_id) == signature and render_id in self._items:
-                continue
-            if render_id in self._items:
-                self._remove_realized(render_id)
             try:
+                # Resolve endpoint geometry before comparing signatures. A
+                # draft node can move while the wire's endpoint identities stay
+                # unchanged; geometry must therefore participate in the
+                # reconciliation decision or the visible wire remains stale.
                 source, source_id = self._resolve_draft_endpoint(connection.source, realized)
                 target, target_id = self._resolve_draft_endpoint(connection.target, realized)
+                signature = self._draft_connection_signature(
+                    connection,
+                    source_position=(source.x(), source.y()),
+                    target_position=(target.x(), target.y()),
+                )
+                if (
+                    self._render_signatures.get(render_id) == signature
+                    and render_id in self._items
+                ):
+                    continue
+                if render_id in self._items:
+                    self._remove_realized(render_id)
                 item = self._item_factory.create_draft_connection(
                     connection,
                     source,
@@ -429,17 +709,59 @@ class SLDCanvasRenderSystem:
                     source_object_id=source_id,
                     target_object_id=target_id,
                 )
+                item.setZValue(self.CONNECTION_Z_VALUE)
                 if callable(getattr(item, "set_visual_state", None)):
-                    item.set_visual_state(VisualState.NORMAL)
+                    # Draft wires are authoring previews, not committed Core
+                    # connectivity. Keep them visibly distinct until commit.
+                    item.set_visual_state(VisualState.PREVIEW)
                 self._scene.addItem(item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
+                self._clear_reported_diagnostic(render_id)
             except Exception as exc:
+                # If endpoint resolution or recreation fails, do not leave a
+                # previously realized wire at obsolete endpoint coordinates.
+                if render_id in self._items:
+                    self._remove_realized(render_id)
                 self._record_draft_connection_failure(
                     connection,
                     "DRAFT_CONNECTION_REALIZATION_FAILED",
                     f"{type(exc).__name__}: {exc}",
                 )
+
+        # Annotation graphics are transient and derived from projected
+        # Application read-model values plus persisted SLD presentation config.
+        for annotation in committed.annotations:
+            render_id = self._annotation_render_id(annotation.block_id)
+            signature = self._annotation_signature(annotation)
+            if self._render_signatures.get(render_id) == signature and render_id in self._items:
+                continue
+            previous_items = self._items.get(render_id, ())
+            previous_item = previous_items[0] if previous_items else None
+            item = QGraphicsTextItem(annotation.text)
+            # Data labels are display-only; they must not intercept selection,
+            # connection, or placement gestures intended for underlying SLD items.
+            item.setAcceptedMouseButtons(Qt.NoButton)
+            item.setPos(float(annotation.x), float(annotation.y))
+            item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
+            item.setZValue(self.ANNOTATION_Z_VALUE)
+            self._attach_realized_item(item)
+            if previous_item is not None:
+                self._remove_realized(render_id)
+            self._annotation_base_visibility[render_id] = bool(annotation.visible)
+            self._items[render_id] = (item,)
+            self._render_signatures[render_id] = signature
+
+    @staticmethod
+    def _annotation_render_id(block_id: str) -> str:
+        return f"annotation:{block_id}"
+
+    @staticmethod
+    def _annotation_signature(annotation: SLDCanvasAnnotation) -> str:
+        return repr((
+            annotation.block_id, annotation.node_id, annotation.x, annotation.y,
+            annotation.text, annotation.visible,
+        ))
 
     @staticmethod
     def _draft_render_id(identity: str) -> str:
@@ -451,9 +773,22 @@ class SLDCanvasRenderSystem:
                      node.rotation, node.terminal_roles, node.presentation, node.validation_state))
 
     @staticmethod
-    def _draft_connection_signature(connection: DraftSLDCanvasConnection) -> str:
-        return repr((connection.connection_id, connection.source, connection.target,
-                     connection.connection_kind, connection.route, connection.validation_state))
+    def _draft_connection_signature(
+        connection: DraftSLDCanvasConnection,
+        *,
+        source_position: tuple[float, float],
+        target_position: tuple[float, float],
+    ) -> str:
+        return repr((
+            connection.connection_id,
+            connection.source,
+            connection.target,
+            source_position,
+            target_position,
+            connection.connection_kind,
+            connection.route,
+            connection.validation_state,
+        ))
 
     def _resolve_draft_endpoint(self, endpoint: Any, realized: dict[str, Any]) -> tuple[QPointF, str]:
         """Resolve Draft/Core endpoint identity through already-realized presentation items."""
@@ -503,6 +838,25 @@ class SLDCanvasRenderSystem:
             raise ValueError("Resolved endpoint has no scene position")
         return QPointF(float(position.x()), float(position.y())), object_id
 
+    def _record_diagnostic(self, identity: str, diagnostic: RenderDiagnostic) -> None:
+        """Keep active diagnostics visible while reporting each unchanged failure once."""
+        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
+        key = (
+            diagnostic.category,
+            diagnostic.node_id,
+            diagnostic.connection_id or "",
+            diagnostic.code,
+            diagnostic.message,
+        )
+        if self._reported_diagnostics.get(identity) == key:
+            return
+        self._reported_diagnostics[identity] = key
+        if self._diagnostic_sink is not None:
+            self._diagnostic_sink(diagnostic)
+
+    def _clear_reported_diagnostic(self, identity: str) -> None:
+        self._reported_diagnostics.pop(identity, None)
+
     def _record_draft_connection_failure(self, connection: Any, code: str, message: str) -> None:
         render_id = self._draft_render_id(connection.connection_id)
         self._unsupported_connections[render_id] = message
@@ -517,9 +871,7 @@ class SLDCanvasRenderSystem:
             connection_id=render_id,
             code=code,
         )
-        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-        if self._diagnostic_sink is not None:
-            self._diagnostic_sink(diagnostic)
+        self._record_diagnostic(render_id, diagnostic)
 
     def _record_connection_failure(self, connection: Any, code: str, message: str) -> None:
         """Keep failed connection realization observable through RenderDiagnostic."""
@@ -535,9 +887,7 @@ class SLDCanvasRenderSystem:
             connection_id=connection.connection_id,
             code=code,
         )
-        self._render_diagnostics = (*self._render_diagnostics, diagnostic)
-        if self._diagnostic_sink is not None:
-            self._diagnostic_sink(diagnostic)
+        self._record_diagnostic(connection.connection_id, diagnostic)
 
     def _create_degraded_realization(self, node: Any, message: str, code: str) -> Any:
         """Create a visible/selectable presentation fallback without Core mutation."""
@@ -545,10 +895,10 @@ class SLDCanvasRenderSystem:
         item.object_id = node.equipment_id or node.node_id
         item.node_id = node.node_id
         item.setToolTip(
-            f"Unsupported presentation [{code}]\\n"
-            f"node={node.node_id} equipment={item.object_id}\\n{message}"
+            f"Unsupported presentation [{code}]\n"
+            f"node={node.node_id} equipment={item.object_id}\n{message}"
         )
-        text = QGraphicsTextItem(f"Unsupported Symbol\\n{item.object_id}", item)
+        text = QGraphicsTextItem(f"Unsupported Symbol\n{item.object_id}", item)
         text.setPos(-62.0, -24.0)
         item.setPos(float(node.x), float(node.y))
         return item
@@ -559,7 +909,7 @@ class SLDCanvasRenderSystem:
         message = str(exc)
         if node.equipment_id is None:
             return "MISSING_EQUIPMENT_ID"
-        if "absent from Application read state" in message:
+        if "absent from Application read state" in message or "identity does not match" in message:
             return "EQUIPMENT_READ_MODEL_NOT_FOUND"
         return "PRESENTATION_REALIZATION_FAILED"
 
@@ -567,7 +917,19 @@ class SLDCanvasRenderSystem:
     def _node_signature(node: Any) -> str:
         presentation = getattr(node.presentation, "to_dict", lambda: None)()
         properties = tuple(sorted((str(key), repr(value)) for key, value in node.properties.items()))
-        return repr((node.node_id, node.equipment_id, node.x, node.y, presentation, properties))
+        read_model = node.read_model
+        read_model_signature = None if read_model is None else (
+            read_model.object_id,
+            read_model.element_type,
+            tuple(sorted((str(key), str(value)) for key, value in read_model.labels.items())),
+            tuple(read_model.connectivity_refs),
+            tuple(sorted((str(key), repr(value)) for key, value in read_model.attributes.items())),
+            repr(read_model.engineering_parameters),
+        )
+        return repr((
+            node.node_id, node.equipment_id, node.x, node.y,
+            presentation, properties, read_model_signature,
+        ))
 
     @staticmethod
     def _connection_signature(connection: Any, node_by_id: dict[str, Any] | None = None) -> str:
@@ -581,35 +943,77 @@ class SLDCanvasRenderSystem:
                      connection.connection_kind, connection.presentation_owner,
                      connection.projection_source, route, properties))
 
-    def _remove_realized(self, item_id: str) -> None:
-        items = self._items.pop(item_id, ())
-        for item in items:
-            self._unbind_route_edit_item(item)
-            if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+    def _attach_realized_item(self, item: Any, *, register_snap: bool = False) -> None:
+        """Attach a transient item atomically with its optional snap registration.
+
+        If registration fails after scene insertion, roll back both presentation
+        resources before propagating the failure to the caller.
+        """
+        self._scene.addItem(item)
+        try:
+            if (
+                register_snap
+                and self._snap_system is not None
+                and callable(getattr(item, "snap_points", None))
+            ):
+                self._snap_system.register_item(item)
+        except Exception:
+            try:
                 self._snap_system.unregister_item(item)
-            if item is not None and item.scene() is self._scene:
-                self._scene.removeItem(item)
-        self._render_signatures.pop(item_id, None)
-        self._degraded_node_ids.discard(item_id)
+            except Exception:
+                # Preserve the attachment failure; scene rollback still matters.
+                pass
+            finally:
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+            raise
+
+    def _remove_realized(self, item_id: str) -> None:
+        """Best-effort cleanup that cannot strand later items after one failure."""
+        items = self._items.pop(item_id, ())
+        try:
+            for item in items:
+                try:
+                    self._unbind_route_edit_item(item)
+                except Exception:
+                    _LOGGER.exception("Failed to unbind route-edit callback for SLD item %s", item_id)
+                try:
+                    if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
+                        self._snap_system.unregister_item(item)
+                except Exception:
+                    _LOGGER.exception("Failed to unregister snap candidate for SLD item %s", item_id)
+                try:
+                    if item is not None and item.scene() is self._scene:
+                        self._scene.removeItem(item)
+                except Exception:
+                    _LOGGER.exception("Failed to remove SLD graphics item %s from scene", item_id)
+        finally:
+            self._render_signatures.pop(item_id, None)
+            self._annotation_base_visibility.pop(item_id, None)
+            self._degraded_diagnostics.pop(item_id, None)
+            self._clear_reported_diagnostic(item_id)
+            self._degraded_node_ids.discard(item_id)
 
     def clear(self) -> None:
-        for items in tuple(self._items.values()):
-            for item in items:
-                self._unbind_route_edit_item(item)
-                if self._snap_system is not None and callable(getattr(self._snap_system, "unregister_item", None)):
-                    self._snap_system.unregister_item(item)
-                if item is not None and item.scene() is self._scene:
-                    self._scene.removeItem(item)
+        """Clear every tracked realization even if individual cleanup steps fail."""
+        for item_id in tuple(self._items):
+            self._remove_realized(item_id)
         if self._snap_system is not None and callable(getattr(self._snap_system, "clear_candidates", None)):
-            self._snap_system.clear_candidates()
-        self._items.clear()
+            try:
+                self._snap_system.clear_candidates()
+            except Exception:
+                _LOGGER.exception("Failed to clear SLD snap candidates")
         self._render_signatures.clear()
+        self._annotation_base_visibility.clear()
         self._degraded_node_ids.clear()
+        self._degraded_diagnostics.clear()
+        self._reported_diagnostics.clear()
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
         self._render_diagnostics = ()
 
     def dispose(self) -> None:
+        self._unbind_navigation_controller()
         self.clear()
         self._unbind_route_edit_controller()
 

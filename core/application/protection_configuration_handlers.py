@@ -11,6 +11,7 @@ from .commands.protection_configuration_commands import (
     DELETE_PROTECTION_CONFIGURATION,
     BIND_PROTECTION_MEASUREMENT,
     UNBIND_PROTECTION_MEASUREMENT,
+    SET_SYNCHRONISM_CHECK_CONFIGURATION,
 )
 
 
@@ -29,6 +30,7 @@ class ProtectionConfigurationHandlers:
             DELETE_PROTECTION_CONFIGURATION: self.delete_configuration,
             BIND_PROTECTION_MEASUREMENT: self.bind_measurement,
             UNBIND_PROTECTION_MEASUREMENT: self.unbind_measurement,
+            SET_SYNCHRONISM_CHECK_CONFIGURATION: self.set_synchronism_check_configuration,
         }
 
     def create_configuration(self, command, context, transaction):
@@ -45,5 +47,8 @@ class ProtectionConfigurationHandlers:
 
     def unbind_measurement(self, command, context, transaction):
         return self._service.unbind_measurement(transaction=transaction, **command.payload)
+
+    def set_synchronism_check_configuration(self, command, context, transaction):
+        return self._service.set_synchronism_check_configuration(transaction=transaction, **command.payload)
 
 __all__ = ["ProtectionConfigurationHandlers"]

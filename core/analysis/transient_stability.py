@@ -8,10 +8,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from core.solver.dynamics import TransientStabilityResult, TransientStabilitySolver
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+
+
+def _freeze_metadata_value(value: Any) -> Any:
+    """Recursively freeze built-in metadata containers without changing typed objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata_value(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,11 +35,14 @@ class TransientStabilityStudyConfiguration:
     end_time: float = 10.0
     dt: float = 0.01
     metadata: Mapping[str, Any] = MappingProxyType({})
+    power_flow_configuration: PowerFlowStudyConfiguration | None = None
 
     def __post_init__(self) -> None:
         start = float(self.start_time)
         end = float(self.end_time)
         dt = float(self.dt)
+        if not all(math.isfinite(value) for value in (start, end, dt)):
+            raise ValueError("Transient Stability times and step size must be finite.")
         if start < 0.0:
             raise ValueError("start_time cannot be negative.")
         if end <= start:
@@ -36,7 +52,11 @@ class TransientStabilityStudyConfiguration:
         object.__setattr__(self, "start_time", start)
         object.__setattr__(self, "end_time", end)
         object.__setattr__(self, "dt", dt)
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
+        if self.power_flow_configuration is not None and not isinstance(
+            self.power_flow_configuration, PowerFlowStudyConfiguration
+        ):
+            raise TypeError("power_flow_configuration must be PowerFlowStudyConfiguration or None.")
 
 
 # Compatibility alias: the solver's immutable TransientStabilityResult is
@@ -50,7 +70,7 @@ class TransientStabilityAnalysis:
 
     def __init__(self, solver: TransientStabilitySolver,
                  configuration: TransientStabilityStudyConfiguration,
-                 initial_state) -> None:
+                 initial_state, *, provenance: Mapping[str, Any] | None = None) -> None:
         if not isinstance(solver, TransientStabilitySolver):
             raise TypeError("solver must be TransientStabilitySolver.")
         if not isinstance(configuration, TransientStabilityStudyConfiguration):
@@ -58,16 +78,24 @@ class TransientStabilityAnalysis:
         self.solver = solver
         self.configuration = configuration
         self.initial_state = tuple(float(value) for value in initial_state)
+        self.provenance = MappingProxyType(dict(provenance or {}))
         self.result: TransientStabilityStudyResult | None = None
 
-    def run(self) -> TransientStabilityStudyResult:
+    def run(
+        self,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> TransientStabilityStudyResult:
         """Apply the immutable study configuration and execute the study."""
         self.solver.start_time = self.configuration.start_time
         self.solver.end_time = self.configuration.end_time
         self.solver.dt = self.configuration.dt
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
-        numerical = self.solver.run(record_initial=True)
-        self.result = numerical
+        numerical = self.solver.run(record_initial=True, should_cancel=should_cancel)
+        # Keep project/snapshot identity attached to the immutable result rather
+        # than losing it at the solver/Analysis boundary.
+        from dataclasses import replace
+        self.result = replace(numerical, provenance=self.provenance)
         return self.result
 
 

@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
+from ui.core.qt import QBrush, QGraphicsItem, QLineF, QPainter, QPen, QRectF, QTransform, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
 from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
@@ -39,10 +40,26 @@ class SymbolPreviewItem(QGraphicsItem):
         self._element_type = str(element_type)
         self._presentation_state = MappingProxyType(dict(presentation_state or {}))
         self._visual_state = VisualState.PREVIEW
+        state = self._presentation_state
+        mirror_x = bool(state.get("mirror_x", False))
+        mirror_y = bool(state.get("mirror_y", False))
+        scale = float(state.get("scale", 1.0))
+        if not isfinite(scale) or scale <= 0.0:
+            raise ValueError("Draft symbol scale must be finite and greater than zero.")
         self.setPos(self._point(position))
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(scale)
         self.setRotation(float(rotation))
+        self.setVisible(bool(state.get("visible", True)))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        # Draft symbols must receive left-clicks so QGraphicsScene can select
+        # them and the SelectionProjectionCoordinator can populate the inspector.
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
 
     @property
     def object_id(self) -> str | None:
@@ -72,6 +89,7 @@ class SymbolPreviewItem(QGraphicsItem):
                     "position": point,
                     "object_id": self._draft_id,
                     "draft_id": self._draft_id,
+                    "draft_equipment_type": self._element_type,
                     "bus_id": self._draft_id,
                     "attachment_id": attachment_id,
                 })
@@ -104,28 +122,38 @@ class SymbolPreviewItem(QGraphicsItem):
         del option, widget
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         visual_state = VisualState.SELECTED if self.isSelected() else self._visual_state
-        painter.setPen(visual_pen("symbol", visual_state, width=1.8))
         painter.setBrush(visual_brush("symbol", visual_state))
         painter.setFont(visual_font("engineering"))
         for primitive in self._definition.primitives:
+            # Honour the renderer-neutral catalogue's per-primitive stroke
+            # width (e.g. the heavier IEEE/ANSI busbar), while preserving the
+            # common visual-state pen styling for every primitive.
+            stroke_width = float(primitive.get("stroke_width", 1.8))
+            painter.setPen(visual_pen("symbol", visual_state, width=stroke_width))
             kind = primitive.get("kind")
             if kind == "line":
                 painter.drawLine(
-                    float(primitive["x1"]), float(primitive["y1"]),
-                    float(primitive["x2"]), float(primitive["y2"]),
+                    QLineF(
+                        float(primitive["x1"]), float(primitive["y1"]),
+                        float(primitive["x2"]), float(primitive["y2"]),
+                    )
                 )
             elif kind == "rect":
                 painter.drawRect(
-                    float(primitive["x"]), float(primitive["y"]),
-                    float(primitive["width"]), float(primitive["height"]),
+                    QRectF(
+                        float(primitive["x"]), float(primitive["y"]),
+                        float(primitive["width"]), float(primitive["height"]),
+                    )
                 )
             elif kind == "circle":
                 radius = float(primitive["r"])
                 painter.drawEllipse(
-                    float(primitive["cx"]) - radius,
-                    float(primitive["cy"]) - radius,
-                    radius * 2.0,
-                    radius * 2.0,
+                    QRectF(
+                        float(primitive["cx"]) - radius,
+                        float(primitive["cy"]) - radius,
+                        radius * 2.0,
+                        radius * 2.0,
+                    )
                 )
             elif kind == "text":
                 painter.drawText(

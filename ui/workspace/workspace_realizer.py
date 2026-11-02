@@ -186,7 +186,7 @@ class WorkspaceRealizer:
         context = (
             self._context_factory(self._realized_workspace_id or "", area, area.editor, region_id)
             if self._context_factory is not None
-            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id))
+            else EditorContext(workspace=self._realized_workspace_id, area=area, editor=area.editor, region=next(region for region in area.editor.regions if region.region_id == region_id), engineering=EngineeringContext(discipline=area.editor.editor_type))
         )
         activate(area.editor.editor_id, area=area, region_id=region_id, context=context)
         self._focused_area_id = area.area_id

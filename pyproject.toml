@@ -23,7 +23,7 @@ dev = [
 py-modules = ["main"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "ui*"]
+include = ["core*", "ui*", "plugins*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -266,36 +266,80 @@ class ProjectWorkspaceLifecycle:
         )
 
     def _restore_transition_snapshot(self, snapshot: _WorkspaceTransitionSnapshot) -> None:
-        """Restore the exact previous logical presentation before the transition committed."""
-        restore_error: BaseException | None = None
-        try:
-            self._workspace_controller.deactivate()
-        except BaseException as exc:
-            restore_error = exc
+        """Attempt every independent restoration step and report all failures."""
+        failures: list[tuple[str, BaseException]] = []
 
-        if restore_error is not None:
-            raise RuntimeError("Workspace rollback could not clear the failed realization.") from restore_error
+        def attempt(label: str, operation) -> None:
+            try:
+                operation()
+            except Exception as exc:
+                failures.append((label, exc))
 
-        self._documents.clear()
-        self._views.clear()
+        # Deactivation can fail in the view realization layer. Do not let that
+        # prevent restoration of the authoritative logical project/documents/views.
+        attempt("workspace deactivation", self._workspace_controller.deactivate)
+        attempt("document collection clear", self._documents.clear)
+        attempt("view collection clear", self._views.clear)
         self._project = snapshot.project
 
         for document in snapshot.documents:
-            self._documents.register(document)
+            attempt(
+                f"document registration {document.document_id!r}",
+                lambda document=document: self._documents.register(document),
+            )
         if snapshot.active_document_id is not None:
-            self._documents.activate(snapshot.active_document_id)
+            attempt(
+                f"active document restoration {snapshot.active_document_id!r}",
+                lambda: self._documents.activate(snapshot.active_document_id),
+            )
 
         for view in snapshot.views:
-            self._views.register(view)
+            attempt(
+                f"view registration {view.view_id!r}",
+                lambda view=view: self._views.register(view),
+            )
         if snapshot.active_view_id is not None:
-            self._views.activate(snapshot.active_view_id)
+            attempt(
+                f"active view restoration {snapshot.active_view_id!r}",
+                lambda: self._views.activate(snapshot.active_view_id),
+            )
 
         if snapshot.workspace_id is not None:
-            restored = self._workspace_controller.activate(snapshot.workspace_id)
-            if snapshot.workspace_state is not None and restored != snapshot.workspace_state:
-                self._workspace_controller.apply_layout(snapshot.workspace_state.layout)
+            restored_workspace = None
+
+            def activate_previous_workspace() -> None:
+                nonlocal restored_workspace
+                restored_workspace = self._workspace_controller.activate(snapshot.workspace_id)
+
+            attempt("previous workspace activation", activate_previous_workspace)
+            if (
+                restored_workspace is not None
+                and snapshot.workspace_state is not None
+                and restored_workspace != snapshot.workspace_state
+            ):
+                attempt(
+                    "previous workspace layout restoration",
+                    lambda: self._workspace_controller.apply_layout(snapshot.workspace_state.layout),
+                )
         elif snapshot.realized_layout is not None:
-            raise RuntimeError("Workspace snapshot is internally inconsistent: realized layout without active workspace.")
+            failures.append((
+                "snapshot consistency",
+                RuntimeError(
+                    "Workspace snapshot is inconsistent: realized layout exists without an active workspace."
+                ),
+            ))
+
+        if failures:
+            summary = "; ".join(f"{label}: {error!r}" for label, error in failures)
+            error = RuntimeError(
+                "Workspace transition rollback was incomplete; "
+                f"{len(failures)} restoration step(s) failed. {summary}"
+            )
+            add_note = getattr(error, "add_note", None)
+            if callable(add_note):
+                for label, cause in failures:
+                    add_note(f"{label} failed: {cause!r}")
+            raise error from failures[0][1]
 
     def restore_last_state(self, snapshot: _WorkspaceTransitionSnapshot) -> None:
         """Public Application-facing rollback primitive for coordinated transitions."""

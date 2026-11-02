@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from core.model import EndpointReference, EquipmentType
-from ..creation import CreationCommitIntent, CreationCommandPreparer
+from ..creation import CreationCommitIntent, CreationCommandPreparer, validate_creation_contract_metadata
 from ..results import ApplicationResult
 from ..services.simple_wire_service import SimpleWireConnectionService
 from .network import DraftConnection, DraftNetwork
@@ -25,6 +25,14 @@ def _thaw_payload(value: Any) -> Any:
     if isinstance(value, frozenset):
         return {_thaw_payload(item) for item in value}
     return value
+
+
+def _record_draft_undo(draft: DraftNetwork, transaction: Any) -> None:
+    """Register the exact pre-command draft snapshot as the transaction inverse."""
+    snapshot = draft.to_dict()
+    transaction.record_undo(
+        lambda snapshot=snapshot, draft=draft: draft.restore_snapshot(snapshot)
+    )
 
 
 class DraftCommandHandlers:
@@ -52,32 +60,41 @@ class DraftCommandHandlers:
         equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
             _thaw_payload(command.payload["equipment"])
         )
+        _record_draft_undo(draft, transaction)
         draft.add_equipment(equipment)
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def update_equipment(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         equipment = draft.update_equipment(
             str(command.payload["draft_id"]),
             **_thaw_payload(command.payload["changes"]),
         )
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def remove_equipment(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         equipment = draft.remove_equipment(str(command.payload["draft_id"]))
-        return ApplicationResult.success_result({"draft_id": equipment.draft_id})
+        return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def add_connection(self, command, context, transaction):
         draft = self._draft()
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
+        # Reject invalid candidates before registering a transaction inverse.
+        # A failed preflight must not trigger snapshot restoration that replaces
+        # otherwise unchanged draft objects and can stale UI projection references.
+        draft.validate_connection_candidate(connection)
+        _record_draft_undo(draft, transaction)
         draft.add_connection(connection)
-        return ApplicationResult.success_result({"connection_id": connection.connection_id})
+        return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
     def remove_connection(self, command, context, transaction):
         draft = self._draft()
+        _record_draft_undo(draft, transaction)
         connection = draft.remove_connection(str(command.payload["connection_id"]))
-        return ApplicationResult.success_result({"connection_id": connection.connection_id})
+        return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
 
 class DraftConnectivityResolver:
@@ -115,11 +132,14 @@ class DraftConnectivityResolver:
 
 
 class CommitNetworkHandler:
-    def __init__(self, draft_provider, command_executor):
+    def __init__(self, draft_provider, command_executor, creation_contract_provider=None):
         if not callable(command_executor):
             raise TypeError("command_executor must be callable.")
+        if creation_contract_provider is not None and not callable(creation_contract_provider):
+            raise TypeError("creation_contract_provider must be callable or None.")
         self._draft_provider = draft_provider
         self._command_executor = command_executor
+        self._creation_contract_provider = creation_contract_provider
         self._resolver = DraftConnectivityResolver()
 
     @staticmethod
@@ -131,15 +151,114 @@ class CommitNetworkHandler:
             raise ValueError("Draft equipment requires non-empty type and draft identity.")
         return f"{equipment_type}-{draft_id}"
 
-    def _resolve_equipment_endpoints(self, item, core_ids):
+    @staticmethod
+    def _terminal_for_equipment(item, endpoint, semantic_name):
+        return (
+            endpoint.is_terminal
+            and endpoint.scope == "draft"
+            and endpoint.object_id == item.draft_id
+            and endpoint.equipment_type == str(item.equipment_type).strip().lower()
+            and endpoint.terminal_role == semantic_name
+        )
+
+    def _resolve_equipment_endpoints(self, item, core_ids, connections):
+        """Resolve only endpoint fields represented by actual draft connections.
+
+        Placement and property editing must remain possible before wiring. A creation
+        endpoint mapping describes how a connected terminal is passed to a Core create
+        command; it does not, by itself, make that terminal mandatory or connected.
+        DraftConnection is the sole topology authority. Required connection
+        cardinality must be defined by explicit equipment-specific commit rules;
+        it must not be inferred from endpoint mappings.
+        """
         resolved = {}
-        for semantic_name, endpoint in sorted(item.endpoints.items(), key=lambda pair: str(pair[0])):
-            if semantic_name not in item.endpoint_mapping:
+        for semantic_name in sorted(item.endpoint_mapping):
+            if semantic_name not in item.terminal_contract:
                 raise ValueError(
-                    f"{item.draft_id}: endpoint {semantic_name!r} is not present in the canonical endpoint mapping."
+                    f"{item.draft_id}: mapped endpoint {semantic_name!r} does not identify "
+                    "a canonical equipment terminal."
                 )
-            resolved[str(semantic_name)] = self._resolver._to_core_endpoint(endpoint, core_ids)
+
+            terminal_connections = []
+            for connection in connections:
+                if self._terminal_for_equipment(item, connection.source, semantic_name):
+                    terminal_connections.append((connection, connection.target))
+                if self._terminal_for_equipment(item, connection.target, semantic_name):
+                    terminal_connections.append((connection, connection.source))
+
+            if len(terminal_connections) > 1:
+                raise ValueError(
+                    f"{item.draft_id}: terminal {semantic_name!r} has multiple "
+                    f"DraftConnections ({len(terminal_connections)}); resolve the "
+                    "connection conflict before commit."
+                )
+
+            # An unwired terminal is allowed here. Do not promote
+            # DraftEquipment.endpoints into a parallel topology source; the draft
+            # connection graph is authoritative and a missing endpoint remains absent.
+            if not terminal_connections:
+                continue
+
+            _, graph_endpoint = terminal_connections[0]
+            resolved[semantic_name] = self._resolver._to_core_endpoint(
+                graph_endpoint, core_ids
+            )
         return resolved
+
+    @staticmethod
+    def _validate_connection_terminal_compatibility(snapshot, canonical_contracts, registry):
+        """Reject Simple Wire endpoints not approved by trusted terminal contracts.
+
+        Terminal inventories describe physical terminals; they do not imply that
+        every terminal participates in ordinary electrical topology. CT/PT/CVT
+        measurement-secondary terminals must use measurement/acquisition workflows.
+        """
+        draft_by_id = {item.draft_id: item for item in snapshot.equipment}
+        for connection in snapshot.connections:
+            if connection.connection_kind != "simple_wire":
+                raise ValueError(
+                    f"{connection.connection_id}: unsupported connection kind "
+                    f"{connection.connection_kind!r}."
+                )
+            for endpoint in (connection.source, connection.target):
+                if not endpoint.is_terminal:
+                    continue
+                if endpoint.scope == "draft":
+                    item = draft_by_id.get(endpoint.object_id)
+                    if item is None:
+                        raise ValueError(
+                            f"{connection.connection_id}: terminal endpoint references "
+                            f"unknown draft equipment {endpoint.object_id!r}."
+                        )
+                    if str(item.equipment_type).strip().lower() != endpoint.equipment_type:
+                        raise ValueError(
+                            f"{connection.connection_id}: endpoint equipment type does "
+                            "not match its canonical draft equipment."
+                        )
+                    contract = canonical_contracts[item.draft_id]
+                else:
+                    contract = registry.resolve(endpoint.equipment_type or "")
+
+                requirements = contract.get("terminal_requirements", ())
+                requirement = next(
+                    (record for record in requirements
+                     if record.get("terminal_name") == endpoint.terminal_role),
+                    None,
+                )
+                if requirement is None:
+                    raise ValueError(
+                        f"{connection.connection_id}: terminal "
+                        f"{endpoint.equipment_type}.{endpoint.terminal_role} is not "
+                        "present in the trusted canonical creation contract."
+                    )
+                allowed = set(requirement.get("allowed_connection_types", ()))
+                if not ({"electrical", "simple_wire"} & allowed):
+                    raise ValueError(
+                        f"{connection.connection_id}: terminal "
+                        f"{endpoint.equipment_type}.{endpoint.terminal_role} does not "
+                        "permit ordinary electrical Simple Wire connections; use the "
+                        "dedicated measurement/acquisition workflow where applicable."
+                    )
 
     def __call__(self, command, context, transaction):
         payload = command.payload
@@ -164,14 +283,41 @@ class CommitNetworkHandler:
         )
         if snapshot.to_dict() != draft_payload:
             raise ValueError("CommitNetworkCommand draft_network payload is not canonical.")
-
-        errors = snapshot.validate(getattr(context, "network", None))
-        if errors:
-            raise ValueError("Draft validation failed: " + "; ".join(errors))
         if not snapshot.equipment and not snapshot.connections:
             raise ValueError(
                 "DraftNetwork commit is empty; add equipment or connections before committing."
             )
+
+        registry = self._creation_contract_provider() if self._creation_contract_provider is not None else None
+        if registry is None:
+            raise RuntimeError(
+                "Canonical creation contracts are not configured in the Application composition path."
+            )
+        canonical_contracts = {}
+        for item in snapshot.equipment:
+            canonical_contract = registry.resolve(item.equipment_type)
+            validate_creation_contract_metadata(
+                equipment_type=item.equipment_type,
+                command_type=item.command_type,
+                id_field=item.id_field,
+                parameter_mapping=item.parameter_mapping,
+                endpoint_mapping=item.endpoint_mapping,
+                terminal_contract=item.terminal_contract,
+                required_connection_terminals=item.required_connection_terminals,
+                parameter_contract=item.parameter_contract,
+                conditional_requirements=item.conditional_requirements,
+                canonical_contract=canonical_contract,
+            )
+            canonical_contracts[item.draft_id] = canonical_contract
+
+        self._validate_connection_terminal_compatibility(
+            snapshot, canonical_contracts, registry
+        )
+
+        errors = snapshot.validate(getattr(context, "network", None))
+        errors += snapshot.validate_required_connections()
+        if errors:
+            raise ValueError("Draft validation failed: " + "; ".join(errors))
 
         network = getattr(context, "network", None)
         if network is None:
@@ -213,17 +359,21 @@ class CommitNetworkHandler:
                         values[parameter_id] = item.display_name
                         break
 
+            canonical_contract = canonical_contracts[item.draft_id]
             intent = CreationCommitIntent(
-                command_type=item.command_type,
-                id_field=item.id_field,
+                command_type=canonical_contract["command_type"],
+                id_field=canonical_contract["id_field"],
                 object_id=core_ids[item.draft_id],
-                parameter_mapping=dict(item.parameter_mapping),
-                endpoint_mapping=dict(item.endpoint_mapping),
+                parameter_mapping=canonical_contract["parameter_mapping"],
+                endpoint_mapping=canonical_contract["endpoint_mapping"],
                 values=values,
-                endpoints=self._resolve_equipment_endpoints(item, core_ids),
+                endpoints=self._resolve_equipment_endpoints(item, core_ids, snapshot.connections),
                 position=item.placement,
+                parameter_contract=canonical_contract["parameter_contract"],
+                conditional_requirements=canonical_contract["conditional_requirements"],
+                equipment_type=canonical_contract["equipment_type"],
             )
-            prepared = preparer.prepare(intent)
+            prepared = preparer.prepare(intent, canonical_contract=canonical_contract)
             prepared_commands.append(prepared)
             x, y = item.placement if item.placement is not None else (None, None)
             created_elements.append({

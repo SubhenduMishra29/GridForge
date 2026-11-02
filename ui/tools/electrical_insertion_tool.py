@@ -133,23 +133,96 @@ class ElectricalInsertionTool(ToolBase):
 
     def _resolve_target(self, event: Any) -> dict[str, Any] | None:
         position = self._position_tuple(self.event_position(event))
-        item = event.get("connection_item") if isinstance(event, dict) else None
-        if item is None:
-            for name in ("connection_item_at", "sld_connection_item_at", "canvas_item_at"):
-                resolver = getattr(self.controller, name, None)
-                if callable(resolver):
-                    item = resolver(position)
-                    if item is not None:
-                        break
+        explicit_item = event.get("connection_item") if isinstance(event, dict) else None
+        if explicit_item is not None:
+            return self._target_for_item(explicit_item, position)
+
+        # Scene.items(point) is ordered by graphics stacking, not electrical
+        # intent. Inspect every hit Simple Wire and rank by geometric distance
+        # to its routed polyline instead of accepting the first overlapping item.
+        scene = None
+        get_scene = getattr(self.snap_system, "get_scene", None)
+        if callable(get_scene):
+            scene = get_scene()
+        if scene is None:
+            get_scene = getattr(self.controller, "get_scene", None)
+            if callable(get_scene):
+                scene = get_scene()
+        if scene is None:
+            scene = getattr(self.controller, "scene", None)
+
+        candidates: list[tuple[float, Any, dict[str, Any]]] = []
+        items_at = getattr(scene, "items", None)
+        if callable(items_at):
+            try:
+                hit_items = tuple(items_at(QPointF(*position)))
+            except (TypeError, RuntimeError):
+                hit_items = ()
+            for candidate_item in hit_items:
+                target = self._target_for_item(candidate_item, position, set_target_item=False)
+                if target is None:
+                    continue
+                try:
+                    distance = float(target["distance"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if math.isfinite(distance):
+                    candidates.append((distance, candidate_item, target))
+
+        if candidates:
+            candidates.sort(key=lambda candidate: candidate[0])
+            nearest_distance = candidates[0][0]
+            nearest = [
+                candidate for candidate in candidates
+                if abs(candidate[0] - nearest_distance) <= 1e-6
+            ]
+            # At a true crossing/overlap, geometry cannot identify which
+            # electrical relationship the engineer intended. Fail closed and
+            # require the user to move off the ambiguous intersection.
+            nearest_connection_ids = {
+                str(candidate[2].get("connection_id"))
+                for candidate in nearest
+            }
+            if len(nearest_connection_ids) > 1:
+                # Do not let mouse-release fallback reuse a previously hovered
+                # connection when the current pointer is ambiguous.
+                self._clear_target()
+                return None
+            _, item, target = candidates[0]
+            self._target_item = item
+            return dict(target)
+
+        # Compatibility path for older controller adapters that expose a
+        # single-item hit resolver but not a scene with point queries.
+        for name in ("connection_item_at", "sld_connection_item_at", "canvas_item_at"):
+            resolver = getattr(self.controller, name, None)
+            if callable(resolver):
+                item = resolver(position)
+                target = self._target_for_item(item, position)
+                if target is not None:
+                    return target
+        return None
+
+    def _target_for_item(
+        self,
+        item: Any,
+        position: tuple[float, float],
+        *,
+        set_target_item: bool = True,
+    ) -> dict[str, Any] | None:
         if item is None:
             return None
         resolver = getattr(item, "insertion_target", None)
         if not callable(resolver):
             return None
-        target = resolver(position)
+        try:
+            target = resolver(position)
+        except (TypeError, ValueError, RuntimeError):
+            return None
         if not isinstance(target, dict) or not target.get("connection_id"):
             return None
-        self._target_item = item
+        if set_target_item:
+            self._target_item = item
         return dict(target)
 
     def _set_target(self, target: dict[str, Any]) -> None:

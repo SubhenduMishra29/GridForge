@@ -9,7 +9,12 @@ import numpy as np
 from core.model.cable import Cable
 from core.model.line import Line
 from core.model.transformer import Transformer
+from core.analysis.transformer_zero_sequence import (
+    TransformerZeroSequenceShunt,
+    build_transformer_zero_sequence_shunt,
+)
 from core.network.topology_snapshot import TopologySnapshot
+from core.network.physical_conductor_topology import build_physical_conductor_topology_snapshot
 from core.solver.short_circuit.sequence_network import SequenceNetwork
 
 
@@ -44,7 +49,9 @@ class SequenceNetworkPreparation:
             raise ValueError("TopologySnapshot bus IDs must be unique for sequence preparation.")
         index = {bus_id: i for i, bus_id in enumerate(bus_ids)}
         sequence = SequenceNetwork()
-        branch_data: list[tuple[int, int, dict[str, complex | None], str]] = []
+        branch_data: list[tuple[int, int, dict[str, complex | None], str, complex]] = []
+        transformer_zero_shunts: list[tuple[int, TransformerZeroSequenceShunt]] = []
+        transformer_zero_two_bus_stamps: list[Any] = []
 
         for element in self._branch_elements():
             if not bool(getattr(element, "in_service", True)):
@@ -54,13 +61,58 @@ class SequenceNetworkPreparation:
                 continue
             data = self._branch_sequence_impedances(element, bus_a)
             element_id = getattr(element, "id", element)
+            if isinstance(element, Transformer) and "zero" in requested:
+                def terminal_role_value(terminal: Any) -> str:
+                    role = getattr(terminal, "role", "")
+                    return str(getattr(role, "value", role)).strip().upper()
+
+                terminal_bus_by_role = {
+                    terminal_role_value(element.from_terminal): bus_a,
+                    terminal_role_value(element.to_terminal): bus_b,
+                }
+                from core.analysis.transformer_zero_sequence import (
+                    TransformerZeroSequencePath,
+                    classify_transformer_zero_sequence,
+                )
+                topology = classify_transformer_zero_sequence(element)
+                if len(topology.grounded_winding_sides) == 2:
+                    from core.analysis.transformer_zero_sequence_t_equivalent import build_transformer_zero_sequence_two_bus_stamp
+                    hv_role = str(getattr(element.hv_terminal_role, "value", element.hv_terminal_role)).strip().upper()
+                    lv_role = str(getattr(element.lv_terminal_role, "value", element.lv_terminal_role)).strip().upper()
+                    hv_bus = terminal_bus_by_role.get(hv_role)
+                    lv_bus = terminal_bus_by_role.get(lv_role)
+                    if hv_bus is None or lv_bus is None:
+                        raise ValueError(f"Transformer '{element_id}' HV/LV terminals do not resolve to canonical Buses.")
+                    stamp = build_transformer_zero_sequence_two_bus_stamp(
+                        element, hv_bus, lv_bus, base_mva=self._require_base(),
+                        hv_terminal_role=hv_role, lv_terminal_role=lv_role,
+                        hv_bus_index=index[str(hv_bus.id)], lv_bus_index=index[str(lv_bus.id)],
+                    )
+                    transformer_zero_two_bus_stamps.append(stamp)
+                if topology.path is TransformerZeroSequencePath.GROUNDED_WYE_SIDE_RETURN:
+                    side = topology.grounded_winding_sides[0]
+                    declared_terminal_role = element.hv_terminal_role if side == "HV" else element.lv_terminal_role
+                    grounded_terminal_role = str(getattr(declared_terminal_role, "value", declared_terminal_role)).strip().upper()
+                    grounded_bus = terminal_bus_by_role.get(grounded_terminal_role)
+                    if grounded_bus is None:
+                        raise ValueError(
+                            f"Transformer '{element_id}' grounded {side} terminal does not resolve "
+                            "to a Bus through the canonical topology snapshot."
+                        )
+                    equivalent = build_transformer_zero_sequence_shunt(
+                        element, grounded_bus, base_mva=self._require_base(),
+                        grounded_terminal_role=grounded_terminal_role,
+                    )
+                    if equivalent is None:
+                        raise ValueError(f"Transformer '{element_id}' grounded-wye return equivalent was unexpectedly unavailable.")
+                    transformer_zero_shunts.append((index[str(grounded_bus.id)], equivalent))
             for name in requested:
-                if data[name] is None:
+                if data[name] is None and not isinstance(element, Transformer):
                     raise ValueError(f"{type(element).__name__} '{element_id}' lacks explicit {name}-sequence engineering data.")
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             from_id = str(bus_a.id)
             to_id = str(bus_b.id)
-            branch_data.append((index[from_id], index[to_id], data, str(element_id)))
+            branch_data.append((index[from_id], index[to_id], data, str(element_id), self._branch_complex_tap(element)))
 
         for source in self.network.grids:
             if not bool(getattr(source, "in_service", True)):
@@ -75,7 +127,7 @@ class SequenceNetworkPreparation:
             element_id = getattr(source, "id", source)
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             bus_id = str(bus.id)
-            branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
+            branch_data.append((index[bus_id], index[bus_id], data, str(element_id), 1.0 + 0.0j))
 
         for collection_name in ("generators", "synchronous_machines", "motors"):
             for machine in getattr(self.network, collection_name, ()):
@@ -92,10 +144,58 @@ class SequenceNetworkPreparation:
                 element_id = getattr(machine, "id", machine)
                 sequence.add_element(element_id, data["positive"], data.get("negative"), data.get("zero"))
                 bus_id = str(bus.id)
-                branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
+                branch_data.append((index[bus_id], index[bus_id], data, str(element_id), 1.0 + 0.0j))
 
         for name in requested:
-            sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
+            shunt_stamps = (
+                [(bus_index, equivalent.impedance_pu) for bus_index, equivalent in transformer_zero_shunts]
+                if name == "zero" else []
+            )
+            coupled_stamps = (
+                [(item.hv_bus_index, item.lv_bus_index, item.y_hh_pu, item.y_hl_pu, item.y_ll_pu) for item in transformer_zero_two_bus_stamps]
+                if name == "zero" else []
+            )
+            matrix, unavailable = self._build_matrix(
+                len(bus_ids), branch_data, name, shunt_stamps=shunt_stamps,
+                coupled_stamps=coupled_stamps,
+            )
+            sequence.set_matrix(name, matrix)
+            if not hasattr(sequence, "unavailable_bus_indices"):
+                sequence.unavailable_bus_indices = {}
+            sequence.unavailable_bus_indices[name] = unavailable
+        sequence.transformer_zero_sequence_shunts = tuple(
+            equivalent for _, equivalent in transformer_zero_shunts
+        )
+        sequence.transformer_zero_sequence_two_bus_stamps = tuple(transformer_zero_two_bus_stamps)
+        # Detached preparation can verify that this matrix uses the same
+        # from-side complex-tap convention as transformer terminal results.
+        sequence.transformer_tap_convention = "FROM_SIDE_COMPLEX_TAP_V1"
+        sequence.physical_conductor_topology = build_physical_conductor_topology_snapshot(
+            self.network, self.topology_snapshot
+        )
+        # D15E: retain the physical multi-conductor primitive separately from scalar sequence networks.
+        from core.analysis.physical_conductor_preparation import (
+            PhysicalConductorImpedanceSnapshot,
+            prepare_physical_conductor_impedance_snapshot,
+        )
+        if not sequence.physical_conductor_topology.branches:
+            sequence.physical_conductor_impedances = PhysicalConductorImpedanceSnapshot(
+                project_id=sequence.physical_conductor_topology.project_id,
+                activation_generation=sequence.physical_conductor_topology.activation_generation,
+                topology_revision=sequence.physical_conductor_topology.topology_revision,
+                branches=(),
+            )
+            sequence.physical_conductor_impedance_diagnostics = ()
+        elif self.base_mva is None:
+            sequence.physical_conductor_impedances = None
+            sequence.physical_conductor_impedance_diagnostics = (
+                "UNAVAILABLE: explicit study base_mva is required for physical-conductor per-unit preparation.",
+            )
+        else:
+            sequence.physical_conductor_impedances = prepare_physical_conductor_impedance_snapshot(
+                self.network, sequence.physical_conductor_topology, base_mva=self.base_mva
+            )
+            sequence.physical_conductor_impedance_diagnostics = ()
         return sequence
 
     @staticmethod
@@ -150,15 +250,42 @@ class SequenceNetworkPreparation:
             return {"positive": z1, "negative": z1, "zero": z0}
         if isinstance(element, Line):
             z1 = self._ohm_to_pu(element.series_impedance, voltage)
-            return {"positive": z1, "negative": z1, "zero": None}
+            zero_r = getattr(element, "zero_sequence_resistance_ohm", None)
+            zero_x = getattr(element, "zero_sequence_reactance_ohm", None)
+            if (zero_r is None) != (zero_x is None):
+                raise ValueError(
+                    f"Line '{element.id}' must declare both zero-sequence resistance and reactance."
+                )
+            z0 = None if zero_r is None else self._ohm_to_pu(complex(float(zero_r), float(zero_x)), voltage)
+            if z0 == 0.0 + 0.0j:
+                raise ValueError(f"Line '{element.id}' has zero zero-sequence impedance; an explicit non-zero Z0 is required.")
+            return {"positive": z1, "negative": z1, "zero": z0}
         if isinstance(element, Transformer):
             study_kv = voltage
             if study_kv <= 0.0:
                 raise ValueError(f"Bus '{bus.id}' requires nominal_voltage_kv for transformer preparation.")
             scale = (self._require_base() / element.impedance_base_mva) * (element.impedance_base_voltage_kv / study_kv) ** 2
             z1 = complex(element.r, element.x) * scale if element.impedance_basis == "pu" else self._ohm_to_pu(complex(element.r, element.x), study_kv)
-            return {"positive": z1, "negative": None, "zero": None}
+            # For a passive, static two-winding transformer, the negative-
+            # sequence series impedance equals the positive-sequence value.
+            # The phase-shifting tap reverses its angle in the negative-
+            # sequence network. Zero sequence is stamped separately from
+            # validated winding-specific transformer contracts: D14H uses a
+            # one-sided grounded return shunt; D14I uses a measured Yg-Yg
+            # two-Bus T equivalent. No Z0 is inferred from positive sequence.
+            return {"positive": z1, "negative": z1, "zero": None}
         raise ValueError(f"Unsupported sequence-network branch type: {type(element).__name__}.")
+
+    @staticmethod
+    def _branch_complex_tap(element: Any) -> complex:
+        """Return the explicit from-side complex tap used by the two-port primitive."""
+        tap = float(getattr(element, "tap", 1.0))
+        shift = float(getattr(element, "shift", 0.0))
+        if not np.isfinite(tap) or tap <= 0.0:
+            raise ValueError(f"Branch '{getattr(element, 'id', element)}' has an invalid tap ratio.")
+        if not np.isfinite(shift):
+            raise ValueError(f"Branch '{getattr(element, 'id', element)}' has an invalid phase shift.")
+        return complex(tap * np.cos(shift), tap * np.sin(shift))
 
     @staticmethod
     def _source_impedance(source: Any, name: str) -> complex | None:
@@ -171,28 +298,93 @@ class SequenceNetworkPreparation:
         return result
 
     @staticmethod
-    def _build_matrix(size: int, branches: list[tuple[int, int, dict[str, complex | None], str]], sequence: str) -> np.ndarray:
+    def _build_matrix(
+        size: int,
+        branches: list[tuple[int, int, dict[str, complex | None], str, complex]],
+        sequence: str,
+        *,
+        shunt_stamps: list[tuple[int, complex]] | None = None,
+        coupled_stamps: list[tuple[int, int, complex, complex, complex]] | None = None,
+    ) -> tuple[np.ndarray, tuple[int, ...]]:
+        """Build component-wise Zbus matrices and identify ungrounded islands.
+
+        Sequence branches define connectivity only when that sequence has
+        an explicit series impedance. Sources and explicit grounding shunts
+        anchor their own connected component. Floating components are marked
+        unavailable rather than forcing unrelated grounded islands to fail.
+        """
         y = np.zeros((size, size), dtype=complex)
-        for i, j, data, element_id in branches:
+        adjacency: list[set[int]] = [set() for _ in range(size)]
+        for i, j, data, element_id, tap in branches:
             z = data[sequence]
             if z is None:
-                raise ValueError(f"Element '{element_id}' lacks {sequence}-sequence impedance.")
-            if abs(z) == 0.0:
-                raise ValueError(f"Element '{element_id}' has zero {sequence}-sequence impedance.")
+                continue
+            if not np.isfinite(z.real) or not np.isfinite(z.imag) or abs(z) == 0.0:
+                raise ValueError(f"Element '{element_id}' has invalid {sequence}-sequence impedance.")
             admittance = 1.0 / z
             if i == j:
                 y[i, i] += admittance
             else:
-                y[i, i] += admittance
+                sequence_tap = tap.conjugate() if sequence == "negative" else tap
+                if not np.isfinite(sequence_tap.real) or not np.isfinite(sequence_tap.imag) or abs(sequence_tap) == 0.0:
+                    raise ValueError(f"Element '{element_id}' has an invalid complex tap.")
+                y[i, i] += admittance / (abs(sequence_tap) ** 2)
+                y[i, j] -= admittance / sequence_tap.conjugate()
+                y[j, i] -= admittance / sequence_tap
                 y[j, j] += admittance
-                y[i, j] -= admittance
-                y[j, i] -= admittance
-        if np.any(np.abs(np.diag(y)) == 0.0):
-            raise ValueError("Sequence network contains a bus without a connected source or branch.")
-        try:
-            return np.linalg.inv(y)
-        except np.linalg.LinAlgError as exc:
-            raise ValueError("Sequence network admittance matrix is singular; the prepared network is not solvable.") from exc
+                adjacency[i].add(j)
+                adjacency[j].add(i)
+
+        for i, j, y_ii, y_ij, y_jj in coupled_stamps or ():
+            if i == j or not (0 <= i < size and 0 <= j < size):
+                raise ValueError("Coupled transformer zero-sequence stamp requires two distinct valid Bus indices.")
+            values = tuple(complex(value) for value in (y_ii, y_ij, y_jj))
+            if any(not np.isfinite(value.real) or not np.isfinite(value.imag) for value in values):
+                raise ValueError("Coupled transformer zero-sequence admittance stamp must be finite.")
+            y[i, i] += values[0]
+            y[i, j] += values[1]
+            y[j, i] += values[1]
+            y[j, j] += values[2]
+            adjacency[i].add(j)
+            adjacency[j].add(i)
+
+        for bus_index, impedance_pu in shunt_stamps or ():
+            if not 0 <= bus_index < size:
+                raise ValueError("Zero-sequence shunt Bus index is outside the prepared topology.")
+            impedance = complex(impedance_pu)
+            if not np.isfinite(impedance.real) or not np.isfinite(impedance.imag) or abs(impedance) == 0.0:
+                raise ValueError("Transformer zero-sequence shunt impedance must be finite and non-zero.")
+            y[bus_index, bus_index] += 1.0 / impedance
+
+        zbus = np.zeros((size, size), dtype=complex)
+        visited: set[int] = set()
+        unavailable: list[int] = []
+        for root in range(size):
+            if root in visited:
+                continue
+            stack = [root]
+            component: list[int] = []
+            visited.add(root)
+            while stack:
+                current = stack.pop()
+                component.append(current)
+                for neighbor in adjacency[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+            component.sort()
+            component_y = y[np.ix_(component, component)]
+            try:
+                component_z = np.linalg.inv(component_y)
+            except np.linalg.LinAlgError:
+                unavailable.extend(component)
+                continue
+            if not np.all(np.isfinite(component_z.real)) or not np.all(np.isfinite(component_z.imag)):
+                unavailable.extend(component)
+                continue
+            zbus[np.ix_(component, component)] = component_z
+        return zbus, tuple(sorted(unavailable))
+
 
 
 __all__ = ["SequenceNetworkPreparation"]

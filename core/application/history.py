@@ -247,6 +247,7 @@ class CommandHistory:
         """
 
         self._validate_record(record)
+        self._require_record_absent(record)
         self._undo_stack.append(record)
 
     # ========================================================
@@ -256,11 +257,13 @@ class CommandHistory:
     def restore_undo(self, record: CommandRecord) -> None:
         """Restore one record to undo history after a clean undo failure."""
         self._validate_record(record)
+        self._require_record_absent(record)
         self._undo_stack.append(record)
 
     def restore_redo(self, record: CommandRecord) -> None:
         """Restore one record to redo history after a clean redo failure."""
         self._validate_record(record)
+        self._require_record_absent(record)
         self._redo_stack.append(record)
 
     def move_undo_to_redo(self, record: CommandRecord) -> None:
@@ -347,6 +350,7 @@ class CommandHistory:
         """
 
         self._validate_record(record)
+        self._require_record_absent(record)
         self._redo_stack.append(record)
 
     # ========================================================
@@ -426,6 +430,13 @@ class CommandHistory:
     # ========================================================
     # VALIDATION
     # ========================================================
+
+    def _require_record_absent(self, record: CommandRecord) -> None:
+        """Reject identity-duplicate records across undo and redo stacks."""
+        if any(existing is record for existing in self._undo_stack):
+            raise ValueError("CommandRecord is already present in undo history.")
+        if any(existing is record for existing in self._redo_stack):
+            raise ValueError("CommandRecord is already present in redo history.")
 
     @staticmethod
     def _validate_record(

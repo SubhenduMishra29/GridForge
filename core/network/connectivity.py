@@ -68,9 +68,10 @@ class SimpleWireConnection:
     def equipment_ids(self) -> tuple[str, ...]:
         """Return only actual equipment identities represented by endpoints."""
         return tuple(
-            endpoint.terminal_reference.object_id
+            endpoint.terminal_reference.object_id if endpoint.is_terminal
+            else endpoint.bus_reference.object_id
             for endpoint in (self.endpoint_a, self.endpoint_b)
-            if endpoint.is_terminal
+            if endpoint.is_terminal or endpoint.is_bus
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -104,11 +105,13 @@ def _coerce_topology_endpoint(value: Any) -> TopologyEndpointReference:
     if isinstance(value, TopologyEndpointReference):
         return value
     if isinstance(value, EndpointReference):
-        if not value.is_terminal:
-            raise ConnectivityError(
-                "Simple Wire EndpointReference values must identify terminals."
-            )
-        return TopologyEndpointReference.from_terminal(value)
+        if value.is_terminal:
+            return TopologyEndpointReference.from_terminal(value)
+        if value.is_bus:
+            return TopologyEndpointReference.from_bus(value)
+        raise ConnectivityError(
+            "Simple Wire EndpointReference values must identify terminals or Bus attachments."
+        )
     raise ConnectivityError(
         "Simple Wire endpoints must be TopologyEndpointReference or "
         "terminal EndpointReference values."
@@ -126,6 +129,15 @@ def _validate_topology_endpoint_shape(
             raise ConnectivityError(
                 "Terminal topology endpoint does not contain a valid terminal EndpointReference."
             )
+        return
+    if reference.kind is TopologyEndpointReferenceKind.BUS:
+        bus_reference = reference.bus_reference
+        if not isinstance(bus_reference, EndpointReference) or not bus_reference.is_bus:
+            raise ConnectivityError("Bus topology endpoint requires a Bus EndpointReference.")
+        if not bus_reference.attachment_id or not bus_reference.attachment_id.startswith("attachment-"):
+            raise ConnectivityError("Bus topology endpoint requires a canonical attachment ID.")
+        if bus_reference.attachment_id.removeprefix("attachment-") not in {str(index) for index in range(9)}:
+            raise ConnectivityError("Bus topology attachment index must be in the supported range 0..8.")
         return
     if reference.kind is TopologyEndpointReferenceKind.JUNCTION:
         if not isinstance(reference.junction_id, str) or not reference.junction_id.strip():
@@ -147,6 +159,14 @@ def _key(reference: TopologyEndpointReference) -> tuple[str, str, str, str]:
             endpoint.equipment_type.value,
             endpoint.object_id,
             endpoint.terminal_role,
+        )
+    if reference.is_bus:
+        bus_reference = reference.bus_reference
+        return (
+            reference.kind.value,
+            "",
+            bus_reference.object_id,
+            bus_reference.attachment_id or "",
         )
     return (
         reference.kind.value,
@@ -216,14 +236,16 @@ class ConnectivityStore:
         ):
             raise ConnectivityError("Duplicate Simple Wire relationship.")
 
-        # Cardinality is a property of the endpoint kind:
-        # terminal -> at most one Simple Wire; junction -> N Simple Wires.
+        # Terminal and Bus-attachment endpoints each represent one connection
+        # slot; junctions intentionally permit multiple incident wires.
         for endpoint in (endpoint_a, endpoint_b):
-            if endpoint.is_terminal and self.connections_for_endpoint(endpoint):
-                raise ConnectivityError(
-                    f"Terminal {endpoint.terminal_reference} already participates "
-                    "in a Simple Wire relationship."
+            if (endpoint.is_terminal or endpoint.is_bus) and self.connections_for_endpoint(endpoint):
+                label = (
+                    f"Terminal {endpoint.terminal_reference}"
+                    if endpoint.is_terminal
+                    else f"Bus attachment {endpoint.bus_reference.object_id}:{endpoint.bus_reference.attachment_id}"
                 )
+                raise ConnectivityError(f"{label} already participates in a Simple Wire relationship.")
 
         # All validation/index preconditions have succeeded before mutation.
         self._connections[connection.connection_id] = connection
@@ -299,6 +321,9 @@ class ConnectivityStore:
                 network,
             )
             return
+        if endpoint.is_bus:
+            EndpointCompatibility.validate_reference(endpoint.bus_reference, network)
+            return
         junction_id = endpoint.junction_id
         try:
             exists = network.contains_junction(junction_id)
@@ -329,11 +354,9 @@ class ConnectivityStore:
             self._endpoint_index.setdefault(endpoint, set()).add(
                 connection.connection_id
             )
-            if endpoint.is_terminal:
-                self._equipment_index.setdefault(
-                    endpoint.terminal_reference.object_id,
-                    set(),
-                ).add(connection.connection_id)
+            if endpoint.is_terminal or endpoint.is_bus:
+                equipment_id = endpoint.terminal_reference.object_id if endpoint.is_terminal else endpoint.bus_reference.object_id
+                self._equipment_index.setdefault(equipment_id, set()).add(connection.connection_id)
 
     def _deindex(self, connection: SimpleWireConnection) -> None:
         for endpoint in (connection.endpoint_a, connection.endpoint_b):
@@ -342,8 +365,8 @@ class ConnectivityStore:
                 ids.discard(connection.connection_id)
                 if not ids:
                     self._endpoint_index.pop(endpoint, None)
-            if endpoint.is_terminal:
-                equipment_id = endpoint.terminal_reference.object_id
+            if endpoint.is_terminal or endpoint.is_bus:
+                equipment_id = endpoint.terminal_reference.object_id if endpoint.is_terminal else endpoint.bus_reference.object_id
                 ids = self._equipment_index.get(equipment_id)
                 if ids is not None:
                     ids.discard(connection.connection_id)
@@ -371,6 +394,24 @@ class ResolvedConnectivity:
             if source == endpoint:
                 return targets
         return ()
+
+    def components(self) -> tuple[tuple[TopologyEndpointReference, ...], ...]:
+        """Return deterministic connected components of this immutable graph snapshot."""
+        remaining = {source for source, _ in self.topology_adjacency}
+        components: list[tuple[TopologyEndpointReference, ...]] = []
+        while remaining:
+            start = min(remaining, key=_topology_reference_key)
+            seen = {start}
+            queue = [start]
+            while queue:
+                current = queue.pop(0)
+                for neighbour in self.neighbours(current):
+                    if neighbour not in seen:
+                        seen.add(neighbour)
+                        queue.append(neighbour)
+            remaining -= seen
+            components.append(tuple(sorted(seen, key=_topology_reference_key)))
+        return tuple(components)
 
     @property
     def terminal_adjacency(
@@ -406,16 +447,21 @@ class ConnectivityResolver:
         Junctions are graph nodes only. No Bus identity is fabricated for a Junction.
         """
         terminal = self._terminal_reference(endpoint)
-        component = self.terminal_component(terminal)
+        component = self.topology_component(TopologyEndpointReference.from_terminal(terminal))
         bus_ids: set[str] = set()
 
-        # Physical Bus attachments remain the existing electrical boundary.
+        # Explicit Bus attachment vertices resolve directly to the registered
+        # Bus. Terminal vertices may also carry a direct physical Bus endpoint.
         for reference in component:
+            if reference.is_bus:
+                bus_ids.add(str(reference.bus_reference.object_id))
+                continue
             if not reference.is_terminal:
                 continue
-            equipment = self._network.get_by_identity(reference.object_id)
+            terminal_reference = reference.terminal_reference
+            equipment = self._network.get_by_identity(terminal_reference.object_id)
             for terminal_obj in getattr(equipment, "terminals", ()):
-                if terminal_obj.owner is equipment and terminal_obj.role == reference.terminal_role:
+                if terminal_obj.owner is equipment and terminal_obj.role == terminal_reference.terminal_role:
                     attached = getattr(terminal_obj, "endpoint", None)
                     if attached is not None and attached in self._network.buses:
                         bus_ids.add(str(attached.id))
@@ -465,22 +511,7 @@ class ConnectivityResolver:
 
     def components(self) -> tuple[tuple[TopologyEndpointReference, ...], ...]:
         """Return all deterministic connected components of the endpoint graph."""
-        resolved=self.resolve()
-        remaining={source for source,_ in resolved.topology_adjacency}
-        components=[]
-        while remaining:
-            start=min(remaining,key=_topology_reference_key)
-            seen={start}
-            queue=[start]
-            while queue:
-                current=queue.pop(0)
-                for neighbour in resolved.neighbours(current):
-                    if neighbour not in seen:
-                        seen.add(neighbour)
-                        queue.append(neighbour)
-            remaining-=seen
-            components.append(tuple(sorted(seen,key=_topology_reference_key)))
-        return tuple(components)
+        return self.resolve().components()
 
     def topology_component(
         self,
@@ -539,6 +570,14 @@ def _topology_reference_key(
             endpoint.equipment_type.value if endpoint.equipment_type else "",
             endpoint.object_id,
             endpoint.terminal_role or "",
+        )
+    if reference.is_bus:
+        bus_reference = reference.bus_reference
+        return (
+            reference.kind.value,
+            "",
+            bus_reference.object_id,
+            bus_reference.attachment_id or "",
         )
     return (
         reference.kind.value,

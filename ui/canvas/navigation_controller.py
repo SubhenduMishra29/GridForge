@@ -80,7 +80,7 @@ No direct PySide6/PyQt imports are permitted.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 from ui.core.qt import Qt
 
@@ -178,8 +178,13 @@ class NavigationController:
 
         self._is_panning = False
         self._pan_start = None
+        # Scrollbars accept integer values; retain subpixel movement across
+        # pointer events so repeated fractional deltas are not discarded.
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
         self._disposed = False
+        self._zoom_changed_listeners: list[Callable[[float], None]] = []
 
     # ========================================================
     # VIEW ACCESS
@@ -232,6 +237,8 @@ class NavigationController:
 
         self._is_panning = True
         self._pan_start = position
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
     # --------------------------------------------------------
 
@@ -257,6 +264,8 @@ class NavigationController:
 
         if self._pan_start is None:
             self._is_panning = False
+            self._pan_remainder_x = 0.0
+            self._pan_remainder_y = 0.0
             return
 
         dx = (
@@ -272,15 +281,19 @@ class NavigationController:
         horizontal = self.view.horizontalScrollBar()
         vertical = self.view.verticalScrollBar()
 
-        horizontal.setValue(
-            horizontal.value()
-            - int(dx)
-        )
+        # QScrollBar stores integer positions. Truncating each pointer delta
+        # independently loses every fractional component, causing cumulative
+        # pan drift for high-resolution pointer events. Carry the remainder
+        # into the next event and apply only the integral displacement.
+        total_x = float(dx) + self._pan_remainder_x
+        total_y = float(dy) + self._pan_remainder_y
+        scroll_dx = math.trunc(total_x)
+        scroll_dy = math.trunc(total_y)
+        self._pan_remainder_x = total_x - scroll_dx
+        self._pan_remainder_y = total_y - scroll_dy
 
-        vertical.setValue(
-            vertical.value()
-            - int(dy)
-        )
+        horizontal.setValue(horizontal.value() - scroll_dx)
+        vertical.setValue(vertical.value() - scroll_dy)
 
         self._pan_start = position
 
@@ -295,6 +308,8 @@ class NavigationController:
 
         self._is_panning = False
         self._pan_start = None
+        self._pan_remainder_x = 0.0
+        self._pan_remainder_y = 0.0
 
     # ========================================================
     # WHEEL
@@ -503,6 +518,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # --------------------------------------------------------
 
@@ -560,6 +576,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # --------------------------------------------------------
 
@@ -642,6 +659,35 @@ class NavigationController:
 
     # --------------------------------------------------------
 
+    def add_zoom_changed_listener(
+        self,
+        listener: Callable[[float], None],
+    ) -> None:
+        """Subscribe to zoom changes without coupling navigation to a renderer."""
+        if not callable(listener):
+            raise TypeError("listener must be callable.")
+        self._ensure_active()
+        if listener not in self._zoom_changed_listeners:
+            self._zoom_changed_listeners.append(listener)
+
+    def remove_zoom_changed_listener(
+        self,
+        listener: Callable[[float], None],
+    ) -> None:
+        """Remove a previously registered zoom observer if present."""
+        try:
+            self._zoom_changed_listeners.remove(listener)
+        except ValueError:
+            pass
+
+    def _notify_zoom_changed(self) -> None:
+        """Publish the authoritative zoom level to registered presentation observers."""
+        level = self._zoom_level
+        for listener in tuple(self._zoom_changed_listeners):
+            listener(level)
+
+    # --------------------------------------------------------
+
     def set_zoom_level(
         self,
         level: float,
@@ -695,6 +741,7 @@ class NavigationController:
             abs_tol=self.TRANSFORM_TOLERANCE,
         ):
             self._zoom_level = target
+            self._notify_zoom_changed()
             return
 
         self._scale_at(
@@ -707,6 +754,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # ========================================================
     # RESET
@@ -726,6 +774,7 @@ class NavigationController:
         self.view.resetTransform()
 
         self._zoom_level = 1.0
+        self._notify_zoom_changed()
 
     # ========================================================
     # FIT CONTENT
@@ -890,6 +939,7 @@ class NavigationController:
         self._zoom_level = self._clamp_zoom(
             self._zoom_level
         )
+        self._notify_zoom_changed()
 
     # ========================================================
     # VIEW TRANSFORM
@@ -1395,6 +1445,7 @@ class NavigationController:
             return
 
         self.end_pan()
+        self._zoom_changed_listeners.clear()
 
         self._disposed = True
 

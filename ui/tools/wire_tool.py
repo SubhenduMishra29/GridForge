@@ -14,6 +14,7 @@ from core.application.commands.draft_commands import CreateDraftConnectionComman
 from core.application.draft.network import DraftEndpointReference
 
 from ui.connections.connection_preview import ConnectionPreview
+from ui.core.qt import QPointF
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from ui.core.snap_system import SnapIntent, SnapType
@@ -32,6 +33,7 @@ class WireTool(ToolBase):
         self._current_position: Optional[Tuple[float, float]] = None
         self._last_snap_result: Any = None
         self._last_command_result: Any = None
+        self._failure_reason = ""
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
@@ -73,6 +75,7 @@ class WireTool(ToolBase):
         position = self._position_tuple(snap_result.position)
         endpoint = self._authoring_endpoint(snap_result)
         if self._preview.source_endpoint is None:
+            self._failure_reason = ""
             self._preview.begin(endpoint)
             self._start_snap = snap_result
             self._start_position = position
@@ -81,6 +84,7 @@ class WireTool(ToolBase):
             self._show_preview()
             return True
         self._current_position = position
+        self._failure_reason = ""
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
         endpoint_pair = self._preview.get_endpoint_pair()
@@ -92,16 +96,40 @@ class WireTool(ToolBase):
             )
             self._show_preview()
             return False
-        result = self._execute_connection(
-            endpoint_pair[0],
-            endpoint_pair[1],
-            source_snap=self._start_snap,
-            target_snap=snap_result,
-        )
+        try:
+            result = self._execute_connection(
+                endpoint_pair[0],
+                endpoint_pair[1],
+                source_snap=self._start_snap,
+                target_snap=snap_result,
+            )
+        except Exception as exc:
+            # Preserve the original failure for the interaction/error boundary,
+            # but also retain an actionable reason in the live wire preview.
+            self._last_command_result = exc
+            self._failure_reason = f"Connection was not created: {type(exc).__name__}: {exc}"
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=self._failure_reason,
+            )
+            self._show_preview()
+            raise
+
         self._last_command_result = result
         if not getattr(result, "success", False):
             # A failed Application command is not a committed connection.
-            # Keep the routing preview alive so the user can retry or cancel.
+            # Keep the source endpoint and show why the attempted wire failed.
+            reason = str(getattr(result, "message", "") or "").strip()
+            if not reason:
+                reason = "The Application rejected the connection command."
+            self._failure_reason = f"Connection was not created: {reason}"
+            self._preview.update_target(
+                endpoint_pair[1],
+                valid=False,
+                reason=self._failure_reason,
+            )
+            self._show_preview()
             return False
         self._clear_state()
         return True
@@ -151,7 +179,12 @@ class WireTool(ToolBase):
         return self._preview.source_endpoint is not None
 
     def on_mouse_double_click(self, event: Any) -> bool:
-        return self.on_mouse_press(event)
+        # A double-click is not a second wire endpoint gesture. Qt emits a
+        # distinct double-click event after the first press/release sequence;
+        # forwarding it to on_mouse_press can start a new wire immediately
+        # after a successful connection cleared the preview state.
+        del event
+        return False
 
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
@@ -171,6 +204,8 @@ class WireTool(ToolBase):
 
     def _snap(self, event: Any) -> Any:
         scene_position = self.event_position(event)
+        if isinstance(scene_position, (tuple, list)) and len(scene_position) >= 2:
+            scene_position = QPointF(float(scene_position[0]), float(scene_position[1]))
         snap = getattr(self.get_snap_system(), "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
@@ -195,6 +230,18 @@ class WireTool(ToolBase):
         if isinstance(endpoint_from, DraftEndpointReference) or isinstance(endpoint_to, DraftEndpointReference):
             source = self._as_draft_endpoint(endpoint_from)
             target = self._as_draft_endpoint(endpoint_to)
+            existing_id = self._existing_draft_connection_id(source, target)
+            if existing_id is not None:
+                self._preview.update_target(
+                    endpoint_to,
+                    valid=False,
+                    reason=f"These endpoints are already connected by {existing_id}.",
+                )
+                self._show_preview()
+                self._report_feedback(
+                    f"Wire not created: these endpoints are already connected ({existing_id})."
+                )
+                return None
             from uuid import uuid4
             command = CreateDraftConnectionCommand(
                 connection={
@@ -262,6 +309,49 @@ class WireTool(ToolBase):
             scope="core",
         )
 
+    def _existing_draft_connection_id(
+        self,
+        source: DraftEndpointReference,
+        target: DraftEndpointReference,
+    ) -> str | None:
+        """Avoid dispatching a duplicate draft wire for an existing endpoint pair."""
+        reader = getattr(self.application, "read_draft_network", None)
+        if not callable(reader):
+            return None
+        try:
+            snapshot = reader()
+        except (RuntimeError, TypeError, ValueError):
+            # The Application command handler remains the authoritative guard.
+            return None
+        if not isinstance(snapshot, dict):
+            return None
+        connections = snapshot.get("connections", ())
+        if not isinstance(connections, (list, tuple)):
+            return None
+        source_data = source.to_dict()
+        target_data = target.to_dict()
+        for item in connections:
+            if not isinstance(item, dict):
+                continue
+            connection_source = item.get("source")
+            connection_target = item.get("target")
+            if not isinstance(connection_source, dict) or not isinstance(connection_target, dict):
+                continue
+            if (
+                (connection_source == source_data and connection_target == target_data)
+                or (connection_source == target_data and connection_target == source_data)
+            ):
+                connection_id = item.get("connection_id")
+                return str(connection_id) if connection_id else "an existing draft connection"
+        return None
+
+    def _report_feedback(self, message: str) -> None:
+        for name in ("show_status_message", "set_status_message", "notify_user"):
+            callback = getattr(self.controller, name, None)
+            if callable(callback):
+                callback(message)
+                return
+
     def _show_preview(self) -> None:
         layer = self._preview_layer
         if layer is None or not callable(getattr(layer, "show_segment", None)):
@@ -269,6 +359,17 @@ class WireTool(ToolBase):
         if self._start_position is None or self._current_position is None:
             return
         layer.show_segment(self._start_position, self._current_position)
+        # PreviewLayer owns the transient graphics. Attach failure feedback to
+        # its current segment so the engineer can inspect the rejected route
+        # without making the preview item a domain or selection object.
+        reason = self._failure_reason or self._preview.validation_reason
+        items_getter = getattr(layer, "items", None)
+        if reason and callable(items_getter):
+            items = tuple(items_getter())
+            if items:
+                set_tooltip = getattr(items[-1], "setToolTip", None)
+                if callable(set_tooltip):
+                    set_tooltip(reason)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -299,6 +400,7 @@ class WireTool(ToolBase):
                 if callable(clear):
                     clear()
         self._start_position = None
+        self._failure_reason = ""
         self._start_snap = None
         self._current_position = None
         self._preview.reset()

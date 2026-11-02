@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Callable
 from uuid import uuid4
@@ -14,6 +15,9 @@ from core.application.bootstrap import create_application
 from core.application.errors import ExecutionError
 from core.application.events import ProjectLoaded
 from core.application.services.sld_service import SLDService
+from core.plugin_sdk import EngineeringPluginHost
+from plugins.motor_dynamics.plugin import MotorDynamicsPlugin
+from plugins.motor_dynamics.dashboard import MotorTelemetryDashboardWidget
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
@@ -27,7 +31,7 @@ from ui.controllers.study_case_controller import StudyCaseController
 from ui.core.controller import Controller
 from ui.core.action_router import UIActionRouter
 from ui.core.action_definition import ActionDefinition
-from ui.core.action_catalog import build_action_definitions
+from ui.core.action_catalog import build_action_definitions, surface_action_definitions
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
 from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout
@@ -66,11 +70,11 @@ from ui.editors.study.study_tool_runtime import StudyToolRuntime
 from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
-from core.application.commands.draft_commands import CommitNetworkCommand
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
 from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
+from core.application.commands.draft_commands import RemoveDraftConnectionCommand, RemoveDraftEquipmentCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -99,14 +103,26 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
         if isinstance(workspace_controller, WorkspaceController): _invoke_cleanup(workspace_controller.close, errors)
     ui_update_boundary = resources.get("ui_update_boundary")
     if isinstance(ui_update_boundary, UIUpdateBoundary): _invoke_cleanup(ui_update_boundary.dispose, errors)
+    motor_dynamics_dashboard = resources.get("motor_dynamics_dashboard")
+    if isinstance(motor_dynamics_dashboard, MotorTelemetryDashboardWidget):
+        _invoke_cleanup(motor_dynamics_dashboard.close, errors)
     plugin_manager = resources.get("plugin_manager")
     if isinstance(plugin_manager, PluginManager): _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    engineering_plugin_host = resources.get("engineering_plugin_host")
+    if isinstance(engineering_plugin_host, EngineeringPluginHost):
+        _invoke_cleanup(engineering_plugin_host.shutdown_all, errors)
 
 
-def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager) -> None:
+def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager, engineering_plugin_host: EngineeringPluginHost | None = None, motor_dynamics_dashboard: MotorTelemetryDashboardWidget | None = None) -> None:
     errors: list[BaseException] = []; _invoke_cleanup(ui_lifecycle.close, errors)
     if not ui_lifecycle.closed: _invoke_cleanup(workspace_controller.close, errors)
-    _invoke_cleanup(ui_update_boundary.dispose, errors); _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    _invoke_cleanup(ui_update_boundary.dispose, errors)
+    # The UI subscriber is closed before its headless engineering publisher.
+    if motor_dynamics_dashboard is not None:
+        _invoke_cleanup(motor_dynamics_dashboard.close, errors)
+    _invoke_cleanup(plugin_manager.shutdown_all, errors)
+    if engineering_plugin_host is not None:
+        _invoke_cleanup(engineering_plugin_host.shutdown_all, errors)
     if errors: raise errors[0]
 
 
@@ -131,6 +147,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     style_manager.apply(app)
     startup_splash.status("Initializing engineering application…")
     network = Network(); gridforge_application = create_application(network)
+    # Engineering plugins have a lifecycle owner separate from UI composition.
+    # This composition root explicitly opts Motor Dynamics in and passes only
+    # its existing Application-owned registration adapter; no services are cloned.
+    engineering_plugin_host = EngineeringPluginHost(gridforge_application)
+    resources["engineering_plugin_host"] = engineering_plugin_host
+    motor_dynamics_plugin = MotorDynamicsPlugin()
+    engineering_plugin_host.activate(
+        motor_dynamics_plugin,
+        services={
+            "motor_dynamics_composition": gridforge_application.motor_dynamics_composition,
+        },
+    )
     startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
 
@@ -181,7 +209,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         application=gridforge_application,
     )
     resources["sld_controller"] = sld_controller
-    sld_canvas_projection = SLDCanvasProjection()
+    sld_canvas_projection = SLDCanvasProjection(
+        read_model_provider=sld_projection_manager.read_model,
+    )
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_preparation.scene,
         item_factory=presentation_bootstrap.sld_graphics_item_factory,
@@ -265,6 +295,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     root_widget = QWidget()
     root_widget.setObjectName("GridForgeShellRoot")
     window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
+    # The engineering plugin stays headless; the composition root explicitly
+    # attaches its optional telemetry projection to the Study workspace.
+    motor_dynamics_dashboard = MotorTelemetryDashboardWidget(
+        motor_dynamics_plugin.read_models,
+        event_bus=gridforge_application.event_bus,
+    )
+    resources["motor_dynamics_dashboard"] = motor_dynamics_dashboard
     icon = branding.icon()
     if icon is not None:
         window.setWindowIcon(icon)
@@ -278,7 +315,13 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         editor_type = str(getattr(editor, "editor_type", "sld"))
         active_tool = workspace_surface_host.active_tool_id_for(editor_type)
         definition = workspace_surface_host.tool_definition_for(editor_type, active_tool)
-        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+        # The shared SelectionManager is the SLD selection authority only.
+        # Other editor disciplines must not inherit hidden/late SLD selection.
+        selected_ids = (
+            tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+            if editor_type == "sld"
+            else ()
+        )
         engineering = engineering_context.current.with_updates(
             project_id=getattr(getattr(gridforge_application.project_lifecycle, "context", None), "project_id", None),
             document_id=project_workspace_lifecycle.documents.active_document_id,
@@ -339,6 +382,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
     project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
 
+    def _reset_interaction_for_project_transition():
+        # Project replacement discards transient placement state; unlike a
+        # document switch, it must not persist that state into the old project.
+        controller.clear_tool()
+        controller.set_tool("select")
+
+        # If the Application/lifecycle transition fails, leave the still-active
+        # old project in a deterministic safe interaction mode. Never recreate
+        # the discarded creation session or its stale preview.
+        def restore_safe_interaction() -> None:
+            controller.set_tool("select")
+
+        return restore_safe_interaction
+
+    project_workspace_adapter.configure_project_transition_guard(
+        _reset_interaction_for_project_transition
+    )
+
     status_plugin = None
 
     def _refresh_status() -> None:
@@ -394,35 +455,25 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _show_equipment_browser() -> None:
-        workspace_controller.activate(SLD_WORKSPACE_ID)
-        workspace_controller.realizer.focus_region("main-sld", "explorer")
+        # The explorer Region is intentionally hidden in the default SLD layout.
+        # Open it through the workspace host instead of trying to focus a hidden
+        # Region (WorkspaceRealizer correctly rejects invisible Regions).
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
+        workspace_surface_host.toggle_region("sld", "explorer")
 
     def _show_study_cases() -> None:
-        workspace_controller.activate(STUDY_WORKSPACE_ID)
-        workspace_controller.realizer.focus_region("main-study", "explorer")
+        # The Study editor has a timeline region, not the SLD-only explorer.
+        # Activate its main area instead of requesting a nonexistent Region.
+        _activate_workspace(STUDY_WORKSPACE_ID, "study")
+        workspace_controller.realizer.focus_area("main-study")
 
     def _show_unconfigured_surface(title: str) -> None:
         QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
 
     def _commit_network() -> None:
-        """Commit the active DraftNetwork through the canonical Application command boundary."""
-        draft = gridforge_application.draft_network
-        if draft is None:
-            raise RuntimeError("No active DraftNetwork is available.")
-        errors = tuple(draft.validate())
-        if errors:
-            raise ValueError("Draft validation failed: " + "; ".join(errors))
-        context = gridforge_application.project_lifecycle.context
-        if context is None:
-            raise RuntimeError("COMMIT NETWORK requires an active project.")
-        generation = int(gridforge_application.project_lifecycle.activation_generation)
-        command = CommitNetworkCommand(
-            project_id=context.project_id,
-            activation_generation=generation,
-            draft_network=draft.to_dict(),
-        )
+        """Commit DraftNetwork through the canonical Application operation."""
         try:
-            result = gridforge_application.execute(command)
+            result = gridforge_application.commit_draft_network()
         except ExecutionError as exc:
             # Expected Application execution failures are surfaced once at
             # this UI boundary; retain structured and causal diagnostics.
@@ -436,6 +487,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 "Commit Network",
                 diagnostic,
             )
+            return
+        except (RuntimeError, ValueError, TypeError) as exc:
+            # Application preconditions and draft-contract errors are expected
+            # user-facing failures, not uncaught UI exceptions.
+            QMessageBox.critical(window, "Commit Network", str(exc))
             return
         if not result.success:
             # Some Application integrations return a failed result instead
@@ -499,8 +555,25 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                 str(element.element_type),
                 str(element.object_id),
             )
+            element_type = str(read_model.element_type).strip().lower()
+            if element_type not in {"bus", "transformer", "breaker"}:
+                messages_panel.append_message(
+                    f"Copy skipped: semantic paste is not defined for {element_type}."
+                )
+                continue
+            if element_type == "transformer" and not bool(
+                getattr(read_model, "attributes", {}).get("in_service", True)
+            ):
+                # CreateTransformerCommand has no in_service field and there
+                # is no canonical Transformer service-state command. Pasting
+                # this item would silently reactivate an out-of-service unit.
+                messages_panel.append_message(
+                    "Copy skipped: Transformer service state cannot yet be "
+                    "preserved by the canonical create command."
+                )
+                continue
             sld_clipboard.append({
-                "element_type": str(read_model.element_type),
+                "element_type": element_type,
                 "attributes": dict(getattr(read_model, "attributes", {}) or {}),
                 "labels": dict(getattr(read_model, "labels", {}) or {}),
                 "position": (float(node.x), float(node.y)),
@@ -615,6 +688,38 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
                     raise RuntimeError(result.message)
                 continue
 
+            # Draft equipment has not crossed the Application commit boundary;
+            # remove it through the registered DraftNetwork command, never by
+            # deleting only its transient graphics item.
+            draft_snapshot = gridforge_application.read_draft_network()
+            draft_equipment = (
+                (draft_snapshot or {}).get("equipment", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
+                result = gridforge_application.execute(
+                    RemoveDraftEquipmentCommand(draft_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
+            draft_connections = (
+                (draft_snapshot or {}).get("connections", ())
+                if isinstance(draft_snapshot, dict) else ()
+            )
+            if any(
+                str(item.get("connection_id", "")) == str(selected_id)
+                for item in draft_connections
+                if isinstance(item, dict)
+            ):
+                result = gridforge_application.execute(
+                    RemoveDraftConnectionCommand(connection_id=str(selected_id))
+                )
+                if not result.success:
+                    raise RuntimeError(result.message)
+                continue
+
             node = _find_sld_node(selected_id)
             if node is not None and getattr(node, "equipment_id", None) is None:
                 result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
@@ -629,7 +734,29 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        if not selected_ids:
+            return
+
         _copy_selection()
+        if len(sld_clipboard) != len(selected_ids):
+            messages_panel.append_message(
+                "Cut canceled: one or more selected items cannot be copied "
+                "as semantic equipment. Nothing was deleted."
+            )
+            return
+
+        # Deletion currently dispatches one command per object and does not
+        # provide an atomic batch/rollback boundary. A multi-object Cut could
+        # therefore delete earlier objects before a later command fails.
+        # Keep Cut non-destructive until Application exposes an atomic batch.
+        if len(selected_ids) > 1:
+            messages_panel.append_message(
+                "Cut canceled: multi-object Cut is unavailable until deletion "
+                "supports an atomic Application batch. Nothing was deleted."
+            )
+            return
+
         _delete_selection()
 
     def _selected_sld_nodes() -> tuple[object, ...]:
@@ -664,18 +791,41 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         controller.set_tool("select", cancel_active_creation=True)
 
     def _activate_workspace(workspace_id: str, surface_id: str) -> None:
+        # Publish context only after the canonical workspace transition succeeds.
+        # The visible editor and action router must share one active discipline.
         workspace_controller.activate(workspace_id)
+
+        # Selection belongs to the active presentation, not to every workspace.
+        # Clear the shared SLD selection after a successful workspace switch so
+        # stale IDs cannot leak into another editor's context or action routing.
+        canvas_composition.selection_manager.clear()
+        active_tool = workspace_surface_host.active_tool_id_for(surface_id)
         engineering_context.update(
-            discipline=surface_id if surface_id in {"sld", "control", "protection"} else engineering_context.current.discipline,
+            discipline=surface_id,
+            active_tool=active_tool,
+            selected_ids=(),
+        )
+
+    def _activate_surface(surface_id: str) -> None:
+        # Topology and Map are compatibility surfaces outside WorkspaceController.
+        # Keep their context transition explicit so SLD-only actions are disabled.
+        workspace_surface_host.activate(surface_id)
+        # These surfaces do not own the shared SLD selection. Do not carry
+        # selected SLD IDs into their editor context or action-state evaluation.
+        canvas_composition.selection_manager.clear()
+        engineering_context.update(
+            discipline=surface_id,
+            active_tool=None,
+            selected_ids=(),
         )
 
     def _toggle_sld_maximize() -> None:
-        workspace_controller.activate(SLD_WORKSPACE_ID)
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
         maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
         workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
 
     def _toggle_sld_region(region_id: str) -> None:
-        workspace_controller.activate(SLD_WORKSPACE_ID)
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
         workspace_surface_host.toggle_region("sld", region_id)
 
     action_router.register_many({
@@ -698,8 +848,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "view.control_workspace": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
         "view.protection_workspace": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
         "view.study_workspace": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
-        "view.topology": lambda: workspace_surface_host.activate("topology"),
-        "view.map": lambda: workspace_surface_host.activate("map"),
+        "view.topology": lambda: _activate_surface("topology"),
+        "view.map": lambda: _activate_surface("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
         "view.maximize_editor": _toggle_sld_maximize,
         "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
@@ -815,50 +965,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if not action_router.has(alias):
             action_router.register_alias(alias, canonical)
 
-    # Legacy surface actions that are not aliases retain presentation metadata.
-    _legacy_action_metadata = {
-        "project.new": ("New Project", "Create a new project.", "Ctrl+N", "file"),
-        "project.open": ("Open Project…", "Open an existing project.", "Ctrl+O", "file"),
-        "project.save": ("Save Project", "Save the active project.", "Ctrl+S", "file"),
-        "project.save_as": ("Save Project As…", "Save the active project to a new path.", "Ctrl+Shift+S", "file"),
-        "project.close": ("Close Project", "Close the active project.", "Ctrl+W", "file"),
-        "application.exit": ("Exit", "Exit GridForge.", "Alt+F4", "file"),
-        "edit.select_all": ("Select All", "Select all visible objects.", "Ctrl+A", "edit"),
-        "edit.cut": ("Cut", "Copy and remove the selection.", "Ctrl+X", "edit"),
-        "edit.box_select": ("Box Select", "Select objects inside a rectangle.", None, "edit"),
-        "edit.move": ("Move", "Move selected objects.", None, "edit"),
-        "edit.drag_move": ("Drag Move", "Drag selected objects through the Select tool.", None, "edit"),
-        "edit.rotate": ("Rotate", "Rotate selected symbols.", None, "edit"),
-        "edit.mirror_horizontal": ("Mirror H", "Mirror selected symbols horizontally.", None, "edit"),
-        "edit.mirror_vertical": ("Mirror V", "Mirror selected symbols vertically.", None, "edit"),
-        "network.commit_draft": ("Commit Network", "Commit the active DraftNetwork.", "Ctrl+Shift+Enter", "project"),
-        "view.sld_workspace": ("SLD", "Activate the SLD workspace.", None, "workspace"),
-        "view.control_workspace": ("Control", "Activate the Control workspace.", None, "workspace"),
-        "view.protection_workspace": ("Protection", "Activate the Protection workspace.", None, "workspace"),
-        "view.study_workspace": ("Study", "Activate the Study workspace.", None, "workspace"),
-        "view.topology": ("Topology", "Show the topology projection.", None, "workspace"),
-        "view.map": ("Map", "Show persisted SLD geometry.", None, "workspace"),
-        "view.reports": ("Reports", "Show published study results.", None, "workspace"),
-        "view.maximize_editor": ("Maximize Editor", "Maximize or restore the active SLD editor.", "Ctrl+Space", "view"),
-        "view.toggle_explorer": ("Explorer", "Show or hide the SLD project explorer.", None, "view"),
-        "view.toggle_inspector": ("Inspector", "Show or hide the SLD inspector.", None, "view"),
-        "view.toggle_messages": ("Messages", "Show or hide SLD validation and messages.", None, "view"),
-        "view.toggle_tool_settings": ("Tool Settings", "Show or hide contextual tool settings.", None, "view"),
-        "view.equipment_browser": ("Equipment Browser", "Open the equipment browser.", None, "workspace"),
-        "study.cases": ("Study Cases", "Open Study Cases.", None, "study"),
-        "help.about": ("About GridForge", "About GridForge V2.", None, "help"),
-    }
-    for _action_id, (_title, _description, _shortcut, _category) in _legacy_action_metadata.items():
-        if action_router.has(_action_id):
-            action_router.set_definition(
-                ActionDefinition(
-                    action_id=_action_id,
-                    title=_title,
-                    description=_description,
-                    shortcut=_shortcut,
-                    category=_category,
-                )
-            )
+    # Canonical non-tool surface metadata is owned by the action catalog.
+    # The composition root binds those definitions to already-registered routes;
+    # it does not maintain a second metadata table.
+    for definition in surface_action_definitions():
+        if action_router.has(definition.action_id):
+            action_router.set_definition(definition)
 
     def _action_enabled(action_id: str) -> bool:
         context = engineering_context.current
@@ -866,7 +978,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         selected = bool(context.selected_ids)
         active_tool = context.active_tool
         discipline = context.discipline
-        if action_id in {"project.save", "project.save_as", "project.close", "network.commit_draft",
+        # These routed handlers operate on the SLD canvas/selection manager.
+        # Do not advertise them as available while another editor owns focus;
+        # otherwise a shortcut or menu action can mutate the hidden SLD.
+        sld_only_actions = {
+            "select", "move", "pan", "zoom_in", "zoom_out", "fit_view",
+            "copy", "paste", "delete", "sld_select", "sld_move", "sld_wire",
+            "edit.select_all", "edit.cut", "edit.box_select", "edit.move",
+            "edit.drag_move", "edit.rotate", "edit.mirror_horizontal",
+            "edit.mirror_vertical",
+        }
+        if action_id in sld_only_actions and (not project_active or discipline != "sld"):
+            return False
+
+        if action_id in {"project.save", "project.save_as", "project.close",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
                          "view.protection_workspace", "view.topology", "view.map", "view.reports",
                          "view.maximize_editor", "view.toggle_explorer", "view.toggle_inspector",
@@ -891,9 +1016,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             return project_active and bool(getattr(controller, "can_undo", lambda: False)())
         if action_id in {"redo", "edit.redo"}:
             return project_active and bool(getattr(controller, "can_redo", lambda: False)())
+        if action_id == "network.commit_draft":
+            if not project_active or discipline != "sld":
+                return False
+            # Do not advertise Commit when the authoritative draft is empty.
+            # Read the Application snapshot rather than inferring draft state
+            # from canvas items, selection, or Qt presentation objects.
+            try:
+                draft_snapshot = gridforge_application.read_draft_network()
+            except (RuntimeError, ValueError, TypeError):
+                return False
+            if not isinstance(draft_snapshot, dict):
+                return False
+            draft_equipment = draft_snapshot.get("equipment", ())
+            draft_connections = draft_snapshot.get("connections", ())
+            return bool(draft_equipment or draft_connections)
         if action_id in {"delete", "edit.delete_selection", "copy", "edit.copy", "edit.cut", "edit.rotate",
                          "edit.mirror_horizontal", "edit.mirror_vertical"}:
-            return project_active and selected
+            return project_active and discipline == "sld" and selected
         if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
         if action_id in {"edit.box_select", "edit.move", "edit.drag_move"}:
@@ -939,22 +1079,78 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     if not callable(synchronize_canvas):
         raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
 
+    def _attempt_workspace_sync_step(step: str, operation: Callable[[], None], change: ProjectWorkspaceChanged) -> None:
+        try:
+            operation()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Project workspace projection step failed: operation=%s project_id=%s step=%s",
+                change.operation,
+                change.project_id,
+                step,
+            )
+
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
+        project = change.state.project
+        next_document_id = document.document_id if isinstance(document, SLDDocument) else None
+
+        def update_context() -> None:
+            current_context = engineering_context.current
+            if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
+                canvas_composition.selection_manager.clear()
+            engineering_context.update(
+                project_id=getattr(project, "project_id", None),
+                project_name=getattr(project, "name", None),
+                document_id=next_document_id,
+                discipline=(
+                    "sld"
+                    if change.operation in {"new", "open"}
+                    else current_context.discipline
+                ),
+                selected_ids=tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids()),
+            )
+
+        # These are independent projection steps after the Application transition
+        # commits. A failure in one step must not prevent the remaining surfaces
+        # from attempting to synchronize to the authoritative workspace state.
+        _attempt_workspace_sync_step("engineering context", update_context, change)
         if isinstance(document, SLDDocument):
-            sld_controller.reconcile_presentation()
-            engineering_context.update(document_id=document.document_id)
-            workspace_surface_host.set_sld_document(document)
-            workspace_surface_host.refresh_sld_document_tabs()
-            synchronize_canvas()
+            _attempt_workspace_sync_step("SLD presentation reconciliation", sld_controller.reconcile_presentation, change)
+            _attempt_workspace_sync_step(
+                "active SLD surface",
+                lambda: workspace_surface_host.set_sld_document(document),
+                change,
+            )
+        else:
+            _attempt_workspace_sync_step(
+                "clear active SLD surface",
+                lambda: workspace_surface_host.set_sld_document(None),
+                change,
+            )
+
+        _attempt_workspace_sync_step("SLD document tabs", workspace_surface_host.refresh_sld_document_tabs, change)
+        _attempt_workspace_sync_step("canvas synchronization", synchronize_canvas, change)
+
+        def update_properties_panel() -> None:
+            properties_panel = panels_plugin.get_panel("properties")
+            if isinstance(document, SLDDocument):
+                document_changed = getattr(properties_panel, "handle_sld_document_changed", None)
+                if callable(document_changed):
+                    document_changed()
+            else:
+                clear_annotations = getattr(properties_panel, "clear_sld_annotation_controls", None)
+                if callable(clear_annotations):
+                    clear_annotations()
+
+        _attempt_workspace_sync_step("properties panel", update_properties_panel, change)
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
 
     def _new_sld_document() -> None:
-        document = project_workspace_adapter.new_sld_document()
-        engineering_context.update(document_id=document.document_id)
-        workspace_surface_host.refresh_sld_document_tabs()
-        synchronize_canvas()
+        # The adapter publishes ProjectWorkspaceChanged after activation;
+        # handle_project_workspace_changed is the sole UI synchronization path.
+        project_workspace_adapter.new_sld_document()
 
     def _close_sld_document(document_id: str) -> None:
         document = project_workspace_adapter.documents.require(document_id)
@@ -973,15 +1169,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         else:
             decision = "discard"
         try:
+            # Successful transitions publish once through the adapter. The
+            # subscribed handler refreshes tabs, context, canvas and inspector.
             project_workspace_adapter.close_document(document_id, decision=decision)
         except BaseException as exc:
             QMessageBox.critical(window, "Close SLD Document", str(exc))
-            return
-        workspace_surface_host.refresh_sld_document_tabs()
-        active = project_workspace_adapter.lifecycle.document
-        if isinstance(active, SLDDocument):
-            engineering_context.update(document_id=active.document_id)
-        synchronize_canvas()
 
     workspace_surface_host.configure_sld_document_lifecycle(
         project_workspace_lifecycle.documents,
@@ -991,12 +1183,46 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     workspace_surface_host.refresh_sld_document_tabs()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
-    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
+    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, symbol_registry=presentation_bootstrap.symbol_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, services={"motor_dynamics_composition": getattr(gridforge_application, "motor_dynamics_composition", None)}, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "engineering_context_store": engineering_context, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
+    # Menu and toolbar enabled states are projections of the canonical action
+    # router. Refresh them whenever selection, workspace, project, or tool
+    # context changes outside an action-trigger callback.
+    def _refresh_action_presentations(_context: object) -> None:
+        for plugin_id in ("menu", "toolbar"):
+            entry = plugin_registry.get_entry(plugin_id)
+            plugin = entry.plugin if entry is not None else None
+            refresh = getattr(plugin, "refresh_enabled_states", None)
+            if callable(refresh):
+                refresh()
+
+    engineering_context.subscribe(_refresh_action_presentations)
+    # Command-history availability can change without an engineering-context
+    # update (for example, a canvas command). Refresh menu/toolbar QAction state
+    # whenever the canonical Controller reports a state transition.
+    controller.state_changed.connect(
+        lambda: _refresh_action_presentations(engineering_context.current)
+    )
+    _refresh_action_presentations(engineering_context.current)
     status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); equipment_panel = panels_plugin.get_panel("equipment"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("equipment", equipment_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+
+    def _report_action_failure(action_id: str, error: Exception) -> None:
+        """Surface routed UI/Application failures in the persistent Messages panel."""
+        code = str(getattr(error, "code", "") or type(error).__name__)
+        message = str(getattr(error, "message", "") or error)
+        details = getattr(error, "details", None)
+        diagnostic = f"Action failed [{action_id}] — {code}: {message}"
+        if details:
+            diagnostic += f" | Details: {dict(details)!r}"
+        cause = getattr(error, "cause", None)
+        if cause is not None:
+            diagnostic += f" | Cause: {cause}"
+        messages_panel.append_message(diagnostic)
+
+    action_router.set_error_handler(_report_action_failure)
     # Utility panels are physically re-homed into editor Regions. Their
     # QDockWidget wrappers remain compatibility-only.
     detached = {}
@@ -1032,6 +1258,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_surface_host.set_region_widgets(
         "study",
         explorer=detached.get("study_cases"),
+        inspector=motor_dynamics_dashboard,
     )
 
     def _on_render_diagnostic(diagnostic: object) -> None:
@@ -1046,7 +1273,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_canvas_render_system.bind_diagnostic_sink(_on_render_diagnostic)
     for diagnostic in sld_canvas_render_system.render_diagnostics:        _on_render_diagnostic(diagnostic)
     def study_case_error_handler(error: BaseException) -> None:
-        QMessageBox.critical(window, "Run Study", str(error))
+        QMessageBox.critical(window, "Study Case", str(error))
 
     study_case_controller = StudyCaseController(
         application=gridforge_application,
@@ -1054,21 +1281,52 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     study_tool_runtime.bind_study_case_controller(study_case_controller)
     study_cases_panel.set_run_handler(study_case_controller.run_study)
+    study_cases_panel.set_create_handler(study_case_controller.create_study_case)
     resources["study_case_controller"] = study_case_controller
 
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
+    properties_panel.bind_sld_annotation_runtime(controller=sld_controller, selection_manager=canvas_composition.selection_manager)
     workspace_controller.activate_default()
+    # Initial workspace activation may not publish a ProjectWorkspaceChanged
+    # event; explicitly synchronize the annotation inspector after binding.
+    active_sld_document = project_workspace_lifecycle.documents.active_document
+    if isinstance(active_sld_document, SLDDocument):
+        properties_panel.handle_sld_document_changed()
+    else:
+        properties_panel.clear_sld_annotation_controls()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas, draft_projection=canvas_composition.draft_sld_projection)
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
     if callable(bind_project_selection):
         bind_project_selection(canvas_composition.selection_manager)
-    canvas_composition.selection_manager.selection_changed.connect(lambda ids: (engineering_context.update(selected_ids=ids), workspace_surface_host.refresh_selection_context(ids)))
+    def _on_selection_changed(ids: object) -> None:
+        # The shared SelectionManager represents SLD selection only. Ignore
+        # late/hidden-canvas selection notifications while another discipline
+        # owns the active editor context.
+        if engineering_context.current.discipline != "sld":
+            return
+        engineering_context.update(selected_ids=ids)
+        workspace_surface_host.refresh_selection_context(ids)
+
+    canvas_composition.selection_manager.selection_changed.connect(_on_selection_changed)
+
+    def _on_controller_tool_changed(current: object, previous: object) -> None:
+        # This Controller owns SLD tool state. Do not let a hidden SLD tool
+        # change overwrite the active Control/Protection/Study tool context.
+        if engineering_context.current.discipline == "sld":
+            engineering_context.update(active_tool=current)
+        workspace_surface_host.refresh_tool_shelves()
+
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
-        controller.tool_changed.connect(lambda current, previous: (engineering_context.update(active_tool=current), workspace_surface_host.refresh_tool_shelves()))
-    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
+        controller.tool_changed.connect(_on_controller_tool_changed)
+    def _update_study_result_overlay(result: object | None) -> None:
+        """Refresh the SLD only when the selected result snapshot changes."""
+        if sld_canvas_projection.set_study_result(result):
+            synchronize_canvas()
+
+    element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel, result_changed=_update_study_result_overlay)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
@@ -1131,6 +1389,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     app.processEvents()
     startup_splash.finish(window)
     resources.pop("startup_splash", None)
+    # Keep the established six-item build_application() return contract.
+    # The engineering host is a composition-root lifecycle resource, attached
+    # to the returned window for main() to shut down without changing callers.
+    setattr(window, "_engineering_plugin_host", engineering_plugin_host)
+    setattr(window, "_motor_dynamics_dashboard", motor_dynamics_dashboard)
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
 
 
@@ -1141,9 +1404,15 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
 
 
 def main() -> int:
-    app, _window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = build_application()
+    app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = build_application()
+    engineering_plugin_host = getattr(window, "_engineering_plugin_host", None)
+    if not isinstance(engineering_plugin_host, EngineeringPluginHost):
+        raise RuntimeError("EngineeringPluginHost was not retained by the composition root.")
+    motor_dynamics_dashboard = getattr(window, "_motor_dynamics_dashboard", None)
+    if not isinstance(motor_dynamics_dashboard, MotorTelemetryDashboardWidget):
+        raise RuntimeError("Motor Dynamics dashboard was not retained by the composition root.")
     try: return int(app.exec())
-    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager)
+    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager, engineering_plugin_host=engineering_plugin_host, motor_dynamics_dashboard=motor_dynamics_dashboard)
 
 
 if __name__ == "__main__": raise SystemExit(main())

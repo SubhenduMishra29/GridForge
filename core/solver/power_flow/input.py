@@ -12,10 +12,11 @@ contract and the separately prepared YBus representation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from math import isfinite
 from numbers import Real
+from uuid import uuid4
 from typing import Sequence
 
 
@@ -60,8 +61,12 @@ class PowerFlowInput:
     q_max: tuple[float | None, ...]
     initial_vm: tuple[float, ...]
     initial_va: tuple[float, ...]
+    snapshot_id: str = field(default_factory=lambda: uuid4().hex)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.snapshot_id, str) or not self.snapshot_id.strip():
+            raise ValueError("PowerFlowInput snapshot_id must be a non-empty string.")
+        object.__setattr__(self, "snapshot_id", self.snapshot_id.strip())
         bus_ids = tuple(_validate_bus_id(value, "bus_id") for value in self.bus_ids)
         bus_types = tuple(self._normalize_bus_type(value) for value in self.bus_types)
         p_spec = tuple(_validate_finite_real(value, "p_spec") for value in self.p_spec)
@@ -142,7 +147,7 @@ class PowerFlowInput:
         return self.bus_types[self.index_of(bus_id)]
 
     def as_dict(self) -> dict[str, object]:
-        return {"bus_ids": self.bus_ids, "bus_types": tuple(t.value for t in self.bus_types), "p_spec": self.p_spec, "q_spec": self.q_spec, "q_min": self.q_min, "q_max": self.q_max, "initial_vm": self.initial_vm, "initial_va": self.initial_va}
+        return {"bus_ids": self.bus_ids, "bus_types": tuple(t.value for t in self.bus_types), "p_spec": self.p_spec, "q_spec": self.q_spec, "q_min": self.q_min, "q_max": self.q_max, "initial_vm": self.initial_vm, "initial_va": self.initial_va, "snapshot_id": self.snapshot_id}
 
 
 __all__ = ["PowerFlowBusType", "PowerFlowInput"]

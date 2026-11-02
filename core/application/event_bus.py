@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+import logging
 from threading import RLock
 from typing import TypeVar
 
@@ -22,6 +23,7 @@ from .events import ApplicationEvent
 
 EventHandler = Callable[[ApplicationEvent], None]
 E = TypeVar("E", bound=ApplicationEvent)
+_LOGGER = logging.getLogger(__name__)
 
 
 class ApplicationEventBus:
@@ -66,7 +68,18 @@ class ApplicationEventBus:
             raise TypeError("event must be an ApplicationEvent")
 
         for handler in self._snapshot_handlers(type(event)):
-            handler(event)
+            try:
+                handler(event)
+            except Exception:
+                # Publication follows an authoritative Application operation
+                # in several paths. An observer failure must not make a
+                # committed command appear to have failed or prevent later
+                # projections from receiving the same event.
+                _LOGGER.exception(
+                    "Application event subscriber failed: event_type=%s handler=%r",
+                    event.event_type,
+                    handler,
+                )
 
     def clear(self) -> None:
         with self._lock:

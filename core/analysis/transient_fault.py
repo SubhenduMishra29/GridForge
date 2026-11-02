@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from core.solver.short_circuit.fault_types import FaultType
 
@@ -21,7 +22,10 @@ class TransientFault:
         if not bus_id:
             raise ValueError("Transient fault bus_id must be non-empty.")
         object.__setattr__(self, "bus_id", bus_id)
-        object.__setattr__(self, "impedance", complex(self.impedance))
+        impedance = complex(self.impedance)
+        if not math.isfinite(impedance.real) or not math.isfinite(impedance.imag):
+            raise ValueError("Transient fault impedance must have finite real and imaginary components.")
+        object.__setattr__(self, "impedance", impedance)
         if self.fault_type is not FaultType.THREE_PHASE:
             raise ValueError(
                 "Transient algebraic fault coupling currently supports only THREE_PHASE faults."

@@ -177,7 +177,7 @@ class ToolManager:
         *,
         cancel_active_creation: bool = False,
     ) -> Any | None:
-        """Activate a tool, optionally cancelling an explicit user-requested draft switch."""
+        """Activate a tool, optionally cancelling transient creation/interaction state."""
         self._ensure_active()
         if tool_id is not None:
             self._validate_tool_id(tool_id)
@@ -190,28 +190,37 @@ class ToolManager:
                     definition = self._definition_for_tool(tool_id)
                     if definition is not None:
                         self.creation_context.begin(definition)
+                        # Re-selecting the active equipment tool starts a new
+                        # creation session without changing the tool ID. Notify
+                        # observers so the Properties panel re-enters creation
+                        # mode and enables Place Draft Equipment.
+                        self._notify_controller_tool_change(tool_id, tool_id)
                 return self._active_tool
 
         previous_id = self._active_tool_id
         previous_tool = self._active_tool
         previous_draft = self.creation_context.snapshot_draft()
 
-        # Only an explicit caller may authorize cancellation of the active
-        # transient creation session.  Palette switching uses this path; other
+        # Only an explicit caller may authorize cancellation of transient
+        # creation/interaction state. Palette switching uses this path; other
         # callers retain the strict lifecycle guard below.
         if (
             cancel_active_creation
-            and previous_tool is not None
             and previous_id != tool_id
-            and self.creation_context.active
+            and (self.creation_context.active or self._interaction_tool is not None)
         ):
-            persist = getattr(previous_tool, "persist_transient_draft", None)
-            if callable(persist):
-                persist()
+            if previous_tool is not None and self.creation_context.active:
+                persist = getattr(previous_tool, "persist_transient_draft", None)
+                if callable(persist):
+                    persist()
             self.cancel()
 
-        # An active creation session may not be destroyed implicitly by a
-        # tool switch.  The caller must explicitly authorize cancellation.
+        # Neither a creation session nor a temporary interaction may be
+        # abandoned implicitly during tool switching.
+        if previous_id != tool_id and self._interaction_tool is not None:
+            raise RuntimeError(
+                "Active interaction must be explicitly cancelled before switching tools."
+            )
         if previous_tool is not None and previous_id != tool_id and self.creation_context.active:
             raise RuntimeError(
                 "Active equipment creation must be explicitly cancelled before switching tools."
@@ -318,13 +327,42 @@ class ToolManager:
             return False
         result = handler(event)
         handled = bool(result) if result is not None else True
+
+        key = getattr(event, "key", None)
+        if callable(key):
+            key = key()
+        if isinstance(event, dict):
+            key = event.get("key", key)
+        cancel_requested = method_name == "key_press" and key in (
+            "Escape", "escape", "Key_Escape", 0x01000000, 16777216,
+        )
+        if cancel_requested:
+            had_draft = self.creation_context.active
+            # A temporary insertion interaction can share the preview layer
+            # with its parent placement tool. Escape must clear both owners'
+            # transient state before the next CreationDraft can be started.
+            if self._interaction_tool is not None:
+                parent_tool = self._active_tool
+                if parent_tool is not None and parent_tool is not self._interaction_tool:
+                    try:
+                        parent_tool.cancel()
+                    except Exception:
+                        _LOGGER.exception(
+                            "Failed to clear parent tool state after Escape; "
+                            "continuing transient creation cancellation"
+                        )
+            self.creation_context.cancel()
+            callback = getattr(self.controller, "_on_creation_cancelled", None)
+            if callable(callback) and had_draft:
+                callback()
+
         if self._interaction_tool is not None and method_name in {"mouse_release", "key_press"}:
-            if method_name == "key_press" and not getattr(event, "key", None) and isinstance(event, dict) and event.get("key") not in ("Escape", "Key_Escape", 16777216):
+            if method_name == "key_press" and not cancel_requested:
                 return handled
             if method_name == "mouse_release" and not handled:
                 return handled
             self._clear_interaction_tool()
-            if method_name == "mouse_release" or method_name == "key_press":
+            if method_name == "mouse_release":
                 self.creation_context.cancel()
         return handled
 
@@ -402,14 +440,21 @@ class ToolManager:
         return bool(place())
 
     def cancel(self) -> bool:
+        """Cancel the temporary interaction and its parent creation session."""
         self._ensure_active()
-        if self._interaction_tool is not None:
-            result = bool(self._interaction_tool.cancel())
+        interaction_tool = self._interaction_tool
+        result = False
+        if interaction_tool is not None:
+            result = bool(interaction_tool.cancel())
             self._clear_interaction_tool()
-            return result
-        if self._active_tool is None:
-            return False
-        result = bool(self._active_tool.cancel())
+
+        # A temporary insertion tool does not own the parent placement tool's
+        # cursor/placement state. Clear that state as part of the same cancel
+        # operation so a later CreationDraft cannot inherit stale preview IDs.
+        active_tool = self._active_tool
+        if active_tool is not None and active_tool is not interaction_tool:
+            result = bool(active_tool.cancel()) or result
+
         had_draft = self.creation_context.active
         self.creation_context.cancel()
         callback = getattr(self.controller, "_on_creation_cancelled", None)
@@ -421,6 +466,12 @@ class ToolManager:
         self._ensure_active()
         if self._active_tool is not None:
             self._active_tool.reset()
+        had_draft = self.creation_context.active
+        if had_draft:
+            self.creation_context.cancel()
+            callback = getattr(self.controller, "_on_creation_cancelled", None)
+            if callable(callback):
+                callback()
 
     def get_state(self) -> dict[str, Any]:
         return {

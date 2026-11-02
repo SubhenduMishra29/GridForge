@@ -791,12 +791,30 @@ class ProtectionElement:
                         raise RuntimeError(
                             f"Application-validated measurement snapshot is missing for element '{self.id}', input '{input_name}'."
                         )
+                    from .relay_input import DerivedRelayMeasurement
+                    derived_input = isinstance(relay_input.channel, DerivedRelayMeasurement)
                     if (
                         snapshot.get("channel_id") != relay_input.channel_id
                         or snapshot.get("channel_identity") != id(relay_input.channel)
+                        or (
+                            derived_input
+                            and snapshot.get("input_kind") != "DERIVED_RESIDUAL_CURRENT"
+                        )
+                        or (
+                            not derived_input
+                            and snapshot.get("input_kind") == "DERIVED_RESIDUAL_CURRENT"
+                        )
                     ):
                         raise RuntimeError(
-                            f"Measurement binding changed after validation for element '{self.id}', input '{input_name}'."
+                            f"Measurement source identity/kind changed after Application validation for element '{self.id}', input '{input_name}'."
+                        )
+                    if derived_input and (
+                        not snapshot.get("source_binding_ids")
+                        or snapshot.get("source_mode") not in {"THREE_PHASE_SUM", "NEUTRAL_CT", "CBCT"}
+                        or not snapshot.get("measurement_point_id")
+                    ):
+                        raise RuntimeError(
+                            f"Derived residual-current snapshot lacks complete source provenance for element '{self.id}'."
                         )
                     relay_input._set_evaluation_snapshot(snapshot)
                     installed_snapshots.append(relay_input)

@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel
-from ui.core.qt import QPointF
+from ui.core.qt import QPointF, QTransform
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.equipment.equipment_factory import EquipmentFactory
@@ -84,9 +85,19 @@ class SLDGraphicsItemFactory:
                 end=end,
                 attachment_count=definition.attachment_count,
             )
+            # Bus endpoints are already oriented by the canonical presentation
+            # definition. Apply only the symbol-instance rotation here to avoid
+            # rotating that geometry twice.
+            mirror_x = bool(symbol_instance.get_property("mirror_x", False))
+            mirror_y = bool(symbol_instance.get_property("mirror_y", False))
+            item.setTransform(
+                QTransform.fromScale(
+                    -1.0 if mirror_x else 1.0,
+                    -1.0 if mirror_y else 1.0,
+                )
+            )
             item.setScale(symbol_instance.scale)
-            item.setRotation(definition.orientation_deg + symbol_instance.rotation)
-            item.setScale(symbol_instance.scale * (-1.0 if symbol_instance.get_property("mirror_x", False) else 1.0))
+            item.setRotation(symbol_instance.rotation)
             item.setVisible(symbol_instance.visible)
             return item
 
@@ -153,12 +164,17 @@ class SLDGraphicsItemFactory:
 
     @staticmethod
     def _read_model_for_node(node: SLDCanvasNode, equipment_type: str) -> ElementReadModel:
-        """Build a presentation snapshot only from the projected SLD node.
+        """Use the current Application snapshot, with a legacy presentation fallback.
 
-        The graphics factory is deliberately downstream of the Application
-        read/projection boundary. It must never query Application/Core state to
-        decide whether an already-projected SLD node is renderable.
+        Canonical read data is injected by SLDCanvasProjection through the
+        presentation projection manager. The graphics factory never queries
+        Application/Core state itself.
         """
+        if node.read_model is not None:
+            if node.equipment_id and node.read_model.object_id != node.equipment_id:
+                raise ValueError("Projected Application read-model identity does not match the SLD node.")
+            return node.read_model
+
         equipment_id = node.equipment_id or str(
             node.properties.get("equipment_id") or node.node_id
         )
@@ -206,10 +222,20 @@ class SLDGraphicsItemFactory:
 
     @staticmethod
     def _validate_point(point: QPointF, name: str) -> None:
+        """Reject malformed or non-finite anchors before creating scene geometry."""
         if point is None:
             raise ValueError(f"{name} must not be None")
-        if not callable(getattr(point, "x", None)) or not callable(getattr(point, "y", None)):
+        x_getter = getattr(point, "x", None)
+        y_getter = getattr(point, "y", None)
+        if not callable(x_getter) or not callable(y_getter):
             raise TypeError(f"{name} must provide x() and y()")
+        try:
+            x = float(x_getter())
+            y = float(y_getter())
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TypeError(f"{name} coordinates must be real numeric values") from exc
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError(f"{name} coordinates must be finite")
 
 
 __all__ = ["SLDGraphicsItemFactory"]

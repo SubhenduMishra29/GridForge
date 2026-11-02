@@ -6,14 +6,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Mapping
+import logging
+from dataclasses import dataclass, fields, is_dataclass
+from typing import Any, Callable
 from uuid import UUID
 
+from core.application.revision import ProjectRevision
+
+_LOGGER = logging.getLogger(__name__)
+
 from core.application.events import (
+    ElementCreated,
+    ElementRemoved,
+    ElementUpdated,
+    NetworkCommitted,
+    NetworkChanged,
+    ProtectionChanged,
     ProjectClosed,
     ProjectLoaded,
+    SLDPresentationChanged,
+    TopologyChanged,
     StudyCancelled,
+    StudyCaseCreated,
     StudyCompleted,
     StudyFailed,
     StudyStarted,
@@ -32,29 +47,313 @@ class StudyCaseRow:
     message: str = ""
 
 
+def _flatten_result_value(
+    value: Any,
+    *,
+    prefix: str = "value",
+    depth: int = 0,
+    max_depth: int = 4,
+    budget: list[int] | None = None,
+) -> list[str]:
+    """Format bounded result data for display without changing its engineering value."""
+    if budget is None:
+        budget = [80]
+    if budget[0] <= 0:
+        return []
+    budget[0] -= 1
+
+    if value is None or isinstance(value, (bool, int, float, complex, str)):
+        rendered = repr(value) if isinstance(value, str) else str(value)
+        return [f"{prefix}: {rendered}"]
+
+    if depth >= max_depth:
+        return [f"{prefix}: {value!r}"]
+
+    if isinstance(value, Mapping):
+        if not value:
+            return [f"{prefix}: {{}}"]
+        output: list[str] = []
+        for key, item in value.items():
+            output.extend(_flatten_result_value(
+                item, prefix=f"{prefix}.{key}", depth=depth + 1,
+                max_depth=max_depth, budget=budget,
+            ))
+            if budget[0] <= 0:
+                break
+        return output
+
+    if is_dataclass(value) and not isinstance(value, type):
+        output = []
+        for item in fields(value):
+            try:
+                field_value = getattr(value, item.name)
+            except Exception:
+                continue
+            output.extend(_flatten_result_value(
+                field_value, prefix=f"{prefix}.{item.name}", depth=depth + 1,
+                max_depth=max_depth, budget=budget,
+            ))
+            if budget[0] <= 0:
+                break
+        return output or [f"{prefix}: {type(value).__name__} (no fields)"]
+
+    if isinstance(value, (tuple, list, set, frozenset)):
+        values = tuple(value)
+        if not values:
+            return [f"{prefix}: []"]
+        output = []
+        for index, item in enumerate(values[:20]):
+            output.extend(_flatten_result_value(
+                item, prefix=f"{prefix}[{index}]", depth=depth + 1,
+                max_depth=max_depth, budget=budget,
+            ))
+            if budget[0] <= 0:
+                break
+        if len(values) > 20:
+            output.append(f"{prefix}: … {len(values) - 20} additional items omitted")
+        return output
+
+    # Numerical libraries may expose array-like results without being imported
+    # into the UI layer. Convert only through their public value conversion API.
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        try:
+            return _flatten_result_value(
+                tolist(), prefix=prefix, depth=depth + 1,
+                max_depth=max_depth, budget=budget,
+            )
+        except Exception:
+            pass
+
+    return [f"{prefix}: {value!r}"]
+
+
+def _protection_result_lines(value: Any) -> tuple[str, ...]:
+    """Expose protection coordination, transient grades and diagnostics explicitly."""
+    lines = ["Protection engineering detail:"]
+    engineering_status = getattr(value, "status", None)
+    if engineering_status is not None:
+        lines.append(f"Protection evaluation status: {engineering_status}")
+    execution = getattr(value, "execution", None)
+    decisions = tuple(getattr(execution, "decisions", ()) or ())
+    lines.append(f"Measurement-snapshot decisions: {len(decisions)}")
+    for index, decision in enumerate(decisions):
+        lines.extend(_flatten_result_value(
+            decision,
+            prefix=f"protection.execution.decisions[{index}]",
+            max_depth=5,
+            budget=[24],
+        ))
+    diagnostics = tuple(getattr(value, "diagnostics", ()) or ())
+    lines.append(f"Protection diagnostics: {len(diagnostics)}")
+    lines.extend(f"protection.diagnostic: {item}" for item in diagnostics[:40])
+
+    scenarios = tuple(getattr(value, "fault_scenarios", ()) or ())
+    lines.append(f"Fault scenarios: {len(scenarios)}")
+    for index, scenario in enumerate(scenarios):
+        prefix = f"protection.fault_scenarios[{index}]"
+        lines.append(f"{prefix}.scenario_id: {getattr(scenario, 'scenario_id', 'unknown')}")
+        scenario_configuration = getattr(scenario, "configuration", None)
+        lines.append(
+            f"{prefix}.fault_bus_id: {getattr(scenario_configuration, 'fault_bus_id', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.fault_type: {getattr(scenario_configuration, 'fault_type', 'unknown')}"
+        )
+        lines.append(f"{prefix}.short_circuit_status: {getattr(scenario, 'status', 'unknown')}")
+        lines.append(
+            f"{prefix}.measurement_contributions_complete: "
+            f"{getattr(scenario, 'measurement_contributions_complete', 'unknown')}"
+        )
+        lines.append(
+            f"{prefix}.relay_evaluation_completed: "
+            f"{getattr(scenario, 'relay_evaluation_completed', 'unknown')}"
+        )
+        delta_loop_currents = tuple(
+            getattr(scenario, "transformer_delta_loop_currents", ()) or ()
+        )
+        if delta_loop_currents:
+            lines.append(
+                f"{prefix}.internal_transformer_delta_loop_currents: "
+                "diagnostic only; not CT/CBCT measurements"
+            )
+            lines.extend(_flatten_result_value(
+                delta_loop_currents,
+                prefix=f"{prefix}.transformer_delta_loop_currents",
+                max_depth=4,
+                budget=[24],
+            ))
+        scenario_execution = getattr(scenario, "execution", None)
+        scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
+        lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
+        for decision_index, decision in enumerate(scenario_decisions):
+            lines.extend(_flatten_result_value(
+                decision,
+                prefix=f"{prefix}.relay_decisions[{decision_index}]",
+                max_depth=5,
+                budget=[32],
+            ))
+        scenario_diagnostics = tuple(getattr(scenario, "diagnostics", ()) or ())
+        scenario_diagnostics += tuple(getattr(scenario_execution, "diagnostics", ()) or ())
+        lines.append(f"{prefix}.diagnostics_count: {len(scenario_diagnostics)}")
+        lines.extend(f"{prefix}.diagnostic: {item}" for item in scenario_diagnostics[:30])
+
+        coordination = getattr(scenario, "coordination_report", None)
+        if coordination is None:
+            lines.append(f"{prefix}.static_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.static_coordination: report available")
+            lines.extend(_flatten_result_value(
+                coordination,
+                prefix=f"{prefix}.static_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+
+        transient = getattr(scenario, "transient_coordination_report", None)
+        if transient is None:
+            lines.append(f"{prefix}.transient_coordination: not produced")
+        else:
+            lines.append(f"{prefix}.transient_coordination: report available")
+            lines.extend(_flatten_result_value(
+                transient,
+                prefix=f"{prefix}.transient_coordination",
+                max_depth=6,
+                budget=[100],
+            ))
+        transient_diagnostics = tuple(
+            getattr(scenario, "transient_coordination_diagnostics", ()) or ()
+        )
+        lines.extend(
+            f"{prefix}.transient_diagnostic: {item}"
+            for item in transient_diagnostics[:30]
+        )
+    return tuple(lines)
+
+
+def _result_lines(result: Any) -> tuple[str, ...]:
+    """Build a bounded read-only summary for the selected Study Result."""
+    lines = [
+        f"Study type: {result.study_type}",
+        f"Status: {result.status}",
+        f"Freshness: {'CURRENT' if result.current else 'STALE'}",
+        f"Project: {result.project_id}",
+        f"Source revision: {result.source_revision}",
+    ]
+    if result.message:
+        lines.append(f"Message: {result.message}")
+    if result.metadata:
+        lines.extend(_flatten_result_value(result.metadata, prefix="metadata"))
+    if result.value is None:
+        lines.append("value: no numerical payload was published")
+    elif str(result.study_type).strip().lower() == "protection":
+        lines.extend(_protection_result_lines(result.value))
+    else:
+        lines.extend(_flatten_result_value(result.value))
+    return tuple(lines)
+
+def _study_event_matches_active_project(application: Any, payload: Any) -> bool:
+    """Reject lifecycle events emitted by a different project activation."""
+    if not hasattr(payload, "get"):
+        return False
+    project_id = payload.get("project_id")
+    generation = payload.get("activation_generation")
+    if project_id is None or generation is None:
+        return False
+    try:
+        lifecycle = application.project_lifecycle
+        context = lifecycle.context
+        active = (
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+        )
+        return bool(
+            active
+            and str(project_id) == str(context.project_id)
+            and int(generation) == int(lifecycle.activation_generation)
+        )
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+
+def _result_lines(result: Any) -> tuple[str, ...]:
+    """Build a bounded read-only summary for the selected Study Result."""
+    lines = [
+        f"Study type: {result.study_type}",
+        f"Status: {result.status}",
+        f"Freshness: {'CURRENT' if result.current else 'STALE'}",
+        f"Project: {result.project_id}",
+        f"Source revision: {result.source_revision}",
+    ]
+    if result.message:
+        lines.append(f"Message: {result.message}")
+    if result.metadata:
+        lines.extend(_flatten_result_value(result.metadata, prefix="metadata"))
+    if result.value is None:
+        lines.append("value: no numerical payload was published")
+    elif str(result.study_type).strip().lower() == "protection":
+        lines.extend(_protection_result_lines(result.value))
+    else:
+        lines.extend(_flatten_result_value(result.value))
+    return tuple(lines)
+
 
 class StudyProjection:
-    """Project Application-owned study lifecycle and results into Study Cases."""
+    """Project Application-owned study lifecycle and results into the Study Cases UI."""
 
     event_types = (
         ProjectLoaded,
         ProjectClosed,
+        ElementCreated,
+        ElementRemoved,
+        ElementUpdated,
+        NetworkCommitted,
         StudyStarted,
         StudyCompleted,
         StudyFailed,
         StudyCancelled,
+        StudyCaseCreated,
+        NetworkChanged,
+        TopologyChanged,
+        ProtectionChanged,
+        SLDPresentationChanged,
     )
 
-    def __init__(self, *, application: Any, panel: Any) -> None:
+    def __init__(
+        self,
+        *,
+        application: Any,
+        panel: Any,
+        result_changed: Callable[[Any | None], object] | None = None,
+    ) -> None:
         if application is None or not callable(getattr(application, "read_study_result", None)):
             raise TypeError("application must provide read_study_result().")
         if panel is None or not callable(getattr(panel, "set_cases", None)):
             raise TypeError("panel must provide set_cases().")
+        if result_changed is not None and not callable(result_changed):
+            raise TypeError("result_changed must be callable or None.")
         self._application = application
         self._panel = panel
+        self._result_changed = result_changed
         self._cases: tuple[StudyCaseRow, ...] = ()
         self._active: dict[str, dict[str, str]] = {}
+        self._results: dict[UUID, Any] = {}
+        self._selected_study_id: UUID | None = None
         self._disposed = False
+        bind_selection = getattr(panel, "set_result_selection_handler", None)
+        if callable(bind_selection):
+            bind_selection(self.select_result)
+        bind_archive_selection = getattr(panel, "set_archive_selection_handler", None)
+        if callable(bind_archive_selection):
+            bind_archive_selection(self.select_archived_result)
+        bind_archive_comparison = getattr(panel, "set_archive_comparison_handler", None)
+        if callable(bind_archive_comparison):
+            bind_archive_comparison(self.compare_archived_results)
+        bind_archive_search = getattr(panel, "set_archive_search_handler", None)
+        if callable(bind_archive_search):
+            bind_archive_search(self.search_archived_results)
+        self._refresh_all_results()
+        self._render()
 
     @property
     def cases(self) -> tuple[StudyCaseRow, ...]:
@@ -63,13 +362,73 @@ class StudyProjection:
     def refresh(self, event: Any) -> None:
         if self._disposed:
             return
-        if isinstance(event, (ProjectLoaded, ProjectClosed)):
+        if isinstance(event, ProjectClosed):
             self._active.clear()
+            self._results.clear()
             self._cases = ()
+            self._selected_study_id = None
             self._panel.set_cases(())
+            self._show_empty_result()
             return
 
+        if isinstance(event, ProjectLoaded):
+            self._active.clear()
+            self._results.clear()
+            self._selected_study_id = None
+            self._refresh_all_results()
+            self._render()
+            if not self._cases:
+                self._show_empty_result()
+            return
+
+        if isinstance(event, StudyCaseCreated):
+            payload = getattr(event, "payload", {})
+            if not _study_event_matches_active_project(self._application, payload):
+                return
+            self._refresh_all_results()
+            self._render()
+            payload = getattr(event, "payload", {})
+            study_id = payload.get("study_id") if hasattr(payload, "get") else None
+            try:
+                case_id = UUID(str(study_id))
+            except (TypeError, ValueError):
+                return
+            select_case = getattr(self._panel, "select_case", None)
+            if callable(select_case):
+                select_case(case_id)
+            return
+
+        if isinstance(event, (
+            ElementCreated,
+            ElementRemoved,
+            ElementUpdated,
+            NetworkCommitted,
+            NetworkChanged,
+            TopologyChanged,
+            ProtectionChanged,
+            SLDPresentationChanged,
+        )):
+            # Invalidate the selected result projection on both granular Core
+            # mutation events and aggregate revision events. Event families can
+            # differ by command path; relying on NetworkChanged alone can leave
+            # a formerly-current result overlay visible after a committed edit.
+            self._refresh_all_results()
+            self._render()
+            if self._selected_study_id is not None:
+                # Refreshing the cache alone is insufficient: the canvas owns
+                # only a projection of the last callback payload. Re-select the
+                # same result identity so current/stale status is re-evaluated
+                # and the SLD overlay is explicitly replaced or cleared.
+                self.select_result(self._selected_study_id)
+            elif not self._cases:
+                self._show_empty_result()
+            return
+
+        if not isinstance(event, (StudyStarted, StudyCompleted, StudyFailed, StudyCancelled)):
+            return
         payload = getattr(event, "payload", {})
+        if not _study_event_matches_active_project(self._application, payload):
+            return
         study_id = payload.get("study_id") if hasattr(payload, "get") else None
         study_type = payload.get("study_type") if hasattr(payload, "get") else None
         if study_id is None:
@@ -81,12 +440,23 @@ class StudyProjection:
             "study_type": str(study_type or "study"),
             "status": status,
         }
+        if status == "started":
+            # Do not leave a previous successful run projected while a rerun
+            # is in progress. The stored historical result may remain readable,
+            # but it must not be presented as the output of this execution.
+            try:
+                started_id = UUID(str(study_id))
+            except (TypeError, ValueError):
+                return
+            self._results.pop(started_id, None)
         if status in {"completed", "failed", "cancelled"}:
             try:
                 result = self._application.read_study_result(UUID(str(study_id)))
             except (TypeError, ValueError):
                 result = None
             if result is not None:
+                result_id = result.study_id
+                self._results[result_id] = result
                 entry["study_type"] = str(result.study_type)
                 entry["status"] = str(result.status)
                 entry["current"] = "true" if bool(getattr(result, "current", False)) else "false"
@@ -94,6 +464,284 @@ class StudyProjection:
                     entry["message"] = str(result.message)
         self._active[str(study_id)] = entry
         self._render()
+        if status == "started" and self._selected_study_id == UUID(str(study_id)):
+            self.select_result(self._selected_study_id)
+            return
+        # A completed run is immediately inspectable, while subsequent selection
+        # remains authoritative for which result is shown.
+        if status in {"completed", "failed", "cancelled"} and self._selected_study_id is None:
+            try:
+                self.select_result(UUID(str(study_id)))
+            except (TypeError, ValueError):
+                self._show_empty_result()
+
+    def _refresh_all_results(self) -> None:
+        """Reload active Study Cases and project-scoped results after mutations."""
+        read_network = getattr(self._application, "read_network", None)
+        set_available_buses = getattr(self._panel, "set_available_buses", None)
+        if callable(read_network) and callable(set_available_buses):
+            try:
+                network = read_network()
+                set_available_buses(
+                    element.object_id
+                    for element in getattr(network, "elements", ())
+                    if str(getattr(element, "element_type", "")).strip().lower() == "bus"
+                )
+            except Exception:
+                _LOGGER.exception("Study Case Bus choices could not be refreshed")
+
+        try:
+            cases = tuple(getattr(self._application, "study_cases", ()))
+            revision = getattr(self._application, "revision", None)
+        except Exception:
+            _LOGGER.exception("Study Case read-model refresh failed")
+            cases = ()
+            revision = None
+
+        for case in cases:
+            case_id = getattr(case, "study_id", None)
+            if not isinstance(case_id, UUID):
+                continue
+            source_revision = getattr(case, "source_revision", None)
+            current = (
+                isinstance(source_revision, ProjectRevision)
+                and source_revision.matches_study_state(revision)
+            )
+            existing = self._active.get(str(case_id), {})
+            status = "started" if existing.get("status") == "started" else "ready"
+            self._active[str(case_id)] = {
+                "study_id": str(case_id),
+                "study_type": str(getattr(case, "study_type", "study")),
+                "status": status,
+                "current": "true" if current else "false",
+                "message": (
+                    "Study Case configuration was created against an earlier project revision."
+                    if not current else ""
+                ),
+            }
+
+        reader = getattr(self._application, "read_study_results", None)
+        if not callable(reader):
+            return
+        try:
+            results = tuple(reader())
+        except Exception:
+            _LOGGER.exception("Study result read-model refresh failed")
+            return
+
+        self._results.clear()
+        for result in results:
+            result_id = getattr(result, "study_id", None)
+            if not isinstance(result_id, UUID):
+                continue
+            self._results[result_id] = result
+            # A refresh during a rerun may still read the previous completed
+            # result from Application storage. Preserve the in-flight state
+            # until this execution publishes its terminal lifecycle event.
+            existing = self._active.get(str(result_id), {})
+            if existing.get("status") == "started":
+                continue
+            study_type = str(getattr(result, "study_type", "study"))
+            status = str(getattr(result, "status", "unknown"))
+            self._active[str(result_id)] = {
+                "study_id": str(result_id),
+                "study_type": study_type,
+                "status": status,
+                "current": "true" if bool(getattr(result, "current", False)) else "false",
+                "message": str(getattr(result, "message", "") or ""),
+            }
+
+        archive_reader = getattr(self._application, "read_archived_study_results", None)
+        archive_setter = getattr(self._panel, "set_archived_results", None)
+        if callable(archive_reader) and callable(archive_setter):
+            try:
+                archive_setter(tuple(archive_reader()))
+            except Exception:
+                _LOGGER.exception("Archived Study Result history refresh failed")
+
+    def search_archived_results(self, query: str) -> None:
+        """Apply the Study Cases panel's text filter to durable execution history."""
+        reader = getattr(self._application, "read_archived_study_results", None)
+        setter = getattr(self._panel, "set_archived_results", None)
+        if not callable(reader) or not callable(setter):
+            return
+        try:
+            setter(tuple(reader(search=str(query))))
+        except Exception:
+            _LOGGER.exception("Archived Study Result search failed")
+            setter(())
+
+    def compare_archived_results(self, record_ids: tuple[UUID, ...]) -> None:
+        """Render a provenance-aware comparison of exactly two archive records."""
+        if len(record_ids) != 2:
+            self._set_result_details(
+                "Study Result Comparison",
+                ("Select exactly two archived executions, then choose Compare Selected Executions.",),
+            )
+            self._notify_result_changed(None)
+            return
+        compare = getattr(self._application, "compare_archived_study_results", None)
+        if not callable(compare):
+            self._set_result_details("Study Result Comparison", ("Archive comparison is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            result = compare(record_ids[0], record_ids[1])
+        except Exception:
+            _LOGGER.exception("Archived Study Result comparison failed")
+            self._set_result_details("Study Result Comparison", ("The selected executions could not be compared.",))
+            self._notify_result_changed(None)
+            return
+        lines = [
+            f"Compatibility: {'COMPATIBLE' if result.compatible else 'INCOMPATIBLE'}",
+            result.compatibility_message,
+            f"Same source revision: {result.same_source_revision}",
+            f"Same activation generation: {result.same_activation_generation}",
+            f"Numerical comparison: {result.numeric_comparison_status}",
+        ]
+        if result.numeric_deltas:
+            lines.append("Base-compatible electrical value deltas (RIGHT - LEFT):")
+            for delta in result.numeric_deltas:
+                lines.append(
+                    f"{delta.path}: {delta.left_value} -> {delta.right_value}; "
+                    f"Δ={delta.delta} {delta.unit}; bases={delta.base}"
+                )
+        else:
+            lines.append(
+                "No numeric values were compared: canonical units and identical "
+                "engineering bases were not available for matching result fields."
+            )
+        for label, row in (("LEFT", result.left), ("RIGHT", result.right)):
+            lines.extend((
+                f"--- {label} EXECUTION ---",
+                f"Record: {row.record_id}",
+                f"Saved at (UTC): {row.saved_at}",
+                f"Study Case: {row.study_id}",
+                f"Project: {row.project_id}",
+                f"Activation generation: {row.activation_generation}",
+                f"Source revision: {row.source_revision}",
+                f"Study type/status: {row.study_type} / {row.status}",
+            ))
+            lines.extend(_flatten_result_value(row.value, prefix=f"{label.lower()}.value"))
+            delta_loops = getattr(row, "transformer_delta_loop_currents", ())
+            if delta_loops:
+                lines.append(f"{label} internal delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+                lines.extend(_flatten_result_value(delta_loops, prefix=f"{label.lower()}.delta_loop"))
+        self._set_result_details("Study Result Comparison", tuple(lines))
+        self._notify_result_changed(None)
+
+    def select_archived_result(self, record_id: UUID | None) -> None:
+        """Inspect a durable execution without projecting it as live SLD data."""
+        if record_id is None:
+            return
+        reader = getattr(self._application, "read_archived_study_result", None)
+        if not callable(reader):
+            self._set_result_details("Archived Study Result", ("Archive read service is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            record = reader(record_id)
+        except Exception:
+            _LOGGER.exception("Archived Study Result could not be loaded")
+            self._set_result_details("Archived Study Result", ("The selected archive record could not be loaded.",))
+            self._notify_result_changed(None)
+            return
+        lines = (
+            f"Archive record: {record.record_id}",
+            f"Saved at (UTC): {record.saved_at}",
+            f"Study Case: {record.study_id}",
+            f"Project: {record.project_id}",
+            f"Activation generation: {record.activation_generation}",
+            f"Source revision: {record.source_revision}",
+            f"Study type: {record.study_type}",
+            f"Status: {record.status}",
+        )
+        details = list(lines)
+        if record.message:
+            details.append(f"Message: {record.message}")
+        details.extend(_flatten_result_value(record.metadata, prefix="metadata"))
+        if record.value is None:
+            details.append("value: no numerical payload was published")
+        else:
+            details.extend(_flatten_result_value(record.value))
+        delta_loops = getattr(record, "transformer_delta_loop_currents", ())
+        if delta_loops:
+            details.append("Internal transformer delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+            details.extend(_flatten_result_value(delta_loops, prefix="transformer_delta_loop_currents"))
+        self._set_result_details(f"Archived {record.study_type.replace('_', ' ').title()} Result", tuple(details))
+        # Historical archive values are inspectable, but are never sent to SLD
+        # overlays or treated as current solver output.
+        self._notify_result_changed(None)
+
+    def select_result(self, study_id: UUID | None) -> None:
+        """Display the result associated with the selected Study Case identity."""
+        self._selected_study_id = study_id
+        if study_id is None:
+            self._show_empty_result()
+            return
+        active_entry = self._active.get(str(study_id), {})
+        if active_entry.get("status") == "started":
+            self._set_result_details(
+                "Study In Progress",
+                (
+                    f"Study type: {active_entry.get('study_type', 'study')}",
+                    "A new execution is running; the previous numerical result is not current for this run.",
+                ),
+            )
+            self._notify_result_changed(None)
+            return
+        result = self._results.get(study_id)
+        if result is None:
+            try:
+                result = self._application.read_study_result(study_id)
+            except (TypeError, ValueError):
+                result = None
+            if result is not None:
+                self._results[study_id] = result
+        if result is None:
+            self._set_result_details("Study Result", ("No result has been published for this study.",))
+            self._notify_result_changed(None)
+            return
+        title = f"{result.study_type.replace('_', ' ').title()} Result"
+        lines = _result_lines(result)
+        self._set_result_details(title, lines)
+        # Numerical overlays are valid only for a completed, current result whose
+        # solver explicitly reports success when that contract is available.
+        # Keep historical result details inspectable, but never project failed,
+        # cancelled, stale, or explicitly non-converged numerical values onto SLD.
+        solver_success = getattr(result.value, "success", None)
+        protection_result = str(getattr(result, "study_type", "")).strip().lower() == "protection"
+        # Protection decisions are not confirmed breaker-state transitions.
+        # The generic numerical SLD overlay has no typed protection annotation
+        # contract, so keep those details in the Study Result panel only.
+        overlay_result = (
+            result
+            if not protection_result
+            and str(getattr(result, "status", "")).strip().lower() == "completed"
+            and bool(getattr(result, "current", False))
+            and solver_success is not False
+            else None
+        )
+        self._notify_result_changed(overlay_result)
+
+    def _set_result_details(self, title: str, lines: tuple[str, ...]) -> None:
+        setter = getattr(self._panel, "set_result_details", None)
+        if callable(setter):
+            setter(title, lines)
+
+    def _show_empty_result(self) -> None:
+        self._set_result_details("Study Results", ("Select a completed study to inspect its results.",))
+        self._notify_result_changed(None)
+
+    def _notify_result_changed(self, result: Any | None) -> None:
+        if self._result_changed is None:
+            return
+        try:
+            self._result_changed(result)
+        except Exception:
+            # SLD overlay refresh is an independent projection. A rendering
+            # failure must not hide the result details already shown in-panel.
+            _LOGGER.exception("Study result overlay refresh failed")
 
     def _render(self) -> None:
         rows: list[StudyCaseRow] = []
@@ -125,8 +773,11 @@ class StudyProjection:
         if self._disposed:
             return
         self._active.clear()
+        self._results.clear()
         self._cases = ()
+        self._selected_study_id = None
         self._panel.set_cases(())
+        self._show_empty_result()
         self._disposed = True
 
 

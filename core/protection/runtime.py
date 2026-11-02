@@ -9,7 +9,7 @@ from core.network.network import Network
 from .factory import ProtectionFactory
 from .project_configuration import ProtectionProjectConfiguration
 from .protection_system import ProtectionSystem
-from .relay_input import RelayInput
+from .relay_input import DerivedRelayMeasurement, RelayInput
 from .input_contracts import validate_protection_input_contracts
 from .configuration_fingerprint import canonical_configuration_value
 
@@ -109,6 +109,25 @@ class ProtectionRuntime:
                         f"'{item.element_id}' is not available."
                     ) from exc
                 relay_inputs[name] = RelayInput(name, channel)
+
+            if item.function_code in {"50N", "51N"}:
+                if item.residual_current_input is None:
+                    raise ValueError(
+                        f"ANSI {item.function_code} element '{item.element_id}' requires an explicit residual_current_input configuration."
+                    )
+                if "residual_current" in item.input_channel_ids:
+                    raise ValueError(
+                        "Residual current is a derived relay input and must not be configured as a physical MeasurementChannel."
+                    )
+                derived_source = DerivedRelayMeasurement(
+                    f"derived:{item.element_id}:residual_current"
+                )
+                relay_inputs["residual_current"] = RelayInput(
+                    "residual_current",
+                    derived_source,
+                    description="Application-resolved residual-current phasor",
+                    metadata={"source_kind": "DERIVED_RESIDUAL_CURRENT"},
+                )
 
             element = ProtectionFactory.create_element(
                 relay=relay,

@@ -244,6 +244,11 @@ class ProjectClosed(_OperationEvent):
     _EVENT_TYPE = "project.closed"
 
 
+class StudyCaseCreated(_OperationEvent):
+    """A structured, runnable Study Case was registered in Application scope."""
+    _EVENT_TYPE = "study.case_created"
+
+
 class StudyStarted(_OperationEvent):
     _EVENT_TYPE = "study.started"
 
@@ -288,7 +293,7 @@ __all__ = [
     "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed", "DraftChanged",
-    "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
+    "StudyCaseCreated", "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
     "ControlConnectionCreated", "ControlConnectionRemoved", "ControlDependencyCreated", "ControlDependencyRemoved",
     "ControlProgramChanged", "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",

@@ -55,7 +55,7 @@ class NewtonRaphsonSolver:
         else:
             vm = tuple(float(x) for x in self.runtime_state.vm)
             va = tuple(float(x) for x in self.runtime_state.va)
-        return PowerFlowResult(success=success, iterations=iterations, error=float(error), pv_to_pq=tuple(self._converted_pv), history=tuple(self.history), message=message, voltage_magnitudes=vm, voltage_angles=va, bus_ids=tuple(self.input.bus_ids))
+        return PowerFlowResult(success=success, iterations=iterations, error=float(error), pv_to_pq=tuple(self._converted_pv), history=tuple(self.history), message=message, voltage_magnitudes=vm, voltage_angles=va, bus_ids=tuple(self.input.bus_ids), snapshot_id=self.input.snapshot_id)
 
     def solve(self) -> PowerFlowResult:
         self.options.validate()

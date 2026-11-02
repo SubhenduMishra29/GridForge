@@ -1,0 +1,1000 @@
+# ============================================================
+# File: core/application/protection_study.py
+# GridForge V2 — Unified Protection Study Application Contract
+# Author: Subhendu Mishra
+# ============================================================
+
+"""Typed Protection Study configuration, result, and StudyService handler.
+
+The handler supports either one coherent live measurement-snapshot evaluation
+or explicit short-circuit fault scenarios converted through configured
+instrument/channel bindings into detached Application-authorized RelayInput
+snapshots. Unsupported instrument/result paths fail closed. The Study never
+dispatches trip commands or mutates breaker state.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from math import isfinite
+from types import MappingProxyType
+from typing import Any, Mapping
+from uuid import UUID
+
+from core.analysis.short_circuit import ShortCircuitAnalysis
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
+from core.analysis.short_circuit_preparation import ShortCircuitPreparation
+from core.solver.short_circuit.result import ContributionStatus, ShortCircuitResult, ShortCircuitStatus
+from core.application.services.ct_measurement_association_service import CTMeasurementAssociationService
+from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementAdapter
+
+from core.application.protection_execution import ProtectionExecutionResult
+from core.application.revision import ProjectRevision
+from core.protection.configuration_fingerprint import canonical_configuration_value
+from core.protection.decision import ProtectionDecision
+from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.runtime import ProtectionRuntime
+from core.protection.coordination_grading import (
+    CoordinationRelayCharacteristic,
+    CoordinationPair as ProtectionCoordinationPair,
+    FaultCurrentScenario,
+    RelayOperatingTimeEnvelope,
+    ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
+from core.protection.transient_coordination import (
+    RelayCurrentSample as CoreRelayCurrentSample,
+    RelayCurrentTrace,
+    TransientCoordinationReport,
+    grade_transient_protection_coordination,
+)
+from core.protection.relay_dynamic_characteristics import RelayDynamicEvidence
+
+
+def _freeze_mapping(value: Any, field_name: str) -> Any:
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"{field_name} keys must be non-empty strings.")
+            normalized_key = key.strip()
+            if normalized_key in normalized:
+                raise ValueError(f"{field_name} contains duplicate normalized key {normalized_key!r}.")
+            normalized[normalized_key] = _freeze_mapping(item, field_name)
+        return MappingProxyType(normalized)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_mapping(item, field_name) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_mapping(item, field_name) for item in value)
+    return value
+
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionCoordinationTimingEnvelopeConfiguration:
+    """Manufacturer/test timing bounds tied to one function and exact scenario current."""
+
+    function_id: str
+    current_a: float
+    minimum_time_s: float
+    maximum_time_s: float
+    evidence_reference: str
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "evidence_reference"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("current_a", "minimum_time_s", "maximum_time_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"{name} must be numeric.") from exc
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        if self.current_a <= 0.0:
+            raise ValueError("current_a must be positive for an inverse-time timing envelope.")
+        if self.maximum_time_s < self.minimum_time_s:
+            raise ValueError("maximum_time_s must be >= minimum_time_s.")
+
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionTransientCurrentTraceConfiguration:
+    """Function-bound relay-equivalent current-magnitude trace.
+
+    Samples are current magnitudes in the configured function's pickup basis.
+    They are not instantaneous signed RL waveform samples and must not be
+    populated directly from RLTransientFaultResult without a validated
+    measurement conversion.
+    """
+
+    function_id: str
+    measurement_binding_id: str
+    samples: tuple[CoreRelayCurrentSample, ...]
+    normalized_progress_model_confirmed: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "measurement_binding_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        samples = tuple(self.samples)
+        if len(samples) < 2 or any(not isinstance(item, CoreRelayCurrentSample) for item in samples):
+            raise TypeError("At least two typed relay-current samples are required.")
+        if any(right.time_s <= left.time_s for left, right in zip(samples, samples[1:])):
+            raise ValueError("Current trace timestamps must be strictly increasing.")
+        if self.normalized_progress_model_confirmed is not True:
+            raise ValueError("Relay-specific normalized-progress confirmation is required.")
+        object.__setattr__(self, "samples", samples)
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionCoordinationPairConfiguration:
+    """Explicit Application binding from two protection functions to scenario CT samples."""
+
+    downstream_element_id: str
+    upstream_element_id: str
+    downstream_binding_id: str
+    upstream_binding_id: str
+    downstream_breaker_clearing_time_s: float
+    required_cti_s: float
+    downstream_breaker_clearing_time_max_s: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "downstream_element_id", "upstream_element_id",
+            "downstream_binding_id", "upstream_binding_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if self.downstream_element_id == self.upstream_element_id:
+            raise ValueError("A coordination pair must reference two different protection functions.")
+        if self.downstream_binding_id == self.upstream_binding_id:
+            raise ValueError("A coordination pair must use distinct downstream and upstream measurement bindings.")
+        for name in ("downstream_breaker_clearing_time_s", "required_cti_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool):
+                raise TypeError(f"{name} must be numeric, not bool.")
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"{name} must be numeric.") from exc
+            if not isfinite(number) or number < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+            object.__setattr__(self, name, number)
+        maximum = self.downstream_breaker_clearing_time_max_s
+        if maximum is not None:
+            if isinstance(maximum, bool):
+                raise TypeError("downstream_breaker_clearing_time_max_s must be numeric, not bool.")
+            try:
+                maximum = float(maximum)
+            except (TypeError, ValueError) as exc:
+                raise TypeError("downstream_breaker_clearing_time_max_s must be numeric.") from exc
+            if not isfinite(maximum) or maximum < self.downstream_breaker_clearing_time_s:
+                raise ValueError("Maximum breaker clearing time must be finite and >= nominal clearing time.")
+            object.__setattr__(self, "downstream_breaker_clearing_time_max_s", maximum)
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionFaultScenario:
+    """One explicitly configured fault case evaluated from a detached project snapshot."""
+
+    scenario_id: str
+    configuration: ShortCircuitStudyConfiguration
+    coordination_timing_envelopes: tuple[ProtectionCoordinationTimingEnvelopeConfiguration, ...] = ()
+    transient_event_id: str | None = None
+    transient_current_traces: tuple[ProtectionTransientCurrentTraceConfiguration, ...] = ()
+    transient_dynamic_evidence: tuple[RelayDynamicEvidence, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
+            raise ValueError("scenario_id must be a non-empty string.")
+        object.__setattr__(self, "scenario_id", self.scenario_id.strip())
+        if not isinstance(self.configuration, ShortCircuitStudyConfiguration):
+            raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
+        envelopes = tuple(self.coordination_timing_envelopes)
+        if any(not isinstance(item, ProtectionCoordinationTimingEnvelopeConfiguration) for item in envelopes):
+            raise TypeError("coordination_timing_envelopes must contain typed timing-envelope configurations.")
+        function_ids = tuple(item.function_id for item in envelopes)
+        if len(set(function_ids)) != len(function_ids):
+            raise ValueError("A fault scenario may declare only one timing envelope per function.")
+        object.__setattr__(self, "coordination_timing_envelopes", envelopes)
+        traces = tuple(self.transient_current_traces)
+        evidence = tuple(self.transient_dynamic_evidence)
+        if traces and (not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip()):
+            raise ValueError("Transient traces require an explicit event ID.")
+        if self.transient_event_id is not None:
+            if not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip():
+                raise ValueError("transient_event_id must be non-empty or None.")
+            object.__setattr__(self, "transient_event_id", self.transient_event_id.strip())
+        if any(not isinstance(item, ProtectionTransientCurrentTraceConfiguration) for item in traces):
+            raise TypeError("Transient traces must use typed Application trace configurations.")
+        if any(not isinstance(item, RelayDynamicEvidence) for item in evidence):
+            raise TypeError("Transient evidence must use RelayDynamicEvidence.")
+        if evidence and not traces:
+            raise ValueError("Transient dynamic evidence requires explicit current traces.")
+        if len({item.function_id for item in traces}) != len(traces):
+            raise ValueError("Transient traces must have unique function IDs.")
+        if len({item.function_id for item in evidence}) != len(evidence):
+            raise ValueError("Transient evidence must have unique function IDs.")
+        if set(item.function_id for item in evidence) - set(item.function_id for item in traces):
+            raise ValueError("Transient evidence must match a configured current trace.")
+        object.__setattr__(self, "transient_current_traces", traces)
+        object.__setattr__(self, "transient_dynamic_evidence", evidence)
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionFaultScenarioResult:
+    """Immutable short-circuit result correlated to one Protection Study scenario."""
+
+    scenario_id: str
+    configuration: ShortCircuitStudyConfiguration
+    short_circuit_result: ShortCircuitResult
+    execution: ProtectionExecutionResult = field(default_factory=ProtectionExecutionResult)
+    relay_evaluation_completed: bool = False
+    coordination_report: ProtectionCoordinationReport | None = None
+    coordination_diagnostics: tuple[str, ...] = ()
+    transient_coordination_report: TransientCoordinationReport | None = None
+    transient_coordination_diagnostics: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
+            raise ValueError("scenario_id must be a non-empty string.")
+        object.__setattr__(self, "scenario_id", self.scenario_id.strip())
+        if not isinstance(self.configuration, ShortCircuitStudyConfiguration):
+            raise TypeError("configuration must be a ShortCircuitStudyConfiguration.")
+        if not isinstance(self.short_circuit_result, ShortCircuitResult):
+            raise TypeError("short_circuit_result must be a ShortCircuitResult.")
+        if not isinstance(self.execution, ProtectionExecutionResult):
+            raise TypeError("execution must be a ProtectionExecutionResult.")
+        if not isinstance(self.relay_evaluation_completed, bool):
+            raise TypeError("relay_evaluation_completed must be a boolean.")
+        if self.coordination_report is not None and not isinstance(self.coordination_report, ProtectionCoordinationReport):
+            raise TypeError("coordination_report must be ProtectionCoordinationReport or None.")
+        diagnostics = tuple(str(item) for item in self.coordination_diagnostics)
+        object.__setattr__(self, "coordination_diagnostics", diagnostics)
+        if self.transient_coordination_report is not None and not isinstance(self.transient_coordination_report, TransientCoordinationReport):
+            raise TypeError("transient_coordination_report must be TransientCoordinationReport or None.")
+        transient_diagnostics = tuple(str(item) for item in self.transient_coordination_diagnostics)
+        object.__setattr__(self, "transient_coordination_diagnostics", transient_diagnostics)
+        if self.short_circuit_result.fault_type is not self.configuration.fault_type:
+            raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
+        if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
+            raise ValueError("Short-circuit result fault Bus does not match its scenario configuration.")
+
+    @property
+    def status(self) -> ShortCircuitStatus:
+        return self.short_circuit_result.status
+
+    @property
+    def success(self) -> bool:
+        return self.short_circuit_result.success
+
+    @property
+    def contribution_status(self) -> ContributionStatus:
+        return self.short_circuit_result.contribution_status
+
+    @property
+    def measurement_contributions_complete(self) -> bool:
+        """Whether the active calculation domain produced complete measurement primitives."""
+        result = self.short_circuit_result
+        if result.provenance.get("calculation_domain") == "PHASE_DOMAIN":
+            return result.conductor_current_status is ContributionStatus.COMPLETE
+        return self.contribution_status is ContributionStatus.COMPLETE
+
+    @property
+    def transformer_delta_loop_currents(self) -> Mapping[str, Mapping[str, Any]]:
+        """Read-only internal transformer diagnostics; never a CT measurement source."""
+        return self.short_circuit_result.transformer_delta_loop_currents
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        return (
+            tuple(self.short_circuit_result.diagnostics)
+            + tuple(self.coordination_diagnostics)
+            + tuple(self.transient_coordination_diagnostics)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionStudyConfiguration:
+    """Immutable inputs for one Protection Study evaluation mode.
+
+    The project protection configuration is captured by value when the Study
+    Case is defined. A Study Case selects either a validated live measurement
+    snapshot or explicit detached short-circuit fault scenarios.
+    """
+
+    evaluation_time: float
+    protection_configuration: Mapping[str, Any]
+    timestep: float | None = None
+    event_id: str | None = None
+    event_type: str | None = "STUDY"
+    scenario_id: str | None = None
+    supervision: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    fault_scenarios: tuple[ProtectionFaultScenario, ...] = ()
+    coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.evaluation_time, bool):
+            raise TypeError("evaluation_time must be a finite numeric value.")
+        try:
+            evaluation_time = float(self.evaluation_time)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("evaluation_time must be a finite numeric value.") from exc
+        if not isfinite(evaluation_time) or evaluation_time < 0.0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+        object.__setattr__(self, "evaluation_time", evaluation_time)
+
+        if self.timestep is not None:
+            if isinstance(self.timestep, bool):
+                raise TypeError("timestep must be a finite non-negative numeric value or None.")
+            try:
+                timestep = float(self.timestep)
+            except (TypeError, ValueError) as exc:
+                raise TypeError("timestep must be a finite non-negative numeric value or None.") from exc
+            if not isfinite(timestep) or timestep < 0.0:
+                raise ValueError("timestep must be finite and non-negative.")
+            object.__setattr__(self, "timestep", timestep)
+
+        for name in ("event_id", "event_type", "scenario_id"):
+            value = getattr(self, name)
+            if value is not None:
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be a non-empty string or None.")
+                object.__setattr__(self, name, value.strip())
+
+        if not isinstance(self.protection_configuration, Mapping):
+            raise TypeError("protection_configuration must be a serialized ProtectionProjectConfiguration mapping.")
+        snapshot = ProtectionProjectConfiguration.from_dict(self.protection_configuration)
+        object.__setattr__(self, "protection_configuration", _freeze_mapping(snapshot.to_dict(), "protection_configuration"))
+
+        for name in ("supervision", "metadata"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise TypeError(f"{name} must be a mapping.")
+            object.__setattr__(self, name, _freeze_mapping(value, name))
+
+        scenarios = tuple(self.fault_scenarios)
+        if any(not isinstance(item, ProtectionFaultScenario) for item in scenarios):
+            raise TypeError("fault_scenarios must contain only ProtectionFaultScenario values.")
+        scenario_ids = tuple(item.scenario_id for item in scenarios)
+        if len(set(scenario_ids)) != len(scenario_ids):
+            raise ValueError("fault_scenarios must not contain duplicate scenario IDs.")
+        object.__setattr__(self, "fault_scenarios", scenarios)
+        pairs = tuple(self.coordination_pairs)
+        if any(not isinstance(item, ProtectionCoordinationPairConfiguration) for item in pairs):
+            raise TypeError("coordination_pairs must contain ProtectionCoordinationPairConfiguration values.")
+        pair_keys = tuple((item.downstream_element_id, item.upstream_element_id) for item in pairs)
+        if len(set(pair_keys)) != len(pair_keys):
+            raise ValueError("coordination_pairs must not contain duplicate downstream/upstream pairs.")
+        if pairs and not scenarios:
+            raise ValueError("Coordination grading requires explicit short-circuit fault scenarios.")
+        pair_function_ids = {
+            function_id
+            for pair in pairs
+            for function_id in (pair.downstream_element_id, pair.upstream_element_id)
+        }
+        for scenario in scenarios:
+            if scenario.transient_current_traces and not pairs:
+                raise ValueError("Transient grading requires explicit coordination pairs.")
+            orphaned_traces = {
+                item.function_id for item in scenario.transient_current_traces
+            } - pair_function_ids
+            if orphaned_traces:
+                raise ValueError(
+                    "Transient traces reference functions outside the configured coordination pairs: "
+                    + ", ".join(sorted(orphaned_traces))
+                )
+            if scenario.coordination_timing_envelopes and not pairs:
+                raise ValueError("Timing envelopes require explicit coordination pairs.")
+            unknown_envelopes = {
+                item.function_id for item in scenario.coordination_timing_envelopes
+            } - pair_function_ids
+            if unknown_envelopes:
+                raise ValueError(
+                    "Timing envelopes reference functions outside the configured coordination pairs: "
+                    + ", ".join(sorted(unknown_envelopes))
+                )
+        object.__setattr__(self, "coordination_pairs", pairs)
+
+    @classmethod
+    def from_project_configuration(
+        cls,
+        configuration: ProtectionProjectConfiguration,
+        *,
+        evaluation_time: float,
+        timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = "STUDY",
+        scenario_id: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        fault_scenarios: tuple[ProtectionFaultScenario, ...] = (),
+        coordination_pairs: tuple[ProtectionCoordinationPairConfiguration, ...] = (),
+    ) -> "ProtectionStudyConfiguration":
+        if not isinstance(configuration, ProtectionProjectConfiguration):
+            raise TypeError("configuration must be a ProtectionProjectConfiguration.")
+        return cls(
+            evaluation_time=evaluation_time,
+            timestep=timestep,
+            event_id=event_id,
+            event_type=event_type,
+            scenario_id=scenario_id,
+            protection_configuration=configuration.to_dict(),
+            supervision={} if supervision is None else supervision,
+            metadata={} if metadata is None else metadata,
+            fault_scenarios=fault_scenarios,
+            coordination_pairs=coordination_pairs,
+        )
+
+    @property
+    def configuration_fingerprint(self) -> Any:
+        return canonical_configuration_value(self.protection_configuration)
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionStudyResult:
+    """Immutable, provenance-bound result of one Protection Study evaluation."""
+
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    topology_revision: int
+    evaluation_time: float
+    scenario_id: str | None
+    configuration_fingerprint: Any
+    execution: ProtectionExecutionResult
+    fault_scenarios: tuple[ProtectionFaultScenarioResult, ...] = ()
+    measurement_snapshot_evaluated: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.study_id, UUID):
+            raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be a ProjectRevision.")
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
+            raise ValueError("topology_revision must be a non-negative integer.")
+        if not isinstance(self.execution, ProtectionExecutionResult):
+            raise TypeError("execution must be a ProtectionExecutionResult.")
+        if isinstance(self.evaluation_time, bool) or not isfinite(float(self.evaluation_time)) or float(self.evaluation_time) < 0.0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+        if not isinstance(self.measurement_snapshot_evaluated, bool):
+            raise TypeError("measurement_snapshot_evaluated must be a boolean.")
+        scenarios = tuple(self.fault_scenarios)
+        if any(not isinstance(item, ProtectionFaultScenarioResult) for item in scenarios):
+            raise TypeError("fault_scenarios must contain ProtectionFaultScenarioResult values.")
+        scenario_ids = tuple(item.scenario_id for item in scenarios)
+        if len(set(scenario_ids)) != len(scenario_ids):
+            raise ValueError("fault_scenarios result IDs must be unique.")
+        if bool(scenarios) == self.measurement_snapshot_evaluated:
+            raise ValueError(
+                "Protection Study result must represent either fault-scenario mode "
+                "or measurement-snapshot mode, not both or neither."
+            )
+        for scenario in scenarios:
+            provenance = scenario.short_circuit_result.provenance
+            expected = {
+                "project_id": self.project_id,
+                "activation_generation": self.activation_generation,
+                "topology_revision": self.topology_revision,
+            }
+            for key, value in expected.items():
+                if provenance.get(key) != value:
+                    raise ValueError(
+                        f"Fault scenario {scenario.scenario_id!r} result has mismatched {key} provenance."
+                    )
+        object.__setattr__(self, "fault_scenarios", scenarios)
+
+    @property
+    def decisions(self) -> tuple[ProtectionDecision, ...]:
+        scenario_decisions = tuple(
+            decision
+            for scenario in self.fault_scenarios
+            for decision in scenario.execution.decisions
+        )
+        return self.execution.decisions + scenario_decisions
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        scenario_diagnostics = tuple(
+            f"scenario={scenario.scenario_id!r}: {message}"
+            for scenario in self.fault_scenarios
+            for message in (*scenario.diagnostics, *scenario.execution.diagnostics)
+        )
+        return self.execution.diagnostics + scenario_diagnostics
+
+    @property
+    def status(self) -> str:
+        if self.measurement_snapshot_evaluated and self.execution.diagnostics:
+            return "blocked"
+        if any(
+            not item.success
+            or item.status is not ShortCircuitStatus.COMPLETE
+            or not item.measurement_contributions_complete
+            or bool(item.execution.diagnostics)
+            or bool(item.coordination_diagnostics)
+            or (item.coordination_report is not None and not item.coordination_report.fully_evaluable)
+            or bool(item.transient_coordination_diagnostics)
+            or (item.transient_coordination_report is not None and not item.transient_coordination_report.fully_evaluable)
+            for item in self.fault_scenarios
+        ):
+            return "partial"
+        if self.fault_scenarios and not self.measurement_snapshot_evaluated:
+            return (
+                "evaluated"
+                if all(item.relay_evaluation_completed for item in self.fault_scenarios)
+                else "fault_scenarios_calculated"
+            )
+        return "evaluated" if self.measurement_snapshot_evaluated else "not_evaluated"
+
+
+class ProtectionStudyHandler:
+    """Run a non-operating protection evaluation through the existing StudyService."""
+
+    def __init__(self, application: Any) -> None:
+        if (
+            application is None
+            or not callable(getattr(application, "evaluate_protection_cycle", None))
+            or not callable(getattr(application, "_evaluate_protection_scenario", None))
+        ):
+            raise TypeError(
+                "application must expose the live and detached-scenario protection evaluation boundaries."
+            )
+        self._application = application
+
+    def __call__(self, request: Any, execution_context: Any, cancellation: Any) -> ProtectionStudyResult | None:
+        if getattr(request, "study_type", None) != "protection":
+            raise ValueError("ProtectionStudyHandler only accepts study_type='protection'.")
+        configuration = request.configuration.get("configuration")
+        if not isinstance(configuration, ProtectionStudyConfiguration):
+            raise TypeError("protection StudyRequest requires ProtectionStudyConfiguration.")
+        if cancellation.cancelled:
+            return None
+        if (
+            execution_context.project_id != request.project_id
+            or execution_context.activation_generation != request.activation_generation
+            or execution_context.source_revision != request.source_revision
+        ):
+            raise ValueError("Protection Study execution snapshot does not match its request provenance.")
+
+        application = self._application
+        lifecycle = application.project_lifecycle
+        project = lifecycle.context
+        if (
+            lifecycle.state != "ACTIVE"
+            or not lifecycle.has_project
+            or project is None
+            or project.project_id != request.project_id
+            or lifecycle.activation_generation != request.activation_generation
+            or application.revision != request.source_revision
+        ):
+            raise RuntimeError("Protection Study source project changed before evaluation.")
+
+        configuration_service = getattr(application, "protection_configuration_service", None)
+        active_configuration = getattr(configuration_service, "configuration", None)
+        if not isinstance(active_configuration, ProtectionProjectConfiguration):
+            raise RuntimeError("Active project ProtectionProjectConfiguration is unavailable.")
+        if active_configuration.project_id != request.project_id:
+            raise RuntimeError("Protection configuration belongs to a different project.")
+        active_fingerprint = canonical_configuration_value(active_configuration.to_dict())
+        if active_fingerprint != configuration.configuration_fingerprint:
+            raise RuntimeError("Protection configuration changed after the Protection Study Case was defined; recreate the Study Case.")
+
+        fault_scenario_results: list[ProtectionFaultScenarioResult] = []
+        detached_network = execution_context.project_snapshot.network
+        for scenario in configuration.fault_scenarios:
+            if cancellation.cancelled:
+                return None
+            if scenario.configuration.fault_bus_id not in execution_context.topology_snapshot.bus_ids:
+                raise ValueError(
+                    f"Protection fault scenario {scenario.scenario_id!r} references Bus "
+                    f"{scenario.configuration.fault_bus_id!r} outside the captured topology snapshot."
+                )
+            preparation = ShortCircuitPreparation(
+                detached_network,
+                base_mva=scenario.configuration.base_mva,
+            )
+            prepared_input = preparation.prepare(
+                scenario.configuration.fault_type,
+                scenario.configuration.fault_bus_id,
+                scenario.configuration.fault_impedance,
+                elements=scenario.configuration.element_ids or None,
+                topology_snapshot=execution_context.topology_snapshot,
+                phase_domain_case=scenario.configuration.phase_domain_case,
+                phase_domain_sources=scenario.configuration.phase_domain_sources or None,
+                phase_domain_faults=scenario.configuration.phase_domain_faults or None,
+            )
+            short_circuit_result = ShortCircuitAnalysis.from_prepared(prepared_input).run()
+            expected_provenance = {
+                "project_id": request.project_id,
+                "activation_generation": request.activation_generation,
+                "topology_revision": request.source_revision.topology_revision,
+            }
+            for provenance_key, expected_value in expected_provenance.items():
+                if short_circuit_result.provenance.get(provenance_key) != expected_value:
+                    raise RuntimeError(
+                        f"Protection fault scenario {scenario.scenario_id!r} returned mismatched "
+                        f"short-circuit {provenance_key} provenance."
+                    )
+            if cancellation.cancelled:
+                return None
+
+            sample_adapter = ProtectionScenarioMeasurementAdapter()
+            ct_associations: dict[str, Any] = {}
+            association_service = CTMeasurementAssociationService()
+            scenario_samples = []
+            conversion_diagnostics: list[str] = []
+            measurement_service = application.measurement_channel_service
+            configured_elements = {
+                item.element_id: item
+                for item in active_configuration.elements
+                if item.enabled
+            }
+            for binding in active_configuration.measurement_bindings:
+                if binding.protection_element_id not in configured_elements:
+                    continue
+                prefix = (
+                    f"element={binding.protection_element_id!r}, "
+                    f"input={binding.relay_input_id!r}, binding={binding.binding_id!r}"
+                )
+                try:
+                    if binding.measurement_type.strip().lower() != "current":
+                        raise ValueError(
+                            "Scenario voltage conversion is not implemented; PT/CVT samples are not inferred."
+                        )
+                    channel = measurement_service.require(binding.channel_id)
+                    instrument = detached_network.get_by_identity(binding.instrument_id)
+                    if binding.instrument_id not in ct_associations:
+                        ct_associations[binding.instrument_id] = association_service.resolve(
+                            execution_context.project_snapshot,
+                            binding.instrument_id,
+                        )
+                    element_configuration = configured_elements[binding.protection_element_id]
+                    residual_configuration = element_configuration.residual_current_input
+                    if residual_configuration is not None and residual_configuration.mode == "NEUTRAL_CT":
+                        scenario_sample = sample_adapter.convert_neutral_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    elif residual_configuration is not None and residual_configuration.mode == "CBCT":
+                        scenario_sample = sample_adapter.convert_cbct_window_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                            construction=residual_configuration.construction,
+                        )
+                    else:
+                        scenario_sample = sample_adapter.convert_terminal_ct_sample(
+                            scenario_id=scenario.scenario_id, binding=binding, result=short_circuit_result,
+                            instrument=instrument, channel=channel,
+                            ct_association=ct_associations[binding.instrument_id],
+                        )
+                    scenario_samples.append(scenario_sample)
+                except Exception as exc:
+                    conversion_diagnostics.append(
+                        f"{prefix}: scenario measurement conversion refused: {type(exc).__name__}: {exc}"
+                    )
+
+            if cancellation.cancelled:
+                return None
+            relay_evaluation_completed = False
+            if conversion_diagnostics:
+                scenario_execution = ProtectionExecutionResult(
+                    diagnostics=tuple(conversion_diagnostics)
+                )
+            else:
+                # Each fault scenario gets a fresh stateful protection runtime.
+                # In particular, ANSI 51N pickup/timing/latching state must not
+                # leak between independent scenarios or mutate the live runtime.
+                scenario_runtime = ProtectionRuntime(
+                    lifecycle.network,
+                    active_configuration,
+                    activation_generation=request.activation_generation,
+                )
+                try:
+                    scenario_runtime.compose(measurement_service.channels)
+                except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                    scenario_execution = ProtectionExecutionResult(
+                        diagnostics=(
+                            f"Scenario protection runtime composition failed closed: {type(exc).__name__}: {exc}",
+                        )
+                    )
+                else:
+                    scenario_execution = application._evaluate_protection_scenario(
+                        scenario_id=scenario.scenario_id,
+                        samples=tuple(scenario_samples),
+                        evaluation_time=configuration.evaluation_time,
+                        evaluation_timestep=configuration.timestep,
+                        event_id=configuration.event_id,
+                        event_type=configuration.event_type,
+                        supervision=configuration.supervision,
+                        evaluation_metadata={
+                            **dict(configuration.metadata),
+                            "study_id": str(request.study_id),
+                            "study_type": "protection",
+                            "scenario_id": scenario.scenario_id,
+                            "source_model_revision": request.source_revision.model_revision,
+                            "source_topology_revision": request.source_revision.topology_revision,
+                        },
+                        network_state=execution_context.topology_snapshot,
+                        protection_runtime=scenario_runtime,
+                    )
+                relay_evaluation_completed = not scenario_execution.diagnostics
+            coordination_report = None
+            coordination_diagnostics: list[str] = []
+            if configuration.coordination_pairs:
+                try:
+                    samples_by_binding = {sample.binding_id: sample for sample in scenario_samples}
+                    if len(samples_by_binding) != len(scenario_samples):
+                        raise ValueError("Scenario contains duplicate measurement binding samples.")
+                    relay_characteristics: dict[str, CoordinationRelayCharacteristic] = {}
+                    pair_inputs: list[ProtectionCoordinationPair] = []
+                    scenario_currents: dict[str, float] = {}
+                    function_bindings: dict[str, str] = {}
+                    for pair_config in configuration.coordination_pairs:
+                        for element_id, binding_id in (
+                            (pair_config.downstream_element_id, pair_config.downstream_binding_id),
+                            (pair_config.upstream_element_id, pair_config.upstream_binding_id),
+                        ):
+                            element_config = configured_elements.get(element_id)
+                            if element_config is None:
+                                raise ValueError(f"Coordination function {element_id!r} is not enabled in the captured project configuration.")
+                            if element_config.function_code not in {"51", "51N"}:
+                                raise ValueError(
+                                    f"Coordination function {element_id!r} uses ANSI {element_config.function_code}; "
+                                    "this integration currently grades IEC/IEEE inverse-time 51/51N elements only."
+                                )
+                            previous_binding = function_bindings.get(element_id)
+                            if previous_binding is not None and previous_binding != binding_id:
+                                raise ValueError(
+                                    f"Function {element_id!r} is assigned multiple measurement bindings in one coordination study."
+                                )
+                            function_bindings[element_id] = binding_id
+                            sample = samples_by_binding.get(binding_id)
+                            if sample is None or sample.protection_element_id != element_id:
+                                raise ValueError(
+                                    f"Explicit CT sample binding {binding_id!r} is missing or belongs to another protection function."
+                                )
+                            settings = element_config.settings
+                            required_settings = {"pickup", "curve", "TMS"}
+                            if not required_settings.issubset(settings):
+                                raise ValueError(
+                                    f"Function {element_id!r} lacks required inverse-time settings {sorted(required_settings - set(settings))}."
+                                )
+                            characteristic = CoordinationRelayCharacteristic(
+                                function_id=element_id,
+                                pickup_current_a=float(settings["pickup"]),
+                                curve_standard=str(settings.get("curve_standard", "IEC")),
+                                curve=str(settings["curve"]),
+                                time_dial=float(settings["TMS"]),
+                            )
+                            existing = relay_characteristics.get(element_id)
+                            if existing is not None and existing != characteristic:
+                                raise ValueError(f"Conflicting characteristic settings for function {element_id!r}.")
+                            relay_characteristics[element_id] = characteristic
+                            sample_current = abs(sample.value)
+                            if element_config.function_code == "51N":
+                                residual_mode = sample.provenance.get("residual_source_mode")
+                                if residual_mode not in {"NEUTRAL_CT", "CBCT"}:
+                                    raise ValueError(
+                                        f"ANSI 51N function {element_id!r} requires an explicitly converted "
+                                        "NEUTRAL_CT or CBCT sample for coordination; three-phase residual "
+                                        "aggregation is not inferred from one binding."
+                                    )
+                                ratio = sample.provenance.get("instrument_ratio")
+                                if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                    raise ValueError(f"ANSI 51N sample {binding_id!r} lacks a valid authoritative CT ratio.")
+                                # Scenario samples are CT-secondary A; ANSI 51N's
+                                # derived RelayInput and pickup setting are primary A.
+                                sample_current *= float(ratio)
+                            previous_current = scenario_currents.get(element_id)
+                            if previous_current is not None and abs(previous_current - sample_current) > max(1e-9, abs(sample_current) * 1e-9):
+                                raise ValueError(
+                                    f"Function {element_id!r} resolves to conflicting scenario currents."
+                                )
+                            scenario_currents[element_id] = sample_current
+                        pair_inputs.append(ProtectionCoordinationPair(
+                            downstream_function_id=pair_config.downstream_element_id,
+                            upstream_function_id=pair_config.upstream_element_id,
+                            downstream_breaker_clearing_time_s=pair_config.downstream_breaker_clearing_time_s,
+                            required_cti_s=pair_config.required_cti_s,
+                            downstream_breaker_clearing_time_max_s=pair_config.downstream_breaker_clearing_time_max_s,
+                        ))
+                    timing_envelopes = {
+                        item.function_id: RelayOperatingTimeEnvelope(
+                            function_id=item.function_id,
+                            current_a=item.current_a,
+                            minimum_time_s=item.minimum_time_s,
+                            maximum_time_s=item.maximum_time_s,
+                            evidence_reference=item.evidence_reference,
+                        )
+                        for item in scenario.coordination_timing_envelopes
+                    }
+                    unknown_envelope_functions = set(timing_envelopes) - set(scenario_currents)
+                    if unknown_envelope_functions:
+                        raise ValueError(
+                            "Timing envelopes reference functions outside the explicit coordination pairs: "
+                            + ", ".join(sorted(unknown_envelope_functions))
+                        )
+                    coordination_report = grade_protection_coordination(
+                        functions=tuple(relay_characteristics.values()),
+                        pairs=tuple(pair_inputs),
+                        scenarios=(FaultCurrentScenario(
+                            scenario_id=scenario.scenario_id,
+                            function_currents_a=scenario_currents,
+                            function_timing_envelopes=timing_envelopes,
+                        ),),
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    coordination_diagnostics.append(
+                        f"Protection coordination grading refused for scenario {scenario.scenario_id!r}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+            transient_report = None
+            transient_diagnostics: list[str] = []
+            if scenario.transient_current_traces:
+                try:
+                    if not configuration.coordination_pairs:
+                        raise ValueError("Transient grading requires explicit coordination pairs.")
+                    if not scenario.transient_event_id:
+                        raise ValueError("Transient grading requires an explicit event ID.")
+                    samples_by_binding = {x.binding_id: x for x in scenario_samples}
+                    if len(samples_by_binding) != len(scenario_samples):
+                        raise ValueError("Scenario contains duplicate measurement binding samples.")
+                    transient_functions = {}
+                    transient_traces = []
+                    for trace_config in scenario.transient_current_traces:
+                        element = configured_elements.get(trace_config.function_id)
+                        if element is None or element.function_code not in {"51", "51N"}:
+                            raise ValueError("Transient trace must identify an enabled ANSI 51/51N function.")
+                        bound = samples_by_binding.get(trace_config.measurement_binding_id)
+                        if bound is None or bound.protection_element_id != trace_config.function_id:
+                            raise ValueError("Transient trace binding is missing or belongs to another function.")
+                        settings = element.settings
+                        if not {"pickup", "curve", "TMS"}.issubset(settings):
+                            raise ValueError("Transient function lacks pickup/curve/TMS settings.")
+                        transient_functions[trace_config.function_id] = CoordinationRelayCharacteristic(
+                            function_id=trace_config.function_id,
+                            pickup_current_a=float(settings["pickup"]),
+                            curve_standard=str(settings.get("curve_standard", "IEC")),
+                            curve=str(settings["curve"]),
+                            time_dial=float(settings["TMS"]),
+                        )
+                        scale = 1.0
+                        if element.function_code == "51N":
+                            if bound.provenance.get("residual_source_mode") not in {"NEUTRAL_CT", "CBCT"}:
+                                raise ValueError("ANSI 51N transient trace requires explicit NEUTRAL_CT or CBCT source.")
+                            ratio = bound.provenance.get("instrument_ratio")
+                            if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                raise ValueError("ANSI 51N transient trace requires an authoritative positive CT ratio.")
+                            scale = float(ratio)
+                        transient_traces.append(RelayCurrentTrace(
+                            function_id=trace_config.function_id,
+                            samples=tuple(CoreRelayCurrentSample(x.time_s, x.current_a * scale) for x in trace_config.samples),
+                        ))
+                    transient_pairs = tuple(ProtectionCoordinationPair(
+                        downstream_function_id=x.downstream_element_id,
+                        upstream_function_id=x.upstream_element_id,
+                        downstream_breaker_clearing_time_s=x.downstream_breaker_clearing_time_s,
+                        required_cti_s=x.required_cti_s,
+                        downstream_breaker_clearing_time_max_s=x.downstream_breaker_clearing_time_max_s,
+                    ) for x in configuration.coordination_pairs)
+                    unknown_evidence = {x.function_id for x in scenario.transient_dynamic_evidence} - set(transient_functions)
+                    if unknown_evidence:
+                        raise ValueError("Dynamic evidence references functions without transient traces: " + ", ".join(sorted(unknown_evidence)))
+                    transient_report = grade_transient_protection_coordination(
+                        event_id=scenario.transient_event_id,
+                        functions=tuple(transient_functions.values()),
+                        pairs=transient_pairs,
+                        traces=tuple(transient_traces),
+                        dynamic_evidence=scenario.transient_dynamic_evidence,
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    transient_diagnostics.append(
+                        f"Transient coordination refused for scenario {scenario.scenario_id!r}: {type(exc).__name__}: {exc}"
+                    )
+            fault_scenario_results.append(ProtectionFaultScenarioResult(
+                scenario_id=scenario.scenario_id,
+                configuration=scenario.configuration,
+                short_circuit_result=short_circuit_result,
+                execution=scenario_execution,
+                relay_evaluation_completed=relay_evaluation_completed,
+                coordination_report=coordination_report,
+                coordination_diagnostics=tuple(coordination_diagnostics),
+                transient_coordination_report=transient_report,
+                transient_coordination_diagnostics=tuple(transient_diagnostics),
+            ))
+            if cancellation.cancelled:
+                return None
+            if (
+                application.revision != request.source_revision
+                or application.project_lifecycle.context is not project
+                or application.project_lifecycle.activation_generation != request.activation_generation
+            ):
+                raise RuntimeError("Project or topology provenance changed during fault-scenario calculation.")
+
+        measurement_snapshot_evaluated = not bool(configuration.fault_scenarios)
+        if measurement_snapshot_evaluated:
+            measurement_service = application.measurement_channel_service
+            if (
+                measurement_service.project_id != request.project_id
+                or measurement_service.activation_generation != request.activation_generation
+                or measurement_service.network is not lifecycle.network
+            ):
+                raise RuntimeError("Measurement channel authority is stale for the Protection Study project snapshot.")
+            if cancellation.cancelled:
+                return None
+            execution = application.evaluate_protection_cycle(
+                configuration.evaluation_time,
+                action_resolver=lambda _decision: None,
+                evaluation_metadata={
+                    **dict(configuration.metadata),
+                    "study_id": str(request.study_id),
+                    "study_type": "protection",
+                    "scenario_id": configuration.scenario_id,
+                    "source_model_revision": request.source_revision.model_revision,
+                    "source_topology_revision": request.source_revision.topology_revision,
+                },
+                evaluation_timestep=configuration.timestep,
+                event_id=configuration.event_id,
+                event_type=configuration.event_type,
+                supervision=configuration.supervision,
+                network_state=execution_context.topology_snapshot,
+            )
+        else:
+            # Each fault scenario retains its own detached-sample execution.
+            # Keep the top-level execution empty so decisions remain correlated
+            # to their individual scenario result records.
+            execution = ProtectionExecutionResult()
+        if cancellation.cancelled:
+            return None
+        if (
+            application.revision != request.source_revision
+            or application.project_lifecycle.context is not project
+            or application.project_lifecycle.activation_generation != request.activation_generation
+        ):
+            raise RuntimeError("Project or protection-study source revision changed during evaluation.")
+
+        return ProtectionStudyResult(
+            study_id=request.study_id,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            topology_revision=execution_context.topology_snapshot.topology_revision,
+            evaluation_time=configuration.evaluation_time,
+            scenario_id=configuration.scenario_id,
+            configuration_fingerprint=configuration.configuration_fingerprint,
+            execution=execution,
+            fault_scenarios=tuple(fault_scenario_results),
+            measurement_snapshot_evaluated=measurement_snapshot_evaluated,
+        )
+
+
+__all__ = [
+    "ProtectionFaultScenario",
+    "ProtectionCoordinationTimingEnvelopeConfiguration",
+    "ProtectionCoordinationPairConfiguration",
+    "ProtectionTransientCurrentTraceConfiguration",
+    "ProtectionFaultScenarioResult",
+    "ProtectionStudyConfiguration",
+    "ProtectionStudyResult",
+    "ProtectionStudyHandler",
+]

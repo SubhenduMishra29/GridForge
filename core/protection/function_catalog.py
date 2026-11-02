@@ -35,6 +35,7 @@ class ProtectionFunctionStatus(str, Enum):
     """Implementation status of an ANSI protection function."""
 
     IMPLEMENTED = "IMPLEMENTED"
+    PARTIAL = "PARTIAL"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 
 
@@ -49,6 +50,21 @@ class ProtectionFunctionSpecification:
     input_contract: ProtectionFunctionInputContract | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.code, str):
+            raise TypeError("Protection function code must be a string.")
+        if not isinstance(self.name, str):
+            raise TypeError("Protection function name must be a string.")
+        if not isinstance(self.status, ProtectionFunctionStatus):
+            raise TypeError("Protection function status must be a ProtectionFunctionStatus.")
+        if self.implementation is not None and not isinstance(self.implementation, type):
+            raise TypeError("Protection function implementation must be a class or None.")
+        if self.input_contract is not None and not isinstance(
+            self.input_contract, ProtectionFunctionInputContract
+        ):
+            raise TypeError(
+                "Protection function input contract must be a ProtectionFunctionInputContract or None."
+            )
+
         code = self.code.strip().upper()
         name = self.name.strip()
         if not code:
@@ -59,6 +75,8 @@ class ProtectionFunctionSpecification:
             raise ValueError("Implemented protection functions require an implementation.")
         if self.status is ProtectionFunctionStatus.NOT_IMPLEMENTED and self.implementation is not None:
             raise ValueError("Unimplemented protection functions cannot advertise an implementation.")
+        if self.status is ProtectionFunctionStatus.PARTIAL and self.implementation is None:
+            raise ValueError("Partially implemented protection functions require an implementation.")
         if self.status is ProtectionFunctionStatus.IMPLEMENTED and self.input_contract is None:
             raise ValueError("Implemented protection functions require an explicit input contract, including a fail-closed contract when semantics are unresolved.")
         if self.status is ProtectionFunctionStatus.NOT_IMPLEMENTED and self.input_contract is not None:
@@ -76,11 +94,12 @@ _SPECS = (
     ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthIECOvercurrentRelay, CONTRACT_51N),
     ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.IMPLEMENTED, UnderVoltageRelay, CONTRACT_27),
     ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.IMPLEMENTED, OverVoltageRelay, CONTRACT_59),
-    ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.IMPLEMENTED, NegativeSequenceOvercurrentRelay, CONTRACT_46),
-    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.IMPLEMENTED, ThermalOverloadRelay, CONTRACT_49),
-    ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay, CONTRACT_67),
+    ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.PARTIAL, NegativeSequenceOvercurrentRelay, CONTRACT_46),
+    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.PARTIAL, ThermalOverloadRelay, CONTRACT_49),
+    ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.PARTIAL, DirectionalRelay, CONTRACT_67),
+    ProtectionFunctionSpecification("81", "Frequency (underfrequency/overfrequency; RoCoF not implemented)", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
-    ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay, CONTRACT_21),
+    ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.PARTIAL, DistanceRelay, CONTRACT_21),
 )
 
 _CATALOG: Mapping[str, ProtectionFunctionSpecification] = MappingProxyType({spec.code: spec for spec in _SPECS})

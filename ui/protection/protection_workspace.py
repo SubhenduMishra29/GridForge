@@ -9,20 +9,28 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-    ProtectionChanged, ProjectClosed, ProjectLoaded,
+    ProtectionChanged, TopologyChanged, NetworkCommitted, ProjectClosed, ProjectLoaded,
+    StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
 )
 from ui.canvas.canvas_framework import CanvasStateMachine
 from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteractionAdapter
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
-    QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QToolBar,
+    QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
     QVBoxLayout, QWidget,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
+from .protection_engineering_panels import (
+    ProtectionAnalysisCoveragePanel,
+    ProtectionFunctionCatalogPanel,
+    ProtectionTCCPanel,
+    ProtectionCoordinationStudyPanel,
+)
 
 
 class ProtectionGraphicsNode(QGraphicsRectItem):
@@ -307,8 +315,17 @@ class ProtectionInspector(QGroupBox):
         self._label.setWordWrap(True)
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
-        selection_manager.selection_changed.connect(lambda _ids: self.refresh())
+        selection_manager.selection_changed.connect(self._on_selection_changed)
         self.refresh()
+
+    def _on_selection_changed(self, _ids: Any) -> None:
+        self.refresh()
+
+    def dispose(self) -> None:
+        try:
+            self._selection_manager.selection_changed.disconnect(self._on_selection_changed)
+        except (RuntimeError, TypeError):
+            pass
 
     def refresh(self) -> None:
         selected = self._selection_manager.selected_ids
@@ -328,22 +345,37 @@ class ProtectionInspector(QGroupBox):
             self._label.setText(f"Protection presentation object: {object_id}")
             return
         settings = dict(relay.settings or {})
-        configuration = next((item for item in configurations if str(item.relay_id) == relay_id), None)
+        relay_configurations = tuple(
+            item for item in configurations if str(item.relay_id) == relay_id
+        )
         lines = [
             "Identity", f"  {relay.object_id}",
             "Relay", f"  {relay.name} ({relay.relay_type})",
-            "Function", f"  {relay.function_type}",
+            "Physical Relay Function Label", f"  {relay.function_type}",
+            "Configured Protection Elements", f"  {len(relay_configurations)}",
             "Inputs", f"  {len(relay.input_channel_bindings)}",
             "State", f"  {ProtectionGraphicsSurface._decision_text(relay)}",
             "In Service", f"  {relay.in_service}",
             "Enabled", f"  {relay.enabled}",
             "Blocked", f"  {relay.blocked}",
         ]
-        if configuration is not None:
+        for index, configuration in enumerate(relay_configurations, start=1):
             lines.extend([
-                "Configuration", f"  {configuration.element_id}",
-                "Configured Inputs", f"  {dict(configuration.input_channel_ids)}",
+                f"Protection Element {index}",
+                f"  Element ID: {configuration.element_id}",
+                f"  ANSI Function: {configuration.function_code}",
+                f"  Input / Measurement Bindings: {dict(configuration.input_channel_ids)}",
+                f"  Settings: {dict(configuration.settings or {})}",
             ])
+            try:
+                specification = get_protection_function(configuration.function_code)
+                lines.append(f"  Implementation Status: {specification.status.value}")
+                if specification.input_contract is not None and not specification.input_contract.supported:
+                    lines.append(
+                        f"  Input Contract: FAIL-CLOSED — {specification.input_contract.unsupported_reason}"
+                    )
+            except (KeyError, TypeError, ValueError):
+                lines.append("  Implementation Status: catalogue entry unavailable")
         decision = getattr(relay, "decision", None)
         if decision is not None:
             lines.extend([
@@ -398,11 +430,38 @@ class ProtectionToolbar(QToolBar):
             action.setChecked(key == tool_id)
 
 
+def _study_event_matches_active_project(application: Any, payload: Any) -> bool:
+    """Reject lifecycle events emitted by a different project activation."""
+    if not hasattr(payload, "get"):
+        return False
+    project_id = payload.get("project_id")
+    generation = payload.get("activation_generation")
+    if project_id is None or generation is None:
+        return False
+    try:
+        lifecycle = application.project_lifecycle
+        context = lifecycle.context
+        active = (
+            lifecycle.state == "ACTIVE"
+            and lifecycle.has_project
+            and context is not None
+        )
+        return bool(
+            active
+            and str(project_id) == str(context.project_id)
+            and int(generation) == int(lifecycle.activation_generation)
+        )
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+
+
 class ProtectionWorkspace(QWidget):
     workspace_id = "protection"
     _EVENT_TYPES = (
         ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-        ProtectionChanged, ProjectLoaded, ProjectClosed,
+        ProtectionChanged, TopologyChanged, NetworkCommitted,
+        ProjectLoaded, ProjectClosed,
+        StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
     )
 
     def __init__(self, *, application: Any, selection_manager: SelectionManager | None = None,
@@ -438,6 +497,27 @@ class ProtectionWorkspace(QWidget):
             parent=self,
         )
         self._inspector = ProtectionInspector(application=application, selection_manager=selection_manager, parent=self)
+
+        # Engineer-facing navigation exposes the canonical function catalogue
+        # alongside live relay objects; analysis remains a read-only projection.
+        self._explorer_tabs = QTabWidget(self)
+        self._explorer_tabs.addTab(self._explorer, "Relays")
+        self._function_catalog = ProtectionFunctionCatalogPanel(self)
+        self._explorer_tabs.addTab(self._function_catalog, "ANSI Catalogue")
+
+        self._inspector_tabs = QTabWidget(self)
+        self._inspector_tabs.addTab(self._inspector, "Relay Details")
+        self._tcc_panel = ProtectionTCCPanel(
+            application=application, selection_manager=selection_manager, parent=self
+        )
+        self._inspector_tabs.addTab(self._tcc_panel, "TCC")
+        self._analysis_coverage = ProtectionAnalysisCoveragePanel(self)
+        self._inspector_tabs.addTab(self._analysis_coverage, "Analysis Coverage")
+        self._coordination_study = ProtectionCoordinationStudyPanel(
+            application=application, parent=self
+        )
+        self._inspector_tabs.addTab(self._coordination_study, "Coordination Study")
+
         self._toolbar = ProtectionToolbar(
             self._interaction,
             on_fit=self._canvas.fit_to_content,
@@ -480,11 +560,11 @@ class ProtectionWorkspace(QWidget):
 
     @property
     def editor_explorer(self) -> QWidget:
-        return self._explorer
+        return self._explorer_tabs
 
     @property
     def editor_inspector(self) -> QWidget:
-        return self._inspector
+        return self._inspector_tabs
 
     @property
     def canvas_state(self):
@@ -498,14 +578,32 @@ class ProtectionWorkspace(QWidget):
         self._explorer.refresh()
         self._canvas.refresh()
         self._inspector.refresh()
+        self._function_catalog.refresh()
+        self._tcc_panel.refresh()
+        self._analysis_coverage.refresh()
+        self._coordination_study.refresh()
         self._toolbar.set_active(self._interaction.active_tool)
 
     def _on_application_event(self, event: Any) -> None:
         if isinstance(event, ProjectClosed):
+            self._coordination_study.clear_in_progress()
             self._interaction.cancel()
             self._presentation.clear()
             self._selection_manager.clear()
+        elif isinstance(event, (StudyStarted, StudyCompleted, StudyFailed, StudyCancelled)):
+            payload = getattr(event, "payload", {})
+            # Study execution is scoped to a project activation. A late event
+            # from a closed/replaced project must never clear or create the
+            # active project's in-progress marker for a reused Study Case ID.
+            if not _study_event_matches_active_project(self._application, payload):
+                return
+            study_id = payload.get("study_id")
+            if study_id is not None:
+                self._coordination_study.set_study_in_progress(
+                    study_id, isinstance(event, StudyStarted)
+                )
         elif isinstance(event, ProjectLoaded):
+            self._coordination_study.clear_in_progress()
             loaded = getattr(self._application, "protection_presentation", None)
             if isinstance(loaded, dict):
                 restored = ProtectionPresentationDocument.from_dict(loaded)
@@ -520,6 +618,8 @@ class ProtectionWorkspace(QWidget):
         self._subscriptions.clear()
         self._interaction.dispose()
         self._state_machine.cancel()
+        self._inspector.dispose()
+        self._tcc_panel.dispose()
 
 
 __all__ = [

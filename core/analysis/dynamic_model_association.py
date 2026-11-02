@@ -14,6 +14,17 @@ from typing import Any, Mapping
 from core.solver.dynamics.machine_models import ClassicalMachineParameters
 
 
+def _freeze_metadata_value(value: Any) -> Any:
+    """Recursively freeze built-in metadata containers without coercing typed objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata_value(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class DynamicMachineModelAssociation:
     """Immutable project-owned dynamic model binding for one machine identity."""
@@ -45,7 +56,7 @@ class DynamicMachineModelAssociation:
         object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "model_type", self.model_type.strip())
         object.__setattr__(self, "mechanical_power", float(self.mechanical_power))
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         p = self.parameters

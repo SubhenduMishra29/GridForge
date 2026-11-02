@@ -107,10 +107,8 @@ class ElectricalConnectionService:
 
     @staticmethod
     def _set_endpoint(context: Any, terminal: Any, endpoint: Any | None) -> None:
-        if endpoint is None:
-            terminal.detach()
-        else:
-            terminal.attach(endpoint)
+        # Resolve the authoritative Network before touching Core terminal state.
+        # A missing context dependency must fail without leaving a partial mutation.
         network = getattr(context, "network", None)
         if network is None:
             raise ResourceError(
@@ -118,6 +116,10 @@ class ElectricalConnectionService:
                 message="Application context does not expose the canonical Core Network.",
                 details={},
             )
+        if endpoint is None:
+            terminal.detach()
+        else:
+            terminal.attach(endpoint)
         network.invalidate_topology()
 
     @classmethod

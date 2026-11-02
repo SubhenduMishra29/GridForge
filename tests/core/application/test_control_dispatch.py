@@ -1,5 +1,6 @@
 from core.application.command import Command
 from core.application.command_manager import CommandManager
+from core.application.results import ApplicationResult
 from core.application.control_dispatch import ControlCommandTranslator
 from core.application.commands.breaker_commands import (
     CloseBreakerCommand,
@@ -45,7 +46,7 @@ def test_dispatcher_uses_application_command_executor_for_translated_control_int
 
     def executor(command: Command):
         calls.append(command)
-        return None
+        return ApplicationResult.success_result(message="accepted")
 
     from core.application.control_dispatch import ControlCommandDispatcher
 

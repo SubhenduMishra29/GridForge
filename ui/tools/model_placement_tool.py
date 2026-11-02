@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
@@ -143,6 +145,18 @@ class ModelPlacementTool(ToolBase):
         draft = self._require_creation_context().require_draft()
         equipment_type = draft.equipment_type
         equipment_id = self._active_draft_id or f"{draft.definition.tool_id}-draft-{uuid4().hex}"
+        # Application owns the trusted creation contract. The UI's creation
+        # definition supplies current values and presentation intent only; it
+        # must not author schema metadata that the commit boundary later trusts.
+        registry = getattr(self.application, "creation_contract_registry", None)
+        if registry is None:
+            self._report_feedback("CREATION_INTENT_FAILED: Application creation contract registry is unavailable.")
+            return False
+        try:
+            canonical_contract = registry.resolve(equipment_type)
+        except (KeyError, TypeError, ValueError) as exc:
+            self._report_feedback(f"CREATION_INTENT_FAILED: no trusted contract for {equipment_type!r}: {exc}")
+            return False
         # Position-first placement: incomplete engineering configuration is
         # valid DraftNetwork authoring state and must not block visual placement.
         # Engineering validation remains authoritative for later commit readiness.
@@ -156,7 +170,7 @@ class ModelPlacementTool(ToolBase):
                 "draft_id": equipment_id,
                 "equipment_type": equipment_type,
                 "display_name": draft.definition.equipment_type,
-                "terminal_contract": tuple(item.terminal_name for item in draft.definition.terminal_requirements),
+                "terminal_contract": tuple(canonical_contract["terminal_contract"]),
                 "engineering_data": dict(draft.snapshot_values()),
                 # Preserve every explicitly acquired creation endpoint using
                 # the canonical persisted DraftEndpointReference. The UI
@@ -173,18 +187,35 @@ class ModelPlacementTool(ToolBase):
                 "placement": draft.placement_position,
                 "presentation": dict(draft.preview_state),
                 "validation_state": dict(draft.validation_state),
-                "command_type": draft.definition.command_type,
-                "id_field": draft.definition.id_field,
-                "parameter_mapping": dict(draft.definition.parameter_mapping),
-                "endpoint_mapping": dict(draft.definition.endpoint_mapping),
+                "command_type": canonical_contract["command_type"],
+                "id_field": canonical_contract["id_field"],
+                "parameter_mapping": dict(canonical_contract["parameter_mapping"]),
+                "endpoint_mapping": dict(canonical_contract["endpoint_mapping"]),
+                "required_connection_terminals": tuple(canonical_contract["required_connection_terminals"]),
+                "parameter_contract": tuple(dict(item) for item in canonical_contract["parameter_contract"]),
+                "conditional_requirements": tuple(
+                    dict(item) for item in canonical_contract["conditional_requirements"]
+                ),
             }
             command = AddDraftEquipmentCommand(equipment=equipment)
             result = self.execute_command(command)
         except Exception as exc:
-            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={exc}")
+            self._report_feedback(
+                self._draft_failure_message(
+                    equipment_type=equipment_type,
+                    equipment_id=equipment_id,
+                    error=exc,
+                )
+            )
             return False
         if not getattr(result, "success", False):
-            self._report_feedback(f"DRAFT_COMMAND_FAILED: equipment={equipment_type} id={equipment_id} message={result.message}")
+            self._report_feedback(
+                self._draft_failure_message(
+                    equipment_type=equipment_type,
+                    equipment_id=equipment_id,
+                    error=result,
+                )
+            )
             return False
         # AddDraftEquipmentCommand ends only the transient placement interaction.
         # It does NOT cross the DraftNetwork -> Core boundary. The authoritative
@@ -197,8 +228,8 @@ class ModelPlacementTool(ToolBase):
             f"{equipment_type} draft placed. Use Commit Network to commit the drawing."
         )
         return True
-    @staticmethod
     def _to_draft_endpoint_reference(
+        self,
         endpoint: Any,
         *,
         draft_id: str,
@@ -215,27 +246,49 @@ class ModelPlacementTool(ToolBase):
             raise TypeError(
                 f"Creation endpoint for {terminal_role!r} must be an EndpointReference."
             )
+        # Scope is resolved against Application-owned draft identities, never
+        # inferred from a graphics-item or terminal-registry identifier.
+        draft_equipment = ()
+        read_draft_network = getattr(self.application, "read_draft_network", None)
+        if callable(read_draft_network):
+            snapshot = read_draft_network()
+            if isinstance(snapshot, dict):
+                draft_equipment = tuple(snapshot.get("equipment", ()))
+        draft_item = next(
+            (
+                item for item in draft_equipment
+                if str(item.get("draft_id", "")) == str(endpoint.object_id)
+                and (
+                    endpoint.is_bus
+                    and str(item.get("equipment_type", "")).strip().lower() == "bus"
+                    or endpoint.is_terminal
+                    and str(item.get("equipment_type", "")).strip().lower()
+                    == str(endpoint.equipment_type.value).strip().lower()
+                )
+            ),
+            None,
+        )
+        scope = "draft" if draft_item is not None else "core"
         if endpoint.is_bus:
             return DraftEndpointReference.bus(
                 bus_id=str(endpoint.object_id),
                 attachment_id=str(endpoint.attachment_id),
+                scope=scope,
             )
-        # A terminal endpoint acquired during creation identifies the external
-        # Core endpoint; it must not be rewritten as the placed equipment's
-        # own terminal identity.
+        # Preserve the snapped equipment identity and scope. The role is the
+        # external terminal role, not the newly placed equipment's terminal.
         return DraftEndpointReference.terminal(
             draft_id=str(endpoint.object_id),
             equipment_type=str(endpoint.equipment_type.value),
             terminal_role=str(endpoint.terminal_role),
-            scope="core",
+            scope=scope,
         )
 
     @staticmethod
     def _pending_creation_role(draft: CreationDraft) -> str | None:
         """Return the first missing explicitly required initial endpoint role."""
-        for requirement in draft.definition.topology_requirements:
-            if requirement.required and draft.endpoints.get(requirement.name) is None:
-                return requirement.name
+        # Topology requirements are validated from DraftConnection at commit;
+        # placement must not force the engineer to wire equipment immediately.
         for requirement in draft.definition.terminal_requirements:
             if requirement.initial_endpoint_required and draft.endpoints.get(requirement.terminal_name) is None:
                 return requirement.terminal_name
@@ -281,6 +334,66 @@ class ModelPlacementTool(ToolBase):
         except (KeyError, TypeError, ValueError, RuntimeError):
             return False
 
+    @staticmethod
+    def _draft_failure_message(
+        *,
+        equipment_type: str,
+        equipment_id: str,
+        error: Any,
+    ) -> str:
+        """Expose the structured command cause in placement feedback."""
+        parts = [
+            f"DRAFT_COMMAND_FAILED: equipment={equipment_type}",
+            f"id={equipment_id}",
+        ]
+        current = error
+        seen: set[int] = set()
+        depth = 0
+        while current is not None and id(current) not in seen and depth < 5:
+            seen.add(id(current))
+            error_type = type(current).__name__
+            code = getattr(current, "code", None)
+            message = getattr(current, "message", None) or str(current)
+            parts.append(
+                f"cause[{depth}]={error_type}"
+                + (f" code={code}" if code is not None else "")
+                + f": {message}"
+            )
+            details = getattr(current, "details", None)
+            if isinstance(details, Mapping):
+                safe_details = {
+                    str(key): value
+                    for key, value in details.items()
+                    if isinstance(value, (str, int, float, bool, type(None), tuple, list, dict))
+                }
+                if safe_details:
+                    parts.append(f"details[{depth}]={safe_details!r}")
+            elif details is not None:
+                parts.append(f"details[{depth}]={type(details).__name__}")
+            if getattr(current, "code", None) == "COMMAND_HANDLER_NOT_FOUND":
+                details = getattr(current, "details", None)
+                if isinstance(details, Mapping):
+                    diagnostic = details.get("diagnostic")
+                    registration_state = details.get("registration_state")
+                    candidates = details.get("same_namespace_candidates", ())
+                    if diagnostic:
+                        parts.append(f"handler_diagnostic={diagnostic}")
+                    if registration_state:
+                        parts.append(f"handler_registration_state={registration_state}")
+                    if candidates:
+                        parts.append(
+                            "same_namespace_candidates="
+                            + ", ".join(str(value) for value in candidates)
+                        )
+                    elif details.get("command_namespace"):
+                        parts.append(
+                            "handler_namespace="
+                            + str(details["command_namespace"])
+                        )
+            current = getattr(current, "cause", None) or getattr(current, "__cause__", None)
+            depth += 1
+        return " | ".join(parts)
+
     def _report_feedback(self, message: str) -> None:
         """Use an existing presentation feedback hook when the composition provides one."""
         for name in ("show_status_message", "set_status_message", "notify_user"):
@@ -293,7 +406,20 @@ class ModelPlacementTool(ToolBase):
         self._ensure_active()
         draft = self._require_creation_context().require_draft()
         if draft.placement_position is not None:
-            if self._placement_dragging and self._try_begin_wire_insertion(event, draft):
+            if self._placement_dragging:
+                if self._try_begin_wire_insertion(event, draft):
+                    return True
+                # While the initial placement gesture is still active, follow
+                # the cursor and keep the transient CreationDraft and symbol
+                # preview at the same snapped position. Persisting the draft
+                # only happens on release through place_creation_draft().
+                position = self._snap_position(event)
+                if position is None:
+                    return False
+                self._position = position
+                draft.set_placement(position)
+                self._preview_active = True
+                self._show_preview(position)
                 return True
             self._preview_active = True
             self._show_preview(self._position or draft.placement_position)
@@ -354,10 +480,17 @@ class ModelPlacementTool(ToolBase):
 
     def on_cancel(self) -> bool:
         self._ensure_active()
-        had_state = self._preview_active or self._position is not None
+        creation_context = self._require_creation_context()
+        draft = creation_context.snapshot_draft()
+        had_state = (
+            self._preview_active
+            or self._position is not None
+            or (draft is not None and draft.placement_position is not None)
+            or (draft is not None and bool(draft.endpoints))
+        )
         self._clear_state()
-        self._active_draft_id = None
-        self._placement_dragging = False
+        # ToolManager owns CreationContext cancellation and its controller
+        # notification; this hook clears only the tool's transient visuals.
         return had_state
 
     def on_reset(self) -> None:

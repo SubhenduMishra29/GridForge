@@ -47,30 +47,51 @@ class BatteryModelService(ModelServiceSupport):
         if all(value is None for value in values):
             raise DomainError(code="NO_BATTERY_UPDATE", message="At least one mutable Battery property must be specified.", details={"battery_id": battery_id})
         old = {"name": battery.name, "p_mw": battery.p_mw, "q_mvar": battery.q_mvar, "max_charge_mw": battery.max_charge_mw, "max_discharge_mw": battery.max_discharge_mw, "energy_capacity_mwh": battery.energy_capacity_mwh, "soc": battery.soc, "soc_min": battery.soc_min, "soc_max": battery.soc_max, "in_service": battery.in_service}
-        if name is not None: battery.name = name
-        if p_mw is not None: battery.p_mw = p_mw
-        if q_mvar is not None: battery.q_mvar = q_mvar
-        if max_charge_mw is not None: battery.max_charge_mw = max_charge_mw
-        if max_discharge_mw is not None: battery.max_discharge_mw = max_discharge_mw
-        if energy_capacity_mwh is not None: battery.energy_capacity_mwh = energy_capacity_mwh
-        if soc_min is not None: battery.soc_min = soc_min
-        if soc_max is not None: battery.soc_max = soc_max
-        if soc is not None: battery.soc = soc
-        if in_service is not None: battery.in_service = in_service
-        if in_service is not None: self._network.invalidate_topology()
+        service_state_changed = in_service is not None and in_service != old["in_service"]
 
-        def restore() -> None:
+        def restore_snapshot() -> None:
             battery.name = old["name"]
-            battery.max_charge_mw = old["max_charge_mw"]
-            battery.max_discharge_mw = old["max_discharge_mw"]
             battery.p_mw = old["p_mw"]
             battery.q_mvar = old["q_mvar"]
+            battery.max_charge_mw = old["max_charge_mw"]
+            battery.max_discharge_mw = old["max_discharge_mw"]
             battery.energy_capacity_mwh = old["energy_capacity_mwh"]
+            battery.soc_min = min(battery.soc_min, old["soc_min"], old["soc"])
+            battery.soc_max = max(battery.soc_max, old["soc_max"], old["soc"])
+            battery.soc = old["soc"]
             battery.soc_min = old["soc_min"]
             battery.soc_max = old["soc_max"]
-            battery.soc = old["soc"]
             battery.in_service = old["in_service"]
-            if in_service is not None: self._network.invalidate_topology()
+
+        try:
+            if name is not None: battery.name = name
+            if p_mw is not None: battery.p_mw = p_mw
+            if q_mvar is not None: battery.q_mvar = q_mvar
+            if max_charge_mw is not None: battery.max_charge_mw = max_charge_mw
+            if max_discharge_mw is not None: battery.max_discharge_mw = max_discharge_mw
+            if energy_capacity_mwh is not None: battery.energy_capacity_mwh = energy_capacity_mwh
+            target_soc_min = battery.soc_min if soc_min is None else soc_min
+            target_soc_max = battery.soc_max if soc_max is None else soc_max
+            target_soc = battery.soc if soc is None else soc
+            battery.soc_min = min(battery.soc_min, target_soc_min, target_soc)
+            battery.soc_max = max(battery.soc_max, target_soc_max, target_soc)
+            battery.soc = target_soc
+            battery.soc_min = target_soc_min
+            battery.soc_max = target_soc_max
+            if in_service is not None: battery.in_service = in_service
+            battery.validate_parameters()
+        except Exception:
+            restore_snapshot()
+            raise
+
+        if service_state_changed:
+            self._network.invalidate_topology()
+
+        def restore() -> None:
+            restore_snapshot()
+            battery.validate_parameters()
+            if service_state_changed:
+                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(battery, "battery", battery_id, f"Battery updated: {battery_id}")
@@ -93,8 +114,16 @@ class BatteryModelService(ModelServiceSupport):
         battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
         old = battery.in_service
         battery.in_service = in_service
-        self._network.invalidate_topology()
-        transaction.record_undo(lambda battery=battery, old=old: (setattr(battery, "in_service", old), self._network.invalidate_topology()))
+        service_state_changed = old != battery.in_service
+        if service_state_changed:
+            self._network.invalidate_topology()
+
+        def restore() -> None:
+            battery.in_service = old
+            if service_state_changed:
+                self._network.invalidate_topology()
+
+        transaction.record_undo(restore)
         message = "put in service" if in_service else "taken out of service"
         return self._success(battery, "battery", battery_id, f"Battery {message}: {battery_id}")
 

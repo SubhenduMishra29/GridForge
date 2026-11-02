@@ -12,7 +12,9 @@ from .symbol_registry import SymbolRegistry
 
 _BUILTIN_SYMBOLS = (
     ("bus", "Bus", ("bus",), (
-        {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
+        # IEEE/ANSI 315 busbar convention: distinguish the busbar from
+        # an ordinary conductor by a heavier stroke.
+        {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0, "stroke_width": 3.6},
     ), {"bus": (-28.0, 0.0)}),
     ("line", "Line", ("FROM", "TO"), (
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0},
@@ -50,22 +52,27 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 8, "y1": 0, "x2": 28, "y2": 0},
     ), {"from": (-28.0, 0.0), "to": (28.0, 0.0)}),
     ("load", "Load", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 12},
         {"kind": "line", "x1": -7, "y1": 7, "x2": 7, "y2": -7},
     ), {"terminal": (-28.0, 0.0)}),
     ("generator", "Generator", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -10, "y": -9, "width": 20, "height": 18, "text": "G"},
     ), {"terminal": (-28.0, 0.0)}),
     ("synchronous_machine", "Synchronous Machine", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -10, "y": -9, "width": 20, "height": 18, "text": "M"},
     ), {"terminal": (-28.0, 0.0)}),
     ("motor", "Motor", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 12},
         {"kind": "text", "x": -8, "y": -8, "width": 16, "height": 16, "text": "M"},
     ), {"terminal": (-28.0, 0.0)}),
     ("shunt", "Shunt", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -12, "y2": 0},
         {"kind": "line", "x1": -12, "y1": 0, "x2": 12, "y2": 0},
         {"kind": "line", "x1": -7, "y1": 0, "x2": -7, "y2": 12},
         {"kind": "line", "x1": 7, "y1": 0, "x2": 7, "y2": 12},
@@ -79,21 +86,24 @@ _BUILTIN_SYMBOLS = (
         {"kind": "circle", "cx": -7, "cy": 0, "r": 6},
         {"kind": "circle", "cx": 7, "cy": 0, "r": 6},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
-        {"kind": "line", "x1": 13, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("solar", "Solar", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -13, "y2": 0},
         {"kind": "rect", "x": -13, "y": -10, "width": 26, "height": 20},
         {"kind": "line", "x1": -13, "y1": -3, "x2": 13, "y2": -3},
         {"kind": "line", "x1": -13, "y1": 3, "x2": 13, "y2": 3},
         {"kind": "line", "x1": 0, "y1": -10, "x2": 0, "y2": 10},
     ), {"terminal": (-28.0, 0.0)}),
+    # Battery is currently a one-terminal network injection in Core.
+    # Render only the declared network connection; do not imply a second
+    # independently connectable terminal with a dangling right-hand lead.
     ("battery", "Battery", ("terminal",), (
         {"kind": "line", "x1": -5, "y1": -12, "x2": -5, "y2": 12},
         {"kind": "line", "x1": 5, "y1": -7, "x2": 5, "y2": 7},
         {"kind": "line", "x1": -28, "y1": 0, "x2": -5, "y2": 0},
-        {"kind": "line", "x1": 5, "y1": 0, "x2": 28, "y2": 0},
     ), {"terminal": (-28.0, 0.0)}),
     ("grid", "Grid", ("terminal",), (
+        {"kind": "line", "x1": -28, "y1": 0, "x2": -14, "y2": 0},
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
         {"kind": "text", "x": -9, "y": -8, "width": 18, "height": 16, "text": "G"},
     ), {"terminal": (-28.0, 0.0)}),
@@ -121,9 +131,12 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": 12, "y1": -10, "x2": 28, "y2": -10},
         {"kind": "line", "x1": 12, "y1": 10, "x2": 28, "y2": 10},
     ), {"H1": (-28.0, -10.0), "H2": (-28.0, 10.0), "X1": (28.0, -10.0), "X2": (28.0, 10.0)}),
+    # Keep the base Relay glyph function-neutral. ANSI device-function
+    # numbers belong to the configured relay function/readout, not to every
+    # relay instance in the generic symbol catalogue.
     ("relay", "Relay", (), (
         {"kind": "circle", "cx": 0, "cy": 0, "r": 14},
-        {"kind": "text", "x": -12, "y": -8, "width": 24, "height": 16, "text": "50/51"},
+        {"kind": "text", "x": -8, "y": -8, "width": 16, "height": 16, "text": "R"},
     ), {}),
 )
 

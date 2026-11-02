@@ -47,6 +47,12 @@ from .simple_wire_commands import (
     CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE,
     CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand,
 )
+from .phase_domain_conductor_commands import (
+    CREATE_PHASE_DOMAIN_NODE, REMOVE_PHASE_DOMAIN_NODE,
+    CREATE_PHASE_DOMAIN_CONNECTION, REMOVE_PHASE_DOMAIN_CONNECTION,
+    CreatePhaseDomainNodeCommand, RemovePhaseDomainNodeCommand,
+    CreatePhaseDomainConnectionCommand, RemovePhaseDomainConnectionCommand,
+)
 from .insertion_commands import (
     INSERT_EQUIPMENT_INTO_CONNECTION,
     InsertEquipmentIntoConnectionCommand,
@@ -60,6 +66,10 @@ from .sld_commands import (
     ADD_SLD_CONNECTION, REMOVE_SLD_CONNECTION,
     SetSLDNodePositionCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
+    SET_SLD_NODE_PRESENTATION, SET_SLD_CONNECTION_ROUTE, SET_SLD_NODE_PROPERTIES,
+    SET_SLD_ANNOTATION_BLOCKS, SetSLDNodePresentationCommand,
+    SetSLDConnectionRouteCommand, SetSLDNodePropertiesCommand,
+    SetSLDAnnotationBlocksCommand,
 )
 from .placement_commands import PLACE_BUS, PlaceBusCommand
 from .relay_commands import (
@@ -70,10 +80,10 @@ from .relay_commands import (
 )
 from .protection_configuration_commands import (
     CREATE_PROTECTION_CONFIGURATION, UPDATE_PROTECTION_CONFIGURATION, DELETE_PROTECTION_CONFIGURATION,
-    BIND_PROTECTION_MEASUREMENT, UNBIND_PROTECTION_MEASUREMENT,
+    BIND_PROTECTION_MEASUREMENT, UNBIND_PROTECTION_MEASUREMENT, SET_SYNCHRONISM_CHECK_CONFIGURATION,
     CreateProtectionConfigurationCommand, UpdateProtectionConfigurationCommand,
     DeleteProtectionConfigurationCommand, BindProtectionMeasurementCommand,
-    UnbindProtectionMeasurementCommand,)
+    UnbindProtectionMeasurementCommand, SetSynchronismCheckConfigurationCommand,)
 from .model_commands import *
 from .control_commands import *
 

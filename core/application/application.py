@@ -8,17 +8,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from core.control.context import ControlExecutionContext
+from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine
 from core.model import EndpointReference, Terminal
+from core.network import TopologyEndpointReference
+from core.network.topology_snapshot import TopologySnapshot
 
 from .command import Command
-from .creation import CreationCommitIntent, CreationCommandPreparer
+from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
@@ -45,7 +51,7 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
@@ -74,9 +80,11 @@ from core.protection.directional.directional_relay import _create_authoritative_
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
+from pathlib import Path
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
+from .protection_study import ProtectionStudyHandler
 from .validation import ValidationResult
 
 
@@ -127,9 +135,31 @@ class Application:
         self._measurement_lifecycle_service: ProjectLifecycleService | None = None
         self._workspace_dirty_provider: Callable[[], bool] | None = None
         self._draft_network: Any | None = None
+        self._execution_lock = RLock()
+        self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
+        self._commit_state_lock = RLock()
+        self._commit_in_flight = False
+        self._pending_async_commit_command: CommitNetworkCommand | None = None
+        # Recovery artifacts live outside the project file and preserve the
+        # Application-owned draft separately from authoritative Core state.
+        self._command_manager.configure_recovery(
+            snapshot_provider=self._recovery_snapshot,
+            recovery_directory=Path.home() / ".gridforge" / "recovery",
+        )
+        self._creation_contract_registry = CreationContractRegistry()
+        # Extension factories are durable across project-runtime replacement.
+        # Each factory must bind handlers to the candidate CommandManager rather
+        # than retaining handlers that capture the previous project's runtime.
+        self._extension_handler_factories: dict[str, Callable[[CommandManager], Mapping[str, Any]]] = {}
+        self._extension_handler_command_types: dict[str, tuple[str, ...]] = {}
+        # Keep exact handler identities so teardown cannot remove a replacement
+        # installed by another owner under a command type we originally owned.
+        self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
+        self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
+        self._study_result_archive: Any | None = None
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
@@ -152,11 +182,47 @@ class Application:
         return self.TERMINAL_ROLES_BY_TYPE
 
     @property
+    def integrity_state(self) -> str:
+        """Expose the command/Core consistency state for a read-only degraded workspace."""
+        return self._command_manager.integrity_state
+
+    @property
+    def is_read_only_degraded(self) -> bool:
+        """Return whether mutations are blocked pending explicit project recovery."""
+        return self._command_manager.integrity_state != "CLEAN"
+
+    @property
+    def recovery_record(self) -> Mapping[str, Any] | None:
+        """Return recovery diagnostics without exposing mutable internal state."""
+        return self._command_manager.recovery_record
+
+    @property
     def draft_network(self) -> Any | None:
         return self._draft_network
 
     def set_draft_network(self, draft_network: Any | None) -> None:
         self._draft_network = draft_network
+
+    def _recovery_snapshot(self) -> Mapping[str, Any]:
+        """Return a JSON-serializable snapshot of volatile authoring state.
+
+        This is diagnostic recovery data only: it never changes or replaces
+        authoritative Core project/network state.
+        """
+        draft_network = self._draft_network
+        return {
+            "kind": "application-draft-network",
+            "draft_network": None if draft_network is None else draft_network.to_dict(),
+        }
+
+    @property
+    def creation_contract_registry(self) -> CreationContractRegistry:
+        """Return the Application-owned registry of trusted creation contracts."""
+        return self._creation_contract_registry
+
+    def configure_creation_contracts(self, contracts: Mapping[str, Mapping[str, Any]]) -> None:
+        """Inject validated catalogue contracts at the composition boundary."""
+        self._creation_contract_registry.configure(contracts)
 
     @property
     def event_bus(self) -> ApplicationEventBus: return self._event_bus
@@ -248,9 +314,84 @@ class Application:
     def study_service(self) -> StudyService: return self._study_service
 
     @property
+    def study_result_archive(self) -> Any | None:
+        """Return the configured durable Study Result archive, when enabled."""
+        return self._study_result_archive
+
+    def configure_study_result_archive(self, archive: Any | None) -> None:
+        """Attach the Persistence-owned archive to the Application study boundary."""
+        if archive is None:
+            self._study_service.set_result_persister(None)
+            self._study_result_archive = None
+            self._study_read_service.configure_archive(None)
+            return
+        persister = getattr(archive, "save", None)
+        if not callable(persister) or not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must expose callable save() and load_all() operations.")
+        self._study_service.set_result_persister(persister)
+        self._study_read_service.configure_archive(archive)
+        self._study_result_archive = archive
+
+    @property
     def study_cases(self) -> tuple[StudyCaseDefinition, ...]:
-        """Return the immutable Application-owned runnable Study Case definitions."""
-        return tuple(self._study_cases.values())
+        """Return runnable Study Cases scoped to the active project generation."""
+        lifecycle = self._project_lifecycle
+        if lifecycle is None:
+            return ()
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            return ()
+        generation = lifecycle.activation_generation
+        return tuple(
+            case for case in self._study_cases.values()
+            if case.project_id == context.project_id
+            and case.activation_generation == generation
+        )
+
+    def create_study_case(
+        self,
+        *,
+        study_type: str,
+        configuration: Mapping[str, Any],
+        display_name: str = "",
+    ) -> StudyCaseDefinition:
+        """Register a validated Study Case without executing its solver."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot create a Study Case without a valid active project.")
+        request = StudyRequest(
+            study_id=uuid4(),
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision,
+            study_type=study_type,
+            configuration=configuration,
+        )
+        registered_types = self._study_service.registered_study_types
+        if request.study_type not in registered_types:
+            raise ValueError(
+                f"No study handler is registered for {request.study_type!r}; "
+                f"available study types: {', '.join(registered_types)}."
+            )
+        case = StudyCaseDefinition(
+            study_id=request.study_id,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            study_type=request.study_type,
+            configuration=request.configuration,
+            display_name=display_name,
+        )
+        self._study_cases[case.study_id] = case
+        self._event_bus.publish(StudyCaseCreated(metadata={
+            "study_id": str(case.study_id),
+            "study_type": case.study_type,
+            "display_name": case.display_name,
+            "project_id": case.project_id,
+            "activation_generation": case.activation_generation,
+        }))
+        return case
 
     def study_case(self, study_id: UUID) -> StudyCaseDefinition:
         """Resolve one structured Study Case without exposing Core state to UI."""
@@ -268,6 +409,27 @@ class Application:
         """Capture a validated request as the Application-owned runnable Study Case."""
         try:
             case = StudyCaseDefinition.from_request(request)
+            existing = self._study_cases.get(case.study_id)
+            if (
+                existing is not None
+                and existing.project_id == case.project_id
+                and existing.activation_generation == case.activation_generation
+            ):
+                # Preserve the revision at which an unchanged Study Case was
+                # configured. Presentation/persistence edits do not change its
+                # numerical input identity and must not rewrite provenance.
+                if (
+                    existing.study_type == case.study_type
+                    and existing.configuration == case.configuration
+                    and existing.source_revision.matches_study_state(request.source_revision)
+                ):
+                    case = replace(
+                        case,
+                        source_revision=existing.source_revision,
+                        display_name=existing.display_name,
+                    )
+                else:
+                    case = replace(case, display_name=existing.display_name)
         except (TypeError, ValueError):
             # Existing non-UI callers retain the StudyService contract; only
             # requests that satisfy the structured Study Case contract become
@@ -284,6 +446,12 @@ class Application:
             raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
         if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
             raise ValueError("Study Case project scope does not match the active project generation.")
+        # Do not silently bless a configuration after electrical inputs change.
+        if not case.source_revision.matches_study_state(self.revision):
+            raise ValueError(
+                "Study Case configuration is stale for the active electrical model/topology. "
+                "Reconfigure or recreate the Study Case before execution."
+            )
         request = StudyRequest(
             study_id=case.study_id,
             project_id=context.project_id,
@@ -353,6 +521,11 @@ class Application:
         *,
         action_resolver: Any | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -692,10 +865,54 @@ class Application:
                     )
         if directional_snapshots:
             context_metadata["directional_measurement_snapshots_by_element"] = directional_snapshots
-        context = ProtectionContext(time=evaluation_time, metadata=context_metadata)
+        if network_state is not None and not isinstance(network_state, TopologySnapshot):
+            raise TypeError("network_state must be a canonical TopologySnapshot or None.")
+        context = ProtectionContext(
+            time=evaluation_time,
+            timestep=evaluation_timestep,
+            event_id=event_id,
+            event_type=event_type,
+            network_state=network_state,
+            supervision=supervision if supervision is not None else {},
+            metadata=context_metadata,
+        )
         decisions = runtime.system.evaluate(context)
         if action_resolver is None:
-            return ProtectionExecutionResult(decisions=decisions)
+            def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
+                """Resolve only an explicit project-persisted function-to-target mapping."""
+                try:
+                    mapping = active_configuration.get(str(decision.element_id))
+                except KeyError:
+                    return None
+                # The mapping is keyed by element identity, but function identity
+                # is also part of the persisted protection-action contract. Fail
+                # closed if configuration drift or malformed persisted data causes
+                # a different function to inherit this target/action.
+                decision_function_code = str(decision.function_code).strip().upper()
+                configured_function_code = str(mapping.function_code).strip().upper()
+                if not decision_function_code or configured_function_code != decision_function_code:
+                    raise ValueError(
+                        f"Protection action mapping function mismatch for element "
+                        f"{decision.element_id!r}: decision={decision_function_code!r}, "
+                        f"configured={configured_function_code!r}."
+                    )
+                if (
+                    mapping.action_target_type is None
+                    or mapping.action_target_id is None
+                    or mapping.action_type is None
+                ):
+                    return None
+                return ControlDecision(
+                    control_id=f"protection:{mapping.element_id}",
+                    action_type=ControlActionType(mapping.action_type),
+                    target_equipment_id=mapping.action_target_id,
+                    target_equipment_type=mapping.action_target_type,
+                    reason=decision.reason or f"Protection function {mapping.function_code} requested action.",
+                    simulation_time=evaluation_time,
+                    triggered_by=mapping.element_id,
+                )
+            action_resolver = resolve_persisted_protection_action
+
         def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
             """Verify the action-specific postcondition in the captured Core network.
 
@@ -732,9 +949,11 @@ class Application:
             contracts = {
                 ("breaker", "open"): ("closed", False),
                 ("breaker", "close"): ("closed", True),
-                # Breaker.trip() is a distinct command, but the current Breaker
-                # domain model exposes no trip-latched state beyond open/closed.
-                ("breaker", "trip"): (None, None),
+                # The Core Breaker model represents the physical switching
+                # result of trip() as open (closed=False). This verifies the
+                # commanded state change, but deliberately does not claim a
+                # separate trip-latched/cause state that the model does not store.
+                ("breaker", "trip"): ("closed", False),
                 ("breaker", "put_in_service"): ("in_service", True),
                 ("breaker", "take_out_of_service"): ("in_service", False),
                 ("switch", "open"): ("closed", False),
@@ -759,13 +978,6 @@ class Application:
             if contract is None:
                 return verification(PostconditionStatus.UNAVAILABLE_UNSUPPORTED, None, None, "no action-specific Core postcondition contract is defined")
             field_name, expected_value = contract
-            if field_name is None:
-                return verification(
-                    PostconditionStatus.UNAVAILABLE_UNSUPPORTED,
-                    "trip-specific state",
-                    None,
-                    "Breaker.trip() has no distinct trip-latched state in the current Breaker model; open state alone cannot prove trip-specific semantics",
-                )
             try:
                 equipment = captured_network.get_by_id(core_type, target_id)
             except (KeyError, ValueError):
@@ -785,11 +997,10 @@ class Application:
             return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
         def resolve_explicit_protection_action(decision: Any) -> Any | None:
-            """Validate caller-supplied action resolution against current Core authority.
+            """Validate explicit or persisted action resolution against Core authority.
 
-            This deliberately does not infer a target from relay identity or
-            presentation. Project configuration currently has no typed action
-            mapping contract, so an explicit caller resolver remains required.
+            Persisted mappings are resolved by protection-function identity;
+            targets are never inferred from relay identity or presentation.
             """
             ensure_current_protection_provenance()
             resolved = action_resolver(decision)
@@ -820,6 +1031,523 @@ class Application:
             state_observer=observe_protection_command_state,
         )
         return execution.execute(decisions)
+
+
+    def _evaluate_protection_scenario(
+        self,
+        *,
+        scenario_id: str,
+        samples: tuple[Any, ...],
+        evaluation_time: float,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot,
+        protection_runtime: Any | None = None,
+    ) -> ProtectionExecutionResult:
+        """Evaluate one detached study scenario through Application-authorized RelayInput snapshots.
+
+        Scenario values are calculated study quantities, not live sensor
+        telemetry. Their snapshot validity is established from complete
+        solver/result provenance and binding correlation; sensor quality and
+        acquisition timestamps are deliberately not fabricated.
+        """
+        from core.measurement.protection_scenario_measurement import ProtectionScenarioMeasurementSample
+        from core.protection.residual_current import (
+            normalize_residual_current_source,
+            resolve_residual_current,
+        )
+
+        if not isinstance(scenario_id, str) or not scenario_id.strip():
+            raise ValueError("scenario_id must be a non-empty string.")
+        if not isinstance(samples, (tuple, list)):
+            raise TypeError("samples must be a tuple or list of detached scenario measurement samples.")
+        if any(not isinstance(item, ProtectionScenarioMeasurementSample) for item in samples):
+            raise TypeError("samples must contain only ProtectionScenarioMeasurementSample values.")
+        if len({item.binding_id for item in samples}) != len(samples):
+            raise ValueError("A scenario may contain only one sample per measurement binding.")
+        if isinstance(evaluation_time, bool):
+            raise TypeError("evaluation_time must be a finite non-negative number.")
+        evaluation_time = float(evaluation_time)
+        if not isfinite(evaluation_time) or evaluation_time < 0.0:
+            raise ValueError("evaluation_time must be finite and non-negative.")
+        if not isinstance(network_state, TopologySnapshot):
+            raise TypeError("network_state must be the captured TopologySnapshot for this scenario.")
+        if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
+            raise TypeError("evaluation_metadata must be a mapping or None.")
+
+        lifecycle = self.project_lifecycle
+        project = lifecycle.context
+        service = self.measurement_channel_service
+        active_runtime = getattr(self, "protection_runtime", None)
+        runtime = active_runtime if protection_runtime is None else protection_runtime
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if (
+            project is None or not lifecycle.has_project or lifecycle.state != "ACTIVE"
+            or runtime is None or configuration_service is None
+        ):
+            raise RuntimeError("Scenario protection evaluation requires an active project and composed protection runtime.")
+        configuration = configuration_service.configuration
+        if (
+            configuration is None or runtime.configuration is not configuration
+            or runtime.network is not lifecycle.network
+            or runtime.project_id != project.project_id
+            or runtime.activation_generation != lifecycle.activation_generation
+            or not runtime.configuration_matches_composition
+        ):
+            raise RuntimeError("Scenario protection runtime/configuration provenance is stale.")
+        if (
+            service.project_id != project.project_id
+            or service.activation_generation != lifecycle.activation_generation
+            or service.network is not lifecycle.network
+        ):
+            raise RuntimeError("Scenario measurement-channel authority is stale.")
+        if network_state.topology_revision != lifecycle.network.state.topology_revision:
+            raise RuntimeError("Scenario topology snapshot does not match the active network revision.")
+
+        channels = service.channels
+        runtime_channels = runtime.channels
+        if runtime_channels.keys() != channels.keys() or any(
+            runtime_channels[channel_id] is not channel for channel_id, channel in channels.items()
+        ):
+            raise RuntimeError("Protection runtime retains stale MeasurementChannel objects.")
+
+        diagnostics = list(validate_protection_input_contracts(configuration, channels))
+        samples_by_binding = {item.binding_id: item for item in samples}
+        bindings_by_input: dict[tuple[str, str], list[Any]] = {}
+        bindings_by_id = {
+            binding.binding_id: binding
+            for binding in configuration.measurement_bindings
+        }
+        for binding in configuration.measurement_bindings:
+            bindings_by_input.setdefault(
+                (binding.protection_element_id, binding.relay_input_id), []
+            ).append(binding)
+
+        expected_samples: set[str] = set()
+        snapshots_by_element: dict[str, Mapping[str, Any]] = {
+            item.element_id: MappingProxyType({})
+            for item in configuration.elements if item.enabled
+        }
+        for element_configuration in configuration.elements:
+            if not element_configuration.enabled:
+                continue
+            element_snapshots: dict[str, Any] = {}
+            for input_name, channel_id in element_configuration.input_channel_ids.items():
+                key = (element_configuration.element_id, input_name)
+                matching_bindings = bindings_by_input.get(key, ())
+                prefix = (
+                    f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                    f"input={input_name!r}"
+                )
+                if len(matching_bindings) != 1:
+                    diagnostics.append(
+                        f"{prefix}: exactly one canonical ProtectionMeasurementBinding is required; "
+                        f"found {len(matching_bindings)}."
+                    )
+                    continue
+                binding = matching_bindings[0]
+                expected_samples.add(binding.binding_id)
+                sample = samples_by_binding.get(binding.binding_id)
+                if sample is None:
+                    diagnostics.append(f"{prefix}, binding={binding.binding_id!r}: scenario sample is missing.")
+                    continue
+                channel = channels.get(channel_id)
+                if channel is None or runtime_channels.get(channel_id) is not channel:
+                    diagnostics.append(f"{prefix}, channel={channel_id!r}: authoritative runtime channel is unavailable.")
+                    continue
+                if (
+                    sample.scenario_id != scenario_id
+                    or sample.protection_element_id != element_configuration.element_id
+                    or sample.relay_input_id != input_name
+                    or sample.binding_id != binding.binding_id
+                    or sample.channel_id != channel_id
+                    or binding.channel_id != channel_id
+                    or sample.instrument_id != binding.instrument_id
+                    or binding.measurement_type.strip().lower() != "current"
+                    or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
+                    or getattr(channel, "source_id", None) != binding.instrument_id
+                ):
+                    diagnostics.append(f"{prefix}: sample, binding, channel or physical CT identity does not agree.")
+                    continue
+                source_terminal = getattr(channel, "source_terminal", None)
+                if (
+                    source_terminal is None
+                    or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                    or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                ):
+                    diagnostics.append(f"{prefix}: channel does not originate from the configured CT secondary terminal.")
+                    continue
+                try:
+                    active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                except (KeyError, TypeError, ValueError):
+                    diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                    continue
+                if getattr(channel, "source", None) is not active_instrument:
+                    diagnostics.append(f"{prefix}: MeasurementChannel does not reference the active canonical CT object.")
+                    continue
+                try:
+                    active_ratio = float(getattr(active_instrument, "ratio"))
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    active_ratio = float("nan")
+                if (
+                    not isfinite(active_ratio)
+                    or active_ratio <= 0.0
+                    or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: active canonical CT ratio does not match the persisted measurement binding.")
+                    continue
+                active_polarity = getattr(
+                    getattr(active_instrument, "polarity", None),
+                    "value",
+                    getattr(active_instrument, "polarity", None),
+                )
+                expected_ct_direction = {
+                    "P1_P2": "P1_TO_P2",
+                    "P2_P1": "P2_TO_P1",
+                }.get(active_polarity)
+                if expected_ct_direction is None:
+                    diagnostics.append(f"{prefix}: active canonical CT has an unsupported primary polarity.")
+                    continue
+                channel_phase = getattr(getattr(channel, "phase", None), "value", None)
+                if (
+                    sample.phase_or_sequence != binding.phase_or_sequence
+                    or sample.phase_or_sequence != channel_phase
+                    or sample.quantity_key != binding.result_quantity
+                    or sample.unit != getattr(channel, "unit", None)
+                ):
+                    diagnostics.append(
+                        f"{prefix}: phase/sequence, result member or engineering unit does not match the binding/channel."
+                    )
+                    continue
+                provenance = sample.provenance
+                expected_provenance = {
+                    "project_id": project.project_id,
+                    "activation_generation": lifecycle.activation_generation,
+                    "topology_revision": network_state.topology_revision,
+                    "ct_topology_revision": network_state.topology_revision,
+                    "ct_id": binding.instrument_id,
+                    "branch_id": binding.source_equipment_id,
+                    "branch_side": binding.electrical_side.strip().lower(),
+                }
+                if any(provenance.get(name) != value for name, value in expected_provenance.items()):
+                    diagnostics.append(f"{prefix}: scenario sample provenance does not match the captured project/topology/binding.")
+                    continue
+                if provenance.get("ct_positive_current_direction") != expected_ct_direction:
+                    diagnostics.append(f"{prefix}: detached CT polarity provenance does not match the active canonical CT.")
+                    continue
+                try:
+                    ratio = float(provenance.get("instrument_ratio"))
+                except (TypeError, ValueError, OverflowError):
+                    ratio = float("nan")
+                if (
+                    not isfinite(ratio) or ratio <= 0.0
+                    or abs(ratio - binding.instrument_ratio) > max(1e-9, ratio * 1e-9)
+                ):
+                    diagnostics.append(f"{prefix}: sample CT ratio does not match the persisted measurement binding.")
+                    continue
+                requirement = input_contract_for(configuration, element_configuration, input_name)
+                if requirement is None:
+                    diagnostics.append(f"{prefix}: no supported canonical protection input contract is available.")
+                    continue
+                try:
+                    channel_scale = float(getattr(channel, "scale"))
+                    channel_polarity = float(getattr(channel, "polarity"))
+                    if not isfinite(channel_scale) or not isfinite(channel_polarity):
+                        raise ValueError("channel scale/polarity must be finite.")
+                    engineering_value = sample.value * channel_scale * channel_polarity
+                except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                    diagnostics.append(f"{prefix}: channel engineering scale/polarity is invalid: {exc}")
+                    continue
+                rejected = validate_sample_representation(engineering_value, requirement)
+                if rejected is not None:
+                    diagnostics.append(f"{prefix}: scenario engineering value violates the protection input contract: {rejected}")
+                    continue
+                element_snapshots[input_name] = MappingProxyType({
+                    "channel_id": channel_id,
+                    "channel_identity": id(channel),
+                    "value": engineering_value,
+                    "source_value": sample.value,
+                    "channel_scale": channel_scale,
+                    "channel_polarity": channel_polarity,
+                    "timestamp": None,
+                    # UNKNOWN is intentional: this is a calculated study
+                    # quantity, not a GOOD-quality field measurement.
+                    "quality": MeasurementQuality.UNKNOWN,
+                    "available": True,
+                    "usable": True,
+                    "validity": MeasurementValidity.VALID,
+                    "sample_sequence": None,
+                    "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                    "scenario_id": scenario_id,
+                    "binding_id": binding.binding_id,
+                    "reference_basis_id": sample.reference_basis_id,
+                    "provenance": provenance,
+                })
+            if element_configuration.function_code in {"50N", "51N"}:
+                residual_configuration = element_configuration.residual_current_input
+                if residual_configuration is None:
+                    diagnostics.append(
+                        f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: explicit residual-current configuration is missing."
+                    )
+                else:
+                    expected_sources = (
+                        dict(residual_configuration.phase_binding_ids or {})
+                        if residual_configuration.mode == "THREE_PHASE_SUM"
+                        else {"N": residual_configuration.direct_binding_id}
+                    )
+                    normalized_sources = {}
+                    source_instrument_ids: set[str] = set()
+                    three_phase_terminal_identity: tuple[str, str] | None = None
+                    for phase, binding_id in expected_sources.items():
+                        prefix = (
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}, "
+                            f"residual_source={phase!r}, binding={binding_id!r}"
+                        )
+                        binding = bindings_by_id.get(binding_id)
+                        expected_samples.add(binding_id)
+                        if binding is None:
+                            diagnostics.append(f"{prefix}: configured residual source binding is absent from the project configuration aggregate.")
+                            continue
+                        sample = samples_by_binding.get(binding_id)
+                        if sample is None:
+                            diagnostics.append(f"{prefix}: detached scenario sample is missing.")
+                            continue
+                        channel = channels.get(binding.channel_id)
+                        if channel is None or runtime_channels.get(binding.channel_id) is not channel:
+                            diagnostics.append(f"{prefix}: authoritative physical MeasurementChannel is unavailable.")
+                            continue
+                        if (
+                            not binding.source_endpoint_reference.is_terminal
+                            or binding.source_endpoint_reference.object_id != binding.source_equipment_id
+                            or binding.protection_element_id != element_configuration.element_id
+                            or binding.relay_input_id != "residual_current"
+                            or sample.protection_element_id != element_configuration.element_id
+                            or sample.relay_input_id != "residual_current"
+                            or sample.binding_id != binding_id
+                            or sample.channel_id != binding.channel_id
+                            or sample.instrument_id != binding.instrument_id
+                            or binding.measurement_type.strip().lower() != "current"
+                            or getattr(getattr(channel, "signal_type", None), "value", None) != "CURRENT"
+                            or getattr(channel, "source_id", None) != binding.instrument_id
+                        ):
+                            diagnostics.append(f"{prefix}: residual source, binding, sample, channel or CT identity does not agree.")
+                            continue
+                        sample_phase = sample.phase_or_sequence.strip().upper()
+                        sample_phase_valid = (
+                            sample_phase == phase
+                            or (
+                                residual_configuration.mode == "CBCT"
+                                and sample_phase == "RESIDUAL"
+                            )
+                        )
+                        if (
+                            binding.phase_or_sequence.strip().upper() != phase
+                            or not sample_phase_valid
+                            or getattr(getattr(channel, "phase", None), "value", None) != phase
+                            or sample.quantity_key != binding.result_quantity
+                            or sample.unit != "A"
+                            or getattr(channel, "unit", None) != "A"
+                        ):
+                            diagnostics.append(f"{prefix}: source phase/sequence, result member or ampere unit is inconsistent.")
+                            continue
+                        source_terminal = getattr(channel, "source_terminal", None)
+                        if (
+                            source_terminal is None
+                            or getattr(source_terminal, "equipment_id", None) != binding.instrument_id
+                            or getattr(source_terminal, "terminal_role", None) not in {"S1", "S2"}
+                        ):
+                            diagnostics.append(f"{prefix}: channel is not sourced from the configured CT secondary terminal.")
+                            continue
+                        try:
+                            active_instrument = lifecycle.network.get_by_identity(binding.instrument_id)
+                        except (KeyError, TypeError, ValueError):
+                            diagnostics.append(f"{prefix}: configured CT is absent from the active canonical Network.")
+                            continue
+                        if (
+                            getattr(active_instrument, "TYPE", None) != "CT"
+                            or getattr(channel, "source", None) is not active_instrument
+                            or getattr(active_instrument, "in_service", True) is not True
+                        ):
+                            diagnostics.append(f"{prefix}: active source is not an in-service canonical CT referenced by the channel.")
+                            continue
+                        source_instrument_ids.add(binding.instrument_id)
+                        provenance = sample.provenance
+                        if (
+                            provenance.get("terminal_current_reference_direction") != "INTO_EQUIPMENT"
+                            or provenance.get("current_units") != "per_unit"
+                        ):
+                            diagnostics.append(f"{prefix}: source sample lacks the required terminal-current reference direction or per-unit provenance.")
+                            continue
+                        try:
+                            active_ratio = float(active_instrument.ratio)
+                            channel_scale = float(channel.scale)
+                            channel_polarity = float(channel.polarity)
+                        except (AttributeError, TypeError, ValueError, OverflowError):
+                            active_ratio = channel_scale = channel_polarity = float("nan")
+                        if (
+                            not isfinite(active_ratio) or active_ratio <= 0.0
+                            or abs(active_ratio - binding.instrument_ratio) > max(1e-9, active_ratio * 1e-9)
+                            or not isfinite(channel_scale) or not isfinite(channel_polarity)
+                        ):
+                            diagnostics.append(f"{prefix}: active CT ratio or channel scale/polarity is invalid or stale.")
+                            continue
+                        expected_source_provenance = {
+                            "project_id": project.project_id,
+                            "activation_generation": lifecycle.activation_generation,
+                            "topology_revision": network_state.topology_revision,
+                            "ct_topology_revision": network_state.topology_revision,
+                            "ct_id": binding.instrument_id,
+                            "equipment_id": binding.source_equipment_id,
+                            "equipment_terminal_role": binding.source_endpoint_reference.terminal_role,
+                            "instrument_ratio": binding.instrument_ratio,
+                            "measurement_point_id": residual_configuration.measurement_point_id,
+                        }
+                        if provenance.get("ct_primary_side") not in {"P1_SIDE", "P2_SIDE"}:
+                            diagnostics.append(f"{prefix}: CT association provenance does not identify exactly one primary side.")
+                            continue
+                        if any(provenance.get(key) != value for key, value in expected_source_provenance.items()):
+                            diagnostics.append(f"{prefix}: CT terminal sample provenance does not match the active project, topology, binding or measurement point.")
+                            continue
+                        if residual_configuration.mode == "THREE_PHASE_SUM":
+                            terminal_identity = (
+                                str(provenance.get("equipment_id")),
+                                str(provenance.get("equipment_terminal_role")),
+                            )
+                            if three_phase_terminal_identity is None:
+                                three_phase_terminal_identity = terminal_identity
+                            elif terminal_identity != three_phase_terminal_identity:
+                                diagnostics.append(
+                                    f"{prefix}: A/B/C residual sources do not monitor the same canonical equipment terminal."
+                                )
+                                continue
+                        if residual_configuration.mode in {"NEUTRAL_CT", "CBCT"}:
+                            expected_direct_phase = "N" if residual_configuration.mode == "NEUTRAL_CT" else "RESIDUAL"
+                            if (
+                                binding.metadata.get("residual_source_mode") != residual_configuration.mode
+                                or provenance.get("residual_source_mode") != residual_configuration.mode
+                                or phase != "N"
+                                or sample_phase != expected_direct_phase
+                            ):
+                                diagnostics.append(f"{prefix}: direct Neutral CT/CBCT sample must declare its configured mode and correct derived phase.")
+                                continue
+                        elif binding.metadata.get("residual_source_mode") is not None:
+                            diagnostics.append(f"{prefix}: three-phase sum source cannot declare a direct neutral/CBCT mode.")
+                            continue
+                        expected_direction = {
+                            "P1_P2": "P1_TO_P2",
+                            "P2_P1": "P2_TO_P1",
+                        }.get(getattr(getattr(active_instrument, "polarity", None), "value", getattr(active_instrument, "polarity", None)))
+                        if expected_direction is None or provenance.get("ct_positive_current_direction") != expected_direction:
+                            diagnostics.append(f"{prefix}: CT physical polarity provenance does not match the active CT.")
+                            continue
+                        normalized_sources[binding_id] = normalize_residual_current_source(
+                            sample,
+                            measurement_point_id=residual_configuration.measurement_point_id,
+                            instrument_ratio=active_ratio,
+                            channel_scale=channel_scale,
+                            channel_polarity=channel_polarity,
+                        )
+                    if residual_configuration.mode == "THREE_PHASE_SUM" and len(source_instrument_ids) != 3:
+                        diagnostics.append(
+                            f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: A/B/C residual summation requires three distinct in-service CT instruments."
+                        )
+                    if len(normalized_sources) == len(expected_sources) and (
+                        residual_configuration.mode != "THREE_PHASE_SUM" or len(source_instrument_ids) == 3
+                    ):
+                        try:
+                            residual_sample = resolve_residual_current(
+                                residual_configuration,
+                                normalized_sources,
+                            )
+                            relay_input = runtime.system.get_element(
+                                element_configuration.element_id
+                            ).function.get_input("residual_current")
+                            derived_source = relay_input.channel
+                            element_snapshots["residual_current"] = MappingProxyType({
+                                "channel_id": derived_source.id,
+                                "channel_identity": id(derived_source),
+                                "input_kind": "DERIVED_RESIDUAL_CURRENT",
+                                "value": residual_sample.value,
+                                "source_value": residual_sample.value,
+                                "timestamp": None,
+                                "quality": MeasurementQuality.UNKNOWN,
+                                "available": True,
+                                "usable": True,
+                                "validity": MeasurementValidity.VALID,
+                                "sample_sequence": None,
+                                "sample_origin": "PROTECTION_STUDY_SCENARIO",
+                                "scenario_id": scenario_id,
+                                "binding_id": None,
+                                "source_binding_ids": residual_sample.source_binding_ids,
+                                "source_mode": residual_sample.source_mode,
+                                "measurement_point_id": residual_sample.measurement_point_id,
+                                "reference_basis_id": residual_sample.reference_basis_id,
+                                "provenance": MappingProxyType({
+                                    "project_id": project.project_id,
+                                    "activation_generation": lifecycle.activation_generation,
+                                    "topology_revision": residual_sample.topology_revision,
+                                    "scenario_id": scenario_id,
+                                    "measurement_point_id": residual_sample.measurement_point_id,
+                                    "source_mode": residual_sample.source_mode,
+                                    "source_binding_ids": residual_sample.source_binding_ids,
+                                    "reference_basis_id": residual_sample.reference_basis_id,
+                                    "primary_current_basis": "PRIMARY_AMPS",
+                                }),
+                            })
+                        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                            diagnostics.append(
+                                f"scenario={scenario_id!r}, element={element_configuration.element_id!r}: residual-current composition failed closed: {exc}"
+                            )
+            snapshots_by_element[element_configuration.element_id] = MappingProxyType(element_snapshots)
+
+        unexpected = set(samples_by_binding) - expected_samples
+        if unexpected:
+            diagnostics.append(
+                "Scenario supplied samples for bindings that are not required by enabled protection inputs: "
+                + ", ".join(sorted(unexpected))
+            )
+        if diagnostics:
+            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+
+        context_metadata = dict(evaluation_metadata or {})
+        context_metadata.update({
+            "project_id": project.project_id,
+            "activation_generation": lifecycle.activation_generation,
+            "study_type": "protection",
+            "scenario_id": scenario_id,
+            "scenario_measurement_snapshot_kind": "CALCULATED_FAULT_SCENARIO",
+            "validated_measurement_snapshots_by_element": MappingProxyType(snapshots_by_element),
+            "validated_measurement_snapshot_authority": APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY,
+        })
+        context = ProtectionContext(
+            time=evaluation_time,
+            timestep=evaluation_timestep,
+            event_id=event_id,
+            event_type=event_type,
+            network_state=network_state,
+            supervision=supervision if supervision is not None else {},
+            metadata=context_metadata,
+        )
+        decisions = runtime.system.evaluate(context)
+        current_lifecycle = self.project_lifecycle
+        if (
+            current_lifecycle.state != "ACTIVE"
+            or current_lifecycle.context is not project
+            or current_lifecycle.network is not lifecycle.network
+            or current_lifecycle.activation_generation != lifecycle.activation_generation
+            or getattr(self, "protection_runtime", None) is not active_runtime
+            or (protection_runtime is None and active_runtime is not runtime)
+            or configuration_service.configuration is not configuration
+            or not runtime.configuration_matches_composition
+            or self.measurement_channel_service is not service
+        ):
+            raise StaleProtectionExecutionError(
+                "Project, topology, protection runtime/configuration or measurement authority changed during scenario evaluation."
+            )
+        return ProtectionExecutionResult(decisions=decisions)
 
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
@@ -991,21 +1719,39 @@ class Application:
             self._revision_service.restore_state(revision_state)
             raise
 
-        # Lifecycle activation has committed successfully; only now establish
-        # the clean baseline for the newly authoritative project state.
+        # Lifecycle activation has committed. The outgoing project's history
+        # must never be replayed against the newly authoritative network.
+        # A history-clear failure must not skip revision/validation cleanup:
+        # the lifecycle transition has already committed and cannot be rolled
+        # back by this coordinator.
+        transition_error: Exception | None = None
+        try:
+            self._command_manager.clear_history()
+        except Exception as exc:
+            transition_error = exc
+
         self._revision_service.reset_for_project()
         if self._validation_service is not None:
             self._validation_service.invalidate()
-            self._event_bus.publish(
-                ValidationChanged(
-                    metadata={
-                        "valid": False,
-                        "invalidated": True,
-                        "reason": "project_transition",
-                        **self._project_scope_metadata(),
-                    }
+            try:
+                self._event_bus.publish(
+                    ValidationChanged(
+                        metadata={
+                            "valid": False,
+                            "invalidated": True,
+                            "reason": "project_transition",
+                            **self._project_scope_metadata(),
+                        }
+                    )
                 )
-            )
+            except Exception as exc:
+                # Preserve the first failure while still completing all
+                # mandatory post-activation state reconciliation.
+                if transition_error is None:
+                    transition_error = exc
+
+        if transition_error is not None:
+            raise transition_error
         return result
 
     def discard_project_changes(self) -> ProjectContext:
@@ -1108,18 +1854,51 @@ class Application:
         return context
 
     def capture_project_snapshot(self) -> ProjectSnapshot:
+        """Capture a detached snapshot only if project scope and revisions stay stable."""
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None: raise RuntimeError("No active project.")
-        network_snapshot = deserialize_network(serialize_network(lifecycle.network))
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot capture a study snapshot without an active project.")
+        project_id = context.project_id
+        activation_generation = lifecycle.activation_generation
+        revision_before = self.revision
+        active_network = lifecycle.network
+        network_snapshot = deserialize_network(serialize_network(active_network))
+        # Project scope and activation generation are runtime provenance, not
+        # persisted Network engineering state. Restore them on the detached
+        # study copy before rebuilding its TopologySnapshot so phase-domain
+        # preparation can verify its provenance against the captured project.
+        network_snapshot.project_id = project_id
+        network_snapshot.activation_generation = activation_generation
+        # Canonical persistence omits runtime topology revision counters. A
+        # detached study snapshot must retain the exact active Network revision;
+        # reconstruction can replay attachment mutations and change its counter.
+        network_snapshot.state.topology_revision = active_network.state.topology_revision
+        network_snapshot.rebuild_topology()
         dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
-        return ProjectSnapshot(project_id=context.project_id, activation_generation=lifecycle.activation_generation,
-                               revision=self.revision, network=network_snapshot, dynamic_models=dynamic_models)
+        revision_after = self.revision
+        current_context = lifecycle.context
+        if (
+            current_context is None
+            or current_context.project_id != project_id
+            or lifecycle.activation_generation != activation_generation
+            or not lifecycle.has_project
+            or lifecycle.state != "ACTIVE"
+        ):
+            raise RuntimeError("Project activation changed while capturing the study snapshot.")
+        if revision_before != revision_after:
+            raise RuntimeError("Project revision changed while capturing the study snapshot; retry study execution.")
+        return ProjectSnapshot(
+            project_id=project_id,
+            activation_generation=activation_generation,
+            revision=revision_after,
+            network=network_snapshot,
+            dynamic_models=dynamic_models,
+        )
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
-        self._remember_study_case(request)
         lifecycle = self.project_lifecycle
         context = lifecycle.context
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
@@ -1149,6 +1928,23 @@ class Application:
         if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
             raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
         project_snapshot = self.capture_project_snapshot()
+        # The canonical topology and detached project snapshot are captured
+        # through separate boundaries. Refuse to pair them if a mutation landed
+        # between those captures or if the detached network carries a different
+        # topology revision than the StudyRequest.
+        if self.revision != request.source_revision:
+            raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
+        if (
+            project_snapshot.project_id != request.project_id
+            or project_snapshot.activation_generation != request.activation_generation
+            or project_snapshot.revision != request.source_revision
+        ):
+            raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
+        detached_network = project_snapshot.network
+        detached_state = getattr(detached_network, "state", None)
+        detached_topology_revision = getattr(detached_state, "topology_revision", None)
+        if detached_topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Detached network topology revision does not match StudyRequest.")
         execution_context = StudyExecutionContext(
             project_id=request.project_id,
             activation_generation=request.activation_generation,
@@ -1156,6 +1952,9 @@ class Application:
             topology_snapshot=snapshot,
             project_snapshot=project_snapshot,
         )
+        # Only register a runnable Study Case after the request has passed
+        # project-generation, revision, validation, and topology provenance gates.
+        self._remember_study_case(request)
         return self._study_service.execute(request, execution_context)
 
     def read_study_result(self, study_id) -> Any:
@@ -1181,6 +1980,55 @@ class Application:
             current_revision=self.revision,
         )
 
+    def read_archived_study_results(
+        self, *, study_type: str | None = None, status: str | None = None,
+        saved_after: str | None = None, saved_before: str | None = None,
+        search: str | None = None, activation_generation: int | None = None,
+        study_id: UUID | None = None,
+    ) -> tuple[Any, ...]:
+        """Search durable executions for the active project, including older generations."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            return ()
+        return self._study_read_service.archived_results(
+            project_id=context.project_id,
+            activation_generation=activation_generation,
+            study_id=study_id,
+            study_type=study_type,
+            status=status,
+            saved_after=saved_after,
+            saved_before=saved_before,
+            search=search,
+        )
+
+    def read_archived_study_result(self, record_id: UUID, *, activation_generation: int | None = None) -> Any:
+        """Load one durable execution record within the active project identity."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to read archived Study Results.")
+        return self._study_read_service.archived_result(
+            record_id, project_id=context.project_id,
+            activation_generation=activation_generation,
+        )
+
+    def compare_archived_study_results(self, left_record_id: UUID, right_record_id: UUID) -> Any:
+        """Compare two archived executions without silently mixing project/study types."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to compare archived Study Results.")
+        return self._study_read_service.compare_archived_results(
+            left_record_id, right_record_id, project_id=context.project_id,
+        )
+
+    def verify_archived_study_results(self, *, activation_generation: int | None = None) -> Any:
+        """Verify active-project archive records without modifying or deleting them."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to verify archived Study Results.")
+        return self._study_read_service.verify_archived_results(
+            project_id=context.project_id, activation_generation=activation_generation,
+        )
+
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
         """Compatibility-only Application lookup retained for non-presentation callers."""
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
@@ -1188,23 +2036,358 @@ class Application:
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
         return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
+    @staticmethod
+    def _invoke_extension_handler_factory(
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+        command_manager: CommandManager,
+    ) -> Mapping[str, Any]:
+        """Invoke a pure handler factory and reject command-registry side effects."""
+        before = command_manager.handler_registry_snapshot()
+        before_pre_commit_hook = command_manager.pre_commit_hook
+        factory_error: BaseException | None = None
+        handlers: Mapping[str, Any] | None = None
+        try:
+            factory_result = factory(command_manager)
+            # Materialize custom/lazy mappings inside the guarded window so
+            # iteration-time side effects are detected and the validated
+            # handlers cannot change between validation and installation.
+            handlers = (
+                dict(factory_result)
+                if isinstance(factory_result, Mapping)
+                else factory_result
+            )
+        except BaseException as exc:
+            factory_error = exc
+
+        # The verification read is part of the guarded operation too: an
+        # overridden snapshot/property accessor may fail after the factory has
+        # already mutated the manager. In that case, restore both captured
+        # composition components because the extent of mutation is unknown.
+        verification_error: BaseException | None = None
+        try:
+            after = command_manager.handler_registry_snapshot()
+            after_pre_commit_hook = command_manager.pre_commit_hook
+        except BaseException as exc:
+            verification_error = exc
+            after = None
+            after_pre_commit_hook = None
+
+        registry_changed = (
+            True
+            if verification_error is not None
+            else (
+                before.keys() != after.keys()
+                or any(before[key] is not after[key] for key in before.keys() & after.keys())
+            )
+        )
+        hook_changed = (
+            True
+            if verification_error is not None
+            else after_pre_commit_hook is not before_pre_commit_hook
+        )
+
+        restoration_errors: list[tuple[str, BaseException]] = []
+        if registry_changed:
+            # Restore additions, removals, replacements, and the original order
+            # before surfacing the factory contract violation.
+            try:
+                command_manager.restore_handler_registry(before)
+            except BaseException as exc:
+                restoration_errors.append(("handler registry", exc))
+        if hook_changed:
+            try:
+                command_manager.set_pre_commit_hook(before_pre_commit_hook)
+            except BaseException as exc:
+                restoration_errors.append(("pre-commit hook", exc))
+
+        if restoration_errors:
+            failed_parts = ", ".join(part for part, _ in restoration_errors)
+            failure_details = "; ".join(
+                f"{part}: {error!r}" for part, error in restoration_errors
+            )
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            verification_details = (
+                f" Verification exception: {verification_error!r}."
+                if verification_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} changed or may have "
+                f"changed CommandManager composition state, and restoration failed "
+                f"for {failed_parts}. The manager may remain corrupted. "
+                f"Restoration errors: {failure_details}.{verification_details}"
+                f"{factory_details}"
+            ) from restoration_errors[0][1]
+
+        if verification_error is not None:
+            factory_details = (
+                f" Original factory exception: {factory_error!r}."
+                if factory_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                f"Could not verify CommandManager composition after extension "
+                f"factory {extension_id!r}; the captured registry and pre-commit "
+                f"hook were restored, but the factory side effects could not be "
+                f"reliably classified. Verification exception: {verification_error!r}."
+                f"{factory_details}"
+            ) from verification_error
+
+        if factory_error is not None:
+            raise factory_error
+        if registry_changed or hook_changed:
+            changed_state = []
+            if registry_changed:
+                changed_state.append("handler registry")
+            if hook_changed:
+                changed_state.append("pre-commit hook")
+            raise RuntimeError(
+                f"Extension handler factory {extension_id!r} mutated the "
+                f"CommandManager {' and '.join(changed_state)}; the original "
+                "composition state was restored."
+            )
+        # Let the standard handler validator provide the specific type error
+        # if a factory returns None or another non-mapping value.
+        return handlers  # type: ignore[return-value]
+
+    def register_extension_handler_factory(
+        self,
+        extension_id: str,
+        factory: Callable[[CommandManager], Mapping[str, Any]],
+    ) -> None:
+        """Register extension handlers that are rebuilt for every project runtime.
+
+        The factory receives the candidate CommandManager and must return a
+        mapping of command type to handler. It should construct project-bound
+        adapters for that manager; it must not mutate Core or retain a handler
+        bound to a previous project's runtime. Registration is atomic: any
+        collision or factory error leaves the active command registry unchanged.
+        """
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        if not callable(factory):
+            raise TypeError("extension handler factory must be callable.")
+        if extension_id in self._extension_handler_factories:
+            raise ValueError(f"Extension handler factory already registered: {extension_id!r}.")
+
+        handlers = self._invoke_extension_handler_factory(extension_id, factory, self._command_manager)
+        self._validate_extension_handlers(extension_id, handlers, self._command_manager)
+        # Snapshot before installation so a manager override that mutates then
+        # raises cannot leave an untracked handler behind.
+        original_registry = self._command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = self._command_manager.pre_commit_hook
+        installed: list[str] = []
+        try:
+            for command_type, handler in handlers.items():
+                self._command_manager.register_handler(command_type, handler)
+                installed.append(command_type)
+        except BaseException as registration_error:
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                self._command_manager.restore_handler_registry(original_registry)
+            except BaseException as rollback_error:
+                rollback_errors.append(("handler registry", rollback_error))
+            try:
+                self._command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as rollback_error:
+                rollback_errors.append(("pre-commit hook", rollback_error))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Extension handler registration for {extension_id!r} failed "
+                    f"({registration_error!r}) and rollback failed for "
+                    f"{failed_parts} ({details}); the active CommandManager may "
+                    "remain corrupted."
+                ) from rollback_errors[0][1]
+            raise
+        self._extension_handler_factories[extension_id] = factory
+        self._extension_handler_command_types[extension_id] = tuple(installed)
+        self._extension_handler_handlers[extension_id] = dict(handlers)
+
+    def unregister_extension_handler_factory(
+        self,
+        extension_id: str,
+        *,
+        expected_factory: Callable[[CommandManager], Mapping[str, Any]] | None = None,
+    ) -> bool:
+        """Unregister an extension, optionally requiring ownership of its registration.
+
+        The expected_factory guard prevents stale teardown callbacks from
+        removing a later registration that reused the same extension ID.
+        """
+        if not isinstance(extension_id, str) or not extension_id.strip():
+            raise ValueError("extension_id must be a non-empty string.")
+        extension_id = extension_id.strip()
+        current_factory = self._extension_handler_factories.get(extension_id)
+        if current_factory is None:
+            return False
+        if expected_factory is not None and current_factory is not expected_factory:
+            return False
+        command_types = self._extension_handler_command_types.get(extension_id, ())
+        expected_handlers = self._extension_handler_handlers.get(extension_id)
+        if expected_handlers is None:
+            raise RuntimeError(
+                f"Extension {extension_id!r} has no handler-identity ownership record; "
+                "refusing unsafe teardown."
+            )
+        current_registry = self._command_manager.handler_registry_snapshot()
+        conflicts = [
+            command_type for command_type in command_types
+            if command_type not in expected_handlers
+            or current_registry.get(command_type) is not expected_handlers.get(command_type)
+        ]
+        metadata_drift = set(command_types) != set(expected_handlers)
+        if conflicts or metadata_drift:
+            details = ", ".join(repr(command_type) for command_type in conflicts) or "ownership metadata"
+            raise RuntimeError(
+                f"Cannot unregister extension {extension_id!r}: handler ownership "
+                f"drift detected for {details}. The active handlers were left untouched; "
+                "repair or reconcile the registration before retrying teardown."
+            )
+        original_registry = current_registry
+        original_pre_commit_hook = self._command_manager.pre_commit_hook
+        try:
+            for command_type in command_types:
+                self._command_manager.unregister_handler(command_type)
+        except BaseException as teardown_error:
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                self._command_manager.restore_handler_registry(original_registry)
+            except BaseException as rollback_error:
+                rollback_errors.append(("handler registry", rollback_error))
+            try:
+                self._command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as rollback_error:
+                rollback_errors.append(("pre-commit hook", rollback_error))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Extension handler teardown for {extension_id!r} failed "
+                    f"({teardown_error!r}) and rollback failed for {failed_parts} "
+                    f"({details}); the active CommandManager may remain corrupted. "
+                    "Extension ownership metadata was retained."
+                ) from rollback_errors[0][1]
+            raise
+        # Publish ownership removal only after all registry mutations succeed.
+        self._extension_handler_command_types.pop(extension_id, None)
+        self._extension_handler_handlers.pop(extension_id, None)
+        del self._extension_handler_factories[extension_id]
+        return True
+
+    @staticmethod
+    def _validate_extension_handlers(
+        extension_id: str,
+        handlers: Mapping[str, Any],
+        command_manager: CommandManager,
+    ) -> None:
+        """Validate a factory result without changing the target registry."""
+        if not isinstance(handlers, Mapping):
+            raise TypeError(
+                f"Extension {extension_id!r} factory must return a command-type mapping."
+            )
+        seen: set[str] = set()
+        for command_type, handler in handlers.items():
+            if not isinstance(command_type, str) or not command_type.strip():
+                raise ValueError(
+                    f"Extension {extension_id!r} returned an invalid command type."
+                )
+            if command_type in seen:
+                raise ValueError(
+                    f"Extension {extension_id!r} returned duplicate command type {command_type!r}."
+                )
+            if not callable(handler):
+                raise TypeError(
+                    f"Extension {extension_id!r} handler for {command_type!r} is not callable."
+                )
+            if command_manager.has_handler(command_type):
+                raise ValueError(
+                    f"Extension {extension_id!r} conflicts with registered command {command_type!r}."
+                )
+            seen.add(command_type)
+
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService, validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
-        if self._sld_service is not None:
-            for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
-                command_manager.register_handler(command_type, handler)
-        next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
-        if self._control_engine is not None:
-            self._control_cycle = ControlCycleService(
-                self._control_engine,
-                next_control_execution,
-                signal_mapping=self._control_signal_mapping,
-                read_service=read_service,
+        if command_manager is self._command_manager:
+            raise ValueError(
+                "Runtime replacement requires a distinct candidate CommandManager; "
+                "the active manager cannot be mutated as a candidate."
             )
-        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+
+        # Snapshot the complete candidate composition before any mutation.
+        # Reverse-unregister bookkeeping alone cannot restore overwritten or
+        # removed entries, the original order, or the previous pre-commit hook.
+        original_registry = command_manager.handler_registry_snapshot()
+        original_pre_commit_hook = command_manager.pre_commit_hook
+        try:
+            if self._sld_service is not None:
+                for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
+                    command_manager.register_handler(command_type, handler)
+
+            next_extension_types: dict[str, tuple[str, ...]] = {}
+            next_extension_handlers: dict[str, dict[str, Any]] = {}
+            for extension_id, factory in self._extension_handler_factories.items():
+                extension_handlers = self._invoke_extension_handler_factory(extension_id, factory, command_manager)
+                self._validate_extension_handlers(extension_id, extension_handlers, command_manager)
+                installed_extension_types: list[str] = []
+                for command_type, handler in extension_handlers.items():
+                    command_manager.register_handler(command_type, handler)
+                    installed_extension_types.append(command_type)
+                next_extension_types[extension_id] = tuple(installed_extension_types)
+                next_extension_handlers[extension_id] = dict(extension_handlers)
+
+            next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+            next_control_cycle = self._control_cycle
+            if self._control_engine is not None:
+                next_control_cycle = ControlCycleService(
+                    self._control_engine,
+                    next_control_execution,
+                    signal_mapping=self._control_signal_mapping,
+                    read_service=read_service,
+                )
+            command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+        except BaseException as setup_error:
+            # Restore the whole captured composition, including pre-existing
+            # entries and the hook. A rollback failure must not be silently
+            # swallowed because the candidate may then be unsafe to reuse.
+            rollback_errors: list[tuple[str, BaseException]] = []
+            try:
+                command_manager.restore_handler_registry(original_registry)
+            except BaseException as exc:
+                rollback_errors.append(("handler registry", exc))
+            try:
+                command_manager.set_pre_commit_hook(original_pre_commit_hook)
+            except BaseException as exc:
+                rollback_errors.append(("pre-commit hook", exc))
+            if rollback_errors:
+                failed_parts = ", ".join(part for part, _ in rollback_errors)
+                details = "; ".join(
+                    f"{part}: {error!r}" for part, error in rollback_errors
+                )
+                raise RuntimeError(
+                    f"Candidate runtime composition failed ({setup_error!r}) and "
+                    f"rollback failed for {failed_parts}. The candidate "
+                    f"CommandManager may remain corrupted. Rollback errors: {details}."
+                ) from rollback_errors[0][1]
+            raise
+
+        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        self._control_cycle = next_control_cycle
+        self._extension_handler_command_types = next_extension_types
+        self._extension_handler_handlers = next_extension_handlers
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
         """Coordinate Core and persistent SLD semantic reconciliation in one transaction.
@@ -1290,6 +2473,19 @@ class Application:
                             transaction,
                         )
                     x, y = item.get("x"), item.get("y")
+                    draft_presentation = item.get("presentation")
+                    symbol_presentation = (
+                        dict(draft_presentation)
+                        if isinstance(draft_presentation, Mapping)
+                        and isinstance(draft_presentation.get("symbol_id"), str)
+                        and draft_presentation["symbol_id"].strip()
+                        else None
+                    )
+                    draft_rotation = (
+                        draft_presentation.get("orientation")
+                        if symbol_presentation is None and isinstance(draft_presentation, Mapping)
+                        else None
+                    )
                     if x is not None and y is not None:
                         self._sld_service.execute(
                             AddSLDNodeCommand(
@@ -1300,7 +2496,8 @@ class Application:
                                 presentation_owner="projection",
                                 projection_source="network.commit_draft",
                                 element_type=str(item["element_type"]),
-                                presentation=item.get("presentation") or None,
+                                presentation=symbol_presentation,
+                                presentation_rotation=draft_rotation,
                                 presentation_properties={"position_owner": "engineer"},
                                 correlation_id=command.correlation_id,
                                 causation_id=command.command_id,
@@ -1314,6 +2511,15 @@ class Application:
                         item.get("sld_connection_id")
                         or self._sld_service.presentation_connection_id(str(item["connection_id"]))
                     )
+                    source_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_a"])
+                    target_endpoint = self._sld_endpoint_for_committed_mapping(item["endpoint_b"])
+                    if self._sld_service.rebind_orphaned_simple_wire(
+                        core_connection_id=str(item["connection_id"]),
+                        source_endpoint=source_endpoint,
+                        target_endpoint=target_endpoint,
+                        transaction=transaction,
+                    ):
+                        continue
                     existing = self._sld_service.document.model.get_connection_optional(connection_id)
                     if existing is not None:
                         raise ValueError(
@@ -1322,12 +2528,12 @@ class Application:
                     self._sld_service.execute(
                         AddSLDConnectionCommand(
                             connection_id=connection_id,
-                            source_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_a"]),
-                            target_node_id=self._sld_node_id_for_endpoint_mapping(item["endpoint_b"]),
-                            source_endpoint=item["endpoint_a"],
-                            target_endpoint=item["endpoint_b"],
+                            source_node_id=source_endpoint["node_id"],
+                            target_node_id=target_endpoint["node_id"],
+                            source_endpoint=source_endpoint,
+                            target_endpoint=target_endpoint,
                             connection_kind="SIMPLE_WIRE",
-                            route=item.get("route"),
+                            route=item.get("route") or None,
                             presentation_owner="projection",
                             projection_source="network.commit_draft",
                             core_connection_id=str(item["connection_id"]),
@@ -1471,6 +2677,41 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
+    def _sld_endpoint_for_committed_mapping(self, mapping: Any) -> dict[str, Any]:
+        """Translate DraftNetwork endpoint identity into the canonical SLD projection schema."""
+        if not isinstance(mapping, Mapping):
+            raise TypeError("Committed draft endpoint mapping must be a mapping.")
+        kind = str(mapping.get("kind") or "")
+        object_id = str(mapping.get("object_id") or "")
+        if not object_id:
+            raise ValueError("Committed endpoint mapping requires a non-empty object_id.")
+        node_id = self._sld_node_id_for_endpoint_mapping(mapping)
+        if kind == "bus":
+            attachment_id = mapping.get("attachment_id")
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Committed Bus endpoint requires attachment_id.")
+            return {
+                "kind": "bus",
+                "node_id": node_id,
+                "equipment_id": None,
+                "terminal_role": None,
+                "bus_id": object_id,
+                "attachment_id": attachment_id,
+            }
+        if kind == "terminal":
+            terminal_role = mapping.get("terminal_role")
+            if not isinstance(terminal_role, str) or not terminal_role:
+                raise ValueError("Committed terminal endpoint requires terminal_role.")
+            return {
+                "kind": "equipment",
+                "node_id": node_id,
+                "equipment_id": object_id,
+                "terminal_role": terminal_role,
+                "bus_id": None,
+                "attachment_id": None,
+            }
+        raise ValueError(f"Unsupported committed draft endpoint kind: {kind!r}.")
+
     def _sld_node_id_for_endpoint_mapping(self, mapping: Any) -> str:
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint projection.")
@@ -1526,17 +2767,70 @@ class Application:
         # terminal/connection operation.
         if command.command_type in {"model.create_line", "model.create_cable"} and (source_ref is None or target_ref is None):
             return
-        if not isinstance(source_ref, EndpointReference) or not isinstance(target_ref, EndpointReference):
-            raise ValueError("Connection commands require canonical EndpointReference endpoints.")
+
+        # Simple Wire commands normalize their endpoints to topology-level
+        # references before reaching Application. Unwrap only the explicitly
+        # declared terminal/Bus payload; never infer an endpoint from graphics
+        # coordinates or silently map a Junction to a terminal.
+        def sld_endpoint_reference(value: Any) -> EndpointReference:
+            if isinstance(value, EndpointReference):
+                return value
+            if isinstance(value, TopologyEndpointReference):
+                if value.is_terminal:
+                    endpoint = value.terminal_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_terminal:
+                        return endpoint
+                    raise ValueError(
+                        "Terminal topology endpoint does not contain a valid canonical terminal reference."
+                    )
+                if value.is_bus:
+                    endpoint = value.bus_reference
+                    if isinstance(endpoint, EndpointReference) and endpoint.is_bus:
+                        return endpoint
+                    raise ValueError(
+                        "Bus topology endpoint does not contain a valid canonical Bus attachment reference."
+                    )
+                if value.is_junction:
+                    raise ValueError(
+                        "SLD connection projection does not support Junction endpoints; "
+                        "a dedicated Junction presentation contract is required."
+                    )
+                raise ValueError(
+                    f"Unsupported topology endpoint kind for SLD projection: {value.kind!r}."
+                )
+            raise ValueError(
+                "Connection commands require canonical EndpointReference or "
+                "TopologyEndpointReference endpoints."
+            )
+
+        source_ref = sld_endpoint_reference(source_ref)
+        target_ref = sld_endpoint_reference(target_ref)
         if source_ref == target_ref:
             raise ValueError("Connection endpoints must be distinct.")
 
         source = self._sld_endpoint_for_reference(source_ref)
         target = self._sld_endpoint_for_reference(target_ref)
 
+        # Core connection identity and persistent SLD presentation identity
+        # are separate contracts. Draft commit already uses this mapping; direct
+        # Simple Wire commands must use it too so activation audits, deletion,
+        # undo/redo, and draft-commit projection resolve the same companion.
+        sld_connection_id = (
+            self._sld_service.presentation_connection_id(connection_id)
+            if command.command_type == "connectivity.create_simple_wire"
+            else connection_id
+        )
+        if command.command_type == "connectivity.create_simple_wire" and self._sld_service.rebind_orphaned_simple_wire(
+            core_connection_id=connection_id,
+            source_endpoint=source,
+            target_endpoint=target,
+            transaction=transaction,
+        ):
+            return
+
         projection_result = self._sld_service.execute(
             AddSLDConnectionCommand(
-                connection_id=connection_id,
+                connection_id=sld_connection_id,
                 source_node_id=source["node_id"],
                 target_node_id=target["node_id"],
                 source_endpoint=source,
@@ -1554,7 +2848,7 @@ class Application:
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
 
-    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, str]:
+    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, Any]:
         """Resolve an immutable Core endpoint reference to semantic SLD identity only."""
         if self._sld_service is None:
             raise RuntimeError("SLD service is required for endpoint presentation coordination.")
@@ -1581,6 +2875,8 @@ class Application:
             return {
                 "kind": "bus",
                 "node_id": str(node.node_id),
+                "equipment_id": None,
+                "terminal_role": None,
                 "bus_id": str(reference.object_id),
                 "attachment_id": attachment_id,
             }
@@ -1590,6 +2886,8 @@ class Application:
             "node_id": str(node.node_id),
             "equipment_id": str(reference.object_id),
             "terminal_role": str(reference.terminal_role),
+            "bus_id": None,
+            "attachment_id": None,
         }
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
@@ -1680,8 +2978,11 @@ class Application:
         return result
 
     def prepare_creation_command(self, intent: CreationCommitIntent) -> Command:
-        """Translate immutable UI creation intent into the canonical Application command."""
-        return CreationCommandPreparer.prepare(intent)
+        """Translate intent using the trusted Application creation contract."""
+        if not isinstance(intent, CreationCommitIntent):
+            raise TypeError("intent must be a CreationCommitIntent.")
+        canonical_contract = self._creation_contract_registry.resolve(intent.equipment_type)
+        return CreationCommandPreparer.prepare(intent, canonical_contract=canonical_contract)
 
     def prepare_engineering_update(self, intent: Any) -> Command:
         """Translate typed engineering intent into the authoritative update command."""
@@ -1739,6 +3040,92 @@ class Application:
         )
         return self.execute(command)
 
+    def commit_draft_network_async(self) -> Future[ApplicationResult]:
+        """Execute the canonical DraftNetwork command off-thread and finalize events on the caller thread."""
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        draft = self._draft_network
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot commit DraftNetwork without an active project.")
+        if draft is None:
+            raise RuntimeError("Application DraftNetwork is not configured.")
+        if draft.project_id != context.project_id:
+            raise ValueError("DraftNetwork project_id does not match the active project.")
+        if draft.activation_generation != lifecycle.activation_generation:
+            raise ValueError("DraftNetwork activation_generation does not match the active project.")
+
+        project_id = context.project_id
+        activation_generation = lifecycle.activation_generation
+        draft_payload = draft.to_dict()
+        source_revision = self.revision
+        command = CommitNetworkCommand(project_id=project_id, activation_generation=activation_generation, draft_network=draft_payload)
+        with self._commit_state_lock:
+            if self._commit_in_flight:
+                raise RuntimeError("A DraftNetwork commit is already in progress.")
+            self._commit_in_flight = True
+            self._pending_async_commit_command = command
+
+        def execute_captured_commit() -> ApplicationResult:
+            try:
+                with self._execution_lock:
+                    current_lifecycle = self.project_lifecycle
+                    current_context = current_lifecycle.context
+                    current_draft = self._draft_network
+                    if (
+                        current_lifecycle.state != "ACTIVE"
+                        or not current_lifecycle.has_project
+                        or current_context is None
+                        or current_context.project_id != project_id
+                        or current_lifecycle.activation_generation != activation_generation
+                        or self.revision != source_revision
+                        or current_draft is not draft
+                        or current_draft is None
+                        or current_draft.to_dict() != draft_payload
+                    ):
+                        raise RuntimeError("DraftNetwork commit became stale before execution; the project, revision, or draft changed.")
+                    # Core mutation/history runs on the worker; synchronous Application
+                    # events are deliberately published by complete_async_commit().
+                    return self._command_manager.execute(command)
+            except BaseException:
+                self.abort_async_commit()
+                raise
+
+        try:
+            return self._commit_executor.submit(execute_captured_commit)
+        except BaseException:
+            self.abort_async_commit()
+            raise
+
+    def complete_async_commit(self, result: ApplicationResult) -> ApplicationResult:
+        """Publish semantic events after worker completion on the caller/UI thread."""
+        with self._commit_state_lock:
+            command = self._pending_async_commit_command
+            if not self._commit_in_flight or command is None:
+                raise RuntimeError("No asynchronous DraftNetwork commit awaits completion.")
+        try:
+            # The worker has completed before this UI-thread callback; the lock
+            # preserves the normal Application command/event serialization order.
+            with self._execution_lock:
+                if result.success:
+                    if self._validation_service is not None:
+                        self._validation_service.invalidate()
+                        self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                    self._publish_semantic_events(command, result, operation="execute")
+            return result
+        finally:
+            self.abort_async_commit()
+
+    def abort_async_commit(self) -> None:
+        """Release the single-flight guard after failure or completion."""
+        with self._commit_state_lock:
+            self._pending_async_commit_command = None
+            self._commit_in_flight = False
+
+    def _reject_during_async_commit(self) -> None:
+        with self._commit_state_lock:
+            if self._commit_in_flight:
+                raise RuntimeError("Another DraftNetwork commit is in progress; retry after it completes.")
+
     def read_draft_network(self) -> Mapping[str, Any] | None:
         """Return an isolated serialized snapshot for Application read/projection consumers."""
         draft = self._draft_network
@@ -1748,14 +3135,17 @@ class Application:
         return deepcopy(draft.to_dict())
 
     def execute(self, command: Command) -> ApplicationResult:
-        if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
-        result = self._command_manager.execute(command)
-        if result.success:
-            if self._validation_service is not None:
+        if not isinstance(command, Command):
+            raise TypeError("Application.execute requires a Command.")
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            result = self._command_manager.execute(command)
+            if result.success:
+                if self._validation_service is not None:
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_semantic_events(command, result, operation="execute")
-        return result
+                self._publish_semantic_events(command, result, operation="execute")
+            return result
 
     def supports(self, command_type: str) -> bool: return isinstance(command_type, str) and self._command_manager.is_registered(command_type)
 
@@ -1773,38 +3163,44 @@ class Application:
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
     def undo(self) -> ApplicationResult | None:
-        records = self._command_manager.undo_commands()
-        command = records[-1].command if records else None
-        result = self._command_manager.undo()
-        if result is not None and result.success:
-            network = getattr(self._command_manager.context, "network", None)
-            if command is not None and self._revision_service.has_undo_transition_for(command):
-                self._revision_service.record_undo(
-                    topology_revision=int(network.state.topology_revision) if network is not None else None
-                )
-            if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
-                self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_history_events(command, result, operation="undo")
-        return result
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            records = self._command_manager.undo_commands()
+            command = records[-1].command if records else None
+            result = self._command_manager.undo()
+            if result is not None and result.success:
+                network = getattr(self._command_manager.context, "network", None)
+                if command is not None and self._revision_service.has_undo_transition_for(command):
+                    self._revision_service.record_undo(
+                        topology_revision=int(network.state.topology_revision) if network is not None else None
+                    )
+                if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
+                    self._validation_service.invalidate()
+                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                self._publish_history_events(command, result, operation="undo")
+            return result
+
 
     def redo(self) -> ApplicationResult | None:
-        records = self._command_manager.redo_commands()
-        command = records[-1].command if records else None
-        result = self._command_manager.redo()
-        if result is not None and result.success and command is not None:
-            network = getattr(self._command_manager.context, "network", None)
-            if command is not None and self._revision_service.has_redo_transition_for(command):
-                self._revision_service.record_redo(
-                    topology_revision=int(network.state.topology_revision)
-                    if network is not None and self._revision_service.is_topology_command(command)
-                    else None
-                )
-            if self._validation_service is not None and not command.command_type.startswith("sld."):
-                self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
-            self._publish_semantic_events(command, result, operation="redo")
-        return result
+        self._reject_during_async_commit()
+        with self._execution_lock:
+            records = self._command_manager.redo_commands()
+            command = records[-1].command if records else None
+            result = self._command_manager.redo()
+            if result is not None and result.success and command is not None:
+                network = getattr(self._command_manager.context, "network", None)
+                if command is not None and self._revision_service.has_redo_transition_for(command):
+                    self._revision_service.record_redo(
+                        topology_revision=int(network.state.topology_revision)
+                        if network is not None and self._revision_service.is_topology_command(command)
+                        else None
+                    )
+                if self._validation_service is not None and not command.command_type.startswith("sld."):
+                    self._validation_service.invalidate()
+                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
+                self._publish_semantic_events(command, result, operation="redo")
+            return result
+
 
     def can_undo(self) -> bool: return self._command_manager.can_undo()
     def can_redo(self) -> bool: return self._command_manager.can_redo()
@@ -1812,7 +3208,10 @@ class Application:
     def redo_count(self) -> int: return self._command_manager.redo_count()
     def undo_commands(self) -> tuple: return self._command_manager.undo_commands()
     def redo_commands(self) -> tuple: return self._command_manager.redo_commands()
-    def clear_history(self) -> None: self._command_manager.clear_history()
+    def clear_history(self) -> None:
+        """Clear command and revision journals while preserving project revisions."""
+        self._command_manager.clear_history()
+        self._revision_service.clear_transitions()
 
     def read_control(self):
         service = getattr(self, "control_service", None)
@@ -1986,6 +3385,26 @@ class Application:
         elif command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type == "control.execute_trip_batch":
+            breaker_ids = tuple(command.payload.get("breaker_ids", ()))
+            batch_metadata = {
+                **metadata,
+                "breaker_ids": breaker_ids,
+                "atomic": True,
+                "command_type": command.command_type,
+            }
+            self._event_bus.publish(TopologyChanged(
+                operation=operation,
+                metadata=batch_metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
+            self._event_bus.publish(NetworkChanged(
+                operation=operation,
+                metadata=batch_metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
         elif command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
         elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)

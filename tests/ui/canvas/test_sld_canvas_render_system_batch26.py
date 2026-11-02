@@ -155,6 +155,7 @@ def test_batch26_renderer_reports_missing_or_invalid_identity_without_fabricatio
         x=20.0,
         y=30.0,
         properties={"element_type": "BREAKER"},
+        read_model=ElementReadModel(object_id="breaker-1", element_type="BREAKER", labels={"name": "Breaker 1"}, connectivity_refs=(), attributes={}),
     )
 
     renderer.synchronize(SLDCanvasSnapshot(nodes=(node,), connections=()))
@@ -165,7 +166,7 @@ def test_batch26_renderer_reports_missing_or_invalid_identity_without_fabricatio
     diagnostic = renderer.render_diagnostics[0]
     assert diagnostic.node_id == "sld-invalid"
     assert diagnostic.equipment_id == equipment_id
-    assert diagnostic.equipment_type == "BREAKER"
+    assert diagnostic.equipment_type == "breaker"
     assert diagnostic.category == "presentation_realization"
     assert diagnostic.code in {"MISSING_EQUIPMENT_ID", "EQUIPMENT_READ_MODEL_NOT_FOUND"}
     assert diagnostic.message

@@ -8,10 +8,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, fields, is_dataclass
+import math
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from .revision import ProjectRevision
+
+from core.solver.power_flow.result import PowerFlowResult
+from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
@@ -99,13 +105,21 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "voltage_pu": {"unit": "pu", "datatype": "float"},
     "angle_deg": {"unit": "deg", "datatype": "float"},
 
-    "resistance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "reactance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "study_impact": True},
-    "length_km": {"unit": "km", "datatype": "float", "study_impact": True},
-    "rated_voltage_kv": {"unit": "kV", "datatype": "float"},
-    "rated_current_a": {"unit": "A", "datatype": "float"},
-    "rate_mva": {"unit": "MVA", "datatype": "float", "study_impact": True},
+    "resistance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
+    "reactance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
+    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "editable": True, "study_impact": True},
+    "length_km": {"unit": "km", "datatype": "float", "editable": True, "study_impact": True},
+    "thermal_limit_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "non_negative": True}},
+    "conductor_count": {"datatype": "int", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "minimum": 1}},
+    "rated_voltage_kv": {"unit": "kV", "datatype": "float", "editable": True, "study_impact": True},
+    "rated_current_a": {"unit": "A", "datatype": "float", "editable": True, "study_impact": True},
+    "r1_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
+    "x1_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
+    "b1_us_per_km": {"unit": "µS/km", "datatype": "float", "editable": True, "study_impact": True},
+    "r0_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
+    "x0_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
+    "b0_us_per_km": {"unit": "µS/km", "datatype": "float", "editable": True, "study_impact": True},
+    "rate_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
     "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": True, "study_impact": True},
     "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
     "impedance_base_voltage_kv": {"unit": "kV", "datatype": "float", "editable": False, "study_impact": True},
@@ -182,8 +196,9 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
         "choices": tuple(value.value for value in CVTPolarity),
         "validation": {"authoritative": "Core"},
     },
-    "p": {"unit": "MW", "datatype": "float", "study_impact": True},
-    "q": {"unit": "MVAr", "datatype": "float", "study_impact": True},
+    "p": {"unit": "MW", "datatype": "float", "editable": True, "study_impact": True},
+    "q": {"unit": "MVAr", "datatype": "float", "editable": True, "study_impact": True},
+    "V_setpoint": {"unit": "pu", "datatype": "float", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "positive": True}},
 }
 
 # Application-owned read metadata.  These descriptors are intentionally
@@ -298,6 +313,10 @@ class NetworkReadService(ReadService):
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type in {"loads", "generators"} and parameter_id == "in_service":
+                metadata["editable"] = True
+            if element_type == "lines" and parameter_id == "in_service":
+                metadata["editable"] = True
             if element_type == "capacitive_voltage_transformers" and parameter_id == "polarity":
                 metadata["choices"] = tuple(value.value for value in CVTPolarity)
                 metadata["datatype"] = "enum"
@@ -383,19 +402,201 @@ class ProtectionReadService:
         decision = decision_provider(str(relay.id)) if decision_provider is not None else None
         return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings, decision=decision)
 
-class StudyReadService:
-    """Canonical Application read boundary for published study results.
+@dataclass(frozen=True, slots=True)
+class ArchivedStudyResultReadModel:
+    """Read-only archive row with stable execution identity and provenance."""
 
-    The service adapts the existing Application StudyService store into
-    immutable read models. It never executes studies and never becomes a
-    second result authority.
+    record_id: UUID
+    saved_at: str
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    status: str
+    message: str
+    metadata: Any
+    value: Any
+
+    @property
+    def transformer_delta_loop_currents(self) -> Any:
+        """Find internal-loop diagnostics inside detached result snapshots."""
+        def find(value: Any, depth: int = 0) -> Any:
+            if depth > 8:
+                return ()
+            if isinstance(value, Mapping):
+                direct = value.get("transformer_delta_loop_currents")
+                if direct is not None:
+                    return direct
+                for key in ("fields", "values", "short_circuit", "result", "value"):
+                    nested = value.get(key)
+                    if nested is not None:
+                        found = find(nested, depth + 1)
+                        if found:
+                            return found
+                return ()
+            if isinstance(value, (tuple, list)):
+                for item in value:
+                    found = find(item, depth + 1)
+                    if found:
+                        return found
+            return ()
+        return find(self.value)
+
+
+@dataclass(frozen=True, slots=True)
+class StudyResultNumericDeltaReadModel:
+    """One numerical difference whose physical unit and bases are identical."""
+
+    path: str
+    left_value: complex | float
+    right_value: complex | float
+    delta: complex | float
+    unit: str
+    base: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StudyResultComparisonReadModel:
+    """Two-execution comparison with only base-compatible numeric deltas."""
+
+    left: ArchivedStudyResultReadModel
+    right: ArchivedStudyResultReadModel
+    compatible: bool
+    compatibility_message: str
+    same_source_revision: bool
+    same_activation_generation: bool
+    numeric_deltas: tuple[StudyResultNumericDeltaReadModel, ...] = ()
+    numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
+
+
+def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
+    """Extract only solver values whose unit and engineering bases are explicit."""
+    observations: dict[str, tuple[complex | float, str, tuple[Any, ...]]] = {}
+    ambiguous_observations: set[str] = set()
+    visited = 0
+
+    def add_observation(
+        identity: str,
+        observation: tuple[complex | float, str, tuple[Any, ...]],
+    ) -> None:
+        # Duplicate physical identities are ambiguous; never let traversal
+        # order silently choose which value participates in a comparison.
+        if identity in ambiguous_observations:
+            return
+        if identity in observations:
+            observations.pop(identity, None)
+            ambiguous_observations.add(identity)
+            return
+        observations[identity] = observation
+
+    def visit(item: Any, path: str, depth: int) -> None:
+        nonlocal visited
+        if depth > 12 or visited >= 20000 or item is None:
+            return
+        visited += 1
+        if isinstance(item, PowerFlowResult):
+            # Both a stable solver snapshot and stable bus identities are
+            # mandatory. Positional fallback would silently pair different
+            # buses when the result's ordering changes.
+            if item.snapshot_id is None or not item.bus_ids:
+                return
+            for bus_id, magnitude, angle in zip(item.bus_ids, item.voltage_magnitudes, item.voltage_angles):
+                prefix = f"bus:{bus_id!r}"
+                add_observation(
+                    f"{prefix}.voltage_magnitude",
+                    (magnitude, "p.u.", (item.snapshot_id,)),
+                )
+                add_observation(
+                    f"{prefix}.voltage_angle",
+                    (angle, "deg", (item.snapshot_id,)),
+                )
+            return
+        if isinstance(item, ShortCircuitConductorCurrent):
+            # Match by physical conductor/terminal identity, never by collection
+            # position. Topology revision is part of the comparison base so a
+            # conductor record from a different topology cannot be paired.
+            identity = (
+                item.equipment_id,
+                item.terminal_role,
+                item.conductor_id,
+                item.bus_id,
+                item.phase_or_sequence,
+            )
+            observation_path = f"conductor:{identity!r}"
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.topology_revision,
+                item.phase_or_sequence,
+                item.reference_direction,
+                item.current_units,
+            )
+            add_observation(
+                f"{observation_path}.current",
+                (item.current, "p.u.", base),
+            )
+            return
+        if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
+            # A transformer may contain multiple loops and winding records.
+            # Include all physical identifiers in the key; direction and
+            # current base are also required to agree before calculating delta.
+            identity = (item.transformer_id, item.loop_id, item.winding)
+            observation_path = f"transformer_delta_loop:{identity!r}"
+            base = (
+                item.base_mva,
+                item.voltage_base_kv,
+                item.current_base_a,
+                item.positive_direction,
+            )
+            add_observation(
+                f"{observation_path}.current_a",
+                (item.current_a, "A", base),
+            )
+            add_observation(
+                f"{observation_path}.current_pu",
+                (item.current_pu, "p.u.", base),
+            )
+            return
+        if isinstance(item, Mapping):
+            for key, nested in item.items():
+                visit(nested, f"{path}.{key}", depth + 1)
+            return
+        if isinstance(item, (tuple, list)):
+            for index, nested in enumerate(item):
+                visit(nested, f"{path}[{index}]", depth + 1)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for descriptor in fields(item):
+                visit(getattr(item, descriptor.name), f"{path}.{descriptor.name}", depth + 1)
+
+    visit(value, "result", 0)
+    return observations
+
+
+class StudyReadService:
+    """Canonical Application read boundary for live and archived study results.
+
+    The service adapts the existing StudyService and StudyResultArchive. It
+    performs no execution, mutation, numerical reinterpretation or measurement
+    generation. Archived values remain detached snapshots.
     """
-    def __init__(self, studies: Any) -> None:
+
+    def __init__(self, studies: Any, archive: Any | None = None) -> None:
         if studies is None or not callable(getattr(studies, "get_result", None)):
             raise TypeError("studies must provide get_result().")
         if not callable(getattr(studies, "results", None)):
             raise TypeError("studies must provide results().")
         self._studies = studies
+        self._archive = None
+        self.configure_archive(archive)
+
+    def configure_archive(self, archive: Any | None) -> None:
+        if archive is not None and not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must provide load_all().")
+        if archive is not None and not callable(getattr(archive, "load_latest", None)):
+            raise TypeError("archive must provide load_latest().")
+        self._archive = archive
 
     @staticmethod
     def _to_read_model(
@@ -414,7 +615,7 @@ class StudyReadService:
             and current_revision is not None
             and result.project_id == current_project_id
             and result.activation_generation == current_activation_generation
-            and source_revision == current_revision
+            and source_revision.matches_study_state(current_revision)
         )
         return StudyResultReadModel(
             study_id=result.study_id,
@@ -427,6 +628,23 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             current=current,
+        )
+
+    @staticmethod
+    def _archived_to_read_model(record: Any) -> ArchivedStudyResultReadModel:
+        result = record.result
+        return ArchivedStudyResultReadModel(
+            record_id=record.record_id,
+            saved_at=record.saved_at,
+            study_id=result.study_id,
+            project_id=result.project_id,
+            activation_generation=result.activation_generation,
+            source_revision=result.source_revision,
+            study_type=result.study_type,
+            status=result.status,
+            message=result.message,
+            metadata=result.metadata,
+            value=result.value,
         )
 
     def result(
@@ -469,6 +687,128 @@ class StudyReadService:
             )
         )
 
+    def archived_results(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int | None = None,
+        study_id: UUID | None = None,
+        study_type: str | None = None,
+        status: str | None = None,
+        saved_after: str | None = None,
+        saved_before: str | None = None,
+        search: str | None = None,
+    ) -> tuple[ArchivedStudyResultReadModel, ...]:
+        if self._archive is None:
+            return ()
+        if status is not None and status not in {"completed", "failed", "cancelled"}:
+            raise ValueError("status must be completed, failed, cancelled, or None.")
+        if study_type is not None and (not isinstance(study_type, str) or not study_type.strip()):
+            raise ValueError("study_type must be a non-empty string or None.")
+        def parse_timestamp(value: str | None, label: str) -> datetime | None:
+            if value is None:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (AttributeError, ValueError) as exc:
+                raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+        after = parse_timestamp(saved_after, "saved_after")
+        before = parse_timestamp(saved_before, "saved_before")
+        if after is not None and before is not None and after > before:
+            raise ValueError("saved_after must not be later than saved_before.")
+        records = self._archive.load_all(
+            project_id,
+            activation_generation=activation_generation,
+            study_id=study_id,
+        )
+        needle = search.strip().casefold() if isinstance(search, str) else ""
+        rows = []
+        for record in records:
+            row = self._archived_to_read_model(record)
+            if study_type is not None and row.study_type != study_type.strip():
+                continue
+            if status is not None and row.status != status:
+                continue
+            saved_at = parse_timestamp(row.saved_at, "archived saved_at")
+            if after is not None and (saved_at is None or saved_at < after):
+                continue
+            if before is not None and (saved_at is None or saved_at > before):
+                continue
+            if needle:
+                haystack = " ".join((
+                    str(row.study_id), row.study_type, row.status, row.message,
+                    str(row.metadata), str(row.record_id),
+                )).casefold()
+                if needle not in haystack:
+                    continue
+            rows.append(row)
+        return tuple(sorted(rows, key=lambda row: (row.saved_at, str(row.record_id)), reverse=True))
+
+    def archived_result(
+        self, record_id: UUID, *, project_id: str,
+        activation_generation: int | None = None,
+    ) -> ArchivedStudyResultReadModel:
+        if not isinstance(record_id, UUID):
+            raise TypeError("record_id must be a UUID.")
+        for row in self.archived_results(
+            project_id=project_id, activation_generation=activation_generation
+        ):
+            if row.record_id == record_id:
+                return row
+        raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
+
+    def compare_archived_results(
+        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+    ) -> StudyResultComparisonReadModel:
+        left = self.archived_result(left_record_id, project_id=project_id)
+        right = self.archived_result(right_record_id, project_id=project_id)
+        compatible = left.project_id == right.project_id and left.study_type == right.study_type
+        if left.project_id != right.project_id:
+            message = "Comparison rejected: records belong to different projects."
+            compatible = False
+        elif left.study_type != right.study_type:
+            message = "Comparison rejected: study types differ."
+            compatible = False
+        else:
+            message = "Same project and study type; compare values with source-revision and activation provenance shown."
+        numeric_deltas: list[StudyResultNumericDeltaReadModel] = []
+        if compatible:
+            left_values = _study_result_numeric_observations(left.value)
+            right_values = _study_result_numeric_observations(right.value)
+            for path in sorted(set(left_values).intersection(right_values)):
+                left_value, left_unit, left_base = left_values[path]
+                right_value, right_unit, right_base = right_values[path]
+                if left_unit != right_unit or left_base != right_base:
+                    continue
+                finite = all(
+                    math.isfinite(part)
+                    for value in (left_value, right_value)
+                    for part in ((value.real, value.imag) if isinstance(value, complex) else (float(value),))
+                )
+                if not finite:
+                    continue
+                numeric_deltas.append(StudyResultNumericDeltaReadModel(
+                    path=path, left_value=left_value, right_value=right_value,
+                    delta=right_value - left_value, unit=left_unit, base=left_base,
+                ))
+        return StudyResultComparisonReadModel(
+            left=left,
+            right=right,
+            compatible=compatible,
+            compatibility_message=message,
+            same_source_revision=left.source_revision == right.source_revision,
+            same_activation_generation=left.activation_generation == right.activation_generation,
+            numeric_deltas=tuple(numeric_deltas),
+            numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
+        )
+
+    def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
+        if self._archive is None or not callable(getattr(self._archive, "verify", None)):
+            raise RuntimeError("Study Result archive verification is unavailable.")
+        return self._archive.verify(project_id, activation_generation=activation_generation)
+
     def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
         return self.results(
             project_id=project_id,
@@ -476,4 +816,13 @@ class StudyReadService:
             current_revision=current_revision,
         )
 
-__all__ = ["NetworkReadService", "ProtectionReadService", "ReadService", "StudyReadService"]
+
+__all__ = [
+    "ArchivedStudyResultReadModel",
+    "StudyReadService",
+    "StudyResultComparisonReadModel",
+    "StudyResultNumericDeltaReadModel",
+    "NetworkReadService",
+    "ProtectionReadService",
+    "ReadService",
+]

@@ -16,12 +16,24 @@ class SLDRouteEditController:
             raise TypeError("sld_controller must expose set_connection_route()")
         self._controller = sld_controller
         self._connection_id: str | None = None
+        self._core_connection_id: str | None = None
         self._points: list[tuple[float, float]] = []
 
-    def begin(self, connection_id: str, points: tuple[tuple[float, float], ...] | list[tuple[float, float]]) -> None:
+    def begin(
+        self,
+        connection_id: str,
+        points: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+        *,
+        core_connection_id: str | None = None,
+    ) -> None:
         if not isinstance(connection_id, str) or not connection_id:
-            raise ValueError("connection_id must be a non-empty string")
+            raise ValueError("connection_id must be a non-empty presentation identity")
+        if core_connection_id is not None and (
+            not isinstance(core_connection_id, str) or not core_connection_id
+        ):
+            raise ValueError("core_connection_id must be a non-empty string when provided")
         self._connection_id = connection_id
+        self._core_connection_id = core_connection_id
         self._points = [(float(x), float(y)) for x, y in points]
 
     def move_bend(self, index: int, x: float, y: float) -> None:
@@ -35,13 +47,23 @@ class SLDRouteEditController:
         """Commit one graphics-item route edit through SLDController/Application."""
         if not isinstance(request, dict):
             raise TypeError("route edit request must be a mapping")
-        connection_id = request.get("connection_id")
+        # Route geometry is persisted on the SLD connection, while the Core ID
+        # verifies that the presentation connection is still bound to the
+        # intended domain connection. These identities must not be conflated.
+        presentation_connection_id = request.get("connection_id")
+        core_connection_id = request.get("core_connection_id")
         points = request.get("points")
-        if not isinstance(connection_id, str) or not connection_id:
-            raise ValueError("route edit request requires connection_id")
+        if not isinstance(presentation_connection_id, str) or not presentation_connection_id:
+            raise ValueError("route edit request requires presentation connection_id")
+        if not isinstance(core_connection_id, str) or not core_connection_id:
+            raise ValueError("route edit request requires explicit core_connection_id")
         if not isinstance(points, (tuple, list)):
             raise TypeError("route edit request requires route points")
-        self.begin(connection_id, points)
+        self.begin(
+            presentation_connection_id,
+            points,
+            core_connection_id=core_connection_id,
+        )
         self.commit()
 
     def commit(self) -> None:
@@ -55,6 +77,7 @@ class SLDRouteEditController:
                 self._connection_id,
                 tuple(self._points),
                 routing_mode="manual",
+                core_connection_id=self._core_connection_id,
             )
         finally:
             # Proposed route state is interaction-local.  It must not survive
@@ -63,6 +86,7 @@ class SLDRouteEditController:
 
     def cancel(self) -> None:
         self._connection_id = None
+        self._core_connection_id = None
         self._points = []
 
 

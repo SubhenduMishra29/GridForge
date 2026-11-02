@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from core.model import Branch, Breaker, Cable, Disconnector, Fuse, Line, Switch, Transformer
+from core.model import Branch, Breaker, Cable, CurrentTransformer, Disconnector, Fuse, Line, Switch, Transformer
 from core.model.endpoint_reference import EndpointReference, EndpointReferenceKind
 
 
@@ -38,8 +38,14 @@ class EndpointCompatibility:
     """Canonical Core endpoint compatibility and resolution contract."""
 
     _DOMAIN_ROLES = {
+        # EquipmentType values follow each model's canonical TYPE, so CT
+        # and PT resolve as "ct" and "pt" (not their Python class names).
+        "ct": {"P1": "primary", "P2": "primary", "S1": "secondary", "S2": "secondary"},
         "current_transformer": {"P1": "primary", "P2": "primary", "S1": "secondary", "S2": "secondary"},
+        "pt": {"primary_a": "primary", "primary_b": "primary", "secondary_a": "secondary", "secondary_b": "secondary"},
         "potential_transformer": {"primary_a": "primary", "primary_b": "primary", "secondary_a": "secondary", "secondary_b": "secondary"},
+        "cvt": {"H1": "primary", "H2": "primary", "X1": "secondary", "X2": "secondary"},
+        # Retain the descriptive legacy key for callers that still use it.
         "capacitive_voltage_transformer": {"H1": "primary", "H2": "primary", "X1": "secondary", "X2": "secondary"},
     }
 
@@ -52,6 +58,16 @@ class EndpointCompatibility:
         if network is not None:
             cls.validate_reference(first, network)
             cls.validate_reference(second, network)
+
+        # Measurement secondary circuits are not ordinary power-network wire
+        # endpoints. Enforce this before the Bus fast path so a CT/PT/CVT
+        # secondary cannot be wired directly to a Bus either.
+        for reference in (first, second):
+            if cls.domain(reference) == "secondary":
+                raise EndpointCompatibilityError(
+                    "Measurement-secondary terminals cannot be connected by an ordinary Simple Wire."
+                )
+
         if first.is_bus or second.is_bus:
             return
         if first.equipment_type == second.equipment_type and first.object_id == second.object_id:
@@ -168,6 +184,10 @@ def conduction_state(element: Any) -> bool:
     conducts = getattr(element, "conducts", None)
     if conducts is not None:
         return bool(conducts)
+    # A CT primary is a series conductor: its primary terminals belong to
+    # the same electrical path while the measurement secondary remains isolated.
+    if isinstance(element, CurrentTransformer):
+        return bool(getattr(element, "in_service", False))
     if isinstance(element, (Branch, Line, Cable, Transformer)):
         return bool(getattr(element, "in_service", False))
     if isinstance(element, Breaker):

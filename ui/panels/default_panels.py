@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from uuid import uuid4
 import logging
 from typing import Any
 
@@ -15,7 +16,7 @@ from ui.projection.projection_state import EngineeringParameterState, Projection
 from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
 )
 from ui.plugins.panels_plugin import PanelSpec
@@ -307,6 +308,8 @@ class EquipmentPanelWidget(QWidget):
 class PropertiesPanelWidget(QWidget):
     """Qt realization of the canonical PropertiesPanel projection."""
 
+    _commit_future_completed = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GridForgePanel_properties")
@@ -325,12 +328,19 @@ class PropertiesPanelWidget(QWidget):
         self._apply_changes_connected = True
         self._place_draft_connected = False
         self._commit_network_button: QPushButton | None = None
+        self._commit_future_completed.connect(self._on_commit_future_completed)
         self._build_controls()
 
     def _build_controls(self) -> None:
         root = QVBoxLayout(self)
         self._form_layout = QFormLayout()
         root.addLayout(self._form_layout)
+        self._annotation_layout = QFormLayout()
+        root.addWidget(QLabel("SLD Data Annotations", self))
+        root.addLayout(self._annotation_layout)
+        self._sld_controller: Any | None = None
+        self._sld_selection_ids: tuple[str, ...] = ()
+        self._sld_annotations_cleared = False
         self._validation_label = QLabel("Select an element to inspect.", self)
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
@@ -361,6 +371,178 @@ class PropertiesPanelWidget(QWidget):
             if callable(state_connect):
                 state_connect(self._refresh_commit_network_action)
         self._refresh_commit_network_action()
+
+    def bind_sld_annotation_runtime(self, *, controller: Any, selection_manager: Any) -> None:
+        """Bind annotation editing to canonical SLD selection and Application commands."""
+        if controller is None or not callable(getattr(controller, "set_annotation_blocks", None)):
+            raise TypeError("controller must provide set_annotation_blocks().")
+        if selection_manager is None or not callable(getattr(selection_manager, "select_single", None)):
+            raise TypeError("selection_manager must be the canonical selection manager.")
+        self._sld_controller = controller
+        signal = getattr(selection_manager, "selection_changed", None)
+        connect = getattr(signal, "connect", None)
+        if not callable(connect):
+            raise TypeError("selection_manager must expose selection_changed.connect().")
+        connect(self._on_sld_selection_changed)
+        self._refresh_sld_annotation_controls()
+
+    def _on_sld_selection_changed(self, ids: Any) -> None:
+        self._sld_selection_ids = tuple(str(value) for value in (ids or ()))
+        if self._sld_annotations_cleared:
+            self.clear_sld_annotation_controls()
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _selected_sld_node(self) -> Any | None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return None
+        if len(self._sld_selection_ids) != 1:
+            return None
+        selected_id = self._sld_selection_ids[0]
+        node = document.model.get_node_optional(selected_id)
+        if node is not None:
+            return node
+        return document.model.get_node_by_equipment_id_optional(selected_id)
+
+    def refresh_sld_annotation_controls(self) -> None:
+        """Refresh annotation controls while preserving the current selection."""
+        self._sld_annotations_cleared = False
+        self._refresh_sld_annotation_controls()
+
+    def handle_sld_document_changed(self) -> None:
+        """Drop selection IDs from the previous document before rebuilding controls."""
+        self._sld_selection_ids = ()
+        self._sld_annotations_cleared = False
+        self._refresh_sld_annotation_controls()
+
+    def clear_sld_annotation_controls(self) -> None:
+        """Clear document-specific annotation controls when no SLD document is active."""
+        self._sld_annotations_cleared = True
+        self._sld_selection_ids = ()
+        layout = getattr(self, "_annotation_layout", None)
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        layout.addRow(QLabel("No active SLD document.", self))
+
+    def _refresh_sld_annotation_controls(self) -> None:
+        layout = getattr(self, "_annotation_layout", None)
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        node = self._selected_sld_node()
+        if document is None or node is None:
+            layout.addRow(QLabel("Select one SLD node to configure its data annotation.", self))
+            return
+
+        blocks = [block.to_dict() for block in document.annotation_blocks if block.node_id == node.node_id]
+        if not blocks:
+            layout.addRow(QLabel(f"Node: {node.node_id} · no annotation block configured.", self))
+        for block in blocks:
+            block_id = str(block["block_id"])
+            layout.addRow(QLabel(f"Block: {block_id}", self))
+            fields_edit = QLineEdit(", ".join(block["fields"]), self)
+            visible_check = QCheckBox("Visible", self)
+            visible_check.setChecked(bool(block["visible"]))
+            offset_x = QDoubleSpinBox(self)
+            offset_y = QDoubleSpinBox(self)
+            for control, key in ((offset_x, "offset_x"), (offset_y, "offset_y")):
+                control.setRange(-1000000.0, 1000000.0)
+                control.setDecimals(2)
+                control.setValue(float(block[key]))
+            layout.addRow("Fields", fields_edit)
+            layout.addRow("Offset X", offset_x)
+            layout.addRow("Offset Y", offset_y)
+            layout.addRow(visible_check)
+            save_button = QPushButton("Apply Annotation Changes", self)
+            save_button.clicked.connect(
+                lambda _checked=False, bid=block_id, fields=fields_edit, visible=visible_check,
+                       ox=offset_x, oy=offset_y: self._save_sld_annotation(
+                           bid, fields.text(), visible.isChecked(), ox.value(), oy.value()
+                       )
+            )
+            remove_button = QPushButton("Remove Annotation", self)
+            remove_button.clicked.connect(
+                lambda _checked=False, bid=block_id: self._remove_sld_annotation(bid)
+            )
+            layout.addRow(save_button, remove_button)
+
+        add_button = QPushButton("Add Data Annotation Block", self)
+        add_button.clicked.connect(lambda _checked=False, nid=node.node_id: self._add_sld_annotation(nid))
+        layout.addRow(add_button)
+
+    def _save_sld_annotation(
+        self, block_id: str, fields_text: str, visible: bool, offset_x: float, offset_y: float
+    ) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return
+        fields = [value.strip() for value in fields_text.split(",") if value.strip()]
+        blocks = [block.to_dict() for block in document.annotation_blocks]
+        found = False
+        for block in blocks:
+            if block["block_id"] == block_id:
+                block.update(fields=fields, visible=visible, offset_x=offset_x, offset_y=offset_y)
+                found = True
+                break
+        if not found:
+            return
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation update rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _add_sld_annotation(self, node_id: str) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None or document.model.get_node_optional(node_id) is None:
+            return
+        blocks = [block.to_dict() for block in document.annotation_blocks]
+        blocks.append({
+            "block_id": "annotation-" + uuid4().hex,
+            "node_id": node_id,
+            "visible": True,
+            "fields": ["identity", "type"],
+            "offset_x": 70.0,
+            "offset_y": -20.0,
+        })
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation creation rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _remove_sld_annotation(self, block_id: str) -> None:
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        if document is None:
+            return
+        blocks = [block.to_dict() for block in document.annotation_blocks if block.block_id != block_id]
+        try:
+            controller.set_annotation_blocks(blocks)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Annotation removal rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
 
     def configure_parameter(self, parameter_id: str, value: Any) -> Any:
         if self._engineering_editor is None:
@@ -406,6 +588,19 @@ class PropertiesPanelWidget(QWidget):
         if target is None:
             if self._validation_label is not None:
                 self._validation_label.setText("Select an element to inspect.")
+                self._validation_label.setProperty("role", "validationInfo")
+            if self._apply_button is not None:
+                if not self._apply_changes_connected:
+                    try:
+                        self._apply_button.clicked.disconnect(self._place_draft)
+                    except (RuntimeError, TypeError):
+                        pass
+                    self._place_draft_connected = False
+                    self._apply_button.clicked.connect(self._apply_changes)
+                    self._apply_changes_connected = True
+                self._apply_button.setText("Apply / Commit")
+                self._apply_button.setProperty("role", "primaryAction")
+                self._apply_button.setEnabled(False)
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
         assert self._form_layout is not None
@@ -471,17 +666,33 @@ class PropertiesPanelWidget(QWidget):
 
     def _commit_network(self) -> None:
         controller = self._creation_controller
-        commit = getattr(controller, "commit_network", None) if controller is not None else None
+        commit = getattr(controller, "commit_network_async", None) if controller is not None else None
         if not callable(commit):
             if self._validation_label is not None:
-                self._validation_label.setText("Commit Network action is not bound.")
+                self._validation_label.setText("Non-blocking Commit Network action is not bound.")
+                self._validation_label.setProperty("role", "validationError")
             return
         try:
-            result = commit()
+            future = commit()
+        except (RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(str(exc))
+                self._validation_label.setProperty("role", "validationError")
+            return
+        if self._commit_network_button is not None:
+            self._commit_network_button.setEnabled(False)
+            self._commit_network_button.setText("Committing Network…")
+        if self._validation_label is not None:
+            self._validation_label.setText("Validating and committing network in the background…")
+            self._validation_label.setProperty("role", "validationInfo")
+        future.add_done_callback(self._commit_future_completed.emit)
+
+    def _on_commit_future_completed(self, future: Any) -> None:
+        """Present worker completion on the Qt object's owning thread."""
+        try:
+            result = future.result()
         except ExecutionError as exc:
-            # CommandManager retains the handler failure in ``cause`` and
-            # Python's ``__cause__``. Translate only the known empty-draft
-            # rejection; unrelated execution failures must remain visible.
+            self._abort_async_commit()
             cause = exc.cause or exc.__cause__
             reason = str(cause).strip() if cause is not None else ""
             normalized_reason = reason.lower()
@@ -492,29 +703,57 @@ class PropertiesPanelWidget(QWidget):
                 and ("draft" in normalized_reason or "network" in normalized_reason)
             )
             if not is_empty_draft_rejection:
-                logging.getLogger(__name__).exception(
+                logging.getLogger(__name__).error(
                     "Unexpected DraftNetwork commit execution failure",
                     exc_info=(type(exc), exc, exc.__traceback__),
                 )
-                raise
+                message = str(exc)
+            else:
+                message = reason or "Draft network is empty. Add equipment or connections before committing."
             if self._validation_label is not None:
-                self._validation_label.setText(
-                    reason or "Draft network is empty. Add equipment or connections before committing."
-                )
+                self._validation_label.setText(message)
                 self._validation_label.setProperty("role", "validationError")
-            return
         except (RuntimeError, TypeError, ValueError) as exc:
-            # Keep direct pre-command boundary failures actionable.
+            self._abort_async_commit()
             if self._validation_label is not None:
                 self._validation_label.setText(str(exc))
                 self._validation_label.setProperty("role", "validationError")
-            return
-        if self._validation_label is not None:
-            self._validation_label.setText(
-                getattr(result, "message", "Commit Network submitted.")
-            )
-            self._validation_label.setProperty("role", "validationSuccess")
-        self._refresh_commit_network_action()
+        except BaseException as exc:
+            self._abort_async_commit()
+            logging.getLogger(__name__).exception("DraftNetwork background commit failed")
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Network commit failed: {exc}")
+                self._validation_label.setProperty("role", "validationError")
+        else:
+            controller = self._creation_controller
+            complete = getattr(controller, "complete_network_commit", None) if controller is not None else None
+            if callable(complete):
+                try:
+                    complete(result)
+                except BaseException as exc:
+                    self._abort_async_commit()
+                    if self._validation_label is not None:
+                        self._validation_label.setText(f"Network committed, but UI refresh failed: {exc}")
+                        self._validation_label.setProperty("role", "validationError")
+                    return
+            if self._validation_label is not None:
+                self._validation_label.setText(
+                    getattr(result, "message", "Network commit completed.")
+                )
+                self._validation_label.setProperty("role", "validationSuccess")
+        finally:
+            if self._commit_network_button is not None:
+                self._commit_network_button.setText("Commit Network")
+            self._refresh_commit_network_action()
+
+    def _abort_async_commit(self) -> None:
+        controller = self._creation_controller
+        abort = getattr(controller, "abort_network_commit", None) if controller is not None else None
+        if callable(abort):
+            try:
+                abort()
+            except Exception:
+                logging.getLogger(__name__).exception("Failed to release asynchronous commit state")
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
         self._clear_parameter_controls()
@@ -671,11 +910,18 @@ class PropertiesPanelWidget(QWidget):
             control.setToolTip(self._validation_text(parameter))
             return control
         datatype = str(parameter.datatype).strip().lower()
-        if datatype in {"float", "number"}:
+        if datatype in {"float", "number"} and value is not None:
             control = QDoubleSpinBox(self)
             control.setDecimals(6)
             control.setRange(-1.0e15, 1.0e15)
             control.setValue(float(value))
+            control.setToolTip(self._validation_text(parameter))
+            return control
+        if datatype in {"float", "number", "int", "integer"}:
+            # Keep an unset numeric value visibly unset. A spin box would force
+            # a fabricated zero into the editor and could submit it as a change.
+            control = QLineEdit(self)
+            control.setText("" if value is None else str(value))
             control.setToolTip(self._validation_text(parameter))
             return control
         if datatype in {"bool", "boolean"}:
@@ -725,7 +971,13 @@ class PropertiesPanelWidget(QWidget):
     def _current_value(parameter: EngineeringParameterState, control: QWidget) -> Any:
         datatype = str(parameter.datatype).strip().lower()
         if datatype in {"float", "number"}:
+            if isinstance(control, QLineEdit):
+                text = control.text().strip()
+                return None if not text else float(text)
             return float(control.value())  # type: ignore[attr-defined]
+        if datatype in {"int", "integer"}:
+            text = control.text().strip()  # type: ignore[attr-defined]
+            return None if not text else int(text)
         if datatype in {"bool", "boolean"}:
             return bool(control.isChecked())  # type: ignore[attr-defined]
         if datatype == "enum":
@@ -755,9 +1007,10 @@ class PropertiesPanelWidget(QWidget):
         except (RuntimeError, TypeError, ValueError) as exc:
             if self._validation_label is not None:
                 self._validation_label.setText(f"Engineering update rejected: {exc}")
-            # Rebuild controls from the authoritative projection; local edits
-            # must never become a second source of truth.
-            self._render_projection(target)
+            # Rebuild from the panel's current projection, not the target
+            # captured before submission: selection may have changed while the
+            # Application command was being handled.
+            self._render_projection(self.logical_panel.target)
             return
 
         if not getattr(result, "success", False):
@@ -765,16 +1018,19 @@ class PropertiesPanelWidget(QWidget):
             if self._validation_label is not None:
                 self._validation_label.setText(f"Engineering update rejected: {message}")
             # The command failed, so DraftChanged is not authoritative evidence
-            # of a mutation. Restore the inspector from the existing projection.
-            self._render_projection(target)
+            # of a mutation. Restore the currently selected projection; never
+            # resurrect a previous target after a selection transition.
+            self._render_projection(self.logical_panel.target)
             return
 
         if self._apply_button is not None:
             self._apply_button.setEnabled(False)
         if self._validation_label is not None:
-            self._validation_label.setText(
-                "Update submitted. Waiting for authoritative read-model refresh."
-            )
+            # Application events are published synchronously by execute(); the
+            # projection coordinator may already have refreshed this panel.
+            # Do not overwrite that completed refresh with a misleading
+            # "waiting" status after control returns from the command path.
+            self._validation_label.setText("Engineering update accepted.")
 
 
 PROJECT_PANEL = PanelSpec(panel_id="project", title="Project Explorer", metadata={"minimum_width": 230})

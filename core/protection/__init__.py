@@ -2,15 +2,58 @@
 
 from .context import ProtectionContext
 from .decision import ProtectionDecision
-from .relay_input import RelayInput
+from .relay_input import DerivedRelayMeasurement, RelayInput
 from .relay_base import RelayBase
 from .protection_element import ProtectionElement, ProtectionElementState
 from .protection_system import ProtectionSystem
 from .protection_measurement_binding import ProtectionMeasurementBinding
+from .residual_current import (
+    NeutralCTConstruction,
+    CBCTConductor,
+    CBCTWindowConstruction,
+    ResidualCurrentInputConfiguration,
+    ResidualCurrentSample,
+    ResidualCurrentSourceSample,
+    normalize_residual_current_source,
+    resolve_residual_current,
+)
 from .factory import ProtectionFactory
 from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
-from .project_configuration import ProtectionFunctionConfiguration, ProtectionProjectConfiguration
+from .project_configuration import (
+    ProtectionFunctionConfiguration,
+    DifferentialProtectionSchemeConfiguration,
+    ProtectionProjectConfiguration,
+)
+from .differential import (
+    DifferentialRestraintMethod,
+    DifferentialProtectionSettings,
+    DifferentialCurrentSample,
+    DifferentialPhaseResult,
+    DifferentialProtectionResult,
+    evaluate_differential_scheme,
+)
+from .ieee_curves import (
+    IEEECurveDefinition, IEEE_CURVES, normalize_ieee_curve,
+    ieee_inverse_time, generate_ieee_tcc_points,
+)
+from .tcc_read_model import (
+    ProtectionTCCPoint, ProtectionTCCReadModel,
+    build_protection_tcc_read_model,
+)
+from .relay_dynamic_characteristics import (
+    RelayResetMemoryPoint, RelayResetMemoryCurve, RelayOvershootEnvelope, RelayDynamicEvidence,
+)
+from .transient_coordination import (
+    RelayCurrentSample, RelayCurrentTrace, TransientRelayOutcome,
+    TransientCoordinationGrade, TransientCoordinationReport,
+    evaluate_relay_current_trace, grade_transient_protection_coordination,
+)
+from .coordination_grading import (
+    CoordinationRelayCharacteristic, CoordinationPair, FaultCurrentScenario,
+    RelayOperatingTimeEnvelope, CoordinationGrade, ProtectionCoordinationReport,
+    grade_protection_coordination,
+)
 from .function_catalog import (
     ProtectionFunctionSpecification,
     ProtectionFunctionStatus,
@@ -19,11 +62,28 @@ from .function_catalog import (
 )
 
 __all__ = [
-    "ProtectionContext", "ProtectionDecision", "RelayInput", "RelayBase",
+    "ProtectionContext", "ProtectionDecision", "RelayInput", "DerivedRelayMeasurement", "RelayBase",
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
-    "ProtectionFunctionConfiguration", "ProtectionProjectConfiguration",
+    "NeutralCTConstruction", "CBCTConductor", "CBCTWindowConstruction",
+    "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "ResidualCurrentSourceSample", "normalize_residual_current_source", "resolve_residual_current",
+    "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
+    "ProtectionProjectConfiguration",
+    "DifferentialRestraintMethod", "DifferentialProtectionSettings",
+    "DifferentialCurrentSample", "DifferentialPhaseResult",
+    "DifferentialProtectionResult", "evaluate_differential_scheme",
     "ProtectionFunctionSpecification", "ProtectionFunctionStatus",
     "get_protection_function", "list_protection_functions",
+    "IEEECurveDefinition", "IEEE_CURVES", "normalize_ieee_curve",
+    "ieee_inverse_time", "generate_ieee_tcc_points",
+    "ProtectionTCCPoint", "ProtectionTCCReadModel",
+    "build_protection_tcc_read_model",
+    "CoordinationRelayCharacteristic", "CoordinationPair", "FaultCurrentScenario",
+    "RelayOperatingTimeEnvelope", "CoordinationGrade", "ProtectionCoordinationReport",
+    "grade_protection_coordination",
+    "RelayResetMemoryPoint", "RelayResetMemoryCurve", "RelayOvershootEnvelope", "RelayDynamicEvidence",
+    "RelayCurrentSample", "RelayCurrentTrace", "TransientRelayOutcome",
+    "TransientCoordinationGrade", "TransientCoordinationReport",
+    "evaluate_relay_current_trace", "grade_transient_protection_coordination",
 ]
