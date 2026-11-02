@@ -18846,8 +18846,14 @@ Corrections:
     - Power Flow voltage observations require both a stable solver snapshot
       identity and explicit stable bus IDs; positional bus-index fallback
       is prohibited.
-    - ShortCircuitConductorCurrent observations are keyed by equipment,
-      terminal role, conductor identity and bus identity.
+    - ShortCircuitConductorCurrent observations are keyed only by stable
+      equipment, terminal role, conductor, bus and phase/sequence identity;
+      surrounding mapping/list traversal paths are excluded.
+    - Transformer delta-loop observations are keyed only by transformer,
+      loop and winding identity; traversal paths and list positions are
+      excluded.
+    - Duplicate physical observation identities are rejected from the
+      comparison rather than resolved by traversal order.
     - Conductor comparison bases now include MVA, kV, topology revision,
       phase/conductor role, reference direction and current units.
     - Transformer delta-loop observations are keyed by transformer ID,
