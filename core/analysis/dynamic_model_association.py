@@ -111,7 +111,7 @@ class DynamicMachineModelAssociation:
             activation_generation=int(activation_generation if activation_generation is not None else data.get("activation_generation", 0)),
             machine_id=str(data.get("machine_id", "")),
             bus_id=str(data.get("bus_id", "")),
-            connection_path=tuple(data.get("connection_path", ())),
+            connection_path=data.get("connection_path", ()),
             disconnected_rotor_policy=str(data.get("disconnected_rotor_policy", "continue_with_zero_electrical_power")),
             model_type=str(data.get("model_type", "")),
             mechanical_power=float(data.get("mechanical_power", 0.0)),
