@@ -19966,9 +19966,21 @@ Correction:
       DetachedTransientNetworkState.
     - Require an exact machine-to-path identity match when constructing the
       transient network solver. Missing or unexpected mappings fail closed.
+    - Capture every fully Bus-attached canonical switching device with
+      its exact two-Bus connection, conduction state and availability state.
+      This includes closed ideal-switch connections outside machine paths.
+    - Contract closed and available ideal-switch Bus pairs into common
+      numerical nodes for each detached transient solve; an open switch
+      separates those Bus nodes. This keeps the transient Y-bus aligned with
+      detached switching state instead of treating a closed breaker as a
+      display-only/topology-only edge.
     - Gate both Norton admittance and internal-voltage source assembly on
       every switching device in the machine's captured path being conducting
       and available.
+    - When opening a machine breaker leaves its terminal Bus electrically
+      isolated with a zero Y-bus row/column, assign only that floating node a
+      zero-voltage numerical reference. No shunt is added to the energized
+      network and the isolated node does not couple into other Bus equations.
     - Preserve machine differential state layout across trips. The explicit
       rotor policy is continue_with_zero_electrical_power: disconnected
       machines retain their rotor angle/speed states and continue the swing
