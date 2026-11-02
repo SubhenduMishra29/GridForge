@@ -19785,3 +19785,57 @@ Status:
     CATALOGUE HONESTY / FAIL-CLOSED FACTORY GATE IMPLEMENTED —
     FULL FUNCTIONAL CLOSURE REMAINS OPEN
 
+
+======================================================================
+GF-PROT-066 — PROTECTION FUNCTION, TCC AND COORDINATION UI PROJECTION
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Align the Protection workspace and Study Cases projection with the
+    canonical protection catalogue, IEC/IEEE TCC read models, static CTI
+    reports and transient evaluation results.
+
+Workspace:
+    - Add canonical ANSI function catalogue with IMPLEMENTED, PARTIAL and
+      NOT_IMPLEMENTED creation policy and input-contract diagnostics.
+    - Add multi-element IEC/IEEE TCC chart/table from Core read models.
+    - Label current values in the configured pickup basis; do not infer CT
+      scaling in the UI.
+    - Add explicit Protection analysis coverage and model-limitations view.
+    - Add static coordination study table/plot from immutable Core grades.
+    - Filter study results by active project identity and activation
+      generation; suppress results during reruns and exclude stale/non-current
+      results.
+    - Expand inspector to display every configured protection element,
+      input binding, settings and canonical implementation status.
+    - Disconnect newly added selection listeners during workspace disposal.
+
+Study projection:
+    - Render protection execution decisions, per-fault-scenario static and
+      transient coordination reports, diagnostics and measurement completeness.
+    - Display transformer delta-loop currents as internal diagnostic values,
+      explicitly not CT/CBCT measurements.
+    - Ignore late Study Case/lifecycle events from a different project
+      activation.
+    - Do not project ProtectionDecision values as SLD breaker-trip overlays;
+      no confirmed breaker-state transition is implied.
+
+Architecture:
+    - UI consumes Application read models and Core immutable TCC/coordination
+      records; no direct Core mutation or solver execution.
+    - Qt imports remain centralized in ui/core/qt.py.
+    - Archived Study Result history/comparison functionality is preserved.
+
+Verification:
+    - Source-level inspection only.
+    - No tests/CI, Qt runtime launch or visual screenshot verification run.
+
+Status:
+    PROTECTION CATALOGUE, TCC AND STUDY RESULT PRESENTATION IMPLEMENTED IN
+    SOURCE; RUNTIME VISUAL ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
