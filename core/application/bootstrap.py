@@ -172,8 +172,7 @@ def create_application(network: Any) -> Application:
     # Study outputs are durable execution artifacts, stored outside the
     # canonical project package so ordinary project saves cannot discard them.
     study_result_archive = StudyResultArchive(Path.home() / ".gridforge" / "study-results")
-    application.study_service.set_result_persister(study_result_archive.save)
-    application.study_result_archive = study_result_archive
+    application.configure_study_result_archive(study_result_archive)
 
     # Configure trusted creation contracts at the canonical Application
     # composition boundary. The registry validates all definitions against
