@@ -1969,6 +1969,18 @@ class Application:
             current_revision=self.revision,
         )
 
+    def read_transient_study_result(self, study_id) -> Any:
+        """Return the complete aligned transient presentation read model for a live result."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            return None
+        return self._study_read_service.transient_result(
+            study_id,
+            project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+            current_revision=self.revision,
+        )
+
     def read_study_results(self) -> tuple[Any, ...]:
         """Return all study result read models for the active project generation."""
         context = self.project_lifecycle.context
@@ -1999,6 +2011,22 @@ class Application:
             saved_after=saved_after,
             saved_before=saved_before,
             search=search,
+        )
+
+    def read_archived_transient_study_result(
+        self,
+        record_id: UUID,
+        *,
+        activation_generation: int | None = None,
+    ) -> Any:
+        """Return a complete historical transient presentation without SLD projection."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to read archived transient results.")
+        return self._study_read_service.archived_transient_result(
+            record_id,
+            project_id=context.project_id,
+            activation_generation=activation_generation,
         )
 
     def read_archived_study_result(self, record_id: UUID, *, activation_generation: int | None = None) -> Any:
