@@ -162,14 +162,32 @@ PR #909 separately corrected the visual state of uncommitted draft wires; it did
 ### Explicitly not established by this merge
 
 - automatic phase-domain source equivalents for every Grid, Generator, Motor or other source family;
-- complete phase-domain transformer, machine, load, arc-fault and switching primitives;
+- complete phase-domain machine, load, arc-fault and all switching-equipment variants;
 - universal physical neutral CT/CBCT coverage;
 - a complete SLD authoring/projection workflow for phase-domain graph objects;
 - full end-to-end Protection Study, relay execution, breaker trip, persistence round-trip or commissioning verification.
 
 Open/draft PRs are not mainline. At the stated baseline, PRs #912–#918 remain separate workstreams and must be reconciled independently before their implementation is documented as merged.
 
-## 10. Verification and claims policy
+## 10. Phase-domain physical equipment coverage — D15F-29–37
+
+The merged-main Modification Register records the following implementation increments. These are explicit supported construction paths, not universal equipment coverage:
+
+- **D15F-29:** Switch, Disconnector and Fuse phase/neutral pole inventories are explicit; their internal paths are gated by authoritative closed/in-service or not-blown operating state. Per-pole discrepancies, fuse arc/melting behaviour, contact resistance and earthing blades are not covered.
+- **D15F-30:** Breaker, Switch, Disconnector and Fuse use the common immutable `PhysicalConductorConstruction` / `PhysicalConductorPath` contract. Construction and operating state remain separate authorities.
+- **D15F-31:** Transformer winding construction explicitly declares HV/LV connection, terminal roles, phases, neutral/grounding and vector/core metadata. It does not itself create magnetic or galvanic coupling.
+- **D15F-32:** The phase-domain solver accepts a reciprocal, passive terminal-domain Transformer multiport and reports signed terminal currents.
+- **D15F-33:** `prepare_transformer_phase_domain_multiport()` produces a multiport from a Transformer only when a complete externally supplied admittance matrix, tap/phase-shift provenance and exact winding terminal graph inventory are available.
+- **D15F-34:** The SLD-derived graph builder creates explicit Transformer HV/LV phase and declared neutral terminal nodes, attaches them to canonical Bus slots, and automatically supplies the Transformer multiport to short-circuit preparation. HV/LV windings are not joined galvanically.
+- **D15F-35:** Grounded-wye neutral paths require distinct explicit neutral-grounding and earth-return impedances, local earth nodes and a global earth reference. Solver reconciliation checks the transformer neutral multiport current against the physical electrode branch current.
+- **D15F-36:** Core zero-sequence and delta-circulation coverage claims are bound to the exact ordered terminal-admittance matrix fingerprint, core construction and required manufacturer/test references.
+- **D15F-37:** Explicit internal delta-loop states are stamped as coupled MNA current unknowns and solved with network voltages, faults and transformer terminal currents. Results expose per-loop circulating currents; coupling and impedance require manufacturer/test-derived data.
+
+The resulting Transformer multiport remains a derived study representation, not a second persistent Transformer model. The matrix is supplied explicitly; scalar nameplate data or vector-group labels are not used to fabricate missing magnetic coupling. D15F-37 exposes reduced internal loop-current coordinates, not individual physical SLD conductor geometry, thermal behaviour or core limb flux/current states.
+
+D15F-29 records persistence/schema migration and UI configurator integration as outstanding for switching-device construction; D15F-30 records full persistence/configurator support for the common contract as outstanding; Transformer matrix/provenance persistence and Application configurator support were also recorded as outstanding in D15F-33/34. These must not be silently upgraded to complete project round-trip or user-facing configuration without separate evidence.
+
+## 11. Verification and claims policy
 
 The #908 merge record states remote source inspection and integration review only. It explicitly records that tests/CI, Python syntax/import checks, persistence round-trip, numerical fixtures and end-to-end runtime execution were not run.
 
@@ -183,7 +201,7 @@ Therefore documentation must distinguish:
 
 These labels are not interchangeable. A class, protocol, schema, unit fixture or isolated helper does not prove an end-to-end engineering workflow.
 
-## 11. Frozen invariants
+## 12. Frozen invariants
 
 1. One authoritative Core engineering model.
 2. Core remains headless.
@@ -200,7 +218,7 @@ These labels are not interchangeable. A class, protocol, schema, unit fixture or
 13. Project and study results preserve revision and activation provenance.
 14. Runtime/engineering verification is reported separately from static source inspection.
 
-## 12. Change control
+## 13. Change control
 
 Use the repository workflow:
 
