@@ -55,12 +55,13 @@ class FieldDeviceAcknowledgement:
     device_id: str
     status: str
     acknowledged_at: float
+    timestamp_domain: str
     signature: str
     payload_digest: str
     acknowledgement_id: str
 
     def __post_init__(self) -> None:
-        for name in ("command_id", "delivery_id", "device_id", "signature", "payload_digest", "acknowledgement_id"):
+        for name in ("command_id", "delivery_id", "device_id", "timestamp_domain", "signature", "payload_digest", "acknowledgement_id"):
             if not getattr(self, name):
                 raise ValueError(f"{name} is required.")
         if self.status not in {"executed", "rejected"}:
@@ -87,13 +88,27 @@ class FieldDeviceCommandService:
     """Validate adapter receipts and cryptographically authenticated feedback."""
 
     def __init__(self, adapter: FieldDeviceAdapter,
-                 acknowledgement_verifier: Callable[[FieldDeviceAcknowledgement], bool]) -> None:
+                 acknowledgement_verifier: Callable[[FieldDeviceAcknowledgement], bool],
+                 *, clock: Callable[[], float], clock_domain: str,
+                 max_acknowledgement_age_seconds: float = 30.0,
+                 max_future_skew_seconds: float = 2.0) -> None:
         if not callable(getattr(adapter, "send", None)) or not callable(getattr(adapter, "poll_acknowledgement", None)):
             raise TypeError("adapter must implement send() and poll_acknowledgement().")
         if not callable(acknowledgement_verifier):
             raise TypeError("acknowledgement_verifier must be callable.")
+        if not callable(clock):
+            raise TypeError("a trusted clock callable is required for device acknowledgement validation.")
+        if not isinstance(clock_domain, str) or not clock_domain.strip():
+            raise ValueError("clock_domain must be a non-empty trusted clock domain.")
+        for name, value in (("max_acknowledgement_age_seconds", max_acknowledgement_age_seconds), ("max_future_skew_seconds", max_future_skew_seconds)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative.")
         self._adapter = adapter
         self._acknowledgement_verifier = acknowledgement_verifier
+        self._clock = clock
+        self._clock_domain = clock_domain
+        self._max_acknowledgement_age_seconds = float(max_acknowledgement_age_seconds)
+        self._max_future_skew_seconds = float(max_future_skew_seconds)
         self._deliveries: dict[str, FieldDeviceDeliveryReceipt] = {}
         self._lock = RLock()
 
@@ -139,6 +154,25 @@ class FieldDeviceCommandService:
             return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
                                               receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
                                               diagnostic="acknowledgement correlation identity mismatch")
+        if acknowledgement.timestamp_domain != self._clock_domain:
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
+                                              diagnostic="acknowledgement timestamp domain does not match the trusted Application clock")
+        try:
+            trusted_now = self._clock()
+        except Exception as exc:
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
+                                              diagnostic=f"trusted clock unavailable for acknowledgement validation: {type(exc).__name__}: {exc}")
+        if isinstance(trusted_now, bool) or not isinstance(trusted_now, (int, float)) or not math.isfinite(trusted_now):
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
+                                              diagnostic="trusted clock returned an invalid timestamp during acknowledgement validation")
+        acknowledgement_age = float(trusted_now) - float(acknowledgement.acknowledged_at)
+        if acknowledgement_age < -self._max_future_skew_seconds or acknowledgement_age > self._max_acknowledgement_age_seconds:
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
+                                              diagnostic="physical acknowledgement timestamp is outside the permitted trusted-clock freshness window")
         try:
             verified = self._acknowledgement_verifier(acknowledgement)
         except Exception as exc:
