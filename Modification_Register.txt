@@ -19930,3 +19930,63 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-SC-TOPO-949 — VALIDATE SHORT-CIRCUIT TOPOLOGY AND MODEL SCOPE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    ShortCircuitPreparation accepted a caller-supplied TopologySnapshot
+    without proving that its project/activation provenance and canonical
+    topology content belonged to the Network whose live equipment models
+    were used to prepare the numerical case. The conventional sequence path
+    lacked the phase-domain path's equivalent initial scope gate.
+
+Correction:
+    - Require a current, valid Network-owned canonical TopologySnapshot.
+    - Validate supplied snapshot type and compare project_id,
+      activation_generation and topology_revision independently, emitting
+      actionable provenance-specific errors.
+    - Compare bus IDs, adjacency, equipment terminal attachments, conductive
+      edges and island membership with the canonical Network snapshot.
+    - Reject dirty topology rather than silently mixing a supplied snapshot
+      with current Network equipment.
+    - Capture topology revision and verify canonical topology remains
+      unchanged before returning either phase-domain or sequence input.
+    - Capture a deterministic in-process value signature of all registered
+      Core electrical model objects before preparation and compare it again
+      before returning either numerical input. This catches in-place changes
+      to registered model attributes during preparation without introducing
+      a second mutable revision counter.
+    - Preserve caller-supplied source and fault declarations as study inputs;
+      Network-derived graph, topology and equipment primitives remain
+      authoritative.
+
+Implementation notes:
+    The model signature is a preparation-window stability guard, not a
+    persisted revision identifier or cross-process snapshot identity. It
+    traverses registered Core equipment values and canonical object
+    references; it does not replace a future explicit immutable Network
+    model snapshot/revision contract.
+
+Boundary:
+    Validation remains in ShortCircuitPreparation. Core TopologySnapshot
+    remains authoritative. Solver input remains detached. No UI/Qt dependency,
+    topology ownership duplication or solver-side live Network access added.
+
+Verification:
+    - Source-level inspection of conventional and phase-domain return paths,
+      canonical topology fields, Network topology lifecycle and registry
+      object inventory.
+    - No tests or CI were run, per project instruction.
+    - Runtime cross-project/cross-activation/stale-content rejection and
+      concurrent model mutation checks remain pending.
+
+Status:
+    SHARED TOPOLOGY PROVENANCE AND PREPARATION-WINDOW MODEL GUARDS
+    IMPLEMENTED IN SOURCE. RUNTIME ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
