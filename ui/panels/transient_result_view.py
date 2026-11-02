@@ -32,6 +32,8 @@ class TransientResultViewWidget(QWidget):
         self._signal_combo = QComboBox(self)
         self._provenance = QLabel(self)
         self._provenance.setWordWrap(True)
+        self._solver_provenance = QLabel(self)
+        self._solver_provenance.setWordWrap(True)
         self._chart_view = QChartView(self)
         self._chart_view.setMinimumHeight(260)
         self._event_list = QListWidget(self)
@@ -46,6 +48,7 @@ class TransientResultViewWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._provenance)
+        layout.addWidget(self._solver_provenance)
         layout.addLayout(signal_row)
         layout.addWidget(self._chart_view)
         layout.addWidget(QLabel("Event timeline (solver dispatch order)", self))
@@ -96,6 +99,23 @@ class TransientResultViewWidget(QWidget):
         if model.message:
             details.append(f"Message: {model.message}")
         self._provenance.setText(" | ".join(details))
+        provenance_keys = (
+            "machine_connections",
+            "switch_connections",
+            "initial_switch_states",
+            "final_switch_states",
+            "switch_availability_states",
+            "final_detached_network_revision",
+            "state_signals",
+        )
+        solver_details = {
+            key: model.provenance[key]
+            for key in provenance_keys
+            if key in model.provenance
+        }
+        self._solver_provenance.setText(
+            f"Solver provenance: {solver_details!r}" if solver_details else "Solver provenance: no additional fields recorded."
+        )
 
         self._event_list.clear()
         for index, event in enumerate(model.events, start=1):
@@ -148,6 +168,7 @@ class TransientResultViewWidget(QWidget):
         self._event_list.clear()
         self._event_details.clear()
         self._provenance.clear()
+        self._solver_provenance.clear()
         self._message.setText("Select a transient result to inspect its time series.")
         self._chart_view.setChart(QChart())
         self.setVisible(False)
