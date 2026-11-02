@@ -249,6 +249,47 @@ class ProtectionExecutionService:
                 ))
                 continue
 
+            field_status = None
+            if self._field_device_dispatcher is not None:
+                try:
+                    if self._pre_dispatch_guard is not None:
+                        self._pre_dispatch_guard()
+                    field_status = self._field_device_dispatcher(control_decision, command)
+                    acknowledgement_status = str(getattr(field_status, "acknowledgement_status", "unavailable"))
+                    if acknowledgement_status != "executed":
+                        delivery_status = str(getattr(field_status, "delivery_status", "unknown"))
+                        diagnostic = str(getattr(field_status, "diagnostic", "") or "")
+                        message = (
+                            f"Field-device command '{command.command_id}' was not applied to Core because "
+                            f"authenticated device acknowledgement status is {acknowledgement_status!r}. "
+                            f"Delivery status={delivery_status!r}. {diagnostic}"
+                        ).strip()
+                        diagnostics.append(message)
+                        outcomes.append(ProtectionActionOutcome(
+                            protection_decision, control_decision, command, None,
+                            "field_device_acknowledgement_pending" if acknowledgement_status == "pending"
+                            else "field_device_acknowledgement_rejected_or_unavailable",
+                            message,
+                            physical_acknowledgement=acknowledgement_status,
+                            field_device_delivery_status=delivery_status,
+                            field_device_acknowledgement_status=acknowledgement_status,
+                            field_device_acknowledgement_id=getattr(field_status, "acknowledgement_id", None),
+                        ))
+                        continue
+                except Exception as exc:
+                    message = (
+                        f"Field-device delivery failed or is indeterminate for command "
+                        f"'{command.command_id}': {type(exc).__name__}: {exc}. Core mutation was not attempted."
+                    )
+                    diagnostics.append(message)
+                    outcomes.append(ProtectionActionOutcome(
+                        protection_decision, control_decision, command, None,
+                        "field_device_delivery_failed", message,
+                        field_device_delivery_status="unknown",
+                        field_device_acknowledgement_status="unavailable",
+                    ))
+                    continue
+
             try:
                 if self._pre_dispatch_guard is not None:
                     self._pre_dispatch_guard()
@@ -368,22 +409,18 @@ class ProtectionExecutionService:
                     )
                     diagnostics.append(message)
 
-            field_delivery_status = "not_configured"
-            field_acknowledgement_status = "unavailable"
-            field_acknowledgement_id = None
-            if result.success and self._field_device_dispatcher is not None:
-                try:
-                    field_status = self._field_device_dispatcher(control_decision, command)
-                    field_delivery_status = str(getattr(field_status, "delivery_status", "unknown"))
-                    field_acknowledgement_status = str(getattr(field_status, "acknowledgement_status", "unavailable"))
-                    field_acknowledgement_id = getattr(field_status, "acknowledgement_id", None)
-                    field_diagnostic = str(getattr(field_status, "diagnostic", "") or "")
-                    if field_diagnostic:
-                        diagnostics.append(f"Field-device delivery/acknowledgement for command '{command.command_id}': {field_diagnostic}")
-                except Exception as exc:
-                    field_delivery_status = "unknown"
-                    field_acknowledgement_status = "unavailable"
-                    diagnostics.append(f"Field-device delivery failed or is indeterminate for command '{command.command_id}': {type(exc).__name__}: {exc}")
+            field_delivery_status = (
+                str(getattr(field_status, "delivery_status", "unknown"))
+                if field_status is not None else "not_configured"
+            )
+            field_acknowledgement_status = (
+                str(getattr(field_status, "acknowledgement_status", "unavailable"))
+                if field_status is not None else "unavailable"
+            )
+            field_acknowledgement_id = (
+                getattr(field_status, "acknowledgement_id", None)
+                if field_status is not None else None
+            )
 
             outcomes.append(ProtectionActionOutcome(
                 protection_decision, control_decision, command, result, status, message,
