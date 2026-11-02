@@ -238,6 +238,8 @@ class StudyResultArchive:
             envelope = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(envelope, Mapping):
                 raise StudyResultArchiveError("Study Result archive record must be an object.")
+            if set(envelope) != {"format", "schema_version", "record_id", "saved_at", "payload", "record_sha256"}:
+                raise StudyResultArchiveError("Study Result archive envelope contains missing or unknown fields.")
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
             if envelope.get("schema_version") != ARCHIVE_SCHEMA_VERSION:
@@ -247,6 +249,8 @@ class StudyResultArchive:
             payload = envelope.get("payload")
             if not isinstance(payload, Mapping):
                 raise StudyResultArchiveError("Study Result archive payload must be an object.")
+            if set(payload) != {"study_id", "project_id", "activation_generation", "source_revision", "study_type", "status", "value", "message", "metadata"}:
+                raise StudyResultArchiveError("Study Result archive payload contains missing or unknown fields.")
             unsigned = {key: envelope[key] for key in ("format", "schema_version", "record_id", "saved_at", "payload")}
             expected_digest = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
             if envelope.get("record_sha256") != expected_digest:
@@ -302,14 +306,21 @@ class StudyResultArchive:
         activation_generation: int | None = None,
         study_id: UUID | None = None,
     ) -> tuple[ArchivedStudyResult, ...]:
+        project_id = project_id.strip() if isinstance(project_id, str) else project_id
         project_dir = self._root / self._project_key(project_id)
+        if activation_generation is not None and (
+            isinstance(activation_generation, bool)
+            or not isinstance(activation_generation, int)
+            or activation_generation < 1
+        ):
+            raise ValueError("activation_generation must be a positive integer.")
+        if study_id is not None and not isinstance(study_id, UUID):
+            raise TypeError("study_id must be a UUID or None.")
         if not project_dir.exists():
             return ()
         if activation_generation is None:
             generation_dirs = tuple(item for item in project_dir.iterdir() if item.is_dir())
         else:
-            if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
-                raise ValueError("activation_generation must be a positive integer.")
             generation_dirs = (project_dir / str(activation_generation),)
         prefix = f"{study_id}." if study_id is not None else ""
         records: list[ArchivedStudyResult] = []
