@@ -312,9 +312,6 @@ class TransientResultPresentationReadModel:
     record_id: UUID | None
     saved_at: str | None
     time_s: tuple[float, ...]
-    state_samples: tuple[tuple[float, ...], ...]
-    terminal_voltage_samples: tuple[Mapping[str, complex], ...]
-    electrical_power_samples: tuple[Mapping[str, tuple[float, float]], ...]
     signals: tuple[TransientSignalReadModel, ...]
     events: tuple[TransientEventReadModel, ...]
     provenance: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
@@ -335,14 +332,7 @@ class TransientResultPresentationReadModel:
             raise ValueError("Transient presentation time samples must be finite.")
         if any(right <= left for left, right in zip(times, times[1:])):
             raise ValueError("Transient presentation time samples must remain strictly increasing.")
-        states = tuple(tuple(float(value) for value in row) for row in self.state_samples)
-        voltages = tuple(_freeze(sample) for sample in self.terminal_voltage_samples)
-        powers = tuple(_freeze(sample) for sample in self.electrical_power_samples)
         count = len(times)
-        if len(states) != count or len(voltages) != count or len(powers) != count:
-            raise ValueError("Transient presentation time/state/voltage/power sample counts must match exactly.")
-        if states and len({len(row) for row in states}) != 1:
-            raise ValueError("Transient presentation state rows must have a consistent width.")
         signals = tuple(self.signals)
         if not all(isinstance(signal, TransientSignalReadModel) for signal in signals):
             raise TypeError("Transient presentation signals must be TransientSignalReadModel values.")
@@ -358,9 +348,6 @@ class TransientResultPresentationReadModel:
             raise TypeError("Transient presentation provenance must be a mapping.")
         object.__setattr__(self, "message", str(self.message))
         object.__setattr__(self, "time_s", times)
-        object.__setattr__(self, "state_samples", states)
-        object.__setattr__(self, "terminal_voltage_samples", voltages)
-        object.__setattr__(self, "electrical_power_samples", powers)
         object.__setattr__(self, "signals", signals)
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", _freeze(self.provenance))
