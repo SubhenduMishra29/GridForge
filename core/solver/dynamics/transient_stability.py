@@ -165,8 +165,13 @@ class TransientStabilitySolver:
                         failure=exc,
                     )
                 )
+                message = (
+                    "Initial post-event algebraic re-evaluation failed"
+                    if initial_events
+                    else "Initial algebraic evaluation failed"
+                )
                 raise TransientStabilityError(
-                    f"Initial post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                    f"{message} at t={self._time:.12g} s."
                 ) from exc
             if initial_events:
                 executions.extend(
