@@ -81,7 +81,11 @@ class TransientEventState:
             path = self.snapshot.machine_connection_paths[key]
         except KeyError as exc:
             raise ValueError(f"Dynamic machine '{key}' has no validated detached connection path.") from exc
-        return all(self.breaker_states.get(switch_id, False) for switch_id in path)
+        return all(
+            self.breaker_states.get(switch_id, False)
+            and self.snapshot.switch_available_states.get(switch_id, False)
+            for switch_id in path
+        )
 
     def machines_for_switch(self, switch_id: str) -> tuple[str, ...]:
         key = str(switch_id)
