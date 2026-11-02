@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.model import (
-    Branch, Breaker, Cable, CurrentTransformer, Disconnector, EndpointReference,
+    Breaker, Cable, CurrentTransformer, Disconnector, EndpointReference,
     Fuse, Line, Switch,
 )
 from .connectivity import ConnectivityResolver, ConnectivityError
@@ -47,7 +47,7 @@ class ConductiveReachabilityResolver:
     conductor path. Multiport equipment requires an explicit future path model.
     """
 
-    _CONDUCTIVE_TYPES = (Breaker, Switch, Disconnector, Fuse, CurrentTransformer, Branch, Line, Cable)
+    _CONDUCTIVE_TYPES = (Breaker, Switch, Disconnector, Fuse, CurrentTransformer, Line, Cable)
 
     def __init__(self, network: Any) -> None:
         if network is None:
@@ -79,7 +79,7 @@ class ConductiveReachabilityResolver:
         names = (
             "buses", "lines", "cables", "branches", "transformers", "breakers",
             "switches", "disconnectors", "fuses", "current_transformers",
-            "potential_voltage_transformers", "capacitive_voltage_transformers",
+            "potential_transformers", "capacitive_voltage_transformers",
             "loads", "generators", "synchronous_machines", "motors", "shunts",
             "capacitors", "reactors", "solar", "batteries", "grids",
         )
