@@ -147,6 +147,7 @@ class Application:
         self.protection_runtime: ProtectionRuntime | None = None
         self._protection_execution_audit_store = protection_execution_audit_store
         self._field_device_command_service = field_device_command_service
+        self._pending_field_device_commands: dict[str, Command] = {}
         self._protection_cycle_results: OrderedDict[tuple[str, int, str, int], ProtectionExecutionResult] = OrderedDict()
         self._protection_cycle_inflight: set[tuple[str, int, str, int]] = set()
         self._protection_cycle_cache_limit = 4096
@@ -694,23 +695,58 @@ class Application:
         status = service.poll_acknowledgement(command_id)
         lifecycle = self.project_lifecycle
         project = lifecycle.context
+        if status.acknowledgement_status == "executed":
+            pending_command = self._pending_field_device_commands.pop(command_id, None)
+            if pending_command is not None:
+                try:
+                    with self._execution_lock:
+                        application_result = self.execute(pending_command)
+                    if not application_result.success:
+                        status = replace(
+                            status,
+                            diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                            + "Device acknowledged execution, but the corresponding Core Application command failed: "
+                            + str(application_result.message),
+                        )
+                    else:
+                        status = replace(
+                            status,
+                            diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                            + "Authenticated device acknowledgement received; corresponding Core Application command applied.",
+                        )
+                except Exception as exc:
+                    status = replace(
+                        status,
+                        diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                        + f"Device acknowledged execution, but Core command application failed or is indeterminate: {type(exc).__name__}: {exc}",
+                    )
+        elif status.acknowledgement_status == "rejected":
+            self._pending_field_device_commands.pop(command_id, None)
+
         if project is not None and self._protection_execution_audit_store is not None:
-            now = self.measurement_channel_service.trusted_now()
-            self._protection_execution_audit_store.append(
-                project_id=project.project_id,
-                activation_generation=lifecycle.activation_generation,
-                event_id=f"device-ack:{command_id}:{status.acknowledgement_id or status.acknowledgement_status}",
-                event_type="FIELD_DEVICE_ACKNOWLEDGEMENT",
-                occurred_at=now,
-                payload={
-                    "command_id": command_id,
-                    "delivery_status": status.delivery_status,
-                    "acknowledgement_status": status.acknowledgement_status,
-                    "delivery_id": status.delivery_id,
-                    "acknowledgement_id": status.acknowledgement_id,
-                    "diagnostic": status.diagnostic,
-                },
-            )
+            try:
+                now = self.measurement_channel_service.trusted_now()
+                self._protection_execution_audit_store.append(
+                    project_id=project.project_id,
+                    activation_generation=lifecycle.activation_generation,
+                    event_id=f"device-ack:{command_id}:{status.acknowledgement_id or status.acknowledgement_status}",
+                    event_type="FIELD_DEVICE_ACKNOWLEDGEMENT",
+                    occurred_at=now,
+                    payload={
+                        "command_id": command_id,
+                        "delivery_status": status.delivery_status,
+                        "acknowledgement_status": status.acknowledgement_status,
+                        "delivery_id": status.delivery_id,
+                        "acknowledgement_id": status.acknowledgement_id,
+                        "diagnostic": status.diagnostic,
+                    },
+                )
+            except Exception as exc:
+                status = replace(
+                    status,
+                    diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                    + f"Durable acknowledgement audit failed: {type(exc).__name__}: {exc}",
+                )
         return status
 
     def evaluate_protection_cycle(
@@ -1345,7 +1381,12 @@ class Application:
                     action_type=str(getattr(control_decision.action_type, "value", control_decision.action_type)),
                     issued_at=evaluation_time,
                 )
-                return self._field_device_command_service.deliver(request)
+                status = self._field_device_command_service.deliver(request)
+                if status.acknowledgement_status == "pending":
+                    self._pending_field_device_commands[str(command.command_id)] = command
+                elif status.acknowledgement_status != "executed":
+                    self._pending_field_device_commands.pop(str(command.command_id), None)
+                return status
             field_device_dispatcher = dispatch_to_field_device
 
         execution = ProtectionExecutionService(
