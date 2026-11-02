@@ -19930,3 +19930,99 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-TS-NORTON-955 — DETACHED MACHINE CONNECTION PATH AND SOURCE GATING
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    TransientNetworkSolver assembled a Norton admittance and internal-voltage
+    source for every registered dynamic machine, regardless of detached
+    breaker/equipment state. A generator could therefore remain electrically
+    injecting after its trip was recorded. The detached transient state did
+    not carry a machine-to-breaker-controlled connection mapping.
+
+Correction:
+    - Extend DynamicMachineModelAssociation with a persisted, ordered
+      connection_path of canonical switching-equipment IDs and an explicit
+      disconnected_rotor_policy.
+    - Keep legacy association records loadable when connection_path is
+      absent, but reject transient preparation for any machine without an
+      explicit path. No display-name, proximity or guessed-ID fallback.
+    - In Application StudyPreparationService, validate each ordered path
+      against canonical equipment terminal-to-Bus attachments:
+        * every path item resolves by canonical registry identity;
+        * each item is a breaker, switch, disconnector or fuse;
+        * every item has exactly two distinct Bus attachments;
+        * the ordered path is continuous from the machine's canonical
+          terminal Bus and contains no repeated switch or Bus loop.
+    - Capture initial switch conduction and operability separately from the
+      detached ProjectSnapshot Network. Failed, blown or unavailable devices
+      cannot be restored by a simulated close event.
+    - Carry machine paths, rotor policy, switch states, project/activation
+      identity, source revision and topology revision in the immutable
+      DetachedTransientNetworkState.
+    - Require an exact machine-to-path identity match when constructing the
+      transient network solver. Missing or unexpected mappings fail closed.
+    - Gate both Norton admittance and internal-voltage source assembly on
+      every switching device in the machine's captured path being conducting
+      and available.
+    - Preserve machine differential state layout across trips. The explicit
+      rotor policy is continue_with_zero_electrical_power: disconnected
+      machines retain their rotor angle/speed states and continue the swing
+      equation with Pe=0 while the configured mechanical input remains
+      applied. This is distinct from electrical Norton-source participation.
+    - Feed the same detached path state into DAESolver differential
+      evaluation. When the network callback is the bound
+      TransientNetworkRuntime.solve method, DAESolver uses the runtime's
+      is_machine_connected callback; an explicit callback remains available
+      for adapted composition roots.
+    - Re-evaluate the DAE after a scheduled event through the existing
+      TransientStabilitySolver event boundary, so the post-event algebraic
+      solve and rotor Pe calculation use the updated detached path state.
+    - Record machine IDs, breaker/path IDs, connected-before/after values,
+      switch transition, source topology revision and resulting detached
+      network revision in EventExecution result payloads.
+    - Include machine connection paths, rotor policy, initial switch state,
+      switch availability, project/activation/source revision and final
+      detached network revision in transient result provenance.
+    - Update transient electrical-power samples to report zero P/Q for a
+      disconnected machine rather than calculating terminal output from an
+      unrelated bus voltage.
+    - Update Modification_Register.txt.
+
+Boundary:
+    All switching mutations occur in TransientEventState, a study-owned
+    detached copy. Live ProjectSnapshot equipment and Network topology are
+    not mutated. EventManager remains the only event scheduler. Core owns
+    machine model association and detached network semantics; Application
+    validates project/topology scope and captures initial switch state;
+    Solver consumes detached connection state.
+
+Coordination:
+    - #954 remains the prerequisite for dispatching events at the current
+      simulation-time boundary when record_initial=False.
+    - #841 post-trip dynamic reinitialization remains separate; this change
+      does not alter machine differential-state continuity or introduce a
+      reinitialization algorithm.
+    - #950 simulated protection-to-breaker coupling remains separate; this
+      change consumes detached breaker events, not protection decisions.
+
+Verification:
+    - Source-level inspection of association serialization, canonical
+      topology attachments, Network registry lookup, switching operability,
+      detached event-state mutation, Norton assembly, DAE rotor derivatives,
+      event result payloads and transient result provenance.
+    - No tests or CI were run, per project instruction.
+    - Runtime breaker open/close, failed-device close rejection, rotor
+      continuity and post-event algebraic re-solve acceptance remain pending.
+
+Status:
+    EXPLICIT MACHINE PATH, DETACHED NORTON GATING, ROTOR POLICY AND EVENT /
+    RESULT PROVENANCE IMPLEMENTED IN SOURCE.
+    RUNTIME ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
