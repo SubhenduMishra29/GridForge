@@ -445,8 +445,20 @@ class ArchivedStudyResultReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class StudyResultNumericDeltaReadModel:
+    """One numerical difference whose physical unit and bases are identical."""
+
+    path: str
+    left_value: complex | float
+    right_value: complex | float
+    delta: complex | float
+    unit: str
+    base: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class StudyResultComparisonReadModel:
-    """Explicit two-execution comparison; values remain detached snapshots."""
+    """Two-execution comparison with only base-compatible numeric deltas."""
 
     left: ArchivedStudyResultReadModel
     right: ArchivedStudyResultReadModel
@@ -454,6 +466,52 @@ class StudyResultComparisonReadModel:
     compatibility_message: str
     same_source_revision: bool
     same_activation_generation: bool
+    numeric_deltas: tuple[StudyResultNumericDeltaReadModel, ...] = ()
+    numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
+
+
+def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
+    """Extract only solver values whose unit and engineering bases are explicit."""
+    observations: dict[str, tuple[complex | float, str, tuple[Any, ...]]] = {}
+    visited = 0
+
+    def visit(item: Any, path: str, depth: int) -> None:
+        nonlocal visited
+        if depth > 12 or visited >= 20000 or item is None:
+            return
+        visited += 1
+        if isinstance(item, PowerFlowResult):
+            if item.snapshot_id is None:
+                return
+            identifiers = item.bus_ids or tuple(str(index) for index in range(len(item.voltage_magnitudes)))
+            for bus_id, magnitude, angle in zip(identifiers, item.voltage_magnitudes, item.voltage_angles):
+                prefix = f"{path}.bus:{bus_id}"
+                observations[f"{prefix}.voltage_magnitude"] = (magnitude, "p.u.", (item.snapshot_id,))
+                observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
+            return
+        if isinstance(item, ShortCircuitConductorCurrent):
+            base = (item.base_mva, item.voltage_base_kv, item.phase_or_sequence, item.reference_direction)
+            observations[f"{path}.current"] = (item.current, "p.u.", base)
+            return
+        if isinstance(item, ShortCircuitTransformerDeltaLoopCurrent):
+            base = (item.base_mva, item.voltage_base_kv, item.positive_direction)
+            observations[f"{path}.current_a"] = (item.current_a, "A", base)
+            observations[f"{path}.current_pu"] = (item.current_pu, "p.u.", base)
+            return
+        if isinstance(item, Mapping):
+            for key, nested in item.items():
+                visit(nested, f"{path}.{key}", depth + 1)
+            return
+        if isinstance(item, (tuple, list)):
+            for index, nested in enumerate(item):
+                visit(nested, f"{path}[{index}]", depth + 1)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for descriptor in fields(item):
+                visit(getattr(item, descriptor.name), f"{path}.{descriptor.name}", depth + 1)
+
+    visit(value, "result", 0)
+    return observations
 
 
 class StudyReadService:
