@@ -624,7 +624,8 @@ class EventManager:
 
                 execution = (
                     self._execute_event(
-                        event
+                        event,
+                        dispatch_time=current_time,
                     )
                 )
 
