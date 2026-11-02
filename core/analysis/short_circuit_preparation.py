@@ -38,14 +38,16 @@ class ShortCircuitPreparation:
 
     def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None, phase_domain_sources: Any | None = None, phase_domain_faults: Any | None = None) -> ShortCircuitInput:
         network = self._network
+        if network is None:
+            raise RuntimeError("Short Circuit preparation has already been consumed.")
         if topology_snapshot is None:
             network.rebuild_topology()
             topology_snapshot = network.topology_snapshot
             if topology_snapshot is None:
-                raise ValueError('Short Circuit requires a canonical TopologySnapshot.')
-        self._topology_snapshot = topology_snapshot
-        if network is None:
-            raise RuntimeError("Short Circuit preparation has already been consumed.")
+                raise ValueError("Short Circuit requires a canonical TopologySnapshot.")
+        canonical_snapshot = self._validate_topology_snapshot(network, topology_snapshot)
+        captured_topology_revision = network.topology_revision
+        self._topology_snapshot = canonical_snapshot
         try:
             normalized_type = FaultType.from_value(fault_type)
             bus_ids = tuple(topology_snapshot.bus_ids)
@@ -231,6 +233,7 @@ class ShortCircuitPreparation:
                         value = float(nominal_kv)
                         if math.isfinite(value) and value > 0.0:
                             voltage_bases[bus_id] = value
+                self._assert_topology_unchanged(network, canonical_snapshot, captured_topology_revision)
                 return ShortCircuitInput(
                     fault_type=normalized_type,
                     fault_bus_index=bus_index,
@@ -300,6 +303,7 @@ class ShortCircuitPreparation:
                 if math.isfinite(nominal_kv) and nominal_kv > 0.0:
                     voltage_bases[bus_id] = nominal_kv
 
+            self._assert_topology_unchanged(network, canonical_snapshot, captured_topology_revision)
             return ShortCircuitInput(
                 fault_type=normalized_type,
                 fault_bus_index=bus_index,
@@ -321,6 +325,67 @@ class ShortCircuitPreparation:
         finally:
             self._network = None
             self._sequence_network = None
+
+    @staticmethod
+    def _validate_topology_snapshot(network: Any, supplied: TopologySnapshot) -> TopologySnapshot:
+        """Require the supplied topology to equal this Network's canonical view."""
+        if not isinstance(supplied, TopologySnapshot):
+            raise TypeError("topology_snapshot must be a Core TopologySnapshot.")
+        if getattr(network, "topology_dirty", True):
+            raise ValueError(
+                "Short Circuit cannot use a supplied topology snapshot while the Network topology is dirty; "
+                "rebuild the captured Network topology first."
+            )
+        canonical = network.topology_snapshot
+        if not isinstance(canonical, TopologySnapshot):
+            raise ValueError(
+                "Short Circuit requires the captured Network's canonical TopologySnapshot; "
+                "the Network has no valid current topology."
+            )
+        provenance_fields = (
+            ("project_id", supplied.project_id, canonical.project_id),
+            ("activation_generation", supplied.activation_generation, canonical.activation_generation),
+            ("topology_revision", supplied.topology_revision, canonical.topology_revision),
+        )
+        for name, actual, expected in provenance_fields:
+            if actual != expected:
+                raise ValueError(
+                    f"Short Circuit topology provenance mismatch for {name}: "
+                    f"supplied={actual!r}, Network={expected!r}."
+                )
+        content_fields = (
+            ("bus_ids", supplied.bus_ids, canonical.bus_ids),
+            ("bus_adjacency", dict(supplied.bus_adjacency), dict(canonical.bus_adjacency)),
+            ("equipment_bus_attachments", supplied.equipment_bus_attachments, canonical.equipment_bus_attachments),
+            ("conductive_edges", supplied.conductive_edges, canonical.conductive_edges),
+            ("islands", supplied.islands, canonical.islands),
+        )
+        for name, actual, expected in content_fields:
+            if actual != expected:
+                raise ValueError(
+                    f"Short Circuit topology content mismatch for {name}; "
+                    "the supplied snapshot does not describe the captured Network."
+                )
+        return canonical
+
+    @staticmethod
+    def _assert_topology_unchanged(
+        network: Any,
+        captured: TopologySnapshot,
+        captured_revision: int,
+    ) -> None:
+        """Reject topology mutation while the detached numerical case is prepared."""
+        if network.topology_dirty or network.topology_revision != captured_revision:
+            raise RuntimeError(
+                "Network topology changed during Short Circuit preparation; "
+                "discard the partial preparation and retry against a stable Network."
+            )
+        current = network.topology_snapshot
+        if not isinstance(current, TopologySnapshot) or current != captured:
+            raise RuntimeError(
+                "Network canonical topology changed during Short Circuit preparation; "
+                "discard the partial preparation and retry against a stable Network."
+            )
 
     def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
