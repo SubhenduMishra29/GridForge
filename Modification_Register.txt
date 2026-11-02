@@ -20434,3 +20434,53 @@ Status:
     IMPLEMENTED IN SOURCE; RUNTIME NUMERICAL ACCEPTANCE REMAINS PENDING.
 
 ======================================================================
+
+
+======================================================================
+GF-TS-QUALITY-998A — TYPED TRANSIENT ALGEBRAIC QUALITY ARCHIVE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    Schema-v2 transient archives reconstructed TransientStabilityResult and
+    EventExecution records but decoded nested AlgebraicNetworkSolution
+    values as generic dataclass mappings. This prevented canonical typed
+    restoration of per-sample algebraic quality evidence.
+
+Correction:
+    - Add AlgebraicNetworkSolution to the explicit archive reconstruction
+      allowlist using a dedicated algebraic_network_solution tag.
+    - Require schema-v2 for the dedicated tag and require the exact canonical
+      class identity, archive tag and complete dataclass field set.
+    - Reconstruct only through AlgebraicNetworkSolution's canonical
+      constructor, retaining its immutable voltage/provenance mappings and
+      status, residual, tolerance, conditioning, time, topology, source and
+      fault-context invariants.
+    - Require every schema-v2 TransientStabilityResult algebraic_quality
+      entry to reconstruct as an allowlisted AlgebraicNetworkSolution.
+    - Reject generic schema-v2 dataclass encoding for the known algebraic
+      solution class. Preserve schema-v1 generic mapping semantics; no
+      legacy quality records are synthesized.
+    - No UI or Application read-model behavior is changed in this archive
+      correction.
+
+Boundary:
+    StudyResultArchive remains the only persistence reconstruction authority.
+    It imports only the explicit Core type and never imports archive-provided
+    module names. Core remains independent of Application and UI.
+
+Verification:
+    - Source-level inspection of encoder tag selection, schema-v2 type/tag
+      agreement, exact field validation, constructor reconstruction and
+      nested TransientStabilityResult quality type enforcement.
+    - No tests or CI were run, per project instruction.
+    - Full archive round-trip and malformed-payload runtime acceptance remain
+      pending.
+
+Status:
+    SCHEMA-V2 ALGEBRAIC QUALITY TYPE RECONSTRUCTION IMPLEMENTED IN SOURCE.
+    APPLICATION READ MODEL AND UI PRESENTATION REMAIN OPEN UNDER #998.
+
+======================================================================

@@ -30,6 +30,7 @@ from core.application.revision import ProjectRevision
 from core.application.study import StudyResult
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.fault_types import FaultType
 from core.solver.short_circuit.result import (
@@ -120,6 +121,9 @@ _SOLVER_RESULT_TYPES = {
 _SOLVER_EVENT_TYPES = {
     f"{EventExecution.__module__}.{EventExecution.__qualname__}": EventExecution,
 }
+_SOLVER_ALGEBRAIC_TYPES = {
+    f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}": AlgebraicNetworkSolution,
+}
 _SOLVER_ENUM_TYPES = {
     f"{cls.__module__}.{cls.__qualname__}": cls
     for cls in (FaultType, ContributionStatus, ShortCircuitStatus)
@@ -180,6 +184,8 @@ def _encode_value(value: Any) -> Any:
             tag = "solver_result"
         elif qualified in _SOLVER_EVENT_TYPES:
             tag = "event_execution"
+        elif qualified in _SOLVER_ALGEBRAIC_TYPES:
+            tag = "algebraic_network_solution"
         else:
             tag = "dataclass"
         return {
@@ -201,13 +207,18 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
     qualified_hint = value.get("class")
     transient_result_name = f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
     event_execution_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
-    if schema_version >= 2 and qualified_hint in {transient_result_name, event_execution_name}:
-        expected_kind = "solver_result" if qualified_hint == transient_result_name else "event_execution"
+    algebraic_solution_name = f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}"
+    if schema_version >= 2 and qualified_hint in {transient_result_name, event_execution_name, algebraic_solution_name}:
+        expected_kind = (
+            "solver_result" if qualified_hint == transient_result_name else
+            "event_execution" if qualified_hint == event_execution_name else
+            "algebraic_network_solution"
+        )
         if kind != expected_kind:
             raise StudyResultArchiveError(
                 f"Known transient type {qualified_hint} must use the {expected_kind!r} archive tag in schema v2."
             )
-    if kind in {"solver_result", "event_execution"} and set(value) != {"$type", "class", "fields"}:
+    if kind in {"solver_result", "event_execution", "algebraic_network_solution"} and set(value) != {"$type", "class", "fields"}:
         raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
     if kind == "ndarray":
         if schema_version < 2:
@@ -266,6 +277,24 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
         decoded_fields = {key: _decode_value(item, schema_version=schema_version) for key, item in payload.items()}
         qualified = value["class"]
 
+        if kind == "algebraic_network_solution":
+            if schema_version < 2:
+                raise StudyResultArchiveError("AlgebraicNetworkSolution tags require Study Result archive schema v2.")
+            solution_type = _SOLVER_ALGEBRAIC_TYPES.get(qualified)
+            if solution_type is None:
+                raise StudyResultArchiveError("Persisted algebraic network solution type is not allowlisted.")
+            allowed_fields = {item.name for item in fields(solution_type)}
+            if set(decoded_fields) != allowed_fields:
+                raise StudyResultArchiveError(
+                    "Persisted AlgebraicNetworkSolution fields do not match its canonical contract."
+                )
+            try:
+                return solution_type(**decoded_fields)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError(
+                    f"Persisted AlgebraicNetworkSolution violates its result contract: {exc}"
+                ) from exc
+
         if kind == "event_execution":
             if schema_version < 2:
                 raise StudyResultArchiveError("EventExecution tags require Study Result archive schema v2.")
@@ -294,6 +323,14 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                     f"Persisted {result_type.__name__} fields do not match its canonical contract."
                 )
             if result_type is TransientStabilityResult:
+                algebraic_quality = decoded_fields.get("algebraic_quality")
+                if not isinstance(algebraic_quality, (tuple, list)) or any(
+                    not isinstance(item, AlgebraicNetworkSolution) for item in algebraic_quality
+                ):
+                    raise StudyResultArchiveError(
+                        "Persisted TransientStabilityResult algebraic_quality must contain only "
+                        "allowlisted AlgebraicNetworkSolution records."
+                    )
                 events = decoded_fields.get("events")
                 if not isinstance(events, (tuple, list)) or any(
                     not isinstance(item, EventExecution) for item in events
@@ -311,6 +348,7 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
         if schema_version >= 2 and qualified in {
             f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}",
             f"{EventExecution.__module__}.{EventExecution.__qualname__}",
+            f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}",
         }:
             raise StudyResultArchiveError(
                 f"Known transient type {qualified} cannot use the generic dataclass archive tag in schema v2."
