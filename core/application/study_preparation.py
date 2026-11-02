@@ -155,6 +155,7 @@ class StudyPreparationService:
         machine_connection_paths: dict[str, tuple[str, ...]] = {}
         machine_rotor_policies: dict[str, str] = {}
         switch_states: dict[str, bool] = {}
+        switch_available_states: dict[str, bool] = {}
         switching_types = {"breaker", "switch", "disconnector", "fuse"}
         registry = getattr(self._execution_context.project_snapshot.network, "registry", None)
         if registry is None or not callable(getattr(registry, "get_by_identity", None)):
@@ -249,6 +250,11 @@ class StudyPreparationService:
                         "does not resolve to the same canonical object identity."
                     )
                 switch_states[switch_id] = bool(conduction_state(switch))
+                switch_available_states[switch_id] = (
+                    bool(getattr(switch, "in_service", False))
+                    and not bool(getattr(switch, "failed", False))
+                    and not bool(getattr(switch, "blown", False))
+                )
                 current_bus = next_bus
                 visited_buses.add(current_bus)
 
@@ -276,6 +282,7 @@ class StudyPreparationService:
             machine_connection_paths=machine_connection_paths,
             machine_rotor_policies=machine_rotor_policies,
             switch_states=switch_states,
+            switch_available_states=switch_available_states,
         )
 
 
