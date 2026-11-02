@@ -262,6 +262,41 @@ class ShortCircuitTransformerDeltaLoopCurrent:
     measurement_scope: str = "INTERNAL_DELTA_LOOP"
     external_ct_measurement_eligible: bool = False
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible, explicitly typed diagnostic record."""
+        return {
+            "transformer_id": self.transformer_id,
+            "loop_id": self.loop_id,
+            "winding": self.winding,
+            "current_a": {"real": self.current_a.real, "imag": self.current_a.imag},
+            "base_mva": self.base_mva,
+            "voltage_base_kv": self.voltage_base_kv,
+            "current_base_a": self.current_base_a,
+            "current_pu": {"real": self.current_pu.real, "imag": self.current_pu.imag},
+            "positive_direction": self.positive_direction,
+            "measurement_scope": self.measurement_scope,
+            "external_ct_measurement_eligible": self.external_ct_measurement_eligible,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ShortCircuitTransformerDeltaLoopCurrent":
+        """Restore a persisted record without weakening its validation contract."""
+        if not isinstance(data, Mapping):
+            raise TypeError("Delta-loop current payload must be a mapping.")
+        def read_complex(name: str) -> complex:
+            value = data.get(name)
+            if not isinstance(value, Mapping) or set(value) != {"real", "imag"}:
+                raise ValueError(f"Delta-loop {name} must contain exactly real and imag values.")
+            return complex(float(value["real"]), float(value["imag"]))
+        return cls(
+            transformer_id=data["transformer_id"], loop_id=data["loop_id"], winding=data["winding"],
+            current_a=read_complex("current_a"), base_mva=data["base_mva"],
+            voltage_base_kv=data["voltage_base_kv"], current_base_a=data["current_base_a"],
+            current_pu=read_complex("current_pu"), positive_direction=data["positive_direction"],
+            measurement_scope=data.get("measurement_scope", "INTERNAL_DELTA_LOOP"),
+            external_ct_measurement_eligible=data.get("external_ct_measurement_eligible", False),
+        )
+
     def __post_init__(self) -> None:
         for name in ("transformer_id", "loop_id", "positive_direction"):
             object.__setattr__(self, name, _validate_identity(getattr(self, name), name))
@@ -320,7 +355,21 @@ class ShortCircuitResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", _freeze_value(self.values))
-        object.__setattr__(self, "transformer_delta_loop_currents", MappingProxyType({key: MappingProxyType(dict(value)) for key, value in self.transformer_delta_loop_currents.items()}))
+        delta_records: dict[str, Mapping[str, ShortCircuitTransformerDeltaLoopCurrent]] = {}
+        for transformer_id, records in self.transformer_delta_loop_currents.items():
+            if not isinstance(transformer_id, str) or not transformer_id.strip() or not isinstance(records, Mapping):
+                raise ValueError("transformer_delta_loop_currents must be keyed by transformer identity.")
+            normalized: dict[str, ShortCircuitTransformerDeltaLoopCurrent] = {}
+            for loop_id, record in records.items():
+                if not isinstance(loop_id, str) or not loop_id.strip():
+                    raise ValueError("Delta-loop current keys must be non-empty loop identities.")
+                if not isinstance(record, ShortCircuitTransformerDeltaLoopCurrent):
+                    raise TypeError("Delta-loop current values must be ShortCircuitTransformerDeltaLoopCurrent records.")
+                if record.transformer_id != transformer_id or record.loop_id != loop_id:
+                    raise ValueError("Delta-loop current key must match its transformer and loop identities.")
+                normalized[loop_id] = record
+            delta_records[transformer_id] = MappingProxyType(normalized)
+        object.__setattr__(self, "transformer_delta_loop_currents", MappingProxyType(delta_records))
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise TypeError("fault_bus_index must be an integer.")
         if self.fault_current is not None:
@@ -451,7 +500,10 @@ class ShortCircuitResult:
             "conductor_currents": dict(self.conductor_currents),
             "conductor_current_status": self.conductor_current_status,
             "conductor_current_diagnostics": self.conductor_current_diagnostics,
-            "transformer_delta_loop_currents": {key: dict(value) for key, value in self.transformer_delta_loop_currents.items()},
+            "transformer_delta_loop_currents": {
+                transformer_id: {loop_id: record.to_dict() for loop_id, record in records.items()}
+                for transformer_id, records in self.transformer_delta_loop_currents.items()
+            },
             "provenance": dict(self.provenance),
         })
         return result
