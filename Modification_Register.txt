@@ -20071,3 +20071,56 @@ Status:
     DIRECTIONAL ANSI 21 AND DEPLOYMENT SOURCE INTEGRATION REMAIN OPEN.
 
 ======================================================================
+
+======================================================================
+GF-PROT-071
+======================================================================
+
+Files:
+    core/application/application.py
+    core/application/bootstrap.py
+    core/application/services/__init__.py
+
+Status:
+    🟢 CORRECTION APPLIED — SOURCE RECONCILIATION PENDING
+
+Finding:
+    ProtectionConfigurationService was created in the composition root
+    but attached to Application after construction through dynamic
+    attribute assignment. The live sample callback silently returned
+    without an execution outcome when configuration/runtime authority
+    was absent.
+
+Corrections:
+    1. Inject ProtectionConfigurationService through Application.__init__
+       from the canonical create_application composition root.
+    2. Keep project activation as the single authority for selecting the
+       persisted protection configuration, or an empty project-scoped
+       configuration when none is persisted.
+    3. Compose ProtectionRuntime only after the candidate measurement
+       channel registry has been activated.
+    4. Remove duplicate measurement-channel provisioning from the
+       protection project-state activator; it now consumes the candidate
+       registry composed by Application.attach_project_lifecycle.
+    5. Preserve transactional rollback of measurement authority,
+       protection configuration, ProtectionRuntime, protection
+       presentation, and the other project-scoped services.
+    6. Project close deactivates the protection configuration service
+       and clears ProtectionRuntime through the existing project-state
+       transaction.
+    7. Authenticated sample publication now returns an explicit
+       ProtectionExecutionResult diagnostic if the Application service,
+       active project configuration, or composed runtime is missing.
+
+Execution boundary:
+    This remains an event-driven authenticated measurement trigger.
+    Missing runtime/configuration is fail-closed and observable; it does
+    not fabricate a protection decision or field-device acknowledgement.
+
+Verification:
+    Source-level composition and rollback paths inspected.
+    No tests or CI run, per acceptance instructions.
+    Local syntax/import/runtime checks remain unverified in this session.
+
+======================================================================
+
