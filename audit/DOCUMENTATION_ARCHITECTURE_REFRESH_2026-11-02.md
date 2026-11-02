@@ -12,7 +12,7 @@ The README and architecture records did not accurately express the merged PR #90
 ## Files updated
 
 - `README.md` — rebuilt as the current architecture and implementation-status entry point.
-- `docs/UI_ARCHITECTURE_BLENDER_STYLE.md` — clarified the UI/editor boundary and recorded that phase-domain SLD authoring is still outstanding.
+- `docs/UI_ARCHITECTURE_BLENDER_STYLE.md` — clarified the UI/editor boundary and documented the bounded SLD-derived graph builders and the remaining construction-configurator/general graph-editor gaps.
 - `docs/architecture/simple_wire_connectivity_schema.md` — explicitly separated conventional Simple Wire connectivity from the phase-domain conductor graph.
 - `docs/architecture/GRIDFORGE_V2_PLUGIN_REUSE_MATRIX.md` — refreshed ownership/reuse rules and removed unsubstantiated backend claims.
 - `audit/ARCHITECTURE_RECONCILIATION_MATRIX.md` — retained historical rows while adding a dated current-main authority correction.
@@ -20,13 +20,15 @@ The README and architecture records did not accurately express the merged PR #90
 ## New documents
 
 - `docs/architecture/GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md` — consolidated frozen Core/Application/UI, network, SLD, protection, solver, persistence and plugin boundaries.
-- `docs/architecture/PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md` — records the merged #908 scope, conductor and transformer semantics, protection measurement rules, SLD authoring requirements and explicit gaps.
+- `docs/architecture/PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md` — reconciles D15F-29–37 switching/transformer increments, measurement rules, SLD-derived graph boundaries and explicit gaps.
+- `docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md` — appended the main Protection Study architecture reconciliation through D15F-37.
+- `Modification_Register.txt` — appended GF-AUD-137 to record this documentation-only reconciliation.
 
 ## Status accuracy rules applied
 
 - PR #908 and PR #909 are recorded as merged.
 - PRs #912–#918 are recorded as open/draft at the stated baseline and are not described as merged.
-- Phase-domain graph foundations are not described as complete SLD authoring.
+- Supported SLD-derived Line/Cable, switching-pole and transformer-winding graph construction is distinguished from the still-incomplete general-purpose construction configurator/editor.
 - Simple Wire relationships are not conflated with phase-domain physical conductor paths.
 - Protection decisions are not described as breaker-operation acknowledgements.
 - Static source review, runtime verification, numerical validation and production/commissioning evidence are kept distinct.
@@ -37,4 +39,4 @@ Documentation and GitHub source metadata were reviewed. The documentation change
 
 ## Follow-up
 
-The large append-only `Modification_Register.txt` was not rewritten as part of this documentation-only patch. This audit record and the dated reconciliation-matrix entry provide traceability for this documentation change; the main register should receive a corresponding entry through the repository's established register workflow.
+The append-only `Modification_Register.txt` now includes GF-AUD-137. Remaining work is implementation/evidence closure for the explicitly listed persistence, configurator, source-model, measurement and runtime gaps; this documentation change does not close those engineering issues.
