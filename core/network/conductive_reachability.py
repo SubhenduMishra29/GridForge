@@ -74,6 +74,23 @@ class ConductiveReachabilityResolver:
             )
         )
 
+    def _equipment(self) -> tuple[Any, ...]:
+        """Return canonical equipment collections exposed by Network."""
+        names = (
+            "buses", "lines", "cables", "branches", "transformers", "breakers",
+            "switches", "disconnectors", "fuses", "current_transformers",
+            "potential_voltage_transformers", "capacitive_voltage_transformers",
+            "loads", "generators", "synchronous_machines", "motors", "shunts",
+            "capacitors", "reactors", "solar", "batteries", "grids",
+        )
+        values: dict[str, Any] = {}
+        for name in names:
+            for item in getattr(self._network, name, ()):
+                identity = getattr(item, "id", None)
+                if isinstance(identity, str):
+                    values[identity] = item
+        return tuple(values[key] for key in sorted(values))
+
     def _adjacency(self) -> dict[TopologyEndpointReference, set[TopologyEndpointReference]]:
         resolved = ConnectivityResolver(self._network).resolve()
         graph: dict[TopologyEndpointReference, set[TopologyEndpointReference]] = {
@@ -84,7 +101,7 @@ class ConductiveReachabilityResolver:
         # attachments even when no explicit SimpleWire edge was persisted.
         from core.model import Bus
         from core.model.endpoint_reference import EndpointReference as ER
-        for equipment in self._network.elements:
+        for equipment in self._equipment():
             for terminal in getattr(equipment, "terminals", ()):
                 if terminal.owner is not equipment or not isinstance(terminal.endpoint, Bus):
                     continue
