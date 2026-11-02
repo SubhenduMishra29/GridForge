@@ -130,6 +130,9 @@ class TransientEventState:
             equipment_states=dict(self.equipment_states),
             machine_connection_paths=self.snapshot.machine_connection_paths,
             machine_rotor_policies=self.snapshot.machine_rotor_policies,
+            project_id=self.snapshot.project_id,
+            activation_generation=self.snapshot.activation_generation,
+            source_revision=self.snapshot.source_revision,
             active_fault=self.active_fault,
             topology_revision=self.topology_revision,
         )
