@@ -127,6 +127,11 @@ class ControlExecutionService:
                         "Trip batch dispatcher returned "
                         f"{type(result).__name__}, not ApplicationResult."
                     )
+                if not result.success:
+                    raise RuntimeError(
+                        result.message.strip()
+                        or "Application rejected the coordinated breaker-trip batch."
+                    )
                 results.append(result)
                 executed.extend(trip_batch)
             except Exception as exc:
