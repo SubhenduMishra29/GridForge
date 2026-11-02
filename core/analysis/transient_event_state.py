@@ -140,6 +140,7 @@ class TransientEventState:
             shunts=self.snapshot.shunts,
             breaker_states=dict(self.breaker_states),
             switch_available_states=self.snapshot.switch_available_states,
+            switch_connections=self.snapshot.switch_connections,
             equipment_states=dict(self.equipment_states),
             machine_connection_paths=self.snapshot.machine_connection_paths,
             machine_rotor_policies=self.snapshot.machine_rotor_policies,
