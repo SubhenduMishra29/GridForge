@@ -20160,6 +20160,12 @@ Corrections:
     - Require a deployment acknowledgement verifier; unverified, mismatched,
       rejected, missing or pending acknowledgements are never treated as
       physical execution.
+    - Signed acknowledgement provenance includes project, activation
+      generation, protection-cycle identity, delivery/command correlation,
+      timestamp domain and trusted-clock freshness bounds.
+    - Physical field-device dispatch is restricted to the authenticated live
+      measurement callback authority; caller-supplied event labels cannot
+      authorize a hardware command.
     - When a field adapter is configured, Application/Core command mutation is
       gated on an authenticated executed acknowledgement. A pending command
       is retained with project/generation provenance and applied only after
