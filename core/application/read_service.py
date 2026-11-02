@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -396,19 +398,71 @@ class ProtectionReadService:
         decision = decision_provider(str(relay.id)) if decision_provider is not None else None
         return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings, decision=decision)
 
-class StudyReadService:
-    """Canonical Application read boundary for published study results.
+@dataclass(frozen=True, slots=True)
+class ArchivedStudyResultReadModel:
+    """Read-only archive row with stable execution identity and provenance."""
 
-    The service adapts the existing Application StudyService store into
-    immutable read models. It never executes studies and never becomes a
-    second result authority.
+    record_id: UUID
+    saved_at: str
+    study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    study_type: str
+    status: str
+    message: str
+    metadata: Any
+    value: Any
+
+    @property
+    def transformer_delta_loop_currents(self) -> Any:
+        """Return internal winding-loop diagnostics without CT/relay adaptation."""
+        if not isinstance(self.value, Mapping):
+            return ()
+        direct = self.value.get("transformer_delta_loop_currents")
+        if direct is not None:
+            return direct
+        nested = self.value.get("values")
+        if isinstance(nested, Mapping):
+            return nested.get("transformer_delta_loop_currents", ())
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class StudyResultComparisonReadModel:
+    """Explicit two-execution comparison; values remain detached snapshots."""
+
+    left: ArchivedStudyResultReadModel
+    right: ArchivedStudyResultReadModel
+    compatible: bool
+    compatibility_message: str
+    same_source_revision: bool
+    same_activation_generation: bool
+
+
+class StudyReadService:
+    """Canonical Application read boundary for live and archived study results.
+
+    The service adapts the existing StudyService and StudyResultArchive. It
+    performs no execution, mutation, numerical reinterpretation or measurement
+    generation. Archived values remain detached snapshots.
     """
-    def __init__(self, studies: Any) -> None:
+
+    def __init__(self, studies: Any, archive: Any | None = None) -> None:
         if studies is None or not callable(getattr(studies, "get_result", None)):
             raise TypeError("studies must provide get_result().")
         if not callable(getattr(studies, "results", None)):
             raise TypeError("studies must provide results().")
         self._studies = studies
+        self._archive = None
+        self.configure_archive(archive)
+
+    def configure_archive(self, archive: Any | None) -> None:
+        if archive is not None and not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must provide load_all().")
+        if archive is not None and not callable(getattr(archive, "load_latest", None)):
+            raise TypeError("archive must provide load_latest().")
+        self._archive = archive
 
     @staticmethod
     def _to_read_model(
@@ -440,6 +494,23 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             current=current,
+        )
+
+    @staticmethod
+    def _archived_to_read_model(record: Any) -> ArchivedStudyResultReadModel:
+        result = record.result
+        return ArchivedStudyResultReadModel(
+            record_id=record.record_id,
+            saved_at=record.saved_at,
+            study_id=result.study_id,
+            project_id=result.project_id,
+            activation_generation=result.activation_generation,
+            source_revision=result.source_revision,
+            study_type=result.study_type,
+            status=result.status,
+            message=result.message,
+            metadata=result.metadata,
+            value=result.value,
         )
 
     def result(
@@ -482,6 +553,93 @@ class StudyReadService:
             )
         )
 
+    def archived_results(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int | None = None,
+        study_id: UUID | None = None,
+        study_type: str | None = None,
+        status: str | None = None,
+        saved_after: str | None = None,
+        saved_before: str | None = None,
+        search: str | None = None,
+    ) -> tuple[ArchivedStudyResultReadModel, ...]:
+        if self._archive is None:
+            return ()
+        if status is not None and status not in {"completed", "failed", "cancelled"}:
+            raise ValueError("status must be completed, failed, cancelled, or None.")
+        if study_type is not None and (not isinstance(study_type, str) or not study_type.strip()):
+            raise ValueError("study_type must be a non-empty string or None.")
+        for label, value in (("saved_after", saved_after), ("saved_before", saved_before)):
+            if value is not None:
+                try:
+                    datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except (AttributeError, ValueError) as exc:
+                    raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+        records = self._archive.load_all(
+            project_id,
+            activation_generation=activation_generation,
+            study_id=study_id,
+        )
+        needle = search.strip().casefold() if isinstance(search, str) else ""
+        rows = []
+        for record in records:
+            row = self._archived_to_read_model(record)
+            if study_type is not None and row.study_type != study_type.strip():
+                continue
+            if status is not None and row.status != status:
+                continue
+            if saved_after is not None and row.saved_at < saved_after:
+                continue
+            if saved_before is not None and row.saved_at > saved_before:
+                continue
+            if needle:
+                haystack = " ".join((
+                    str(row.study_id), row.study_type, row.status, row.message,
+                    str(row.metadata), str(row.record_id),
+                )).casefold()
+                if needle not in haystack:
+                    continue
+            rows.append(row)
+        return tuple(sorted(rows, key=lambda row: (row.saved_at, str(row.record_id)), reverse=True))
+
+    def archived_result(
+        self, record_id: UUID, *, project_id: str,
+        activation_generation: int | None = None,
+    ) -> ArchivedStudyResultReadModel:
+        if not isinstance(record_id, UUID):
+            raise TypeError("record_id must be a UUID.")
+        for row in self.archived_results(
+            project_id=project_id, activation_generation=activation_generation
+        ):
+            if row.record_id == record_id:
+                return row
+        raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
+
+    def compare_archived_results(
+        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+    ) -> StudyResultComparisonReadModel:
+        left = self.archived_result(left_record_id, project_id=project_id)
+        right = self.archived_result(right_record_id, project_id=project_id)
+        compatible = left.project_id == right.project_id and left.study_type == right.study_type
+        if left.project_id != right.project_id:
+            message = "Comparison rejected: records belong to different projects."
+            compatible = False
+        elif left.study_type != right.study_type:
+            message = "Comparison rejected: study types differ."
+            compatible = False
+        else:
+            message = "Same project and study type; compare values with source-revision and activation provenance shown."
+        return StudyResultComparisonReadModel(
+            left=left,
+            right=right,
+            compatible=compatible,
+            compatibility_message=message,
+            same_source_revision=left.source_revision == right.source_revision,
+            same_activation_generation=left.activation_generation == right.activation_generation,
+        )
+
     def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
         return self.results(
             project_id=project_id,
@@ -489,4 +647,12 @@ class StudyReadService:
             current_revision=current_revision,
         )
 
-__all__ = ["NetworkReadService", "ProtectionReadService", "ReadService", "StudyReadService"]
+
+__all__ = [
+    "ArchivedStudyResultReadModel",
+    "StudyReadService",
+    "StudyResultComparisonReadModel",
+    "NetworkReadService",
+    "ProtectionReadService",
+    "ReadService",
+]
