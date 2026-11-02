@@ -17,7 +17,7 @@ import numpy as np
 from core.analysis.phase_domain_network_preparation import PhaseDomainAdmittanceSnapshot
 from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
 from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind, PhaseDomainConnectionKind
-from .result import ShortCircuitConductorCurrent
+from .result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 
 def _name(value: str, field: str) -> str:
@@ -142,6 +142,8 @@ class PhaseDomainTransformerMultiport:
     internal_loop_labels: tuple[str, ...] = ()
     internal_loop_coupling: tuple[tuple[complex, ...], ...] = ()
     internal_loop_impedance_ohm: tuple[tuple[complex, ...], ...] = ()
+    internal_loop_voltage_base_kv: tuple[float, ...] = ()
+    internal_loop_positive_directions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "transformer_id", _name(self.transformer_id, "transformer_id"))
@@ -188,6 +190,16 @@ class PhaseDomainTransformerMultiport:
         object.__setattr__(self, "internal_loop_labels", loop_labels)
         object.__setattr__(self, "internal_loop_coupling", coupling)
         object.__setattr__(self, "internal_loop_impedance_ohm", loop_z)
+        loop_bases = tuple(float(value) for value in self.internal_loop_voltage_base_kv)
+        loop_directions = tuple(_name(value, "transformer delta-loop positive direction") for value in self.internal_loop_positive_directions)
+        if loop_count and (len(loop_bases) != loop_count or len(loop_directions) != loop_count):
+            raise ValueError("Each internal delta loop requires an explicit voltage base and positive direction.")
+        if any(not math.isfinite(value) or value <= 0.0 for value in loop_bases):
+            raise ValueError("Internal delta-loop voltage bases must be finite and positive.")
+        if not loop_count and (loop_bases or loop_directions):
+            raise ValueError("Delta-loop bases/directions require loop labels.")
+        object.__setattr__(self, "internal_loop_voltage_base_kv", loop_bases)
+        object.__setattr__(self, "internal_loop_positive_directions", loop_directions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +340,7 @@ class PhaseDomainShortCircuitSolution:
     kcl_residual_a: float = 0.0
     diagnostics: tuple[str, ...] = ()
     transformer_terminal_currents_a: Mapping[str, Mapping[str, complex]] | None = None
-    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, complex]] | None = None
+    transformer_delta_loop_currents_a: Mapping[str, Mapping[str, TransformerDeltaLoopCurrentResult]] | None = None
 
     def __post_init__(self) -> None:
         residual = float(self.kcl_residual_a)
@@ -775,7 +787,18 @@ class PhaseDomainShortCircuitSolver:
             if loop_indices:
                 terminal_currents = terminal_currents + np.asarray(primitive.internal_loop_coupling, dtype=complex) @ loop_values
                 transformer_delta_loop_currents[primitive.transformer_id] = {
-                    label: complex(current) for label, current in zip(primitive.internal_loop_labels, loop_values)
+                    label: ShortCircuitTransformerDeltaLoopCurrent(
+                        transformer_id=primitive.transformer_id,
+                        loop_id=label,
+                        winding=label.split(":DELTA_LOOP:", 1)[0],
+                        current_a=complex(current),
+                        base_mva=case.base_mva,
+                        voltage_base_kv=primitive.internal_loop_voltage_base_kv[index],
+                        current_base_a=case.base_mva * 1.0e6 / (math.sqrt(3.0) * primitive.internal_loop_voltage_base_kv[index] * 1.0e3),
+                        current_pu=complex(current) / (case.base_mva * 1.0e6 / (math.sqrt(3.0) * primitive.internal_loop_voltage_base_kv[index] * 1.0e3)),
+                        positive_direction=primitive.internal_loop_positive_directions[index],
+                    )
+                    for index, (label, current) in enumerate(zip(primitive.internal_loop_labels, loop_values))
                 }
             transformer_terminal_currents[primitive.transformer_id] = {
                 label: complex(current) for label, current in zip(primitive.terminal_labels, terminal_currents)
