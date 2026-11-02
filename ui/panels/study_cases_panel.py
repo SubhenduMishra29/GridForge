@@ -69,6 +69,10 @@ class StudyCasesPanelWidget(QWidget):
 
         self._result_heading = QLabel("Study Results", self)
         self._result_list = QListWidget(self)
+        self._archive_heading = QLabel("Archived Executions", self)
+        self._archive_list = QListWidget(self)
+        self._archive_selection_handler: Callable[[UUID | None], object] | None = None
+        self._archive_rows: tuple[object, ...] = ()
         self._run = QPushButton("Run Study", self)
         self._run.clicked.connect(self._run_selected)
         self._list.currentRowChanged.connect(self._on_case_selected)
@@ -81,6 +85,9 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._run)
         layout.addWidget(self._result_heading)
         layout.addWidget(self._result_list)
+        layout.addWidget(self._archive_heading)
+        layout.addWidget(self._archive_list)
+        self._archive_list.currentRowChanged.connect(self._on_archive_selected)
         self.set_result_details("Select a completed study to inspect its results.", ())
 
     def set_available_buses(self, bus_ids: Iterable[str]) -> None:
@@ -135,6 +142,49 @@ class StudyCasesPanelWidget(QWidget):
         self._result_selection_handler = handler
         if handler is not None:
             handler(self.selected_case_id())
+
+    def set_archived_results(self, records: Iterable[object]) -> None:
+        """Render durable execution history independently from active Study Cases."""
+        previous_id = self.selected_archived_record_id()
+        self._archive_rows = tuple(records)
+        blocked = self._archive_list.blockSignals(True)
+        try:
+            self._archive_list.clear()
+            for row in self._archive_rows:
+                label = (
+                    f"{getattr(row, 'study_type', 'study')} "
+                    f"[{getattr(row, 'status', 'unknown')}] — "
+                    f"{getattr(row, 'saved_at', '')} — "
+                    f"{str(getattr(row, 'record_id', ''))[:8]}"
+                )
+                self._archive_list.addItem(label)
+                self._archive_list.item(self._archive_list.count() - 1).setData(
+                    32, getattr(row, "record_id", None)
+                )
+            restored = next((
+                index for index, row in enumerate(self._archive_rows)
+                if getattr(row, "record_id", None) == previous_id
+            ), -1)
+            if restored >= 0:
+                self._archive_list.setCurrentRow(restored)
+        finally:
+            self._archive_list.blockSignals(blocked)
+
+    def set_archive_selection_handler(
+        self, handler: Callable[[UUID | None], object] | None
+    ) -> None:
+        self._archive_selection_handler = handler
+        if handler is not None:
+            handler(self.selected_archived_record_id())
+
+    def selected_archived_record_id(self) -> UUID | None:
+        item = self._archive_list.currentItem()
+        value = item.data(32) if item is not None else None
+        return value if isinstance(value, UUID) else None
+
+    def _on_archive_selected(self, _index: int) -> None:
+        if self._archive_selection_handler is not None:
+            self._archive_selection_handler(self.selected_archived_record_id())
 
     def set_result_details(self, title: str, lines: Iterable[str]) -> None:
         self._result_heading.setText(str(title))
