@@ -85,6 +85,10 @@ class TransientRelayOutcome:
             raise ValueError("function_id must be non-empty.")
         if self.status not in {"OPERATED", "NOT_OPERATED_WITHIN_WINDOW", "NOT_EVALUABLE"}:
             raise ValueError("Unsupported transient relay outcome status.")
+        if self.status == "OPERATED" and self.operation_time_s is None:
+            raise ValueError("OPERATED outcome requires an operation time.")
+        if self.status == "NOT_OPERATED_WITHIN_WINDOW" and self.operation_time_s is not None:
+            raise ValueError("NOT_OPERATED_WITHIN_WINDOW cannot advertise an operation time.")
         if not isinstance(self.reset_memory_used, bool):
             raise TypeError("reset_memory_used must be boolean.")
         for name in ("operation_time_s", "final_operating_progress"):
@@ -143,6 +147,12 @@ class TransientCoordinationGrade:
             object.__setattr__(self, name, value)
         if self.status == "NOT_EVALUABLE" and self.available_cti_s is not None:
             raise ValueError("NOT_EVALUABLE transient grades cannot advertise available CTI.")
+        if self.status in {"COORDINATED", "NOT_COORDINATED"} and (
+            self.downstream_operation_time_s is None
+            or self.upstream_operation_time_s is None
+            or self.available_cti_s is None
+        ):
+            raise ValueError("Evaluated transient CTI requires both operation times and available CTI.")
 
 
 @dataclass(frozen=True, slots=True)
