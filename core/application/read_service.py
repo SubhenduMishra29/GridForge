@@ -893,6 +893,7 @@ class StudyReadService:
             source_revision=row.source_revision,
             study_type=row.study_type,
             status=row.status,
+            message=str(getattr(row, "message", "") or ""),
             current=bool(getattr(row, "current", False)) if not historical else False,
             historical=historical,
             record_id=record_id,
