@@ -188,6 +188,10 @@ class StudyResult:
         object.__setattr__(self, "metadata", _freeze_study_value(self.metadata))
 
 
+class StudyResultPersistenceError(RuntimeError):
+    """Raised when a completed study cannot be durably archived."""
+
+
 class StudyCancellationToken:
     """Cooperative cancellation state supplied to long-running study handlers.
 
@@ -234,6 +238,7 @@ class StudyService:
         self._handlers: dict[str, StudyHandler] = {}
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
+        self._result_persister: Callable[[StudyResult], Any] | None = None
         # Counts by study type prevent teardown while any execution is active.
         self._active_study_types: dict[str, int] = {}
         self._lock = RLock()
@@ -260,6 +265,20 @@ class StudyService:
         if error is not None:
             metadata["error"] = error
         return metadata
+
+    def set_result_persister(self, persister: Callable[[StudyResult], Any] | None) -> None:
+        """Configure durable terminal-result persistence before study execution."""
+        if persister is not None and not callable(persister):
+            raise TypeError("persister must be callable or None.")
+        with self._lock:
+            if self._tokens:
+                raise RuntimeError("Cannot change Study Result persistence while studies are active.")
+            self._result_persister = persister
+
+    def _persist_result(self, result: StudyResult) -> None:
+        persister = self._result_persister
+        if persister is not None:
+            persister(result)
 
     def register(self, study_type: str, handler: StudyHandler) -> None:
         if not isinstance(study_type, str) or not study_type.strip():
@@ -316,69 +335,79 @@ class StudyService:
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = handler(request, execution_context, token)
-            # Completion and cancellation compete under the same lock used by
-            # cancel(). Whichever obtains the lock first determines the
-            # terminal result; a late cancellation is rejected.
             with self._lock:
                 cancelled = token.finish()
-                if cancelled:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="cancelled",
-                        message="Study cancelled.",
-                    )
-                else:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="completed",
-                        value=value,
-                    )
+            result = StudyResult(
+                study_id=request.study_id,
+                project_id=request.project_id,
+                activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
+                study_type=request.study_type,
+                status="cancelled" if cancelled else "completed",
+                value=None if cancelled else value,
+                message="Study cancelled." if cancelled else "",
+            )
+            try:
+                self._persist_result(result)
+            except Exception as persistence_exc:
+                failure = StudyResult(
+                    study_id=request.study_id,
+                    project_id=request.project_id,
+                    activation_generation=request.activation_generation,
+                    source_revision=request.source_revision,
+                    study_type=request.study_type,
+                    status="failed",
+                    message=f"Durable Study Result persistence failed: {type(persistence_exc).__name__}: {persistence_exc}",
+                )
+                with self._lock:
+                    self._results[key] = failure
+                self._event_bus.publish(
+                    StudyFailed(metadata=self._event_metadata(request, status="failed", error=failure.message))
+                )
+                raise StudyResultPersistenceError(failure.message) from persistence_exc
+            with self._lock:
                 self._results[key] = result
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
             else:
                 self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
+        except StudyResultPersistenceError:
+            raise
         except Exception as exc:
             # A cancellation request may race with a solver exception. Resolve
-            # the terminal state atomically: if cancellation was already
-            # requested before finish(), publish cancellation rather than a
-            # contradictory failure event. Otherwise preserve the exception.
+            # the terminal state atomically and persist the resulting outcome.
             with self._lock:
                 cancelled = token.finish()
-                if cancelled:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="cancelled",
-                        message="Study cancelled.",
-                    )
-                else:
-                    result = StudyResult(
-                        study_id=request.study_id,
-                        project_id=request.project_id,
-                        activation_generation=request.activation_generation,
-                        source_revision=request.source_revision,
-                        study_type=request.study_type,
-                        status="failed",
-                        message=str(exc),
-                    )
+            result = StudyResult(
+                study_id=request.study_id,
+                project_id=request.project_id,
+                activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
+                study_type=request.study_type,
+                status="cancelled" if cancelled else "failed",
+                message="Study cancelled." if cancelled else str(exc),
+            )
+            try:
+                self._persist_result(result)
+            except Exception as persistence_exc:
+                result = StudyResult(
+                    study_id=request.study_id,
+                    project_id=request.project_id,
+                    activation_generation=request.activation_generation,
+                    source_revision=request.source_revision,
+                    study_type=request.study_type,
+                    status=result.status,
+                    message=f"{result.message} Durable archive write also failed: {type(persistence_exc).__name__}: {persistence_exc}",
+                )
+            with self._lock:
                 self._results[key] = result
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
                 return result
-            self._event_bus.publish(StudyFailed(metadata=self._event_metadata(request, status="failed", error=str(exc))))
+            self._event_bus.publish(
+                StudyFailed(metadata=self._event_metadata(request, status="failed", error=result.message))
+            )
             raise
         finally:
             with self._lock:
@@ -427,6 +456,7 @@ __all__ = [
     "StudyRequest",
     "StudyCaseDefinition",
     "StudyResult",
+    "StudyResultPersistenceError",
     "StudyCancellationToken",
     "StudyHandler",
     "StudyService",
