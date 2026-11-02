@@ -1,7 +1,7 @@
 """Fail-closed source primitive preparation for the physical phase-domain solver.
 
-Only canonical, in-service Grid and Generator models with complete explicit
-sequence construction data are admitted. Per-unit impedances are converted
+Only canonical, in-service Grid/Generator models and running Motor models
+with complete explicit sequence construction data are admitted. Per-unit impedances are converted
 from their declared equipment bases to SI ohms before symmetrical-component
 transformation. No load-flow or nameplate quantity is used as a substitute.
 """
@@ -62,11 +62,13 @@ def prepare_phase_domain_source_equivalents(
     network: Any,
     graph: PhaseDomainConductorNetwork,
 ) -> tuple[PhaseDomainMultiConductorSource | PhaseDomainGroundedMultiConductorSource, ...]:
-    """Derive ABC source primitives from registered Grid/Generator models.
+    """Derive ABC source primitives from registered Grid/Generator and running Motor models.
 
     A source must have one canonical terminal, exactly one A/B/C graph node
     for that terminal, an endpoint Bus with a matching declared impedance
     voltage base, and complete Z0/Z1/Z2 plus explicit source voltage data.
+    Running Motors use locked-rotor Z1 and require an explicit physical
+    neutral/electrode path; their dynamic decay is not represented here.
     Grid and Generator Z0 values represent source-internal zero-sequence
     impedance only; each source neutral grounding impedance is represented
     by a separate physical GROUND_ELECTRODE connection.
