@@ -193,6 +193,9 @@ class StudyProjection:
         bind_selection = getattr(panel, "set_result_selection_handler", None)
         if callable(bind_selection):
             bind_selection(self.select_result)
+        bind_archive_selection = getattr(panel, "set_archive_selection_handler", None)
+        if callable(bind_archive_selection):
+            bind_archive_selection(self.select_archived_result)
         self._refresh_all_results()
         self._render()
 
@@ -384,6 +387,57 @@ class StudyProjection:
                 "current": "true" if bool(getattr(result, "current", False)) else "false",
                 "message": str(getattr(result, "message", "") or ""),
             }
+
+        archive_reader = getattr(self._application, "read_archived_study_results", None)
+        archive_setter = getattr(self._panel, "set_archived_results", None)
+        if callable(archive_reader) and callable(archive_setter):
+            try:
+                archive_setter(tuple(archive_reader()))
+            except Exception:
+                _LOGGER.exception("Archived Study Result history refresh failed")
+
+    def select_archived_result(self, record_id: UUID | None) -> None:
+        """Inspect a durable execution without projecting it as live SLD data."""
+        if record_id is None:
+            return
+        reader = getattr(self._application, "read_archived_study_result", None)
+        if not callable(reader):
+            self._set_result_details("Archived Study Result", ("Archive read service is unavailable.",))
+            self._notify_result_changed(None)
+            return
+        try:
+            record = reader(record_id)
+        except Exception:
+            _LOGGER.exception("Archived Study Result could not be loaded")
+            self._set_result_details("Archived Study Result", ("The selected archive record could not be loaded.",))
+            self._notify_result_changed(None)
+            return
+        lines = (
+            f"Archive record: {record.record_id}",
+            f"Saved at (UTC): {record.saved_at}",
+            f"Study Case: {record.study_id}",
+            f"Project: {record.project_id}",
+            f"Activation generation: {record.activation_generation}",
+            f"Source revision: {record.source_revision}",
+            f"Study type: {record.study_type}",
+            f"Status: {record.status}",
+        )
+        details = list(lines)
+        if record.message:
+            details.append(f"Message: {record.message}")
+        details.extend(_flatten_result_value(record.metadata, prefix="metadata"))
+        if record.value is None:
+            details.append("value: no numerical payload was published")
+        else:
+            details.extend(_flatten_result_value(record.value))
+        delta_loops = getattr(record, "transformer_delta_loop_currents", ())
+        if delta_loops:
+            details.append("Internal transformer delta-loop currents (diagnostic only; not CT/CBCT measurements):")
+            details.extend(_flatten_result_value(delta_loops, prefix="transformer_delta_loop_currents"))
+        self._set_result_details(f"Archived {record.study_type.replace('_', ' ').title()} Result", tuple(details))
+        # Historical archive values are inspectable, but are never sent to SLD
+        # overlays or treated as current solver output.
+        self._notify_result_changed(None)
 
     def select_result(self, study_id: UUID | None) -> None:
         """Display the result associated with the selected Study Case identity."""
