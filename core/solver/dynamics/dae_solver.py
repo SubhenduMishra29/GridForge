@@ -228,6 +228,7 @@ class DAESolver:
         mechanical_powers: MechanicalPowerMap,
         *,
         integrator: Integrator,
+        machine_connection_state: Callable[[str], bool] | None = None,
     ) -> None:
 
         if not isinstance(
@@ -258,6 +259,22 @@ class DAESolver:
         self.mechanical_powers = dict(
             mechanical_powers
         )
+        # When network_solver is the bound TransientNetworkRuntime.solve
+        # method, use the same detached event-state authority for rotor
+        # electrical-power gating. An explicit callback remains available
+        # for wrappers/composition roots that adapt the solver callable.
+        inferred_connection_state = getattr(
+            getattr(network_solver, "__self__", None),
+            "is_machine_connected",
+            None,
+        )
+        self.machine_connection_state = (
+            machine_connection_state
+            if machine_connection_state is not None
+            else inferred_connection_state
+        )
+        if self.machine_connection_state is not None and not callable(self.machine_connection_state):
+            raise DAEConfigurationError("machine_connection_state must be callable when supplied.")
         self.integrator = integrator
 
         self._validate_configuration()
@@ -384,6 +401,7 @@ class DAESolver:
                     mechanical_powers=(
                         self.mechanical_powers
                     ),
+                    machine_connection_states=self._machine_connection_states(),
                     time=time,
                 )
             )
@@ -414,6 +432,19 @@ class DAESolver:
             )
 
         return derivatives
+
+    def _machine_connection_states(self) -> dict[str, bool] | None:
+        if self.machine_connection_state is None:
+            return None
+        return {
+            machine.machine_id: bool(self.machine_connection_state(machine.machine_id))
+            for machine in self.machine_system.machines
+        }
+
+    def is_machine_connected(self, machine_id: str) -> bool:
+        if self.machine_connection_state is None:
+            return True
+        return bool(self.machine_connection_state(str(machine_id)))
 
     # ==================================================================
     # COMPLETE DAE EVALUATION
@@ -449,6 +480,7 @@ class DAESolver:
                     mechanical_powers=(
                         self.mechanical_powers
                     ),
+                    machine_connection_states=self._machine_connection_states(),
                     time=time,
                 )
             )
