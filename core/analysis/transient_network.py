@@ -439,6 +439,12 @@ class TransientNetworkSolver:
             "bus_ids": tuple(reduced_bus_ids),
             "source_ids": tuple(source_ids),
             "active_fault_id": getattr(self.network_state.active_fault, "fault_id", None),
+            "active_fault_bus_id": getattr(self.network_state.active_fault, "bus_id", None),
+            "active_fault_type": (
+                str(getattr(getattr(self.network_state.active_fault, "fault_type", None), "value",
+                            getattr(self.network_state.active_fault, "fault_type", None)))
+                if self.network_state.active_fault is not None else None
+            ),
             "study_provenance": {
                 "project_id": self.network_state.project_id,
                 "activation_generation": self.network_state.activation_generation,
