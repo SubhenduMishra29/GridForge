@@ -23,6 +23,7 @@ from core.protection.factory import ProtectionFactory
 from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
 from core.protection.input_contracts import validate_protection_input_contracts
 from core.protection.protection_measurement_binding import ProtectionMeasurementBinding
+from core.application.synchronism_check import SynchronismCheckProjectConfiguration
 from core.protection.project_configuration import (
     ProtectionFunctionConfiguration,
     DifferentialProtectionSchemeConfiguration,
@@ -137,6 +138,56 @@ class ProtectionConfigurationService:
                             "target_id": configuration.action_target_id,
                         },
                     )
+
+
+    def set_synchronism_check_configuration(
+        self,
+        *,
+        configuration: Mapping[str, Any] | None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """Set the active project's complete ANSI 25 policy registry transactionally."""
+        self._require_transaction(transaction)
+        active = self._require_configuration()
+        if configuration is None:
+            normalized = None
+        else:
+            registry = SynchronismCheckProjectConfiguration.from_dict(configuration)
+            normalized = registry.to_dict()
+            network = self._network_provider() if self._network_provider is not None else None
+            channels = self._measurement_channel_provider() if self._measurement_channel_provider is not None else None
+            if network is None or channels is None:
+                raise DomainError(
+                    code="ANSI25_CONFIGURATION_CONTEXT_UNAVAILABLE",
+                    message="ANSI 25 policy cannot be configured without the active Network and measurement registry.",
+                    details={"project_id": active.project_id},
+                )
+            for breaker_id, policy in registry.breakers.items():
+                try:
+                    network.get_by_id("breaker", breaker_id)
+                except (KeyError, ValueError) as exc:
+                    raise ResourceError(
+                        code="ANSI25_BREAKER_NOT_FOUND",
+                        message=f"ANSI 25 policy references an unknown breaker: {breaker_id}",
+                        details={"breaker_id": breaker_id},
+                    ) from exc
+                missing = sorted(set(policy.measurement_channel_ids.values()) - set(channels))
+                if missing:
+                    raise ResourceError(
+                        code="ANSI25_MEASUREMENT_CHANNEL_NOT_FOUND",
+                        message="ANSI 25 policy references unavailable measurement channels.",
+                        details={"breaker_id": breaker_id, "channel_ids": missing},
+                    )
+        previous = active.synchronism_check_configuration
+        active.set_synchronism_check_configuration(normalized)
+        transaction.record_undo(
+            lambda previous=previous: active.set_synchronism_check_configuration(previous)
+        )
+        return ApplicationResult.success_result(
+            value=active.synchronism_check_configuration,
+            message="ANSI 25 project policy updated." if normalized is not None else "ANSI 25 project policy disabled.",
+            metadata={"object_type": "synchronism_check_configuration", "project_id": active.project_id},
+        )
 
     def create_configuration(self, *, configuration: ProtectionFunctionConfiguration, transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
         self._require_transaction(transaction)
