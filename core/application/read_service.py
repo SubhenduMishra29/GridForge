@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 import math
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from uuid import UUID
 from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
+from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
@@ -33,6 +35,9 @@ from .read_models import (
     RelayReadModel,
     SimpleWireReadModel,
     StudyResultReadModel,
+    TransientEventReadModel,
+    TransientSignalReadModel,
+    TransientResultPresentationReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -645,6 +650,239 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             value=result.value,
+        )
+
+    @staticmethod
+    def _transient_presentation(
+        row: Any,
+        *,
+        historical: bool,
+        record_id: UUID | None = None,
+        saved_at: str | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        value = getattr(row, "value", None)
+        if not isinstance(value, TransientStabilityResult):
+            return None
+
+        time_s = tuple(float(item) for item in value.time)
+        state_samples = tuple(
+            tuple(float(item) for item in sample)
+            for sample in value.states
+        )
+        voltage_samples = tuple(dict(sample) for sample in value.terminal_voltages)
+        power_samples = tuple(dict(sample) for sample in value.electrical_powers)
+        sample_count = len(time_s)
+        source_indices = tuple(range(sample_count))
+        signals: list[TransientSignalReadModel] = []
+
+        # State column labels are authored by the solver from its global
+        # MultiMachineSystem state layout. Legacy results without descriptors
+        # remain fully inspectable through explicit unlabeled State N signals.
+        state_descriptors = value.provenance.get("state_signals", ())
+        state_width = value.states.shape[1]
+        if state_descriptors:
+            if not isinstance(state_descriptors, (tuple, list)):
+                raise ValueError("Transient solver state_signals provenance must be an ordered sequence.")
+            descriptors = []
+            for descriptor in state_descriptors:
+                if not isinstance(descriptor, Mapping):
+                    raise ValueError("Transient state signal descriptor must be a mapping.")
+                global_index = descriptor.get("global_index")
+                if (
+                    isinstance(global_index, bool)
+                    or not isinstance(global_index, int)
+                    or global_index < 0
+                    or global_index >= state_width
+                ):
+                    raise ValueError("Transient state signal descriptor has an invalid global_index.")
+                descriptors.append(descriptor)
+            indices = tuple(int(item["global_index"]) for item in descriptors)
+            if len(indices) != len(set(indices)) or set(indices) != set(range(state_width)):
+                raise ValueError("Transient state signal descriptors must cover every state column exactly once.")
+        else:
+            descriptors = tuple(
+                {
+                    "signal_id": f"state:{index}",
+                    "global_index": index,
+                    "label": f"State {index} (unlabeled)",
+                    "state_name": f"state_{index}",
+                    "unit": "unknown",
+                    "machine_id": None,
+                }
+                for index in range(state_width)
+            )
+
+        for descriptor in descriptors:
+            index = int(descriptor["global_index"])
+            signals.append(TransientSignalReadModel(
+                signal_id=str(descriptor.get("signal_id") or f"state:{index}"),
+                label=str(descriptor.get("label") or f"State {index}"),
+                quantity=str(descriptor.get("state_name") or f"state_{index}"),
+                unit=str(descriptor.get("unit") or "unknown"),
+                values=tuple(sample[index] for sample in state_samples),
+                source_indices=source_indices,
+                machine_id=(
+                    None if descriptor.get("machine_id") is None
+                    else str(descriptor.get("machine_id"))
+                ),
+            ))
+
+        bus_ids: tuple[str, ...] = ()
+        if voltage_samples:
+            bus_ids = tuple(sorted(str(bus_id) for bus_id in voltage_samples[0]))
+            expected = set(bus_ids)
+            for sample_index, sample in enumerate(voltage_samples):
+                if set(sample) != expected:
+                    raise ValueError(
+                        f"Transient terminal-voltage Bus identities changed at sample {sample_index}; "
+                        "the Application read model will not reorder or silently fill missing samples."
+                    )
+        for bus_id in bus_ids:
+            signals.extend((
+                TransientSignalReadModel(
+                    signal_id=f"voltage:{bus_id}:real",
+                    label=f"{bus_id} — Re(V)",
+                    quantity="terminal_voltage_real",
+                    unit="p.u.",
+                    values=tuple(float(sample[bus_id].real) for sample in voltage_samples),
+                    source_indices=source_indices,
+                    bus_id=bus_id,
+                    component="real",
+                ),
+                TransientSignalReadModel(
+                    signal_id=f"voltage:{bus_id}:imag",
+                    label=f"{bus_id} — Im(V)",
+                    quantity="terminal_voltage_imag",
+                    unit="p.u.",
+                    values=tuple(float(sample[bus_id].imag) for sample in voltage_samples),
+                    source_indices=source_indices,
+                    bus_id=bus_id,
+                    component="imag",
+                ),
+            ))
+
+        machine_ids: tuple[str, ...] = ()
+        if power_samples:
+            machine_ids = tuple(sorted(str(machine_id) for machine_id in power_samples[0]))
+            expected = set(machine_ids)
+            for sample_index, sample in enumerate(power_samples):
+                if set(sample) != expected:
+                    raise ValueError(
+                        f"Transient electrical-power machine identities changed at sample {sample_index}; "
+                        "the Application read model will not reorder or silently fill missing samples."
+                    )
+        for machine_id in machine_ids:
+            for component_index, component, label in (
+                (0, "active_power", "P"),
+                (1, "reactive_power", "Q"),
+            ):
+                values = []
+                for sample_index, sample in enumerate(power_samples):
+                    pair = sample[machine_id]
+                    if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                        raise ValueError(
+                            f"Transient electrical-power sample {sample_index} for machine '{machine_id}' "
+                            "must contain exactly P and Q."
+                        )
+                    values.append(float(pair[component_index]))
+                signals.append(TransientSignalReadModel(
+                    signal_id=f"power:{machine_id}:{component}",
+                    label=f"{machine_id} — {label}",
+                    quantity=component,
+                    unit="p.u.",
+                    values=tuple(values),
+                    source_indices=source_indices,
+                    machine_id=machine_id,
+                    component=component,
+                ))
+
+        events = tuple(
+            TransientEventReadModel(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                scheduled_time=event.scheduled_time,
+                dispatch_time=event.dispatch_time,
+                priority=event.priority,
+                description=event.description,
+                status=event.status,
+                metadata=event.metadata,
+                result=event.result,
+                failure_type=event.failure_type,
+                failure_message=event.failure_message,
+                pre_event_revision=event.pre_event_revision,
+                post_event_revision=event.post_event_revision,
+                post_event_re_evaluation_status=event.post_event_re_evaluation_status,
+                post_event_re_evaluation_failure_type=event.post_event_re_evaluation_failure_type,
+                post_event_re_evaluation_failure_message=event.post_event_re_evaluation_failure_message,
+            )
+            for event in value.events
+        )
+        provenance = dict(value.provenance)
+        provenance["execution_identity"] = {
+            "study_id": str(row.study_id),
+            "project_id": row.project_id,
+            "activation_generation": row.activation_generation,
+            "source_revision": row.source_revision,
+            "current": bool(getattr(row, "current", False)) if not historical else False,
+            "historical": historical,
+            "record_id": None if record_id is None else str(record_id),
+            "saved_at": saved_at,
+        }
+        return TransientResultPresentationReadModel(
+            study_id=row.study_id,
+            project_id=row.project_id,
+            activation_generation=row.activation_generation,
+            source_revision=row.source_revision,
+            study_type=row.study_type,
+            status=row.status,
+            current=bool(getattr(row, "current", False)) if not historical else False,
+            historical=historical,
+            record_id=record_id,
+            saved_at=saved_at,
+            time_s=time_s,
+            state_samples=state_samples,
+            terminal_voltage_samples=voltage_samples,
+            electrical_power_samples=power_samples,
+            signals=tuple(signals),
+            events=events,
+            provenance=provenance,
+        )
+
+    def transient_result(
+        self,
+        study_id: UUID,
+        *,
+        project_id: str,
+        activation_generation: int,
+        current_revision: ProjectRevision | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        row = self.result(
+            study_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+            current_revision=current_revision,
+        )
+        if row is None:
+            return None
+        return self._transient_presentation(row, historical=False)
+
+    def archived_transient_result(
+        self,
+        record_id: UUID,
+        *,
+        project_id: str,
+        activation_generation: int | None = None,
+    ) -> TransientResultPresentationReadModel | None:
+        row = self.archived_result(
+            record_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+        )
+        return self._transient_presentation(
+            row,
+            historical=True,
+            record_id=row.record_id,
+            saved_at=row.saved_at,
         )
 
     def result(
