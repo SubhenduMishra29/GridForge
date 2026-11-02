@@ -251,9 +251,9 @@ class TransientEventReadModel:
     event_id: str
     event_type: str
     scheduled_time: float
-    dispatch_time: float
-    priority: int
-    description: str
+    dispatch_time: float | None
+    priority: int | None
+    description: str | None
     status: str
     metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     result: Any = None
@@ -268,23 +268,28 @@ class TransientEventReadModel:
     def __post_init__(self) -> None:
         if not self.event_id or not self.event_type:
             raise ValueError("Transient event identity and type must be non-empty.")
-        if not all(math.isfinite(float(value)) and float(value) >= 0.0 for value in (self.scheduled_time, self.dispatch_time)):
-            raise ValueError("Transient event times must be finite and non-negative.")
+        if not math.isfinite(float(self.scheduled_time)) or float(self.scheduled_time) < 0.0:
+            raise ValueError("Transient event scheduled_time must be finite and non-negative.")
+        if self.dispatch_time is not None and (
+            not math.isfinite(float(self.dispatch_time)) or float(self.dispatch_time) < 0.0
+        ):
+            raise ValueError("Transient event dispatch_time must be finite and non-negative when known.")
         if self.status not in {"succeeded", "failed"}:
             raise ValueError("Transient event status must be succeeded or failed.")
-        if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed"}:
+        if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed", "unavailable"}:
             raise ValueError("Transient event re-evaluation status is invalid.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("Transient event metadata must be a mapping.")
         object.__setattr__(self, "scheduled_time", float(self.scheduled_time))
-        object.__setattr__(self, "dispatch_time", float(self.dispatch_time))
+        if self.dispatch_time is not None:
+            object.__setattr__(self, "dispatch_time", float(self.dispatch_time))
         object.__setattr__(self, "metadata", _freeze(self.metadata))
         object.__setattr__(self, "result", _freeze(self.result))
 
     @property
     def marker_time(self) -> float:
         """Use actual dispatch time for chart markers, retaining scheduled time separately."""
-        return self.dispatch_time
+        return self.scheduled_time if self.dispatch_time is None else self.dispatch_time
 
 
 @dataclass(frozen=True, slots=True)
