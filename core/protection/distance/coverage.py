@@ -127,8 +127,23 @@ class DistanceProtectionCoverage:
             if not bool(getattr(ct, "in_service", False)):
                 raise ValueError(f"{end} boundary CT {ct_id!r} is out of service.")
             association = associations.resolve(ct)
-            if association.locate_measurement_endpoint(line_endpoints[end]) != declared_line_side:
-                raise ValueError(f"{end} boundary CT {ct_id!r} line-side declaration contradicts committed topology.")
+            p1_path = reachability.resolve_path(
+                line_endpoints[end], association.p1_terminal_reference,
+                excluded_equipment_ids=frozenset({ct_id}),
+            )
+            p2_path = reachability.resolve_path(
+                line_endpoints[end], association.p2_terminal_reference,
+                excluded_equipment_ids=frozenset({ct_id}),
+            )
+            reachable_sides = tuple(
+                side for side, path_to_side in (("P1_SIDE", p1_path), ("P2_SIDE", p2_path))
+                if path_to_side is not None
+            )
+            if reachable_sides != (declared_line_side,):
+                raise ValueError(
+                    f"{end} boundary CT {ct_id!r} declared line side {declared_line_side!r} "
+                    f"does not match switching-aware reachability; reachable CT sides={reachable_sides!r}."
+                )
             line_side_terminal = association.p1_terminal_reference if declared_line_side == "P1_SIDE" else association.p2_terminal_reference
             external_terminal = association.p2_terminal_reference if declared_line_side == "P1_SIDE" else association.p1_terminal_reference
             breaker_type = EquipmentType.BREAKER
