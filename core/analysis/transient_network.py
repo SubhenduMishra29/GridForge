@@ -37,6 +37,8 @@ class DetachedTransientNetworkState:
     shunts: tuple[PreparedShunt, ...] = ()
     breaker_states: Mapping[str, bool] = MappingProxyType({})
     equipment_states: Mapping[str, bool] = MappingProxyType({})
+    machine_connection_paths: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+    machine_rotor_policies: Mapping[str, str] = MappingProxyType({})
     active_fault: object | None = None
     topology_revision: int | None = None
 
@@ -48,11 +50,44 @@ class DetachedTransientNetworkState:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
-        object.__setattr__(self, "breaker_states", MappingProxyType({str(k): bool(v) for k, v in self.breaker_states.items()}))
-        object.__setattr__(self, "equipment_states", MappingProxyType({str(k): bool(v) for k, v in self.equipment_states.items()}))
+        breaker_states = {str(k): bool(v) for k, v in self.breaker_states.items()}
+        equipment_states = {str(k): bool(v) for k, v in self.equipment_states.items()}
+        paths = {}
+        for machine_id, raw_path in self.machine_connection_paths.items():
+            key = str(machine_id).strip()
+            path = tuple(str(item).strip() for item in raw_path)
+            if not key or not path or any(not item for item in path):
+                raise ValueError(f"Machine '{key or machine_id}' requires a non-empty explicit switching path.")
+            if len(path) != len(set(path)):
+                raise ValueError(f"Machine '{key}' connection path contains duplicate switching equipment IDs.")
+            missing = tuple(item for item in path if item not in breaker_states)
+            if missing:
+                raise ValueError(
+                    f"Machine '{key}' connection path references switch IDs without captured detached states: {missing!r}."
+                )
+            paths[key] = path
+        policies = {str(k): str(v) for k, v in self.machine_rotor_policies.items()}
+        if set(policies) != set(paths):
+            raise ValueError("Machine rotor-disconnection policies must cover exactly the machine connection-path identities.")
+        for machine_id, policy in policies.items():
+            if policy != "continue_with_zero_electrical_power":
+                raise ValueError(f"Machine '{machine_id}' has unsupported disconnected rotor policy {policy!r}.")
+        object.__setattr__(self, "breaker_states", MappingProxyType(breaker_states))
+        object.__setattr__(self, "equipment_states", MappingProxyType(equipment_states))
+        object.__setattr__(self, "machine_connection_paths", MappingProxyType(paths))
+        object.__setattr__(self, "machine_rotor_policies", MappingProxyType(policies))
 
     def is_element_conducting(self, element_id: str, default: bool = True) -> bool:
         return self.equipment_states.get(str(element_id), default)
+
+    def is_machine_connected(self, machine_id: str) -> bool:
+        key = str(machine_id)
+        try:
+            path = self.machine_connection_paths[key]
+        except KeyError as exc:
+            raise ValueError(f"Dynamic machine '{key}' has no validated detached connection path.") from exc
+        # Fail closed if a state key disappears from a detached event view.
+        return all(self.breaker_states.get(item, False) for item in path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +114,31 @@ class PreparedTransientStability:
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
+        machine_ids = tuple(machine.machine_id for machine in self.machines)
+        if len(machine_ids) != len(set(machine_ids)):
+            raise ValueError("Prepared transient machine identities must be unique.")
+        if set(machine_ids) != set(self.network.machine_connection_paths):
+            raise ValueError(
+                "Prepared transient machine identities must match the validated detached connection-path identities."
+            )
+        if set(machine_ids) != set(self.mechanical_powers):
+            raise ValueError("Prepared transient mechanical-power identities must match its machine identities.")
+
+    @property
+    def provenance(self) -> Mapping[str, object]:
+        return MappingProxyType({
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
+            "source_revision": self.source_revision,
+            "topology_revision": self.network.topology_revision,
+            "machine_connections": {
+                machine_id: {
+                    "switching_path": self.network.machine_connection_paths[machine_id],
+                    "disconnected_rotor_policy": self.network.machine_rotor_policies[machine_id],
+                }
+                for machine_id in sorted(self.network.machine_connection_paths)
+            },
+        })
 
     @classmethod
     def from_power_flow(
@@ -90,6 +150,9 @@ class PreparedTransientStability:
         project_id: str,
         activation_generation: int,
         source_revision: tuple[int, int, int, int],
+        machine_connection_paths: Mapping[str, tuple[str, ...]],
+        machine_rotor_policies: Mapping[str, str],
+        switch_states: Mapping[str, bool],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -164,6 +227,9 @@ class PreparedTransientStability:
             branches=prepared_power_flow.branches,
             transformers=prepared_power_flow.transformers,
             shunts=prepared_power_flow.shunts,
+            breaker_states=switch_states,
+            machine_connection_paths=machine_connection_paths,
+            machine_rotor_policies=machine_rotor_policies,
             equipment_states={
                 element.branch_id: bool(element.in_service)
                 for element in (*prepared_power_flow.branches, *prepared_power_flow.transformers)
