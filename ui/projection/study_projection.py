@@ -169,6 +169,20 @@ def _protection_result_lines(value: Any) -> tuple[str, ...]:
             f"{prefix}.relay_evaluation_completed: "
             f"{getattr(scenario, 'relay_evaluation_completed', 'unknown')}"
         )
+        delta_loop_currents = tuple(
+            getattr(scenario, "transformer_delta_loop_currents", ()) or ()
+        )
+        if delta_loop_currents:
+            lines.append(
+                f"{prefix}.internal_transformer_delta_loop_currents: "
+                "diagnostic only; not CT/CBCT measurements"
+            )
+            lines.extend(_flatten_result_value(
+                delta_loop_currents,
+                prefix=f"{prefix}.transformer_delta_loop_currents",
+                max_depth=4,
+                budget=[24],
+            ))
         scenario_execution = getattr(scenario, "execution", None)
         scenario_decisions = tuple(getattr(scenario_execution, "decisions", ()) or ())
         lines.append(f"{prefix}.relay_decisions: {len(scenario_decisions)}")
