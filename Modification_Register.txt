@@ -19930,3 +19930,44 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-APP-PERSIST-945 — SERIALIZE PROJECT SAVES AGAINST ASYNC DRAFT COMMITS
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Prevent project persistence from overlapping an asynchronous DraftNetwork
+    commit or advancing the persisted revision baseline after an intervening
+    project revision change.
+
+Correction:
+    - Run save and Save As under the existing Application _execution_lock.
+    - Reject save while an asynchronous DraftNetwork commit is in flight.
+    - Serialize the transition to _commit_in_flight under the same execution
+      lock, preventing a commit from starting after save has passed its guard.
+    - Recheck the project revision after the synchronous saver returns and
+      before marking that revision persisted or publishing ProjectSaved.
+    - Reuse the existing Application execution lock and commit-state guard;
+      no second lock, transaction manager or persistence scheduler is added.
+
+Boundary:
+    ProjectLifecycleService and ProjectPersistence retain their existing
+    ownership and .gridforge serialization contract. This correction serializes
+    the existing synchronous save path against Application-owned mutations;
+    it does not introduce asynchronous persistence or change the package format.
+
+Verification:
+    - Source-level inspection of Application save, async commit and lifecycle
+      boundaries.
+    - No tests or CI were run, per project instruction.
+    - Runtime concurrency stress and filesystem snapshot verification remain
+      pending.
+
+Status:
+    SAVE/ASYNC-COMMIT SERIALIZATION GUARD IMPLEMENTED IN SOURCE.
+    RUNTIME CONCURRENCY ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
