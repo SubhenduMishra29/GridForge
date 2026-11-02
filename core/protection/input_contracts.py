@@ -235,6 +235,12 @@ def validate_protection_input_contracts(
                         f"{prefix}, input={input_name!r}: physical binding metadata must explicitly declare "
                         "reference_basis='PRIMARY'; secondary quantities cannot be compared to primary-ohm reach."
                     )
+                expected_reference = "PHASE_TO_NEUTRAL" if input_name == "voltage" else "PHASE_CONDUCTOR"
+                if binding.metadata.get("measurement_reference") != expected_reference:
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: binding metadata must explicitly declare "
+                        f"measurement_reference={expected_reference!r}."
+                    )
                 endpoint = binding.source_endpoint_reference
                 if input_name == "voltage":
                     role = (endpoint.terminal_role or "").upper() if endpoint.is_terminal else ""
