@@ -159,6 +159,7 @@ class Application:
         self._study_service = StudyService(self._event_bus)
         self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
+        self._study_result_archive: Any | None = None
         self._study_read_service = StudyReadService(self._study_service)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
@@ -311,6 +312,23 @@ class Application:
         return self._control_service
     @property
     def study_service(self) -> StudyService: return self._study_service
+
+    @property
+    def study_result_archive(self) -> Any | None:
+        """Return the configured durable Study Result archive, when enabled."""
+        return self._study_result_archive
+
+    def configure_study_result_archive(self, archive: Any | None) -> None:
+        """Attach the Persistence-owned archive to the Application study boundary."""
+        if archive is None:
+            self._study_service.set_result_persister(None)
+            self._study_result_archive = None
+            return
+        persister = getattr(archive, "save", None)
+        if not callable(persister) or not callable(getattr(archive, "load_all", None)):
+            raise TypeError("archive must expose callable save() and load_all() operations.")
+        self._study_service.set_result_persister(persister)
+        self._study_result_archive = archive
 
     @property
     def study_cases(self) -> tuple[StudyCaseDefinition, ...]:
