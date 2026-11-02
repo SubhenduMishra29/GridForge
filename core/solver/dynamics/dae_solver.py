@@ -893,6 +893,7 @@ class DAESolver:
 
 
 __all__ = [
+    "AlgebraicNetworkSolution",
     "NetworkSolver",
     "MechanicalPowerMap",
     "DAESolverError",
