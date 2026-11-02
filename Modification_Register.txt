@@ -19839,3 +19839,54 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-067 — ATOMIC BUS-ZONE BREAKER TRIP DISPATCH
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Prevent a multi-relay bus-zone trip set from being committed as a
+    sequence of independent breaker topology mutations.
+
+Implementation:
+    - Collect valid breaker TRIP decisions from one evaluated Control cycle.
+    - Translate each intent to the canonical TripBreakerCommand.
+    - Execute two or more trip commands through one aggregate Application
+      command and one shared CommandManager Transaction.
+    - Reuse CommandManager.execute_in_transaction for every child command;
+      each child contributes its inverse to the same rollback journal.
+    - If any child handler fails, the outer transaction rolls back the
+      complete trip set. No partial breaker-clearing state is committed.
+    - On success, CommandManager records one undo/history boundary for the
+      complete trip set.
+    - Publish one aggregate TopologyChanged and NetworkChanged event after
+      commit, with the complete breaker ID set.
+    - Treat the aggregate command as an authoritative topology mutation for
+      project revision, undo and redo bookkeeping.
+    - Non-trip Control decisions retain their existing individual command
+      execution path. Single breaker trips retain the canonical single-command
+      path.
+
+Boundaries:
+    - The atomic unit is all valid breaker TRIP decisions in one Control cycle,
+      not a topology-derived bus-zone grouping; ControlDecision currently does
+      not carry an authoritative bus-zone identity.
+    - This prevents partial trip commits but does not add relay inter-trip
+      signal semantics, trip-coil acknowledgement, breaker failure timing or
+      physical operating feedback.
+    - The Control cycle remains Application-owned; no Core-to-UI dependency.
+
+Verification:
+    - Source-level inspection only; branch is based on current main.
+    - No tests/CI, syntax/import checks, concurrent execution stress test or
+      breaker runtime simulation were run.
+
+Status:
+    ATOMIC CONTROL TRIP TRANSACTION IMPLEMENTED IN SOURCE; RUNTIME
+    ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
