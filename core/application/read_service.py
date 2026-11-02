@@ -703,7 +703,13 @@ class StudyReadService:
         if not isinstance(provenance_source, Mapping):
             raise ValueError("Transient solver provenance must be a mapping.")
         state_descriptors = provenance_source.get("state_signals", ())
-        state_width = value.states.shape[1]
+        raw_states = transient_fields.get("states", ())
+        if getattr(raw_states, "ndim", None) == 2:
+            state_width = int(raw_states.shape[1])
+        elif state_samples:
+            state_width = len(state_samples[0])
+        else:
+            state_width = 0
         if state_descriptors:
             if not isinstance(state_descriptors, (tuple, list)):
                 raise ValueError("Transient solver state_signals provenance must be an ordered sequence.")
