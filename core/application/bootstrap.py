@@ -280,6 +280,7 @@ def create_application(
         read_service=read_service,
         validation_service=validation_service,
         measurement_channel_service=measurement_channel_service,
+        protection_configuration_service=protection_configuration_service,
         control_service=control_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
@@ -297,7 +298,6 @@ def create_application(
     application.motor_dynamics_composition = MotorDynamicsComposition(application)
 
     application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
-    application.protection_configuration_service = protection_configuration_service
     initial_protection_runtime = ProtectionRuntime(
         network, protection_configuration_service.configuration, activation_generation=1
     )
