@@ -259,6 +259,16 @@ class TransientNetworkSolver:
             raise TypeError("network_state must be DetachedTransientNetworkState.")
         if not isinstance(machine_system, MultiMachineSystem):
             raise TypeError("machine_system must be MultiMachineSystem.")
+        machine_ids = tuple(machine.machine_id for machine in machine_system.machines)
+        if len(machine_ids) != len(set(machine_ids)):
+            raise ValueError("Transient network solver received duplicate dynamic machine identities.")
+        if set(machine_ids) != set(network_state.machine_connection_paths):
+            missing = sorted(set(machine_ids) - set(network_state.machine_connection_paths))
+            unexpected = sorted(set(network_state.machine_connection_paths) - set(machine_ids))
+            raise ValueError(
+                "Transient Norton-source gating requires exactly one validated detached connection path "
+                f"per machine; missing={missing!r}, unexpected={unexpected!r}."
+            )
         self.network_state = network_state
         self.machine_system = machine_system
 
@@ -278,6 +288,11 @@ class TransientNetworkSolver:
             bus_id = str(machine.bus_id)
             if bus_id not in passive.bus_ids:
                 raise ValueError(f"Machine '{machine.machine_id}' references unknown bus '{bus_id}'.")
+            # Rotor state is always retained in the global differential state.
+            # The electrical Norton equivalent is included only while every
+            # explicitly captured breaker-controlled path component conducts.
+            if not self.network_state.is_machine_connected(machine.machine_id):
+                continue
             index = passive.index_of(bus_id)
             delta = float(local_state[0])
             e_internal = float(machine.parameters.Efd) * np.exp(1j * delta)
