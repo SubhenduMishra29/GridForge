@@ -18918,3 +18918,159 @@ Status:
     VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-138 — SCOPE-AWARE DRAFT EQUIPMENT REMOVAL
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Preserve canonical Core-scoped connections when removing a DraftNetwork
+    equipment object whose transient ID collides with a Core object ID.
+
+Finding:
+    DraftEndpointReference identity includes scope (draft or core), but
+    DraftNetwork.remove_equipment() previously compared only object_id.
+    A draft item and an independent Core endpoint with the same ID string
+    could therefore cause an unrelated committed connection to be removed.
+
+Correction:
+    - Remove only connections whose source or target has scope="draft"
+      and object_id equal to the removed draft ID.
+    - Preserve Core-scoped terminal and Bus attachment references regardless
+      of an object_id string collision.
+    - Keep the correction inside Application-owned DraftNetwork state;
+      no Core topology mutation or UI dependency is introduced.
+
+Architecture:
+    - Scope remains part of endpoint identity.
+    - Draft removal is not a Core deletion command.
+    - Graphical snapping and route coordinates remain presentation-only.
+
+Verification:
+    - Confirmed the defect in the current main implementation.
+    - Confirmed DraftEndpointReference validates and serializes scope.
+    - Reviewed the replacement against both terminal and Bus endpoint forms.
+    - No tests/CI, syntax/import checks or runtime collision fixture were run.
+
+Status:
+    SCOPE-AWARE DRAFT CONNECTION CLEANUP IMPLEMENTED ON A MAIN-BASED
+    CORRECTION BRANCH — REVIEW / MERGE PENDING
+
+======================================================================
+
+
+======================================================================
+GF-SC-D15F-48 — STATIC INITIAL RUNNING-MOTOR PHASE-DOMAIN SOURCE
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Admit a running Motor as a static initial short-circuit source only
+    when its locked-rotor sequence data and physical neutral/earth return
+    are explicit and complete.
+
+Corrections:
+    - Include canonical registered Motors in phase-domain source
+      preparation; stopped or out-of-service Motors do not contribute.
+    - Require explicit locked-rotor Z1, Z2, Z0, impedance MVA/kV bases
+      and internal voltage. Nameplate, starting-current and load-flow
+      values are not substituted.
+    - Require exact A/B/C and N equipment-terminal graph nodes.
+    - Require exactly one source-referenced neutral GROUND_ELECTRODE path
+      to a local earth node reachable from EARTH_REFERENCE.
+    - Take Motor neutral grounding impedance only from the declared
+      physical graph edge; no neutral or earth connection is synthesized.
+    - Produce a grounded multi-conductor source primitive using the
+      Motor's declared locked-rotor positive-sequence impedance.
+
+Engineering boundary:
+    - This is a static initial fault-source equivalent only.
+    - Motor current decay, rotor-flux dynamics, speed dependence and
+      time constants are not inferred or claimed.
+    - Missing sequence data or physical neutral/earth return fails closed.
+    - This does not replace the separate motor-dynamics solver/plugin.
+
+Verification:
+    - Compared the stale implementation branch against current main.
+    - Ported only the phase-domain source adapter correction onto a fresh
+      main-based branch.
+    - Source-level checks confirm Motor admission, stopped-Motor exclusion,
+      required neutral/electrode path and grounded multi-conductor output.
+    - No tests/CI, syntax/import checks, numerical fault fixture or
+      end-to-end protection execution were run.
+
+Status:
+    STATIC INITIAL RUNNING-MOTOR SOURCE ADAPTER IMPLEMENTED ON A
+    MAIN-BASED CORRECTION BRANCH — NUMERICAL / RUNTIME VERIFICATION PENDING
+
+======================================================================
+
+
+======================================================================
+GF-PROT-057 — FAIL-CLOSED ANSI 25 BREAKER-CLOSE MUTATION BOUNDARY
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Prevent Application breaker mutations from closing or energizing a
+    breaker without an explicit positive synchronism authorization.
+
+Finding:
+    Current main allowed create_breaker(closed=True), update_breaker
+    (open-to-closed), and close_breaker to mutate the Core Breaker state
+    without an ANSI 25 decision. The earlier GF-PROT-043 register entry
+    concerns persisted protection-function identity and is unrelated to
+    this breaker-close correction.
+
+Correction:
+    - Add an injectable Application-layer breaker-close authorizer.
+    - Deny closed breaker creation, open-to-closed updates, and explicit
+      close operations when no authorizer is configured.
+    - Require the authorizer result to be exactly True.
+    - Convert authorizer exceptions and negative decisions into explicit
+      DomainError outcomes before Core state mutation.
+    - Expose the authorizer through ModelService to the switching service.
+
+Safety boundary:
+    - The default composition remains fail-closed until the complete
+      project-scoped ANSI 25 guard is supplied.
+    - This is containment, not a claim that ANSI 25 is fully operational.
+    - Opening, tripping and non-energizing breaker operations remain
+      available through their existing paths.
+    - Full project policy, trusted measurement provenance, clock domain,
+      physical PT/CVT topology, durable audit and bypass lifecycle remain
+      separate integration requirements.
+
+Verification:
+    - Confirmed all three close mutation entrypoints in current main.
+    - Confirmed the authorizer is called before network registration or
+      breaker state mutation.
+    - Confirmed ModelService passes the authorizer to SwitchingModelService.
+    - No tests/CI, syntax/import checks or runtime close-path execution
+      were run.
+
+Status:
+    FAIL-CLOSED APPLICATION BREAKER-CLOSE BOUNDARY IMPLEMENTED ON A
+    MAIN-BASED BRANCH — FULL ANSI 25 GUARD INTEGRATION PENDING
+
+======================================================================
