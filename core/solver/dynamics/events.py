@@ -820,6 +820,8 @@ class EventManager:
             (item for item in reversed(self._history) if item.event_id == event.event_id),
             None,
         )
+        if not event.triggered:
+            raise EventError(f"Event '{event.event_id}' is already pending and does not require retry().")
         if latest is None or latest.status != "failed":
             raise EventError(
                 f"Event '{event.event_id}' can only be retried after a recorded failed attempt."
