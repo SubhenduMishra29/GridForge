@@ -22,6 +22,7 @@ from core.analysis.power_flow_preparation import (
 )
 from core.analysis.transient_fault import TransientFault
 from core.numerical.ybus import YBusBuilder
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 from core.solver.power_flow.result import PowerFlowResult
@@ -351,7 +352,14 @@ class _PreparedTransientPassiveView:
 class TransientNetworkSolver:
     """Solve detached passive network plus classical-machine Norton injections."""
 
-    def __init__(self, network_state: DetachedTransientNetworkState, machine_system: MultiMachineSystem) -> None:
+    def __init__(
+        self,
+        network_state: DetachedTransientNetworkState,
+        machine_system: MultiMachineSystem,
+        *,
+        residual_tolerance: float = 1e-10,
+        condition_limit: float = 1e12,
+    ) -> None:
         if not isinstance(network_state, DetachedTransientNetworkState):
             raise TypeError("network_state must be DetachedTransientNetworkState.")
         if not isinstance(machine_system, MultiMachineSystem):
@@ -366,11 +374,19 @@ class TransientNetworkSolver:
                 "Transient Norton-source gating requires exactly one validated detached connection path "
                 f"per machine; missing={missing!r}, unexpected={unexpected!r}."
             )
+        if not np.isfinite(residual_tolerance) or residual_tolerance <= 0.0:
+            raise ValueError("residual_tolerance must be finite and positive.")
+        if not np.isfinite(condition_limit) or condition_limit <= 1.0:
+            raise ValueError("condition_limit must be finite and greater than one.")
         self.network_state = network_state
         self.machine_system = machine_system
+        self.residual_tolerance = float(residual_tolerance)
+        self.condition_limit = float(condition_limit)
 
-    def solve(self, state: np.ndarray, time: float) -> dict[str, complex]:
-        del time
+    def solve(self, state: np.ndarray, time: float) -> AlgebraicNetworkSolution:
+        evaluation_time = float(time)
+        if not np.isfinite(evaluation_time):
+            raise ValueError("Transient algebraic evaluation time must be finite.")
         dynamic_state = self.machine_system.validate_global_state(np.asarray(state, dtype=float))
         passive = YBusBuilder().build(_PreparedTransientPassiveView(self.network_state))
         matrix = passive.matrix.toarray().astype(np.complex128, copy=True)
@@ -382,6 +398,7 @@ class TransientNetworkSolver:
 
         self._apply_active_fault(matrix, self.network_state.active_fault, bus_to_index)
 
+        source_ids: list[str] = []
         offset = 0
         for machine in self.machine_system.machines:
             local_state = dynamic_state[offset:offset + machine.state_size]
@@ -400,6 +417,7 @@ class TransientNetworkSolver:
             admittance = 1.0 / (1j * float(machine.parameters.Xd_prime))
             matrix[index, index] += admittance
             source[index] += admittance * e_internal
+            source_ids.append(str(machine.machine_id))
 
         # A disconnected generator terminal can become an isolated Bus after
         # its breaker opens. Such a node has no defined network voltage and
@@ -415,17 +433,128 @@ class TransientNetworkSolver:
                 matrix[index, index] = 1.0 + 0.0j
                 source[index] = 0.0 + 0.0j
 
+        context = {
+            "topology_revision": self.network_state.topology_revision,
+            "simulation_time": evaluation_time,
+            "bus_ids": tuple(reduced_bus_ids),
+            "source_ids": tuple(source_ids),
+            "active_fault_id": getattr(self.network_state.active_fault, "fault_id", None),
+            "study_provenance": {
+                "project_id": self.network_state.project_id,
+                "activation_generation": self.network_state.activation_generation,
+                "source_revision": self.network_state.source_revision,
+            },
+        }
+        if not np.all(np.isfinite(matrix.real)) or not np.all(np.isfinite(matrix.imag)):
+            raise ValueError(
+                f"Transient algebraic matrix contains non-finite coefficients; "
+                f"buses={tuple(reduced_bus_ids)}, topology_revision={self.network_state.topology_revision}."
+            )
+        if not np.all(np.isfinite(source.real)) or not np.all(np.isfinite(source.imag)):
+            raise ValueError(
+                f"Transient algebraic source vector contains non-finite values; "
+                f"buses={tuple(reduced_bus_ids)}, topology_revision={self.network_state.topology_revision}."
+            )
+
+        try:
+            condition_number = float(np.linalg.cond(matrix, p=np.inf))
+        except np.linalg.LinAlgError as exc:
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=float("inf"),
+                condition_limit=self.condition_limit,
+                diagnostics=(f"Condition estimation failed: {exc}",),
+                **context,
+            )
+        if not np.isfinite(condition_number):
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=("The assembled algebraic matrix is singular (infinite condition estimate).",),
+                **context,
+            )
+
         try:
             voltages = np.linalg.solve(matrix, source)
         except np.linalg.LinAlgError as exc:
-            raise ValueError("Transient algebraic network matrix is singular.") from exc
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=(f"Direct algebraic solve failed: {exc}",),
+                **context,
+            )
 
         if not np.all(np.isfinite(voltages.real)) or not np.all(np.isfinite(voltages.imag)):
-            raise ValueError("Transient algebraic network solution contains non-finite voltages.")
-        return {
-            bus_id: complex(voltages[bus_to_index[bus_id]])
-            for bus_id in passive.bus_ids
-        }
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="NON_FINITE",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=("Direct algebraic solve returned non-finite bus voltages.",),
+                **context,
+            )
+
+        residual = matrix @ voltages - source
+        absolute_residual = float(np.linalg.norm(residual, ord=np.inf))
+        matrix_norm = float(np.linalg.norm(matrix, ord=np.inf))
+        voltage_norm = float(np.linalg.norm(voltages, ord=np.inf))
+        source_norm = float(np.linalg.norm(source, ord=np.inf))
+        scale = matrix_norm * voltage_norm + source_norm
+        normalized_residual = (
+            absolute_residual / scale if scale > 0.0
+            else (0.0 if absolute_residual == 0.0 else float("inf"))
+        )
+
+        diagnostics: list[str] = []
+        status = "ACCEPTED"
+        if condition_number > self.condition_limit:
+            status = "ILL_CONDITIONED"
+            diagnostics.append(
+                f"Matrix condition estimate {condition_number:.6g} exceeds configured limit "
+                f"{self.condition_limit:.6g}."
+            )
+        if normalized_residual > self.residual_tolerance:
+            if status == "ACCEPTED":
+                status = "RESIDUAL_REJECTED"
+            diagnostics.append(
+                f"Normalized backward error {normalized_residual:.6g} exceeds tolerance "
+                f"{self.residual_tolerance:.6g}."
+            )
+
+        return AlgebraicNetworkSolution(
+            bus_voltages={
+                bus_id: complex(voltages[bus_to_index[bus_id]])
+                for bus_id in passive.bus_ids
+            },
+            status=status,
+            accepted=status == "ACCEPTED",
+            quality_verified=True,
+            solver_name="numpy.linalg.solve",
+            absolute_residual_norm=absolute_residual,
+            normalized_residual=normalized_residual,
+            residual_tolerance=self.residual_tolerance,
+            condition_number=condition_number,
+            condition_limit=self.condition_limit,
+            diagnostics=tuple(diagnostics),
+            **context,
+        )
 
     def _contract_closed_switches(
         self,
