@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import cmath
 import math
+from enum import Enum
 from typing import Any, Optional
 
 from core.solver.short_circuit.fault_types import FaultType
@@ -47,6 +48,7 @@ class ShortCircuitPreparation:
                 raise ValueError("Short Circuit requires a canonical TopologySnapshot.")
         canonical_snapshot = self._validate_topology_snapshot(network, topology_snapshot)
         captured_topology_revision = network.topology_revision
+        captured_model_signature = self._capture_network_model_signature(network)
         self._topology_snapshot = canonical_snapshot
         try:
             normalized_type = FaultType.from_value(fault_type)
@@ -233,7 +235,7 @@ class ShortCircuitPreparation:
                         value = float(nominal_kv)
                         if math.isfinite(value) and value > 0.0:
                             voltage_bases[bus_id] = value
-                self._assert_topology_unchanged(network, canonical_snapshot, captured_topology_revision)
+                self._assert_network_unchanged(network, canonical_snapshot, captured_topology_revision, captured_model_signature)
                 return ShortCircuitInput(
                     fault_type=normalized_type,
                     fault_bus_index=bus_index,
@@ -367,6 +369,94 @@ class ShortCircuitPreparation:
                     "the supplied snapshot does not describe the captured Network."
                 )
         return canonical
+
+    @classmethod
+    def _freeze_model_value(cls, value: Any, active: set[int] | None = None) -> Any:
+        """Build a deterministic in-process value signature for Core model state."""
+        if value is None or isinstance(value, (bool, int, str, bytes)):
+            return value
+        if isinstance(value, float):
+            return ("float", value.hex()) if math.isfinite(value) else ("float", repr(value))
+        if isinstance(value, complex):
+            return ("complex", value.real.hex(), value.imag.hex())
+        if isinstance(value, Enum):
+            return (type(value).__module__, type(value).__qualname__, value.value)
+        if active is None:
+            active = set()
+        if isinstance(value, dict):
+            return tuple(sorted(
+                (
+                    cls._freeze_model_value(key, active),
+                    cls._freeze_model_value(item, active),
+                )
+                for key, item in value.items()
+            , key=repr))
+        if isinstance(value, (tuple, list)):
+            return tuple(cls._freeze_model_value(item, active) for item in value)
+        if isinstance(value, (set, frozenset)):
+            return tuple(sorted((cls._freeze_model_value(item, active) for item in value), key=repr))
+        if hasattr(value, "tolist") and callable(value.tolist):
+            try:
+                return (type(value).__qualname__, cls._freeze_model_value(value.tolist(), active))
+            except (TypeError, ValueError):
+                pass
+        # Equipment references inside terminals/model records are represented
+        # by canonical identity; each registered owner is expanded separately.
+        object_id = getattr(value, "id", None)
+        if object_id is not None:
+            return ("reference", type(value).__module__, type(value).__qualname__, str(object_id))
+        identity = id(value)
+        if identity in active:
+            return ("cycle", type(value).__module__, type(value).__qualname__)
+        attributes = getattr(value, "__dict__", None)
+        if isinstance(attributes, dict):
+            active.add(identity)
+            try:
+                excluded = {"owner", "_owner", "_network", "network", "registry", "_gridforge_network_token"}
+                frozen = tuple(sorted(
+                    (
+                        name,
+                        cls._freeze_model_value(item, active),
+                    )
+                    for name, item in attributes.items()
+                    if name not in excluded and not callable(item)
+                ))
+                return (type(value).__module__, type(value).__qualname__, frozen)
+            finally:
+                active.remove(identity)
+        return (type(value).__module__, type(value).__qualname__, repr(value))
+
+    @classmethod
+    def _capture_network_model_signature(cls, network: Any) -> tuple[Any, ...]:
+        registry = getattr(network, "registry", None)
+        objects = getattr(registry, "_objects", None)
+        if not isinstance(objects, dict):
+            raise ValueError(
+                "Short Circuit requires the canonical Network registry to capture a stable model revision."
+            )
+        return tuple(
+            (
+                str(object_id),
+                id(element),
+                cls._freeze_model_value(element),
+            )
+            for object_id, element in sorted(objects.items(), key=lambda item: str(item[0]))
+        )
+
+    @classmethod
+    def _assert_network_unchanged(
+        cls,
+        network: Any,
+        captured: TopologySnapshot,
+        captured_revision: int,
+        captured_model_signature: tuple[Any, ...],
+    ) -> None:
+        cls._assert_topology_unchanged(network, captured, captured_revision)
+        if cls._capture_network_model_signature(network) != captured_model_signature:
+            raise RuntimeError(
+                "Network electrical model data changed during Short Circuit preparation; "
+                "discard the partial preparation and retry against a stable model revision."
+            )
 
     @staticmethod
     def _assert_topology_unchanged(
