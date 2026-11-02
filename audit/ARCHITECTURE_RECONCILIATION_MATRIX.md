@@ -42,11 +42,9 @@ Historical reconciliation baseline: `main` @ `f27ef42a39333f5fb35522e5839d23f58a
 | Short Circuit | Detached sequence/fault input before solver | Historical remediation added Short Circuit preparation boundary | UNVERIFIED | GF-MASTER-0026 |
 | Persistence engineering truth | Engineering units/bases preserved, ambiguity rejected | Migration audit documents explicit metadata/ambiguity rejection | UNVERIFIED | GF-MASTER-0032 |
 
-
 ## 2026-09-28 — Historical effective re-audit (authority statement superseded 2026-10-02)
 
-The matrix above contains historical/status snapshots and is retained as audit chronology. Its authority statement naming `pandaraseswari03-collab/GridForge:main` is a historical snapshot superseded by the 2026-10-02 authority reconciliation. Current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`; `SubhenduMishra29/GridForge` is reference/audit evidence only when explicitly designated for a historical cycle. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
-
+The matrix above contains historical/status snapshots and is retained as audit chronology. Its authority statement naming `pandaraseswari03-collab/GridForge` is a historical snapshot superseded by the 2026-10-02 authority reconciliation. Current implementation and active audit/register target is `madhuri196mishra-cpu/GridForge:main`; `SubhenduMishra29/GridForge` is reference/audit evidence only when explicitly designated for a historical cycle. The final source re-audit found no new Core/Application architectural bypass. GF-MASTER-0104 was corrected in the styling boundary only: graphics helpers now resolve active Theme tokens and the canvas token is white. No Core/Application authority was duplicated. Runtime/GUI evidence remains deferred.
 
 ## 2026-09-28 — Superseding effective static re-audit
 
@@ -61,3 +59,17 @@ The historical table above is retained as chronology. For current source authori
 - Runtime/GUI/study execution remains deferred wherever the register requires executable evidence.
 
 The historical OPEN/CONFIRMED wording in earlier matrix rows must not be interpreted as current status where the effective CSV/register has since reconciled the finding. Historical rows remain preserved for audit chronology.
+
+## 2026-11-02 — Documentation refresh reconciliation (current repository authority)
+
+The dated sections above are retained as historical audit evidence. Their repository authority statements and implementation snapshots are not current status for this refresh.
+
+- **Authoritative repository:** `SubhenduMishra29/GridForge`, branch `main`. The README and current architecture refresh use mainline commit `a9e07287c90667a7aae8bcc060e4e2d0cadf261e` as the implementation baseline.
+- **Merged PR #908 / current-main D15F register:** includes Protection Study scenario snapshots; supported CT terminal-current sampling and ANSI 50N/51N residual bindings; tap-aware transformer sequence preparation; explicit Grid/Generator source equivalents and neutral/earth paths; Line/Cable SLD-derived conductor graph; Breaker/Switch/Disconnector/Fuse pole paths; Transformer winding graph/multiport, grounded-wye earth return, evidence-bound zero-sequence and delta-loop MNA increments through D15F-37. Each is limited to its explicit construction and input contract.
+- **Merged PR #909:** changes draft-wire preview presentation only; it does not change canonical electrical connectivity.
+- **Not merged at this baseline:** PRs #912–#918 are open/draft follow-up workstreams. Their proposed code must not be described as mainline capability until individually reconciled and merged.
+- **Architecture distinction:** conventional Simple Wire terminal-to-terminal relationships remain separate from the explicit phase-domain physical conductor graph. Neither is inferred from SLD geometry.
+- **Open evidence obligations:** automatic Motor source equivalent and unsupported machine/load/arc-fault/switching models; complete neutral CT/CBCT coverage; full persistence round-trip and construction configurators; complete Protection Study runtime integration; numerical validation and commissioning. Supported SLD-derived graph construction exists for the D15F equipment cases and must not be described as a general-purpose graph editor.
+- **Verification statement:** PR #908 records remote source inspection/integration review only; no tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end runtime execution were run.
+
+This section is a documentation authority correction, not a new implementation audit. For the consolidated frozen architecture and exact evidence boundaries, see [GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md](../docs/architecture/GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md) and [PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md](../docs/architecture/PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md).

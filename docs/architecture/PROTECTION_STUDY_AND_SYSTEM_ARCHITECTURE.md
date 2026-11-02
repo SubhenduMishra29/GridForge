@@ -1473,3 +1473,61 @@ remain fail-closed until the corresponding multi-conductor equipment
 primitive and terminal-current result contract are implemented. This avoids
 accepting a construction that the current Line/Cable phase-domain solver
 cannot execute.
+
+
+---
+
+# 2026-11-02 Architecture Reconciliation — D15F-09 through D15F-37
+
+This dated addendum reconciles the protection/phase-domain architecture against the current mainline Modification Register. It supplements the earlier D15F-01–08 text above; earlier "remaining" statements are historical at their original checkpoint and must not override the later increments below.
+
+## A. Graph integrity, physical current and measurement provenance (D15F-09–16)
+
+- **D15F-09:** candidate phase-domain graph validation occurs before node insertion or topology revision invalidation. Bus references, equipment terminal ownership and branch conductor identity/role are checked atomically.
+- **D15F-10:** phase-domain execution can emit signed current records at uniquely resolvable equipment-terminal cuts, positive INTO_EQUIPMENT, with incident-connection, topology, project and activation provenance. Neutral CT/CBCT association accepts explicit canonical equipment terminal roles where physical construction is supported.
+- **D15F-11/12:** CT conversion is gated by exact solver/topology revision and matching project/activation provenance; stale or cross-activation physical-current samples are rejected.
+- **D15F-13–17:** source equivalents attach only to exact canonical equipment-terminal nodes belonging to the registered source equipment. Source IDs cannot alias equipment identity; ambiguous/duplicate terminal roles are rejected.
+- These increments harden identity and provenance. They do not fabricate source data, physical current cuts, conductor roles, or missing return paths.
+
+## B. Explicit source models and grounding (D15F-18–24)
+
+- **D15F-18:** Grid per-unit sequence impedance requires its original positive MVA and voltage bases.
+- **D15F-19:** synchronous Generator stores explicit subtransient/negative/zero-sequence impedance, original bases, internal voltage and neutral-grounding state.
+- **D15F-20:** Motor stores explicit locked-rotor positive-sequence, negative/zero-sequence data, original bases and pre-fault internal voltage. These model fields do not by themselves implement a complete induction-motor decay/source model.
+- **D15F-21:** automatic coupled ABC Norton-source preparation is implemented for supported in-service Grid and Generator models when required sequence data, bases, voltage and terminal data are explicit. The initial Generator neutral treatment was superseded by D15F-22.
+- **D15F-22/23:** Generator and Grid use explicit ABCN source primitives with physical neutral terminals and separately represented neutral grounding/electrode paths. Generator machine Z0 is distinct from external neutral grounding; Grid source Z0 is source-internal while external grounding is explicit.
+- **D15F-24:** source-neutral current is reconciled against its source-referenced electrode current, and local earth-node KCL is enforced over explicit finite-impedance earth paths.
+
+Automatic Motor Norton-source preparation, unsupported/ideal grounding cases, implicit PE/screen paths, and distributed soil/mutual-earth models remain outside this supported scope. Missing sequence data, unsupported construction and ambiguous terminals fail closed.
+
+## C. Canonical SLD endpoint identity and branch conductor graph (D15F-25–28)
+
+- **D15F-25/26:** phase-domain nodes can carry typed canonical SLD topology endpoint references; topology snapshots preserve exact Bus attachment-slot identity. Ambiguous attachment slots are rejected.
+- **D15F-27:** the SLD-derived graph builder constructs explicit FROM/TO branch-terminal nodes for explicitly inventoried Line/Cable conductors, resolves exact Bus attachment slots, and connects same-role Busbar vertices. It does not infer missing conductor inventories or create an impedance model for the Busbar.
+- **D15F-28:** Breaker pole construction is explicit by A/B/C/N. Each physical pole conducts only when the global breaker and that explicit pole are closed; missing construction and failed state fail closed.
+
+## D. Switching equipment and transformer physical/multiport coverage (D15F-29–37)
+
+- **D15F-29:** Switch, Disconnector and Fuse require explicit supported A/B/C/N conductor-role inventories. Their internal terminal-to-terminal paths follow the equipment's authoritative operating state: closed/in-service for Switch and Disconnector; in-service/not-blown for Fuse.
+- **D15F-30:** Breaker, Switch, Disconnector and Fuse share the immutable `PhysicalConductorConstruction` / `PhysicalConductorPath` contract. Construction and operating state remain separate authorities.
+- **D15F-31:** Transformer winding construction explicitly declares HV/LV connection type, terminal roles, phase roles and supported neutral/grounding metadata. This does not create galvanic continuity between windings.
+- **D15F-32:** the phase-domain solver accepts a reciprocal, passive Transformer terminal-domain admittance multiport and reports signed terminal currents.
+- **D15F-33:** `prepare_transformer_phase_domain_multiport()` produces the study multiport from a Transformer only when a complete externally supplied admittance matrix, current tap/phase-shift provenance and exact winding terminal inventory are available.
+- **D15F-34:** the SLD-derived graph builder creates explicit Transformer HV/LV phase and declared neutral terminal nodes, resolves their canonical Bus attachment slots, and automatically supplies the multiport to short-circuit preparation. No HV-LV galvanic path is introduced.
+- **D15F-35:** grounded-wye Transformer windings require separate explicit neutral-grounding and earth-return impedances. The graph creates local earth and reference nodes plus electrode/return edges; preparation validates the exact electrode and earth reachability, and the solver reconciles neutral multiport current against electrode current.
+- **D15F-36:** zero-sequence core/delta coverage is bound to the exact ordered terminal-admittance matrix fingerprint, core construction and required manufacturer/test references.
+- **D15F-37:** explicit internal delta-loop states are coupled into the phase-domain solver as MNA current unknowns. Per-loop circulating currents are solved with network voltages, faults and terminal currents; the loop-state evidence digest binds the active loop parameters.
+
+### Transformer engineering limits
+
+The multiport is a derived study representation, not a second persistent Transformer model. Its complete terminal admittance matrix, internal-loop coupling and loop impedances require explicit manufacturer/test-derived inputs; they are not synthesized from scalar R/X or vector-group labels. D15F-37 exposes reduced internal-loop current coordinates, not individual physical SLD conductors, thermal/skin/proximity behaviour or core-limb flux/current states.
+
+### Persistence and configuration limits
+
+The register entries for D15F-29/30 and D15F-33/34 retain persistence/schema-migration and/or Application configurator support as outstanding. The existence of Core contracts and a graph producer does not prove every new construction field round-trips through project save/load or has a complete engineer-facing editor. Verify those fields and UI paths independently before claiming complete lifecycle support.
+
+## E. Verification and implementation-status discipline
+
+The cited D15F entries record remote source inspection/static assertions, not test/CI execution, syntax/import verification, persistence round-trip, numerical fixture validation or end-to-end Protection Study runtime execution. A source-level feature is not production-verified merely because its producer, type or solver stamp exists.
+
+GF-PROT-042 remains an independent production integration obligation until the live cycle trigger/timestamp contract, persisted typed function-to-target mapping, Application authorization, physical operation feedback and postcondition path are demonstrated. Protection decisions remain distinct from breaker state and acknowledgements.
