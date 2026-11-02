@@ -97,8 +97,16 @@ class AlgebraicNetworkSolution:
             raise ValueError("UNVERIFIED algebraic solutions cannot claim verified quality.")
         for name in ("absolute_residual_norm", "normalized_residual", "residual_tolerance", "condition_limit"):
             value = getattr(self, name)
-            if value is not None and (not np.isfinite(float(value)) or float(value) < 0.0):
-                raise ValueError(f"{name} must be finite and non-negative when supplied.")
+            if value is None:
+                continue
+            numeric = float(value)
+            allow_infinite_residual = (
+                name in {"absolute_residual_norm", "normalized_residual"}
+                and self.status in {"RESIDUAL_REJECTED", "ILL_CONDITIONED"}
+                and np.isinf(numeric)
+            )
+            if numeric < 0.0 or np.isnan(numeric) or (not np.isfinite(numeric) and not allow_infinite_residual):
+                raise ValueError(f"{name} must be non-negative and finite except for rejected residual diagnostics.")
         if self.condition_number is not None:
             condition = float(self.condition_number)
             if np.isnan(condition) or condition < 0.0 or (np.isinf(condition) and self.status != "SINGULAR"):
