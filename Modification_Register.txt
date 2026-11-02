@@ -18918,3 +18918,59 @@ Status:
     VERIFICATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-057 — FAIL-CLOSED ANSI 25 BREAKER-CLOSE MUTATION BOUNDARY
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    69aab115540ee539453f38d65c0c1696fb3d2f96
+
+Scope:
+    Prevent Application breaker mutations from closing or energizing a
+    breaker without an explicit positive synchronism authorization.
+
+Finding:
+    Current main allowed create_breaker(closed=True), update_breaker
+    (open-to-closed), and close_breaker to mutate the Core Breaker state
+    without an ANSI 25 decision. The earlier GF-PROT-043 register entry
+    concerns persisted protection-function identity and is unrelated to
+    this breaker-close correction.
+
+Correction:
+    - Add an injectable Application-layer breaker-close authorizer.
+    - Deny closed breaker creation, open-to-closed updates, and explicit
+      close operations when no authorizer is configured.
+    - Require the authorizer result to be exactly True.
+    - Convert authorizer exceptions and negative decisions into explicit
+      DomainError outcomes before Core state mutation.
+    - Expose the authorizer through ModelService to the switching service.
+
+Safety boundary:
+    - The default composition remains fail-closed until the complete
+      project-scoped ANSI 25 guard is supplied.
+    - This is containment, not a claim that ANSI 25 is fully operational.
+    - Opening, tripping and non-energizing breaker operations remain
+      available through their existing paths.
+    - Full project policy, trusted measurement provenance, clock domain,
+      physical PT/CVT topology, durable audit and bypass lifecycle remain
+      separate integration requirements.
+
+Verification:
+    - Confirmed all three close mutation entrypoints in current main.
+    - Confirmed the authorizer is called before network registration or
+      breaker state mutation.
+    - Confirmed ModelService passes the authorizer to SwitchingModelService.
+    - No tests/CI, syntax/import checks or runtime close-path execution
+      were run.
+
+Status:
+    FAIL-CLOSED APPLICATION BREAKER-CLOSE BOUNDARY IMPLEMENTED ON A
+    MAIN-BASED BRANCH — FULL ANSI 25 GUARD INTEGRATION PENDING
+
+======================================================================
