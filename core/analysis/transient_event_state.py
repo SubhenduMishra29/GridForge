@@ -30,6 +30,11 @@ class TransientEventState:
     ) -> dict[str, object]:
         breaker_id = str(breaker_id)
         previous_state = self.breaker_states.get(breaker_id)
+        if closed and not self.snapshot.switch_available_states.get(breaker_id, False):
+            raise ValueError(
+                f"Cannot close switching target '{breaker_id}': it is failed, out of service, "
+                "or otherwise unavailable in the captured study snapshot."
+            )
         previous_machine_states = {
             machine_id: self.is_machine_connected(machine_id)
             for machine_id, path in self.snapshot.machine_connection_paths.items()
@@ -49,6 +54,11 @@ class TransientEventState:
     def set_equipment(self, equipment_id: str, conducting: bool) -> dict[str, object]:
         key = str(equipment_id)
         previous_state = self.breaker_states.get(key, self.equipment_states.get(key))
+        if conducting and key in self.snapshot.switch_available_states and not self.snapshot.switch_available_states[key]:
+            raise ValueError(
+                f"Cannot restore switching target '{key}': it is failed, out of service, "
+                "or otherwise unavailable in the captured study snapshot."
+            )
         previous_machine_states = {
             machine_id: self.is_machine_connected(machine_id)
             for machine_id, path in self.snapshot.machine_connection_paths.items()
@@ -128,6 +138,7 @@ class TransientEventState:
             transformers=self.snapshot.transformers,
             shunts=self.snapshot.shunts,
             breaker_states=dict(self.breaker_states),
+            switch_available_states=self.snapshot.switch_available_states,
             equipment_states=dict(self.equipment_states),
             machine_connection_paths=self.snapshot.machine_connection_paths,
             machine_rotor_policies=self.snapshot.machine_rotor_policies,
