@@ -154,8 +154,27 @@ class TransientStabilitySolver:
         executions: list[EventExecution] = []
 
         if record_initial and not (should_cancel is not None and should_cancel()):
-            executions.extend(self.event_manager.process(self._time))
-            initial = self.dae_solver.evaluate(self._state, self._time)
+            initial_events = self.event_manager.process(self._time)
+            try:
+                initial = self.dae_solver.evaluate(self._state, self._time)
+            except Exception as exc:
+                executions.extend(
+                    self.event_manager.annotate_post_event_re_evaluation(
+                        initial_events,
+                        succeeded=False,
+                        failure=exc,
+                    )
+                )
+                raise TransientStabilityError(
+                    f"Initial post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                ) from exc
+            if initial_events:
+                executions.extend(
+                    self.event_manager.annotate_post_event_re_evaluation(
+                        initial_events,
+                        succeeded=True,
+                    )
+                )
             self._record(initial, times, states, voltages, powers)
 
         while self._time < self.end_time - self.event_manager.tolerance:
@@ -194,8 +213,27 @@ class TransientStabilitySolver:
             self._time = float(solution.time)
 
             if event_boundary and next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-                executions.extend(self.event_manager.process_interval(previous_time, self._time))
-                solution = self.dae_solver.evaluate(self._state, self._time)
+                event_batch = self.event_manager.process_interval(previous_time, self._time)
+                try:
+                    solution = self.dae_solver.evaluate(self._state, self._time)
+                except Exception as exc:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=False,
+                            failure=exc,
+                        )
+                    )
+                    raise TransientStabilityError(
+                        f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                    ) from exc
+                if event_batch:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=True,
+                        )
+                    )
 
             self._record(solution, times, states, voltages, powers)
 
@@ -243,8 +281,23 @@ class TransientStabilitySolver:
         self._state = solution.state.copy()
         self._time = float(solution.time)
         if next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-            self.event_manager.process_interval(previous_time, self._time)
-            solution = self.dae_solver.evaluate(self._state, self._time)
+            event_batch = self.event_manager.process_interval(previous_time, self._time)
+            try:
+                solution = self.dae_solver.evaluate(self._state, self._time)
+            except Exception as exc:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=False,
+                    failure=exc,
+                )
+                raise TransientStabilityError(
+                    f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                ) from exc
+            if event_batch:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=True,
+                )
         return solution
 
     def reset(self) -> None:
