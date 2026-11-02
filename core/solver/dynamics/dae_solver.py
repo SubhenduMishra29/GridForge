@@ -199,6 +199,9 @@ class DAESolution:
             raise ValueError(
                 "DAESolution time must be finite."
             )
+        if self.algebraic_quality is not None and self.algebraic_quality.simulation_time is not None:
+            if not np.isclose(self.algebraic_quality.simulation_time, time, rtol=0.0, atol=1e-12):
+                raise ValueError("DAESolution algebraic quality time must match the DAE sample time.")
 
         state.setflags(write=False)
         derivatives.setflags(write=False)
