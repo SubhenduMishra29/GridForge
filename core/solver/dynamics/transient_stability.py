@@ -149,14 +149,19 @@ class TransientStabilitySolver:
         powers: list[dict[str, tuple[float, float]]] = []
         executions: list[EventExecution] = []
 
-        if record_initial and not (should_cancel is not None and should_cancel()):
-            executions.extend(self.event_manager.process(self._time))
-            initial = self.dae_solver.evaluate(self._state, self._time)
-            self._record(initial, times, states, voltages, powers)
+        if not (should_cancel is not None and should_cancel()):
+            executions.extend(self._process_due_events())
+            if record_initial:
+                initial = self.dae_solver.evaluate(self._state, self._time)
+                self._record(initial, times, states, voltages, powers)
 
         while self._time < self.end_time - self.event_manager.tolerance:
             if should_cancel is not None and should_cancel():
                 break
+            # Dispatch events due at the current simulation time before asking
+            # the scheduler for a strictly-future event boundary. This is
+            # independent of whether the caller records an initial sample.
+            executions.extend(self._process_due_events())
             previous_time = self._time
             next_event_time = self.event_manager.next_event_time(previous_time)
             target_time = min(previous_time + self.dt, self.end_time)
@@ -218,6 +223,9 @@ class TransientStabilitySolver:
             raise ValueError("dt must be greater than zero.")
         if self._time >= self.end_time - self.event_manager.tolerance:
             raise TransientStabilityError("Simulation has reached end_time.")
+        # Keep incremental stepping consistent with run(): dispatch events
+        # already due (including the current-time tolerance window) first.
+        self._process_due_events()
         previous_time = self._time
         step_end = min(previous_time + requested_dt, self.end_time)
         next_event_time = self.event_manager.next_event_time(previous_time)
@@ -233,6 +241,20 @@ class TransientStabilitySolver:
             self.event_manager.process_interval(previous_time, self._time)
             solution = self.dae_solver.evaluate(self._state, self._time)
         return solution
+
+    def _process_due_events(self) -> tuple[EventExecution, ...]:
+        """Dispatch events due at the current time and refresh algebraic state.
+
+        EventManager.process() owns the tolerance policy: events at or before
+        current_time + tolerance are due. Calling it before future-boundary
+        lookup prevents an event at the initial/current time from being skipped.
+        """
+        if self._state is None:
+            return ()
+        executions = self.event_manager.process(self._time)
+        if executions:
+            self.dae_solver.evaluate(self._state, self._time)
+        return executions
 
     def reset(self) -> None:
         self._state = None
