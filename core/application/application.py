@@ -756,7 +756,12 @@ class Application:
         self._commit_executor.shutdown(wait=True, cancel_futures=True)
 
     def poll_field_device_acknowledgement(self, command_id: str) -> FieldDeviceExecutionStatus:
-        """Poll and verify physical feedback independently of Core postconditions."""
+        """Poll and apply verified feedback under the Application execution lock."""
+        with self._execution_lock:
+            return self._poll_field_device_acknowledgement_locked(command_id)
+
+    def _poll_field_device_acknowledgement_locked(self, command_id: str) -> FieldDeviceExecutionStatus:
+        """Reconcile one correlated device acknowledgement exactly once."""
         service = self._field_device_command_service
         if service is None:
             return FieldDeviceExecutionStatus(
