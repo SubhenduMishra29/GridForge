@@ -46,6 +46,7 @@ class TransientNetworkRuntime:
             },
             "initial_switch_states": dict(self.event_state.breaker_states),
             "switch_availability_states": dict(snapshot.switch_available_states),
+            "switch_connections": dict(snapshot.switch_connections),
         }
 
 
