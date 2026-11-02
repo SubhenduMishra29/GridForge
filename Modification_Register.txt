@@ -19654,3 +19654,89 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-064 — EVIDENCE-BOUNDED TRANSIENT RELAY RESET MEMORY
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Add explicit relay reset-memory and overshoot evidence records plus a
+    piecewise-constant current-trace evaluator for IEC/IEEE inverse-time
+    relay coordination.
+
+Implementation:
+    - Model reset-memory retention as measured current-multiple-specific
+      curves with interpolation only inside the supplied interruption-time
+      domain.
+    - Require retained memory to begin at 1.0 and never increase with
+      dropout duration.
+    - Require exact pre-dropout current-multiple evidence; no interpolation
+      across current and no extrapolation beyond test data.
+    - Integrate normalized operating progress only when the Application
+      trace configuration explicitly confirms that the relay's progress
+      accumulation model is valid.
+    - Return NOT_EVALUABLE when reset evidence is missing or outside domain.
+    - Require common observation windows for paired relay traces.
+    - Keep overshoot assessment NOT_ASSESSED until the test semantics and
+      timing correction are formally mapped; transient CTI cannot be
+      declared coordinated without that assessment.
+    - Apply final-dropout reset retention at the end of the observation
+      window, or return NOT_EVALUABLE when evidence is insufficient.
+
+Limitations:
+    - Manufacturer evidence references are provenance labels, not verified
+      signatures.
+    - Overshoot envelopes are stored but not applied to operation times.
+    - Current traces must be relay-equivalent current magnitudes; the RL
+      instantaneous waveform is not directly treated as RMS relay current.
+
+Verification:
+    - Source-level inspection only; no tests/CI or trace benchmark run.
+
+Status:
+    TRANSIENT RESET-MEMORY EVALUATION IMPLEMENTED WITH FAIL-CLOSED GAPS.
+    OVERSHOOT-ADJUSTED TRANSIENT CTI REMAINS NOT EVALUABLE.
+
+======================================================================
+
+
+======================================================================
+GF-SC-TRANSIENT-001 — BOUNDED PER-PHASE SERIES-RL FAULT TRANSIENT
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Add an analytical per-phase Thevenin series-RL fault-inception transient
+    producer for explicit voltage, frequency, resistance, inductance,
+    inception angle and initial current.
+
+Implementation:
+    - Solve sinusoidal steady-state current plus exponentially decaying
+      DC offset for each independent phase equivalent.
+    - Return instantaneous signed primary current samples, time constant,
+      steady-state RMS current and power-factor angle.
+    - Validate phase identity, positive R/L, finite inputs, unique phases
+      and strictly increasing sample times.
+    - Validate immutable phase results and declared observation windows.
+
+Explicit limitations:
+    - Not a network-wide EMT solver.
+    - No inter-phase/mutual coupling, generator decrement, inverter controls,
+      CT saturation, arc dynamics, switching topology or breaker pole model.
+    - Output is instantaneous signed current, not relay RMS current.
+    - No automatic RL-to-RMS measurement conversion is implied.
+
+Verification:
+    - Source-level analytical inspection only; no independent waveform
+      reference comparison or runtime solve was performed.
+
+Status:
+    BOUNDED RL TRANSIENT PRODUCER IMPLEMENTED; NOT AN EMT NETWORK SOLVER.
+
+======================================================================
+
