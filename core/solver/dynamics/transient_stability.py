@@ -206,13 +206,20 @@ class TransientStabilitySolver:
                 f"end_time={self.end_time:.12g} s."
             )
 
+        result_provenance = dict(self.provenance)
+        runtime_owner = getattr(self.dae_solver.network_solver, "__self__", None)
+        runtime_event_state = getattr(runtime_owner, "event_state", None)
+        if runtime_event_state is not None:
+            result_provenance["final_detached_network_revision"] = runtime_event_state.topology_revision
+            result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
+
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
             states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
             terminal_voltages=tuple(voltages),
             electrical_powers=tuple(powers),
             events=tuple(executions),
-            provenance=self.provenance,
+            provenance=result_provenance,
         )
 
     def step(self, dt: float | None = None) -> DAESolution:
