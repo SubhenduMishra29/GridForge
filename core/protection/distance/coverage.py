@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from core.model import Breaker, Cable, EndpointReference, Line
+from core.model import Breaker, Cable, CVT, EndpointReference, Line, PT
 from core.model.endpoint_reference import EquipmentType
 from core.network.conductive_reachability import ConductiveReachabilityResolver
 from core.network.ct_measurement_association import CTMeasurementAssociationResolver
@@ -189,7 +189,7 @@ class DistanceProtectionCoverage:
         if not voltage_binding.source_endpoint_reference.is_terminal:
             raise ValueError("ANSI 21 voltage source must be an explicit PT/CVT primary terminal.")
         voltage_source = network.get_by_identity(voltage_binding.instrument_id)
-        if type(voltage_source).__name__ not in {"PT", "CVT", "PotentialTransformer", "CapacitiveVoltageTransformer"}:
+        if not isinstance(voltage_source, (PT, CVT)):
             raise ValueError("ANSI 21 voltage binding must reference a physical PT or CVT.")
         primary_role = voltage_binding.source_endpoint_reference.terminal_role.upper()
         if primary_role not in {"PRIMARY_A", "PRIMARY_B", "H1", "H2"}:
