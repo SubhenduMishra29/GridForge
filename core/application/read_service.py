@@ -481,11 +481,13 @@ def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | 
             return
         visited += 1
         if isinstance(item, PowerFlowResult):
-            if item.snapshot_id is None:
+            # Both a stable solver snapshot and stable bus identities are
+            # mandatory. Positional fallback would silently pair different
+            # buses when the result's ordering changes.
+            if item.snapshot_id is None or not item.bus_ids:
                 return
-            identifiers = item.bus_ids or tuple(str(index) for index in range(len(item.voltage_magnitudes)))
-            for bus_id, magnitude, angle in zip(identifiers, item.voltage_magnitudes, item.voltage_angles):
-                prefix = f"{path}.bus:{bus_id}"
+            for bus_id, magnitude, angle in zip(item.bus_ids, item.voltage_magnitudes, item.voltage_angles):
+                prefix = f"{path}.bus:{bus_id!r}"
                 observations[f"{prefix}.voltage_magnitude"] = (magnitude, "p.u.", (item.snapshot_id,))
                 observations[f"{prefix}.voltage_angle"] = (angle, "deg", (item.snapshot_id,))
             return
