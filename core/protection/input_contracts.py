@@ -308,6 +308,50 @@ def validate_protection_input_contracts(
             if channel is None:
                 diagnostics.append(f"{detail}: channel is absent from the authoritative measurement registry.")
                 continue
+
+            # The live relay path must consume the same explicit physical
+            # instrument -> channel -> RelayInput association as the detached
+            # Protection Study path. A channel ID alone is not proof of which
+            # CT/PT/CVT and physical measurement point produced the sample.
+            configured_bindings = tuple(
+                binding
+                for binding in getattr(configuration, "measurement_bindings", ())
+                if binding.protection_element_id == element.element_id
+                and binding.relay_input_id == name
+            )
+            if len(configured_bindings) != 1:
+                diagnostics.append(
+                    f"{detail}: exactly one persisted ProtectionMeasurementBinding is required "
+                    f"for the physical relay input; found {len(configured_bindings)}."
+                )
+                continue
+            binding = configured_bindings[0]
+            if binding.channel_id != channel_id:
+                diagnostics.append(
+                    f"{detail}: persisted measurement binding channel does not match the configured RelayInput channel."
+                )
+                continue
+            expected_measurement = (
+                "current" if any(item.value == "CURRENT" for item in requirement.signal_types)
+                else "voltage" if any(item.value == "VOLTAGE" for item in requirement.signal_types)
+                else None
+            )
+            if expected_measurement is not None and binding.measurement_type.strip().lower() != expected_measurement:
+                diagnostics.append(
+                    f"{detail}: binding measurement_type {binding.measurement_type!r} does not match "
+                    f"the function input's {expected_measurement} requirement."
+                )
+            source_id = getattr(channel, "source_id", None)
+            if source_id != binding.instrument_id:
+                diagnostics.append(
+                    f"{detail}: physical instrument identity does not match the authoritative channel source."
+                )
+            channel_phase = getattr(getattr(channel, "phase", None), "value", getattr(channel, "phase", None))
+            if str(binding.phase_or_sequence).strip().upper() != str(channel_phase).strip().upper():
+                diagnostics.append(
+                    f"{detail}: binding phase/sequence does not match the authoritative channel phase."
+                )
+
             signal_type = getattr(channel, "signal_type", None)
             if signal_type not in requirement.signal_types:
                 diagnostics.append(
