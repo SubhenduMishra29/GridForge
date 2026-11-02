@@ -95,6 +95,7 @@ class TransientStabilitySolver:
         end_time: float = 10.0,
         dt: float | None = None,
         event_manager: EventManager | None = None,
+        provenance: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(dae_solver, DAESolver):
             raise TypeError("dae_solver must be DAESolver instance.")
@@ -103,6 +104,9 @@ class TransientStabilitySolver:
         self.end_time = float(end_time)
         self.dt = float(dt if dt is not None else getattr(dae_solver.integrator, "dt", 0.01))
         self.event_manager = event_manager or EventManager()
+        runtime_owner = getattr(dae_solver.network_solver, "__self__", None)
+        runtime_provenance = getattr(runtime_owner, "provenance", {})
+        self.provenance = dict(provenance if provenance is not None else runtime_provenance)
         if not all(math.isfinite(value) for value in (self.start_time, self.end_time, self.dt)):
             raise ValueError("start_time, end_time, and dt must be finite.")
         if self.start_time < 0.0:
@@ -208,6 +212,7 @@ class TransientStabilitySolver:
             terminal_voltages=tuple(voltages),
             electrical_powers=tuple(powers),
             events=tuple(executions),
+            provenance=self.provenance,
         )
 
     def step(self, dt: float | None = None) -> DAESolution:
@@ -264,6 +269,9 @@ class TransientStabilitySolver:
             offset += machine.state_size
             voltage = voltages.get(str(machine.bus_id))
             if voltage is None:
+                continue
+            if not self.dae_solver.is_machine_connected(machine.machine_id):
+                result[str(machine.machine_id)] = (0.0, 0.0)
                 continue
             output = machine.electrical_output(machine_state, voltage)
             result[str(machine.machine_id)] = (float(output.active_power), float(output.reactive_power))
