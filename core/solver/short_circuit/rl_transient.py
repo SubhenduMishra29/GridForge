@@ -119,11 +119,19 @@ class RLTransientFaultResult:
             for key, value in phases.items()
         ):
             raise ValueError("Phase result keys must match typed non-empty phase results.")
+        sample_grids = {
+            tuple(sample.time_s for sample in phase.samples)
+            for phase in phases.values()
+        }
+        if len(sample_grids) != 1:
+            raise ValueError("All phase results must use the same sample-time grid.")
         for phase in phases.values():
             if phase.samples[0].time_s != start or phase.samples[-1].time_s != end:
                 raise ValueError("Every phase result must cover the declared observation window.")
-        limitations = tuple(str(item).strip() for item in self.limitations)
-        if not limitations or any(not item for item in limitations):
+        if any(not isinstance(item, str) or not item.strip() for item in self.limitations):
+            raise ValueError("Model limitations must be explicit non-empty strings.")
+        limitations = tuple(item.strip() for item in self.limitations)
+        if not limitations:
             raise ValueError("Model limitations must be explicitly listed.")
         object.__setattr__(self, "event_id", self.event_id.strip())
         object.__setattr__(self, "observation_start_s", start)
