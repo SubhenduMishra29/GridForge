@@ -203,6 +203,24 @@ def validate_protection_input_contracts(
                 for binding in getattr(configuration, "measurement_bindings", ())
                 if binding.protection_element_id == element.element_id
             }
+            coverage_data = getattr(element, "metadata", {}).get("distance_coverage")
+            if not isinstance(coverage_data, Mapping):
+                diagnostics.append(
+                    f"{prefix}: typed distance_coverage is required to establish explicit protected-line "
+                    "and breaker/CT boundary ownership."
+                )
+            else:
+                try:
+                    from core.protection.distance.coverage import DistanceProtectionCoverage
+                    coverage = DistanceProtectionCoverage.from_mapping(coverage_data)
+                    if coverage.project_id != project_id:
+                        diagnostics.append(f"{prefix}: distance_coverage project identity does not match configuration.")
+                    if coverage.current_binding_id != getattr(bindings_by_input.get("current"), "binding_id", None):
+                        diagnostics.append(f"{prefix}: distance_coverage current binding identity is not configured.")
+                    if coverage.voltage_binding_id != getattr(bindings_by_input.get("voltage"), "binding_id", None):
+                        diagnostics.append(f"{prefix}: distance_coverage voltage binding identity is not configured.")
+                except (TypeError, ValueError, KeyError) as exc:
+                    diagnostics.append(f"{prefix}: distance_coverage is invalid: {exc}.")
             for input_name, expected_type in (("voltage", "voltage"), ("current", "current")):
                 binding = bindings_by_input.get(input_name)
                 if binding is None:
