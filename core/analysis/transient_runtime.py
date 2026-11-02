@@ -25,5 +25,9 @@ class TransientNetworkRuntime:
         detached = self.event_state.detached_view()
         return TransientNetworkSolver(detached, self.machine_system).solve(state, time)
 
+    def is_machine_connected(self, machine_id: str) -> bool:
+        """Expose the same detached path state used by Norton-source assembly."""
+        return self.event_state.is_machine_connected(machine_id)
+
 
 __all__ = ["TransientNetworkRuntime"]
