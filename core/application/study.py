@@ -372,6 +372,7 @@ class StudyService:
                     )
                     with self._lock:
                         self._results[key] = result
+                    terminal_result_committed = True
                     self._event_bus.publish(
                         StudyCompleted(metadata={
                             **self._event_metadata(request, status="completed"),
