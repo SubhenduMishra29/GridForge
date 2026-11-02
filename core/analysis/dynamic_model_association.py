@@ -33,7 +33,7 @@ class DynamicMachineModelAssociation:
     bus_id: str
     model_type: str
     parameters: ClassicalMachineParameters
-    connection_path: tuple[str, ...]
+    connection_path: tuple[str, ...] = ()
     mechanical_power: float = 0.0
     disconnected_rotor_policy: str = "continue_with_zero_electrical_power"
     metadata: Mapping[str, Any] = MappingProxyType({})
@@ -63,10 +63,9 @@ class DynamicMachineModelAssociation:
         if any(not isinstance(item, str) for item in raw_path):
             raise TypeError("connection_path entries must be canonical string equipment IDs.")
         path = tuple(item.strip() for item in raw_path)
-        if not path or any(not item for item in path):
+        if any(not item for item in path):
             raise ValueError(
-                f"Dynamic machine '{self.machine_id}' requires an explicit non-empty connection_path "
-                "of canonical switching-equipment IDs."
+                f"Dynamic machine '{self.machine_id}' connection_path contains an empty equipment ID."
             )
         if len(path) != len(set(path)):
             raise ValueError(
