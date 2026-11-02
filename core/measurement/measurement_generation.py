@@ -163,6 +163,11 @@ class MeasurementGeneration:
                 self._unsupported_message(context, "short-circuit fault quantity")
             )
         root_key, member_key = self._split_short_circuit_key(quantity_key)
+        if root_key in {"transformer_delta_loop_currents", "internal_delta_loop_current", "delta_loop_current"}:
+            raise UnsupportedMeasurementQuantity(
+                "Internal transformer delta-loop current is a model-internal circulating current, "
+                "not an external physical conductor current; it cannot be routed through an external CT."
+            )
         if root_key not in self._SHORT_CIRCUIT_KEYS:
             raise UnsupportedMeasurementQuantity(
                 f"Unsupported short-circuit mapping for source_id={context.source_id!r}, "
