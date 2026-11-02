@@ -18497,3 +18497,66 @@ Status:
     DEFERRED
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-40
+
+Scope:
+    Add durable, versioned persistence for Application StudyResult
+    executions without modifying canonical .gridforge project
+    configuration or losing typed transformer delta-loop diagnostics.
+
+Corrections:
+    - Added StudyResultArchive as an append-only execution-artifact store
+      under the user's GridForge application data directory.
+    - Archive records carry format/schema version, unique execution-record
+      identity, saved timestamp, StudyResult identity/status, project and
+      activation provenance, all four source revision counters, metadata,
+      and result payload.
+    - Canonical JSON payloads are SHA-256 integrity checked on restore.
+      Writes use a same-directory temporary file, fsync and atomic replace.
+    - Result encoding explicitly supports finite numeric/complex values,
+      UUIDs, enums, NumPy arrays/scalars, mappings, collections and
+      dataclass field snapshots. Unsupported runtime objects fail closed.
+    - ShortCircuitTransformerDeltaLoopCurrent records use their explicit
+      typed codec and are reconstructed as typed records when archived
+      Protection/Short-Circuit result payloads are loaded. Other detached
+      dataclass values restore as tagged field mappings; arbitrary Python
+      classes are never imported or instantiated from persisted data.
+    - StudyResultArchive supports loading all records or the latest record
+      for a project, activation generation and Study Case identity.
+    - StudyService now accepts a durable result persister. It persists
+      completed, failed and cancelled terminal outcomes before publishing
+      the corresponding terminal event. A failure to persist a completed
+      result converts the in-memory outcome to failed and publishes
+      StudyFailed rather than reporting a non-durable completion.
+    - Application composition wires the archive at
+      ~/.gridforge/study-results. Project configuration save/load remains
+      unchanged and cannot overwrite the separate execution archive.
+
+Persistence boundary:
+    - Study results are stored outside the canonical .gridforge package.
+      The archive is keyed by a SHA-256 project identity directory and
+      retains activation-generation and Study Case provenance in each
+      independently versioned record.
+    - Restored StudyResult.value is a detached tagged data snapshot, not a
+      rehydrated live solver/runtime object. Internal delta-loop records
+      alone are reconstructed as their canonical typed value object.
+    - This is an execution-result archive, not a replacement project
+      repository and not a solver cache.
+
+Verification:
+    - Remote source re-fetch and focused static source assertions only.
+    - No tests/CI, syntax/import checks, archive round-trip, filesystem
+      durability exercise, numerical MNA fixture or end-to-end study
+      execution was run.
+    - Runtime compatibility with every registered study result type
+      remains unverified; unsupported payload members intentionally
+      fail closed instead of being silently discarded.
+
+Status:
+    VERSIONED DURABLE STUDY RESULT ARCHIVE AND STUDY SERVICE INTEGRATION
+    IMPLEMENTED — RUNTIME/ROUND-TRIP VERIFICATION DEFERRED
+
+======================================================================
