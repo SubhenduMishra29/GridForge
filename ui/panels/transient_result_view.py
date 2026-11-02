@@ -102,7 +102,10 @@ class TransientResultViewWidget(QWidget):
             line = (
                 f"{index}. {event.event_type} — {event.event_id} | "
                 f"scheduled {event.scheduled_time:.9g} s / "
-                f"dispatched {event.dispatch_time:.9g} s | "
+                f"dispatched {event.dispatch_time:.9g} s" if event.dispatch_time is not None
+                else f"scheduled {event.scheduled_time:.9g} s / dispatch unavailable (scheduled-time marker) | "
+            )
+            line += (
                 f"{event.status} | "
                 f"revision {event.pre_event_revision} → {event.post_event_revision} | "
                 f"post-event solve: {event.post_event_re_evaluation_status}"
@@ -156,9 +159,13 @@ class TransientResultViewWidget(QWidget):
         event = model.events[row]
         details = [
             f"Event: {event.event_id} ({event.event_type})",
-            f"Status: {event.status}; priority: {event.priority}",
-            f"Description: {event.description or '—'}",
-            f"Scheduled: {event.scheduled_time:.12g} s; dispatched: {event.dispatch_time:.12g} s",
+            f"Status: {event.status}; priority: {event.priority if event.priority is not None else 'unavailable'}",
+            f"Description: {event.description or 'unavailable'}",
+            (
+                f"Scheduled: {event.scheduled_time:.12g} s; dispatched: {event.dispatch_time:.12g} s"
+                if event.dispatch_time is not None
+                else f"Scheduled: {event.scheduled_time:.12g} s; dispatch time unavailable (marker uses scheduled time)"
+            ),
             f"Detached revision: {event.pre_event_revision} → {event.post_event_revision}",
             f"Post-event algebraic solve: {event.post_event_re_evaluation_status}",
             f"Metadata: {dict(event.metadata)!r}",
