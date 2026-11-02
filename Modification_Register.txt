@@ -18611,3 +18611,48 @@ Status:
     PANEL INTEGRATION IMPLEMENTED — RUNTIME/NUMERICAL VERIFICATION DEFERRED
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-42
+======================================================================
+
+Scope:
+    Restore canonical solver result contracts from the durable Study Result
+    archive and preserve IEEE-754 non-finite convergence metrics explicitly.
+
+Corrections:
+    - Added an explicit tagged float representation for NaN, positive
+      infinity and negative infinity. JSON non-standard NaN/Infinity tokens
+      remain disabled; the archive remains canonical JSON.
+    - Added a strict allow-list codec for PowerFlowResult, ShortCircuitResult
+      and their typed short-circuit contribution/current records.
+    - Solver result reconstruction is performed only for exact allow-listed
+      class identities and exact dataclass field sets. Persisted class names
+      are never imported or dynamically resolved.
+    - Canonical solver constructors re-apply their engineering invariants
+      during restoration. Unknown dataclasses remain detached snapshots.
+    - Whitelisted solver enums restore to their canonical enum types;
+      unknown enums remain detached scalar values.
+    - Non-converged PowerFlowResult.error may retain positive infinity
+      through persistence, while its voltage/history arrays retain their
+      existing finite-value contract.
+
+Persistence boundary:
+    - No arbitrary class construction or module import is permitted from
+      archive data.
+    - Complex electrical current values remain finite-only under the
+      canonical short-circuit result contracts.
+    - Existing archive schema version remains 1 because the new tagged
+      encodings are additive and unknown legacy dataclasses remain readable
+      as detached mappings.
+
+Verification:
+    - Remote source edits and source-level review only.
+    - No tests/CI, syntax/import checks, archive round-trip, non-finite
+      restoration fixture or numerical solver run was performed.
+
+Status:
+    CANONICAL POWER-FLOW / SHORT-CIRCUIT RESTORATION AND EXPLICIT
+    NON-FINITE FLOAT ENCODING IMPLEMENTED — ROUND-TRIP VERIFICATION PENDING
+======================================================================
