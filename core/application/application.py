@@ -569,9 +569,8 @@ class Application:
             isinstance(trusted_evaluation_time, bool)
             or not isinstance(trusted_evaluation_time, (int, float))
             or not isfinite(trusted_evaluation_time)
-            or trusted_evaluation_time < sample_timestamp
         ):
-            raise ValueError("Trusted protection evaluation time must be finite and not precede the attested sample.")
+            raise ValueError("Trusted protection evaluation time must be finite.")
         configuration_service = getattr(self, "protection_configuration_service", None)
         configuration = getattr(configuration_service, "configuration", None)
         if configuration is None:
