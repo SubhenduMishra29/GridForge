@@ -416,16 +416,28 @@ class ArchivedStudyResultReadModel:
 
     @property
     def transformer_delta_loop_currents(self) -> Any:
-        """Return internal winding-loop diagnostics without CT/relay adaptation."""
-        if not isinstance(self.value, Mapping):
+        """Find internal-loop diagnostics inside detached result snapshots."""
+        def find(value: Any, depth: int = 0) -> Any:
+            if depth > 8:
+                return ()
+            if isinstance(value, Mapping):
+                direct = value.get("transformer_delta_loop_currents")
+                if direct is not None:
+                    return direct
+                for key in ("fields", "values", "short_circuit", "result", "value"):
+                    nested = value.get(key)
+                    if nested is not None:
+                        found = find(nested, depth + 1)
+                        if found:
+                            return found
+                return ()
+            if isinstance(value, (tuple, list)):
+                for item in value:
+                    found = find(item, depth + 1)
+                    if found:
+                        return found
             return ()
-        direct = self.value.get("transformer_delta_loop_currents")
-        if direct is not None:
-            return direct
-        nested = self.value.get("values")
-        if isinstance(nested, Mapping):
-            return nested.get("transformer_delta_loop_currents", ())
-        return ()
+        return find(self.value)
 
 
 @dataclass(frozen=True, slots=True)
