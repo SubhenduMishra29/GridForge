@@ -332,6 +332,7 @@ class StudyService:
             self._tokens[key] = token
             self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
 
+        terminal_result_committed = False
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = handler(request, execution_context, token)
@@ -367,6 +368,7 @@ class StudyService:
                 raise StudyResultPersistenceError(failure.message) from persistence_exc
             with self._lock:
                 self._results[key] = result
+            terminal_result_committed = True
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
             else:
@@ -375,6 +377,10 @@ class StudyService:
         except StudyResultPersistenceError:
             raise
         except Exception as exc:
+            if terminal_result_committed:
+                # A terminal event-bus failure cannot rewrite an already
+                # archived numerical outcome as a solver failure.
+                raise
             # A cancellation request may race with a solver exception. Resolve
             # the terminal state atomically and persist the resulting outcome.
             with self._lock:
