@@ -33,6 +33,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
+from core.model.breaker import Breaker
 from core.persistence import ProjectPersistenceService, StudyResultArchive
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
@@ -61,6 +62,13 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
+from .synchronism_check import (
+    BypassAuthorization,
+    ProjectScopedSynchronismAuditSink,
+    SynchronismCheckProjectConfiguration,
+    create_project_synchronism_guard,
+    validate_synchronism_instrument_topology,
+)
 from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
@@ -77,10 +85,13 @@ def create_application(
     measurement_clock: Callable[[], float] | None = None,
     measurement_clock_domain: str | None = None,
     max_measurement_source_clock_skew_seconds: float = 2.0,
+    synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
 ) -> Application:
     """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
+    if synchronism_bypass_provider is not None and not callable(synchronism_bypass_provider):
+        raise TypeError("synchronism_bypass_provider must be callable when supplied.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
     # The protection service may resolve the active Network for its own
@@ -117,10 +128,68 @@ def create_application(
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     application: Application | None = None
+    synchronism_guard: Any = None
+
+    def authorize_breaker_close(breaker: Breaker, operation: str) -> bool:
+        nonlocal synchronism_guard
+        active_lifecycle = getattr(application, "project_lifecycle", None)
+        active_context = getattr(active_lifecycle, "context", None)
+        active_network = getattr(active_lifecycle, "network", None)
+        active_generation = getattr(active_lifecycle, "activation_generation", 0)
+        active_path = getattr(active_context, "path", None)
+        guard = None
+        if (
+            active_context is not None
+            and active_network is not None
+            and measurement_channel_service.network is active_network
+            and measurement_channel_service.project_id == active_context.project_id
+            and measurement_channel_service.activation_generation == active_generation
+            and measurement_clock is not None
+            and isinstance(measurement_clock_domain, str)
+            and measurement_clock_domain.strip()
+            and active_path is not None
+        ):
+            audit_sink = ProjectScopedSynchronismAuditSink(
+                project_id=active_context.project_id,
+                activation_generation=active_generation,
+                project_path=active_path,
+                clock=measurement_clock,
+                clock_domain=measurement_clock_domain,
+            )
+            guard = create_project_synchronism_guard(
+                project_id=active_context.project_id,
+                activation_generation=active_generation,
+                project_configuration_provider=lambda: (
+                    protection_configuration_service.configuration.synchronism_check_configuration
+                ),
+                measurement_channel_service=measurement_channel_service,
+                audit_sink=audit_sink,
+                clock=measurement_clock,
+                clock_domain=measurement_clock_domain,
+                bypass_provider=synchronism_bypass_provider,
+                topology_validator=lambda target_breaker, policy, channels: (
+                    validate_synchronism_instrument_topology(
+                        network=active_network,
+                        breaker=target_breaker,
+                        configuration=policy,
+                        channels=channels,
+                    )
+                ),
+            )
+        synchronism_guard = guard
+        if guard is None:
+            raise PermissionError("Breaker energization denied: no active audited ANSI 25 guard.")
+        decision = guard.authorize_close(breaker)
+        if getattr(decision, "permitted", None) is not True:
+            raise PermissionError("Breaker energization denied by ANSI 25.")
+        return True
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
-        model_service = ModelService(network=active_network)
+        model_service = ModelService(
+            network=active_network,
+            breaker_close_authorizer=authorize_breaker_close,
+        )
         handlers: dict[str, Any] = {}
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
@@ -257,7 +326,9 @@ def create_application(
 
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
         """Install project-scoped protection/dynamic runtime state transactionally."""
+        nonlocal synchronism_guard
         previous_configuration = protection_configuration_service.configuration
+        previous_synchronism_guard = synchronism_guard
         previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
@@ -286,6 +357,8 @@ def create_application(
             application.configure_control_signal_mapping(previous_control_signal_mapping)
 
         def restore_project_state() -> None:
+            nonlocal synchronism_guard
+            synchronism_guard = previous_synchronism_guard
             measurement_channel_service.restore_state(previous_measurement_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
@@ -433,6 +506,27 @@ def create_application(
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
+            if configuration is not None and configuration.synchronism_check_configuration is not None:
+                synchronism_registry = SynchronismCheckProjectConfiguration.from_dict(
+                    configuration.synchronism_check_configuration
+                )
+                for breaker_id, policy in synchronism_registry.breakers.items():
+                    try:
+                        candidate_network.get_by_id("breaker", breaker_id)
+                    except (KeyError, ValueError) as exc:
+                        raise ValueError(
+                            f"ANSI 25 policy references unknown breaker {breaker_id!r}."
+                        ) from exc
+                    configured_channel_ids = {
+                        item.get("channel_id", item.get("id"))
+                        for item in loaded.measurement_definitions
+                        if isinstance(item, Mapping)
+                    }
+                    missing_channels = sorted(set(policy.measurement_channel_ids.values()) - configured_channel_ids)
+                    if missing_channels:
+                        raise ValueError(
+                            f"ANSI 25 policy for breaker {breaker_id!r} references missing measurement channels: {missing_channels!r}."
+                        )
             control_configuration = loaded.control_configuration
             if control_configuration is not None:
                 if control_configuration.project_id != context.project_id: raise ValueError("Control configuration project_id does not match the candidate project.")

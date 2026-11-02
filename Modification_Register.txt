@@ -19181,3 +19181,58 @@ Status:
 
 ======================================================================
 
+
+======================================================================
+GF-PROT-060 — PROJECT-SCOPED ANSI 25 GUARD AND POLICY COMMAND
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Integrate the typed ANSI 25 synchronism guard into current Application
+    composition and add a transactional command for project policy changes.
+
+Policy and persistence:
+    - Persist schema-2 per-breaker synchronism policy in
+      ProtectionProjectConfiguration.
+    - Validate typed settings, all four live/dead operating modes, six
+      distinct measurement-channel IDs and finite JSON data.
+    - Add a transactional Application command to replace or disable the
+      project policy registry.
+    - Validate configured breaker and channel references against the
+      active project before accepting policy changes.
+    - Validate persisted policy references during candidate project load.
+
+Close authorization:
+    - Compose the guard through the existing fail-closed breaker authorizer.
+    - Refresh the guard on every close attempt against active project,
+      activation generation, Network, policy, measurement registry and
+      current saved project path.
+    - Require the durable project-scoped audit sidecar.
+    - Validate six measurement channels and PT/CVT physical primary topology
+      against the actual two breaker-side buses before authorizing.
+    - Preserve five-minute, project/breaker/generation-scoped, single-use
+      bypass authorization with durable replay protection.
+    - Unsaved projects, missing adapters, missing policy, invalid samples,
+      stale samples, topology mismatch and audit failures deny closing.
+    - Restore prior guard identity on project activation rollback.
+
+Architecture:
+    - Core owns the breaker and measurement channel domain state.
+    - Application owns policy commands, guard composition, audit and
+      authorization orchestration.
+    - No UI/Qt dependency introduced.
+
+Verification:
+    - Source-level integration only; no tests/CI, syntax/import checks,
+      persistence round-trip or runtime breaker close performed.
+    - Deployment verifier/clock and physical commissioning remain external
+      integration requirements.
+
+Status:
+    PROJECT-SCOPED ANSI 25 ENFORCEMENT COMPOSED FAIL-CLOSED.
+    UI POLICY EDITOR AND DEPLOYMENT TRUST ADAPTERS REMAIN PENDING.
+
+======================================================================
+
