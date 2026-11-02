@@ -138,6 +138,25 @@ class DistanceProtectionCoverage:
             path = reachability.resolve_path(
                 external_terminal, breaker_endpoint, excluded_equipment_ids=frozenset({ct_id})
             )
+            line_side_path = reachability.resolve_path(
+                line_endpoints[end], line_side_terminal,
+                excluded_equipment_ids=frozenset({ct_id}),
+            )
+            if line_side_path is None:
+                raise ValueError(
+                    f"{end} protected Line/Cable terminal is not connected to the declared "
+                    f"CT {ct_id!r} line-side terminal without traversing the CT."
+                )
+            bypass_path = reachability.resolve_path(
+                line_endpoints[end], breaker_endpoint,
+                excluded_equipment_ids=frozenset({ct_id}),
+            )
+            if bypass_path is not None:
+                raise ValueError(
+                    f"{end} breaker boundary {breaker_id!r} can be reached from the protected "
+                    f"line end while CT {ct_id!r} is excluded; the declared CT is not a unique "
+                    "physical cut boundary in the active topology."
+                )
             if path is None:
                 raise ValueError(
                     f"{end} boundary CT {ct_id!r} external primary side is not conductively connected "
