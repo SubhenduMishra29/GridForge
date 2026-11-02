@@ -437,7 +437,7 @@ class StudyResultArchive:
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
             schema_version = envelope.get("schema_version")
-            if isinstance(schema_version, bool) or schema_version not in {1, 2}:
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2}:
                 raise StudyResultArchiveError(
                     f"Unsupported Study Result archive schema: {schema_version!r}."
                 )
