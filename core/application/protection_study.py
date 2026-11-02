@@ -42,6 +42,13 @@ from core.protection.coordination_grading import (
     ProtectionCoordinationReport,
     grade_protection_coordination,
 )
+from core.protection.transient_coordination import (
+    RelayCurrentSample as CoreRelayCurrentSample,
+    RelayCurrentTrace,
+    TransientCoordinationReport,
+    grade_transient_protection_coordination,
+)
+from core.protection.relay_dynamic_characteristics import RelayDynamicEvidence
 
 
 def _freeze_mapping(value: Any, field_name: str) -> Any:
@@ -94,6 +101,38 @@ class ProtectionCoordinationTimingEnvelopeConfiguration:
             raise ValueError("current_a must be positive for an inverse-time timing envelope.")
         if self.maximum_time_s < self.minimum_time_s:
             raise ValueError("maximum_time_s must be >= minimum_time_s.")
+
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionTransientCurrentTraceConfiguration:
+    """Function-bound relay-equivalent current-magnitude trace.
+
+    Samples are current magnitudes in the configured function's pickup basis.
+    They are not instantaneous signed RL waveform samples and must not be
+    populated directly from RLTransientFaultResult without a validated
+    measurement conversion.
+    """
+
+    function_id: str
+    measurement_binding_id: str
+    samples: tuple[CoreRelayCurrentSample, ...]
+    normalized_progress_model_confirmed: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("function_id", "measurement_binding_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        samples = tuple(self.samples)
+        if len(samples) < 2 or any(not isinstance(item, CoreRelayCurrentSample) for item in samples):
+            raise TypeError("At least two typed relay-current samples are required.")
+        if any(right.time_s <= left.time_s for left, right in zip(samples, samples[1:])):
+            raise ValueError("Current trace timestamps must be strictly increasing.")
+        if self.normalized_progress_model_confirmed is not True:
+            raise ValueError("Relay-specific normalized-progress confirmation is required.")
+        object.__setattr__(self, "samples", samples)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +191,9 @@ class ProtectionFaultScenario:
     scenario_id: str
     configuration: ShortCircuitStudyConfiguration
     coordination_timing_envelopes: tuple[ProtectionCoordinationTimingEnvelopeConfiguration, ...] = ()
+    transient_event_id: str | None = None
+    transient_current_traces: tuple[ProtectionTransientCurrentTraceConfiguration, ...] = ()
+    transient_dynamic_evidence: tuple[RelayDynamicEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -166,6 +208,28 @@ class ProtectionFaultScenario:
         if len(set(function_ids)) != len(function_ids):
             raise ValueError("A fault scenario may declare only one timing envelope per function.")
         object.__setattr__(self, "coordination_timing_envelopes", envelopes)
+        traces = tuple(self.transient_current_traces)
+        evidence = tuple(self.transient_dynamic_evidence)
+        if traces and (not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip()):
+            raise ValueError("Transient traces require an explicit event ID.")
+        if self.transient_event_id is not None:
+            if not isinstance(self.transient_event_id, str) or not self.transient_event_id.strip():
+                raise ValueError("transient_event_id must be non-empty or None.")
+            object.__setattr__(self, "transient_event_id", self.transient_event_id.strip())
+        if any(not isinstance(item, ProtectionTransientCurrentTraceConfiguration) for item in traces):
+            raise TypeError("Transient traces must use typed Application trace configurations.")
+        if any(not isinstance(item, RelayDynamicEvidence) for item in evidence):
+            raise TypeError("Transient evidence must use RelayDynamicEvidence.")
+        if evidence and not traces:
+            raise ValueError("Transient dynamic evidence requires explicit current traces.")
+        if len({item.function_id for item in traces}) != len(traces):
+            raise ValueError("Transient traces must have unique function IDs.")
+        if len({item.function_id for item in evidence}) != len(evidence):
+            raise ValueError("Transient evidence must have unique function IDs.")
+        if set(item.function_id for item in evidence) - set(item.function_id for item in traces):
+            raise ValueError("Transient evidence must match a configured current trace.")
+        object.__setattr__(self, "transient_current_traces", traces)
+        object.__setattr__(self, "transient_dynamic_evidence", evidence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +243,8 @@ class ProtectionFaultScenarioResult:
     relay_evaluation_completed: bool = False
     coordination_report: ProtectionCoordinationReport | None = None
     coordination_diagnostics: tuple[str, ...] = ()
+    transient_coordination_report: TransientCoordinationReport | None = None
+    transient_coordination_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.scenario_id, str) or not self.scenario_id.strip():
@@ -196,6 +262,10 @@ class ProtectionFaultScenarioResult:
             raise TypeError("coordination_report must be ProtectionCoordinationReport or None.")
         diagnostics = tuple(str(item) for item in self.coordination_diagnostics)
         object.__setattr__(self, "coordination_diagnostics", diagnostics)
+        if self.transient_coordination_report is not None and not isinstance(self.transient_coordination_report, TransientCoordinationReport):
+            raise TypeError("transient_coordination_report must be TransientCoordinationReport or None.")
+        transient_diagnostics = tuple(str(item) for item in self.transient_coordination_diagnostics)
+        object.__setattr__(self, "transient_coordination_diagnostics", transient_diagnostics)
         if self.short_circuit_result.fault_type is not self.configuration.fault_type:
             raise ValueError("Short-circuit result fault type does not match its scenario configuration.")
         if str(self.short_circuit_result.fault_bus_id) != self.configuration.fault_bus_id:
@@ -228,7 +298,11 @@ class ProtectionFaultScenarioResult:
 
     @property
     def diagnostics(self) -> tuple[str, ...]:
-        return tuple(self.short_circuit_result.diagnostics) + tuple(self.coordination_diagnostics)
+        return (
+            tuple(self.short_circuit_result.diagnostics)
+            + tuple(self.coordination_diagnostics)
+            + tuple(self.transient_coordination_diagnostics)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,7 +385,22 @@ class ProtectionStudyConfiguration:
             for pair in pairs
             for function_id in (pair.downstream_element_id, pair.upstream_element_id)
         }
+        pair_function_ids = {
+            function_id
+            for pair in pairs
+            for function_id in (pair.downstream_element_id, pair.upstream_element_id)
+        }
         for scenario in scenarios:
+            if scenario.transient_current_traces and not pairs:
+                raise ValueError("Transient grading requires explicit coordination pairs.")
+            orphaned_traces = {
+                item.function_id for item in scenario.transient_current_traces
+            } - pair_function_ids
+            if orphaned_traces:
+                raise ValueError(
+                    "Transient traces reference functions outside the configured coordination pairs: "
+                    + ", ".join(sorted(orphaned_traces))
+                )
             if scenario.coordination_timing_envelopes and not pairs:
                 raise ValueError("Timing envelopes require explicit coordination pairs.")
             unknown_envelopes = {
@@ -446,6 +535,8 @@ class ProtectionStudyResult:
             or bool(item.execution.diagnostics)
             or bool(item.coordination_diagnostics)
             or (item.coordination_report is not None and not item.coordination_report.fully_evaluable)
+            or bool(item.transient_coordination_diagnostics)
+            or (item.transient_coordination_report is not None and not item.transient_coordination_report.fully_evaluable)
             for item in self.fault_scenarios
         ):
             return "partial"
@@ -762,6 +853,69 @@ class ProtectionStudyHandler:
                         f"Protection coordination grading refused for scenario {scenario.scenario_id!r}: "
                         f"{type(exc).__name__}: {exc}"
                     )
+            transient_report = None
+            transient_diagnostics: list[str] = []
+            if scenario.transient_current_traces:
+                try:
+                    if not configuration.coordination_pairs:
+                        raise ValueError("Transient grading requires explicit coordination pairs.")
+                    if not scenario.transient_event_id:
+                        raise ValueError("Transient grading requires an explicit event ID.")
+                    samples_by_binding = {x.binding_id: x for x in scenario_samples}
+                    if len(samples_by_binding) != len(scenario_samples):
+                        raise ValueError("Scenario contains duplicate measurement binding samples.")
+                    transient_functions = {}
+                    transient_traces = []
+                    for trace_config in scenario.transient_current_traces:
+                        element = configured_elements.get(trace_config.function_id)
+                        if element is None or element.function_code not in {"51", "51N"}:
+                            raise ValueError("Transient trace must identify an enabled ANSI 51/51N function.")
+                        bound = samples_by_binding.get(trace_config.measurement_binding_id)
+                        if bound is None or bound.protection_element_id != trace_config.function_id:
+                            raise ValueError("Transient trace binding is missing or belongs to another function.")
+                        settings = element.settings
+                        if not {"pickup", "curve", "TMS"}.issubset(settings):
+                            raise ValueError("Transient function lacks pickup/curve/TMS settings.")
+                        transient_functions[trace_config.function_id] = CoordinationRelayCharacteristic(
+                            function_id=trace_config.function_id,
+                            pickup_current_a=float(settings["pickup"]),
+                            curve_standard=str(settings.get("curve_standard", "IEC")),
+                            curve=str(settings["curve"]),
+                            time_dial=float(settings["TMS"]),
+                        )
+                        scale = 1.0
+                        if element.function_code == "51N":
+                            if bound.provenance.get("residual_source_mode") not in {"NEUTRAL_CT", "CBCT"}:
+                                raise ValueError("ANSI 51N transient trace requires explicit NEUTRAL_CT or CBCT source.")
+                            ratio = bound.provenance.get("instrument_ratio")
+                            if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not isfinite(float(ratio)) or float(ratio) <= 0.0:
+                                raise ValueError("ANSI 51N transient trace requires an authoritative positive CT ratio.")
+                            scale = float(ratio)
+                        transient_traces.append(RelayCurrentTrace(
+                            function_id=trace_config.function_id,
+                            samples=tuple(CoreRelayCurrentSample(x.time_s, x.current_a * scale) for x in trace_config.samples),
+                        ))
+                    transient_pairs = tuple(ProtectionCoordinationPair(
+                        downstream_function_id=x.downstream_element_id,
+                        upstream_function_id=x.upstream_element_id,
+                        downstream_breaker_clearing_time_s=x.downstream_breaker_clearing_time_s,
+                        required_cti_s=x.required_cti_s,
+                        downstream_breaker_clearing_time_max_s=x.downstream_breaker_clearing_time_max_s,
+                    ) for x in configuration.coordination_pairs)
+                    unknown_evidence = {x.function_id for x in scenario.transient_dynamic_evidence} - set(transient_functions)
+                    if unknown_evidence:
+                        raise ValueError("Dynamic evidence references functions without transient traces: " + ", ".join(sorted(unknown_evidence)))
+                    transient_report = grade_transient_protection_coordination(
+                        event_id=scenario.transient_event_id,
+                        functions=tuple(transient_functions.values()),
+                        pairs=transient_pairs,
+                        traces=tuple(transient_traces),
+                        dynamic_evidence=scenario.transient_dynamic_evidence,
+                    )
+                except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                    transient_diagnostics.append(
+                        f"Transient coordination refused for scenario {scenario.scenario_id!r}: {type(exc).__name__}: {exc}"
+                    )
             fault_scenario_results.append(ProtectionFaultScenarioResult(
                 scenario_id=scenario.scenario_id,
                 configuration=scenario.configuration,
@@ -770,6 +924,8 @@ class ProtectionStudyHandler:
                 relay_evaluation_completed=relay_evaluation_completed,
                 coordination_report=coordination_report,
                 coordination_diagnostics=tuple(coordination_diagnostics),
+                transient_coordination_report=transient_report,
+                transient_coordination_diagnostics=tuple(transient_diagnostics),
             ))
             if cancellation.cancelled:
                 return None
@@ -841,6 +997,7 @@ __all__ = [
     "ProtectionFaultScenario",
     "ProtectionCoordinationTimingEnvelopeConfiguration",
     "ProtectionCoordinationPairConfiguration",
+    "ProtectionTransientCurrentTraceConfiguration",
     "ProtectionFaultScenarioResult",
     "ProtectionStudyConfiguration",
     "ProtectionStudyResult",
