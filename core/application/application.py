@@ -707,8 +707,8 @@ class Application:
         # Bind every live current input to the actual CT registered in this
         # active Network and prove that its measured equipment terminal lies
         # on exactly one committed CT primary side. This is a topology-side
-        # association check, not a claim that switching-state reachability or
-        # physical protection-zone ownership has been inferred.
+        # association check. ANSI 21 additionally consumes a typed physical
+        # coverage contract below, validated against switching-aware reachability.
         from core.application.services.ct_measurement_association_service import (
             CTMeasurementAssociationService,
         )
@@ -737,6 +737,32 @@ class Application:
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 diagnostics.append(
                     f"{prefix}: live CT topology association refused: {type(exc).__name__}: {exc}"
+                )
+
+        for element in runtime.configuration.elements:
+            if not element.enabled or str(element.function_code).strip().upper() != "21":
+                continue
+            prefix = f"project={project.project_id!r}, element={element.element_id!r}, function='21'"
+            try:
+                from core.protection.distance.coverage import DistanceProtectionCoverage
+                coverage = DistanceProtectionCoverage.from_mapping(element.metadata["distance_coverage"])
+                by_input = {
+                    binding.relay_input_id: binding
+                    for binding in runtime.configuration.measurement_bindings
+                    if binding.protection_element_id == element.element_id
+                }
+                coverage.validate(
+                    lifecycle.network,
+                    project_id=project.project_id,
+                    activation_generation=lifecycle.activation_generation,
+                    topology_revision=lifecycle.network.state.topology_revision,
+                    current_binding=by_input["current"],
+                    voltage_binding=by_input["voltage"],
+                )
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                diagnostics.append(
+                    f"{prefix}: physical breaker-bounded distance coverage refused: "
+                    f"{type(exc).__name__}: {exc}"
                 )
 
         for element in runtime.configuration.elements:
