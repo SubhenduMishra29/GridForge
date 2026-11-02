@@ -1984,6 +1984,7 @@ class Application:
         self, *, study_type: str | None = None, status: str | None = None,
         saved_after: str | None = None, saved_before: str | None = None,
         search: str | None = None, activation_generation: int | None = None,
+        study_id: UUID | None = None,
     ) -> tuple[Any, ...]:
         """Search durable executions for the active project, including older generations."""
         context = self.project_lifecycle.context
@@ -1992,6 +1993,7 @@ class Application:
         return self._study_read_service.archived_results(
             project_id=context.project_id,
             activation_generation=activation_generation,
+            study_id=study_id,
             study_type=study_type,
             status=status,
             saved_after=saved_after,
