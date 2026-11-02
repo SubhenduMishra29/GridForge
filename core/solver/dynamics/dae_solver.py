@@ -83,6 +83,8 @@ class AlgebraicNetworkSolution:
     simulation_time: float | None = None
     source_ids: tuple[str, ...] = ()
     active_fault_id: str | None = None
+    active_fault_bus_id: str | None = None
+    active_fault_type: str | None = None
     study_provenance: Mapping[str, object] = field(default_factory=dict)
     diagnostics: tuple[str, ...] = ()
 
@@ -414,6 +416,7 @@ class DAESolver:
                     f"status={solution.status}, buses={solution.bus_ids}, "
                     f"topology_revision={solution.topology_revision}, "
                     f"source_ids={solution.source_ids}, active_fault_id={solution.active_fault_id}, "
+                    f"active_fault_type={solution.active_fault_type}, active_fault_bus_id={solution.active_fault_bus_id}, "
                     f"study_provenance={dict(solution.study_provenance)}, "
                     f"residual={solution.normalized_residual}, "
                     f"condition_number={solution.condition_number}"
