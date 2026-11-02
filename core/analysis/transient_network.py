@@ -339,8 +339,9 @@ class TransientNetworkSolver:
                 f"Matrix condition estimate {condition_number:.6g} exceeds configured limit "
                 f"{self.condition_limit:.6g}."
             )
-        elif normalized_residual > self.residual_tolerance:
-            status = "RESIDUAL_REJECTED"
+        if normalized_residual > self.residual_tolerance:
+            if status == "ACCEPTED":
+                status = "RESIDUAL_REJECTED"
             diagnostics.append(
                 f"Normalized backward error {normalized_residual:.6g} exceeds tolerance "
                 f"{self.residual_tolerance:.6g}."
