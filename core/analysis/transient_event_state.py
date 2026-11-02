@@ -102,7 +102,8 @@ class TransientEventState:
             "previous_switch_state": previous_state,
             "new_switch_state": new_state,
             "machine_transitions": machine_transitions,
-            "network_revision": self.topology_revision,
+            "source_topology_revision": self.snapshot.topology_revision,
+            "detached_network_revision": self.topology_revision,
         }
 
     def apply_fault(self, fault: object) -> None:
