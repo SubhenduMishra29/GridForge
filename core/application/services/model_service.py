@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.services.battery_model_service import BatteryModelService
@@ -22,6 +24,7 @@ from core.application.services.switching_model_service import SwitchingModelServ
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
 from core.model.breaker import Breaker
+from core.model.breaker import Breaker
 from core.model.bus import Bus
 from core.model.terminal import Terminal
 from core.network.network import Network
@@ -30,7 +33,12 @@ from core.network.network import Network
 class ModelService(ModelServiceSupport):
     """Compatibility facade; all mutation logic remains in domain services."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(
+        self,
+        network: Network,
+        *,
+        breaker_close_authorizer: Callable[[Breaker, str], bool] | None = None,
+    ) -> None:
         if not isinstance(network, Network): raise TypeError("network must be a Network.")
         self._network = network
         self._bus_service = BusModelService(network)
@@ -45,7 +53,10 @@ class ModelService(ModelServiceSupport):
         self._line_service = LineModelService(network)
         self._transformer_service = TransformerModelService(network)
         self._cable_service = CableModelService(network)
-        self._switching_service = SwitchingModelService(network)
+        self._switching_service = SwitchingModelService(
+            network,
+            breaker_close_authorizer=breaker_close_authorizer,
+        )
         self._measurement_service = MeasurementModelService(network)
         self._pt_service = PTModelService(network)
         self._battery_service = BatteryModelService(network)
