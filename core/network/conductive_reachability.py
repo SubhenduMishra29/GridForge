@@ -178,9 +178,15 @@ class ConductiveReachabilityResolver:
             path.append(cursor)
             cursor = previous[cursor]
         path.reverse()
+        # An equipment identity is traversed only when the path crosses
+        # between two of that equipment's terminals. Merely starting or
+        # ending at a terminal does not mean its internal path was traversed.
         equipment_ids = tuple(dict.fromkeys(
-            item.terminal_reference.object_id
-            for item in path if item.is_terminal
+            left.terminal_reference.object_id
+            for left, right in zip(path, path[1:])
+            if left.is_terminal
+            and right.is_terminal
+            and left.terminal_reference.object_id == right.terminal_reference.object_id
         ))
         return ConductivePath(
             start, finish, tuple(path), equipment_ids,
