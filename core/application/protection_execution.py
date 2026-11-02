@@ -231,12 +231,7 @@ class ProtectionExecutionService:
                 diagnostics.append(message)
                 outcomes.append(ProtectionActionOutcome(
                     protection_decision, control_decision, None, None,
-                    "stale_provenance_rejected", message,
-                    field_device_delivery_status=str(getattr(field_status, "delivery_status", "unknown")) if field_status is not None else "not_configured",
-                    field_device_delivery_id=getattr(field_status, "delivery_id", None) if field_status is not None else None,
-                    field_device_acknowledgement_status=str(getattr(field_status, "acknowledgement_status", "unavailable")) if field_status is not None else "unavailable",
-                    field_device_acknowledgement_id=getattr(field_status, "acknowledgement_id", None) if field_status is not None else None,
-                    physical_acknowledgement=str(getattr(field_status, "acknowledgement_status", "unavailable")) if field_status is not None else "unknown/unavailable",
+                    "stale_provenance_rejected", message
                 ))
                 continue
 
