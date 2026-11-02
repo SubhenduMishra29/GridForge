@@ -98,6 +98,7 @@ class TransientResultViewWidget(QWidget):
             f"Samples: {model.sample_count}",
             f"Signals: {len(model.signals)}",
             f"Events: {len(model.events)}",
+            f"Algebraic quality records: {len(model.algebraic_quality)}",
         ]
         if model.record_id is not None:
             details.append(f"Archive record: {model.record_id}")
@@ -161,7 +162,7 @@ class TransientResultViewWidget(QWidget):
                 if not quality.quality_verified:
                     quality_label += " / quality unverified"
             else:
-                quality_label = f"{quality.status} / ACCEPTED, UNVERIFIED"
+                quality_label = f"{quality.status} / accepted, quality unverified"
             self._quality_list.addItem(
                 f"Sample {quality.sample_index} — {quality.time_s:.9g} s — {quality_label}"
             )
