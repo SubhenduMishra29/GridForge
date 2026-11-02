@@ -45,6 +45,7 @@ class TransientNetworkRuntime:
                 for machine_id, path in sorted(snapshot.machine_connection_paths.items())
             },
             "initial_switch_states": dict(self.event_state.breaker_states),
+            "switch_availability_states": dict(snapshot.switch_available_states),
         }
 
 
