@@ -19236,3 +19236,284 @@ Status:
 
 ======================================================================
 
+======================================================================
+GF-PROT-049 — Reconcile ANSI 25 containment onto post-PR-908 main
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    PR #912 reconciliation after phase-domain protection integration
+
+Files:
+    core/application/services/model_service.py
+    core/application/services/switching_model_service.py
+    core/protection/project_configuration.py
+    Modification_Register.txt
+
+Correction:
+    Reapply the fail-closed breaker-close authorization boundary onto the
+    post-PR-908 Application services without reverting current main's newer
+    protection configuration, residual-current input contracts, or
+    measurement-binding validation. ModelService forwards the optional
+    authorizer to SwitchingModelService. Breaker close, re-energization and
+    undo restoration paths require explicit authorization; absence, exception
+    or non-True authorization denies energization.
+
+Persistence:
+    Add optional schema-2 synchronism_check_configuration to the existing
+    ProtectionProjectConfiguration aggregate. Preserve all current main
+    fields and serialization behavior when no ANSI 25 policy is configured.
+    Policy remains finite JSON and detached/frozen after assignment.
+
+Limitations:
+    This is containment and persistence only. No authenticated live
+    measurement publisher, trusted clock authority, or project-scoped
+    synchronism guard is composed. Default breaker energization remains
+    denied. No tests or CI were run; runtime and persistence round-trip are
+    unverified.
+
+======================================================================
+GF-PROT-050 — Authenticated measurement publication and clock provenance
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    ANSI 25 trusted measurement publication boundary
+
+Files:
+    core/measurement/measurement_channel.py
+    core/application/services/measurement_channel_service.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Correction:
+    Project-managed MeasurementChannel sample state is sealed against direct
+    mutation. Updates require the owning MeasurementChannelService capability.
+    The service accepts only a typed MeasurementSampleAttestation, checks the
+    configured producer identity, active project ID and activation generation,
+    exact timestamp domain, monotonic sample sequence and source timestamp
+    against an injected trusted clock. A deployment-provided verifier must
+    authenticate the producer and signed attestation/value tuple; absent
+    verifier or clock fails closed.
+
+Concurrency:
+    Measurement publication shares the Application command execution lock so
+    sample updates cannot interleave with breaker authorization and mutation.
+
+Limitations:
+    No production SCADA/PMU/device signature verifier or trusted synchronized
+    clock adapter is supplied by default. Existing channel definitions require
+    explicit producer_id and timestamp_domain before publication is possible.
+    ANSI 25 guard composition and physical instrument commissioning remain
+    separate integration work. No tests or CI were run.
+
+======================================================================
+GF-PROT-051 — Project-scoped ANSI 25 guard and physical instrument topology
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    PR #912 Application composition and synchronism-check enforcement
+
+Files:
+    core/application/synchronism_check.py
+    core/application/bootstrap.py
+    Modification_Register.txt
+
+Correction:
+    Add the typed six-channel ANSI 25 policy/measurement guard and compose it
+    through the Application breaker-close authorizer. Guard instances are
+    scoped to project identity and activation generation and are installed
+    transactionally with project state; activation rollback restores the
+    prior guard. The authorization boundary also rebuilds the active guard
+    against the current policy, project path, Network, and activation generation
+    on each close attempt, covering policy edits and Save As path changes. No
+    active guard means breaker energization is denied.
+
+Physical topology:
+    Resolve breaker FROM/TO terminals to distinct buses through the canonical
+    ConnectivityResolver. Every configured left/right voltage, phase-angle,
+    and frequency channel must originate from a PT/CVT secondary whose two
+    primary terminals resolve only to the corresponding breaker-side bus.
+    Missing, ambiguous, out-of-service, wrong-family, or cross-side instrument
+    topology fails closed before sample evaluation.
+
+Audit and clock:
+    Compose the append-only fsync-backed project sidecar audit only when the
+    project is saved and injected trusted clock/domain adapters are available.
+    The audit clock domain must match the measurement publication domain.
+    Missing clock, domain, saved path, audit sink, policy, or topology validator
+    leaves the breaker authorizer closed. A deployment may inject a trusted
+    bypass provider; absent that provider, bypass requests cannot authorize
+    energization. Bypass authorization is project/generation/breaker scoped,
+    single-use, limited to five minutes, and its decision metadata is audited.
+
+Limitations:
+    Production verifier/clock adapters, explicit bypass workflow, hardware
+    commissioning, runtime tests, persistence round-trip and full end-to-end
+    breaker close execution remain unverified. No tests or CI were run.
+
+======================================================================
+GF-PROT-052 — Durable single-use ANSI 25 bypass consumption
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    Project-scoped ANSI 25 bypass replay protection
+
+Files:
+    core/application/synchronism_check.py
+    Modification_Register.txt
+
+Finding:
+    The Application authorization callback reconstructs the ANSI 25 guard
+    for each breaker-close attempt so that current policy and Save As paths
+    are always used. A consumed-token set owned by an individual guard was
+    therefore reset on every attempt, allowing a still-valid bypass token
+    to be presented again.
+
+Correction:
+    ProjectScopedSynchronismAuditSink now claims each bypass authorization
+    using a hashed marker created atomically with O_CREAT|O_EXCL in a
+    project-ID-scoped registry under the user profile. The marker contains
+    the authorization identity and project/generation/breaker scope, is
+    fsync-backed, and survives guard reconstruction, process restarts, Save
+    As, and project moves. Existing markers, scope mismatches, write errors,
+    or any consumer result other than literal True deny bypass. Generic
+    non-persistent audit sinks retain guard-local replay protection only.
+
+Safety:
+    Token consumption is recorded before the authorization decision audit.
+    If the subsequent decision audit or breaker mutation fails, the token
+    remains consumed. This deliberately prefers a non-replayable denied
+    attempt over possible token reuse.
+
+Limitations:
+    Persistent marker guarantees depend on the durability and access-control
+    properties of the user-profile filesystem. Directory fsync is applied on
+    platforms that support it. No tests or CI were run.
+
+======================================================================
+GF-PROT-053 — Seal project-managed measurement source configuration
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    MeasurementChannel physical-source and engineering-configuration integrity
+
+Files:
+    core/measurement/measurement_channel.py
+    core/application/services/measurement_channel_service.py
+    Modification_Register.txt
+
+Finding:
+    Project-managed channels protected sample-value mutation, but exposed
+    mutable source, source-terminal, signal-type, engineering-unit, scaling,
+    and producer identity attributes. Since channel objects are returned to
+    Application consumers, changing source references could invalidate the
+    physical PT/CVT topology trust decision after activation.
+
+Correction:
+    MeasurementChannel now seals its physical-source identity and engineering
+    configuration after MeasurementChannelService activation. The immutable
+    set includes channel identity, signal type, source equipment, source
+    terminal, phase, unit, nominal value, scale, polarity, stale-after policy,
+    and producer identity. The service assigns the configured producer ID
+    before binding its sample-update capability. Sample state remains writable
+    only through the authenticated publication service.
+
+Safety:
+    Topology and producer checks now consume channel configuration that cannot
+    be reassigned through ordinary attribute writes after project activation.
+    Project activation rollback retains the original channel objects and their
+    sealed state.
+
+Limitations:
+    Python in-process code with deliberate access to private object internals is
+    outside this object-level mutation boundary. No tests or CI were run.
+
+======================================================================
+GF-PROT-054 — Authenticate complete measurement sample envelope
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    Trusted measurement publication attestation integrity
+
+Files:
+    core/application/services/measurement_channel_service.py
+    Modification_Register.txt
+
+Finding:
+    MeasurementSampleAttestation authenticated producer/project/generation,
+    timestamp/domain, sequence and signature, while publish_sample accepted
+    quality and availability as independent caller-supplied arguments. The
+    verifier therefore had no signed source metadata to validate for those
+    safety-critical fields. The attestation also did not explicitly bind the
+    target logical channel identity.
+
+Correction:
+    Extend the typed attestation with channel_id, MeasurementQuality and
+    availability. Validate these fields at construction and require the
+    published channel, quality and availability to match the attested values
+    exactly before invoking the configured verifier. The verifier receives
+    the complete typed envelope and raw value, so it can authenticate the
+    full sample payload, including its logical-channel association.
+
+Safety:
+    A caller cannot promote a signed but SUSPECT/INVALID/UNKNOWN or unavailable
+    source sample to GOOD/available by changing publication arguments.
+    Cross-channel replay is rejected before sample mutation.
+
+Limitations:
+    Deployment verifier implementations must include the new channel_id,
+    quality and availability fields in the signature-validation contract.
+    No tests or CI were run.
+
+======================================================================
+GF-PROT-055 — Bind ANSI 25 instruments to active Network object identity
+======================================================================
+
+Date:
+    2026-11-01
+
+Scope:
+    ANSI 25 physical measurement source provenance
+
+Files:
+    core/application/synchronism_check.py
+    Modification_Register.txt
+
+Finding:
+    The topology validator checked PT/CVT source IDs and terminal references,
+    then resolved topology by those IDs. It did not prove that the source
+    object retained by the MeasurementChannel was the canonical equipment
+    instance registered in the active Network. A stale object from another
+    Network with colliding IDs could therefore be evaluated against the
+    active Network's topology.
+
+Correction:
+    Require network.get_by_identity(source.id) to return the exact same object
+    instance as channel.source before accepting its PT/CVT type, service state,
+    secondary terminal binding, or primary terminal topology. Missing registry
+    lookup, missing identity, and object mismatch deny breaker closing.
+
+Safety:
+    The instrument state and physical terminals evaluated by ANSI 25 are now
+    tied to the exact active Network equipment instance, not merely a matching
+    equipment identifier.
+
+Limitations:
+    No tests or CI were run; cross-project runtime fixtures remain unverified.
