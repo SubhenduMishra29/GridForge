@@ -33,7 +33,9 @@ class DynamicMachineModelAssociation:
     bus_id: str
     model_type: str
     parameters: ClassicalMachineParameters
+    connection_path: tuple[str, ...]
     mechanical_power: float = 0.0
+    disconnected_rotor_policy: str = "continue_with_zero_electrical_power"
     metadata: Mapping[str, Any] = MappingProxyType({})
     project_id: str = ""
     activation_generation: int = 0
@@ -55,6 +57,26 @@ class DynamicMachineModelAssociation:
         object.__setattr__(self, "machine_id", self.machine_id.strip())
         object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "model_type", self.model_type.strip())
+        if isinstance(self.connection_path, (str, bytes)):
+            raise TypeError("connection_path must be an ordered sequence of switching-equipment IDs.")
+        path = tuple(str(item).strip() for item in self.connection_path)
+        if not path or any(not item for item in path):
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' requires an explicit non-empty connection_path "
+                "of canonical switching-equipment IDs."
+            )
+        if len(path) != len(set(path)):
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' connection_path contains duplicate equipment IDs."
+            )
+        object.__setattr__(self, "connection_path", path)
+        policy = str(self.disconnected_rotor_policy).strip()
+        if policy != "continue_with_zero_electrical_power":
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' has unsupported disconnected_rotor_policy "
+                f"{policy!r}; the supported policy is 'continue_with_zero_electrical_power'."
+            )
+        object.__setattr__(self, "disconnected_rotor_policy", policy)
         object.__setattr__(self, "mechanical_power", float(self.mechanical_power))
         object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
 
@@ -65,6 +87,8 @@ class DynamicMachineModelAssociation:
             "activation_generation": self.activation_generation,
             "machine_id": self.machine_id,
             "bus_id": self.bus_id,
+            "connection_path": list(self.connection_path),
+            "disconnected_rotor_policy": self.disconnected_rotor_policy,
             "model_type": self.model_type,
             "mechanical_power": self.mechanical_power,
             "parameters": {"H": p.H, "Xd_prime": p.Xd_prime, "D": p.D, "Efd": p.Efd,
@@ -84,6 +108,8 @@ class DynamicMachineModelAssociation:
             activation_generation=int(activation_generation if activation_generation is not None else data.get("activation_generation", 0)),
             machine_id=str(data.get("machine_id", "")),
             bus_id=str(data.get("bus_id", "")),
+            connection_path=tuple(data.get("connection_path", ())),
+            disconnected_rotor_policy=str(data.get("disconnected_rotor_policy", "continue_with_zero_electrical_power")),
             model_type=str(data.get("model_type", "")),
             mechanical_power=float(data.get("mechanical_power", 0.0)),
             parameters=ClassicalMachineParameters(
