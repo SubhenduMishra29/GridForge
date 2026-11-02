@@ -101,53 +101,69 @@ class ControlExecutionService:
         return self._dispatcher
 
     def execute(self, evaluation: ControlEvaluationResult) -> ControlExecutionResult:
-        """Dispatch every valid decision; failures never suppress later decisions."""
+        """Execute coordinated breaker trips atomically; dispatch other intents normally."""
         if not isinstance(evaluation, ControlEvaluationResult):
             raise TypeError("evaluation must be a ControlEvaluationResult.")
-
         executed: list[ControlDecision] = []
-        invalid: list[ControlDecision] = []
+        invalid: list[ControlDecision] = [
+            item for item in evaluation.decisions if not item.valid
+        ]
         failed: list[ControlDecision] = []
         results: list[ApplicationResult[Any]] = []
         diagnostics: list[str] = []
         failure_diagnostics: list[tuple[str, str]] = []
-
-        for decision in evaluation.decisions:
-            if not decision.valid:
-                invalid.append(decision)
+        valid = tuple(item for item in evaluation.decisions if item.valid)
+        trip_batch = tuple(
+            item for item in valid
+            if item.target_equipment_type == "breaker"
+            and item.action_type.value == "trip"
+        )
+        batched_ids = {item.control_id for item in trip_batch}
+        if len(trip_batch) >= 2:
+            try:
+                result = self._dispatcher.execute_trip_batch(trip_batch)
+                if not isinstance(result, ApplicationResult):
+                    raise TypeError(
+                        "Trip batch dispatcher returned "
+                        f"{type(result).__name__}, not ApplicationResult."
+                    )
+                results.append(result)
+                executed.extend(trip_batch)
+            except Exception as exc:
+                for decision in trip_batch:
+                    failed.append(decision)
+                    message = (
+                        f"Control '{decision.control_id}' coordinated trip batch "
+                        f"rolled back: {exc}"
+                    )
+                    diagnostics.append(message)
+                    failure_diagnostics.append((decision.control_id, message))
+        for decision in valid:
+            if decision.control_id in batched_ids:
                 continue
-
             try:
                 result = self._dispatcher.execute(decision)
+                if not isinstance(result, ApplicationResult):
+                    raise TypeError(
+                        "Dispatcher returned "
+                        f"{type(result).__name__}, not ApplicationResult."
+                    )
+                results.append(result)
+                if result.success:
+                    executed.append(decision)
+                else:
+                    failed.append(decision)
+                    detail = result.message.strip() or (
+                        "Application command reported failure without a diagnostic."
+                    )
+                    message = f"Control '{decision.control_id}' execution failed: {detail}"
+                    diagnostics.append(message)
+                    failure_diagnostics.append((decision.control_id, message))
             except Exception as exc:
                 failed.append(decision)
                 message = f"Control '{decision.control_id}' execution failed: {exc}"
                 diagnostics.append(message)
                 failure_diagnostics.append((decision.control_id, message))
-                continue
-
-            if not isinstance(result, ApplicationResult):
-                failed.append(decision)
-                message = (
-                    f"Control '{decision.control_id}' execution failed: dispatcher returned "
-                    f"{type(result).__name__}, not ApplicationResult."
-                )
-                diagnostics.append(message)
-                failure_diagnostics.append((decision.control_id, message))
-                continue
-
-            results.append(result)
-            if result.success:
-                # This means the Application command succeeded, not that
-                # equipment physically operated or acknowledged the action.
-                executed.append(decision)
-            else:
-                failed.append(decision)
-                detail = result.message.strip() or "Application command reported failure without a diagnostic."
-                message = f"Control '{decision.control_id}' execution failed: {detail}"
-                diagnostics.append(message)
-                failure_diagnostics.append((decision.control_id, message))
-
         return ControlExecutionResult(
             executed_decisions=tuple(executed),
             invalid_decisions=tuple(invalid),
@@ -157,6 +173,5 @@ class ControlExecutionService:
             diagnostics=tuple(diagnostics),
             failure_diagnostics=tuple(failure_diagnostics),
         )
-
 
 __all__ = ["ControlExecutionResult", "ControlExecutionService"]
