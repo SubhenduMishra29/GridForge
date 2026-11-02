@@ -124,21 +124,39 @@ RelayInput → ProtectionElement → ProtectionDecision
 
 No protection function, relay plugin, UI panel or solver may mutate breaker state directly. A decision is not an acknowledgement that a breaker operated. Physical feedback and postcondition evidence must be represented separately.
 
-## 7. Mainline limits and evidence
+## 7. D15F-29–37 — physical switching and transformer multiport increments
+
+The mainline Modification Register contains additional D15F implementation increments beyond the initial graph foundation:
+
+| Increment | Implemented contract | Explicit limitation |
+|---|---|---|
+| D15F-29 | Explicit A/B/C/N inventories and state-gated terminal-to-terminal pole paths for Switch, Disconnector and Fuse | No per-pole discrepancy, fuse arc/melting, contact resistance or earthing-blade model; persistence/configurator gaps were recorded |
+| D15F-30 | Common immutable PhysicalConductorConstruction/PhysicalConductorPath consumed by Breaker, Switch, Disconnector and Fuse | Two-terminal paths only; persistence/UI configuration not fully consolidated |
+| D15F-31 | Explicit Transformer HV/LV winding construction, terminal roles, phase roles and neutral declarations | Metadata/construction contract only; no magnetic coupling or HV-LV galvanic continuity |
+| D15F-32 | Reciprocal passive Transformer terminal-admittance multiport primitive in the phase-domain solver | Requires complete externally supplied matrix; no automatic model producer in this increment |
+| D15F-33 | Transformer model-to-multiport producer with exact terminal inventory and tap/phase-shift provenance | Does not derive the matrix from scalar r/x or vector-group labels; persistence/configurator integration was outstanding |
+| D15F-34 | SLD-derived graph builder creates Transformer winding terminal nodes and automatically prepares the multiport for short-circuit study | Requires explicit complete matrix; no implicit neutral/earth path; persistence/configurator gaps remain |
+| D15F-35 | Explicit grounded-wye neutral electrode and earth-return graph paths with distinct impedances and current reconciliation | No inferred core response, PE/screen parallel division, multiple electrodes or soil-frequency model |
+| D15F-36 | Matrix fingerprint binds zero-sequence core/delta coverage evidence to exact terminal order and matrix values | Evidence/provenance validation, not independent magnetic-core reconstruction |
+| D15F-37 | Explicit internal delta-loop states solved as coupled MNA current unknowns; per-loop currents reported | Reduced internal coordinates, not individually placeable SLD conductors or thermal/core-limb states |
+
+This closes the earlier blanket statement that transformer multiport graph integration and all switching-pole paths were absent. It does **not** establish universal source/equipment coverage or complete persistence/configurator/UI support. The transformer matrix remains an explicit externally supplied engineering input, with manufacturer/test provenance and exact evidence binding. A delta winding without explicit loop state fails closed.
+
+## 8. Mainline limits and evidence
 
 The PR #908 merge description explicitly retains these limitations:
 
 - Grid/Generator/Motor phase-domain source equivalents are not automatically derived for every supported source model;
-- dedicated phase-domain transformer, machine, load, arc-fault and switching primitives remain incomplete outside implemented cases;
+- dedicated phase-domain machine/load/arc-fault and unsupported switching primitives remain incomplete; D15F-29–37 provides the bounded switching and transformer cases listed above;
 - NEUTRAL_CT and CBCT execution is supported only where explicit conductor graph, result coverage and construction contracts prove the physical current path;
-- phase-domain graph editing is available programmatically through Application, but its SLD authoring/projection workflow remains outstanding;
+- Application graph edits and SLD-derived equipment/winding graph construction exist for the supported D15F cases; a general-purpose user-facing graph editor and complete construction configurators remain outstanding;
 - protection execution and production readiness are not established by these foundations.
 
 The merge was reviewed through remote source inspection and integration review. No tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end runtime execution were run as part of that merge. Do not upgrade these evidence labels in documentation without new recorded evidence.
 
 Open/draft follow-up PRs are not mainline capabilities. Reconcile each against the then-current `main` before changing this status.
 
-## 8. Required future SLD workflow
+## 9. Required future SLD workflow
 
 1. Engineer selects a supported phase-domain authoring tool.
 2. UI previews candidate nodes/segments without mutating Core.
