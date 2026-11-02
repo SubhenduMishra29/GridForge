@@ -8,12 +8,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+import math
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from .revision import ProjectRevision
+
+from core.solver.power_flow.result import PowerFlowResult
+from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
