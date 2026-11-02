@@ -1,0 +1,622 @@
+"""Protection engineering capability and curve presentation panels.
+
+These widgets are read-only projections of canonical Core catalog and TCC
+read models. They do not create relay elements, alter settings, grade studies,
+or issue equipment commands.
+"""
+from __future__ import annotations
+
+from math import isfinite, log10
+from typing import Any
+
+from core.protection import (
+    ProtectionFunctionStatus,
+    build_protection_tcc_read_model,
+    get_protection_function,
+    list_protection_functions,
+)
+from ui.core.qt import (
+    QChart,
+    QChartView,
+    QGroupBox,
+    QLabel,
+    QLineSeries,
+    QTableWidget,
+    QTableWidgetItem,
+    Qt,
+    QValueAxis,
+    QVBoxLayout,
+    QWidget,
+)
+
+
+class ProtectionFunctionCatalogPanel(QGroupBox):
+    """Display every canonical ANSI function and its actual implementation status."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("ANSI Protection Function Catalogue", parent)
+        self._table = QTableWidget(0, 5, self)
+        self._table.setHorizontalHeaderLabels(
+            ("ANSI", "Function", "Implementation", "Input contract", "Creation policy")
+        )
+        self._table.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._table)
+        self.refresh()
+
+    def refresh(self) -> None:
+        codes = list_protection_functions()
+        self._table.setRowCount(len(codes))
+        for row, code in enumerate(codes):
+            specification = get_protection_function(code)
+            implementation = (
+                specification.implementation.__name__
+                if specification.implementation is not None
+                else "—"
+            )
+            contract = specification.input_contract
+            if contract is None:
+                input_text = "No declared input contract"
+            elif not contract.supported:
+                input_text = f"FAIL-CLOSED: {contract.unsupported_reason}"
+            else:
+                input_text = ", ".join(contract.inputs) or "No inputs declared"
+            if specification.status is ProtectionFunctionStatus.IMPLEMENTED:
+                policy = "Available to factory"
+            elif specification.status is ProtectionFunctionStatus.PARTIAL:
+                policy = "Blocked until closure"
+            else:
+                policy = "Unavailable"
+            values = (
+                specification.code,
+                specification.name,
+                f"{specification.status.value} · {implementation}",
+                input_text,
+                policy,
+            )
+            for column, value in enumerate(values):
+                self._table.setItem(row, column, QTableWidgetItem(str(value)))
+        self._table.resizeColumnsToContents()
+
+
+class ProtectionTCCPanel(QGroupBox):
+    """Render an immutable IEC/IEEE TCC read model for the selected 51/51N relay."""
+
+    def __init__(
+        self,
+        *,
+        application: Any,
+        selection_manager: Any,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__("Time-Current Characteristic (TCC)", parent)
+        self._application = application
+        self._selection_manager = selection_manager
+        self._summary = QLabel("Select an ANSI 51 or 51N relay with complete settings.", self)
+        self._summary.setWordWrap(True)
+        self._chart = QChart()
+        self._chart.setTitle("IEC 60255 / IEEE C37.112 inverse-time characteristics")
+        self._chart.legend().setVisible(True)
+        self._chart_x_axis = QValueAxis()
+        self._chart_y_axis = QValueAxis()
+        self._chart_x_axis.setTitleText("log10(Current / A)")
+        self._chart_y_axis.setTitleText("log10(Operating time / s)")
+        self._chart_x_axis.setLabelFormat("%.2f")
+        self._chart_y_axis.setLabelFormat("%.2f")
+        self._chart.addAxis(self._chart_x_axis, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(self._chart_y_axis, Qt.AlignmentFlag.AlignLeft)
+        self._chart_view = QChartView(self._chart, self)
+        self._chart_view.setMinimumHeight(260)
+        self._table = QTableWidget(0, 5, self)
+        self._table.setHorizontalHeaderLabels(("Function element", "Curve", "Current multiple", "Current (A)", "Operating time (s)"))
+        self._table.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._summary)
+        layout.addWidget(self._chart_view, 2)
+        layout.addWidget(self._table, 1)
+        selection_manager.selection_changed.connect(self._on_selection_changed)
+        self.refresh()
+
+    def _on_selection_changed(self, _ids: Any) -> None:
+        self.refresh()
+
+    def dispose(self) -> None:
+        try:
+            self._selection_manager.selection_changed.disconnect(self._on_selection_changed)
+        except (RuntimeError, TypeError):
+            pass
+
+    def refresh(self) -> None:
+        self._table.setRowCount(0)
+        self._chart.removeAllSeries()
+        selected = self._selection_manager.selected_ids
+        if not selected:
+            self._summary.setText("Select a relay to inspect its configured inverse-time function TCCs.")
+            return
+        relay_id = str(selected[0]).split(":", 1)[0]
+        try:
+            protection = self._application.read_protection()
+            configurations = self._application.read_protection_configuration()
+        except RuntimeError:
+            self._summary.setText("Protection read boundary unavailable.")
+            return
+        relay = next(
+            (item for item in protection.relays if str(item.object_id) == relay_id),
+            None,
+        )
+        if relay is None:
+            self._summary.setText("The selected presentation object is not a relay.")
+            return
+        # A physical relay can host multiple independent protection elements.
+        # Resolve each function by its canonical element configuration rather
+        # than assuming one function_type per physical relay.
+        relay_configurations = tuple(
+            item for item in configurations if str(item.relay_id) == relay_id
+        )
+        if not relay_configurations:
+            self._summary.setText(
+                f"Relay {relay_id} has no configured protection-function elements."
+            )
+            return
+
+        rows: list[tuple[str, str, str, str, str]] = []
+        chart_points: dict[str, list[tuple[float, float]]] = {}
+        curve_labels: dict[str, str] = {}
+        notices: list[str] = []
+        for configuration in relay_configurations:
+            code = str(configuration.function_code).strip().upper()
+            if code not in {"51", "51N"}:
+                notices.append(
+                    f"{configuration.element_id}: ANSI {code} does not use an inverse-time TCC in this view."
+                )
+                continue
+            settings = dict(configuration.settings or {})
+            pickup = settings.get("pickup")
+            curve = settings.get("curve")
+            time_dial = settings.get("TMS", settings.get("time_dial"))
+            standard = settings.get("curve_standard", "IEC")
+            missing = [
+                name for name, value in (
+                    ("pickup", pickup), ("curve", curve), ("TMS/time_dial", time_dial)
+                ) if value is None
+            ]
+            if missing:
+                notices.append(
+                    f"{configuration.element_id}: TCC unavailable; missing "
+                    + ", ".join(missing)
+                    + "."
+                )
+                continue
+            try:
+                model = build_protection_tcc_read_model(
+                    pickup,
+                    curve_standard=standard,
+                    curve=curve,
+                    time_dial=time_dial,
+                    points=31,
+                )
+            except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                notices.append(
+                    f"{configuration.element_id}: TCC refused: {type(exc).__name__}: {exc}"
+                )
+                continue
+            curve_label = f"{model.curve_standard} {model.curve}"
+            element_id = str(configuration.element_id)
+            chart_points[element_id] = []
+            curve_labels[element_id] = (
+                f"{configuration.function_code} · {model.curve_standard} {model.curve}"
+            )
+            for point in model.points:
+                rows.append((
+                    element_id,
+                    curve_label,
+                    f"{point.multiple:.4g}",
+                    f"{point.current:.6g}",
+                    "∞" if point.time == float("inf") else f"{point.time:.6g}",
+                ))
+                if (
+                    isfinite(point.current)
+                    and isfinite(point.time)
+                    and point.current > 0.0
+                    and point.time > 0.0
+                ):
+                    chart_points[element_id].append((point.current, point.time))
+        self._table.setRowCount(len(rows))
+        series_by_element: dict[str, QLineSeries] = {}
+        chart_x: list[float] = []
+        chart_y: list[float] = []
+        for row, values in enumerate(rows):
+            for column, value in enumerate(values):
+                self._table.setItem(row, column, QTableWidgetItem(value))
+        for element_id, points in chart_points.items():
+            if not points:
+                continue
+            series = QLineSeries()
+            series.setName(f"{element_id} · {curve_labels.get(element_id, 'TCC')}")
+            series_by_element[element_id] = series
+            self._chart.addSeries(series)
+            series.attachAxis(self._chart_x_axis)
+            series.attachAxis(self._chart_y_axis)
+            for current_a, operating_time_s in points:
+                # Plot full-precision Core read-model values, not rounded table text.
+                x_value = log10(current_a)
+                y_value = log10(operating_time_s)
+                series.append(x_value, y_value)
+                chart_x.append(x_value)
+                chart_y.append(y_value)
+        if chart_x and chart_y:
+            x_min, x_max = min(chart_x), max(chart_x)
+            y_min, y_max = min(chart_y), max(chart_y)
+            self._chart_x_axis.setRange(
+                x_min - 0.1, x_max + 0.1 if x_max > x_min else x_max + 0.5
+            )
+            self._chart_y_axis.setRange(
+                y_min - 0.1, y_max + 0.1 if y_max > y_min else y_max + 0.5
+            )
+        self._table.resizeColumnsToContents()
+        if rows:
+            summary = (
+                f"Relay {relay_id}: generated {len(rows)} immutable TCC samples "
+                "for configured ANSI 51/51N elements. Current values use each "
+                "element's configured pickup basis; CT scaling is not inferred."
+            )
+        else:
+            summary = f"Relay {relay_id}: no eligible ANSI 51/51N TCC was generated."
+        if notices:
+            summary += "\n\n" + "\n".join(notices)
+        self._summary.setText(summary)
+
+
+class ProtectionCoordinationStudyPanel(QGroupBox):
+    """Project actual Protection Study coordination grades as a read-only table."""
+
+    _COLUMNS = (
+        "Scenario", "Downstream function", "Downstream current (A)",
+        "Downstream time (s)", "Upstream function", "Upstream current (A)",
+        "Upstream time (s)", "Breaker clearing (s)", "Available CTI (s)",
+        "Required CTI (s)", "Nominal grade", "Tolerance CTI (s)",
+        "Tolerance grade", "Tolerance assessment reason",
+        "Maximum breaker clearing (s)", "Downstream timing envelope (min–max s)",
+        "Upstream timing envelope (min–max s)", "Timing evidence references",
+    )
+
+    def __init__(self, *, application: Any, parent: QWidget | None = None) -> None:
+        super().__init__("Protection Coordination Study Results", parent)
+        self._application = application
+        self._in_progress_study_ids: set[str] = set()
+        self._summary = QLabel("No Protection Study coordination results are available.", self)
+        self._summary.setWordWrap(True)
+        self._table = QTableWidget(0, len(self._COLUMNS), self)
+        self._table.setHorizontalHeaderLabels(self._COLUMNS)
+        self._table.setWordWrap(True)
+        self._plot = QChart()
+        self._plot.setTitle("Study-driven coordination operating points and supplied timing bounds")
+        self._plot.legend().setVisible(True)
+        self._plot_x_axis = QValueAxis()
+        self._plot_y_axis = QValueAxis()
+        self._plot_x_axis.setTitleText("log10(Function current / A)")
+        self._plot_y_axis.setTitleText("log10(Time / s)")
+        self._plot_x_axis.setLabelFormat("%.2f")
+        self._plot_y_axis.setLabelFormat("%.2f")
+        self._plot.addAxis(self._plot_x_axis, Qt.AlignmentFlag.AlignBottom)
+        self._plot.addAxis(self._plot_y_axis, Qt.AlignmentFlag.AlignLeft)
+        self._plot_view = QChartView(self._plot, self)
+        self._plot_view.setMinimumHeight(280)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._summary)
+        layout.addWidget(self._plot_view, 1)
+        layout.addWidget(self._table, 1)
+        self.refresh()
+
+    @staticmethod
+    def _number(value: Any) -> str:
+        if value is None:
+            return "—"
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if number == float("inf"):
+            return "∞"
+        if number == float("-inf"):
+            return "−∞"
+        return f"{number:.6g}"
+
+    @classmethod
+    def _envelope_summary(cls, envelope: Any) -> str:
+        if envelope is None:
+            return "Not supplied"
+        minimum = cls._number(getattr(envelope, "minimum_time_s", None))
+        maximum = cls._number(getattr(envelope, "maximum_time_s", None))
+        current = cls._number(getattr(envelope, "current_a", None))
+        return f"{minimum}–{maximum} s @ {current} A"
+
+    def set_study_in_progress(self, study_id: Any, in_progress: bool) -> None:
+        """Suppress a prior result while this Study Case is executing a rerun."""
+        key = str(study_id).strip()
+        if not key:
+            return
+        if in_progress:
+            self._in_progress_study_ids.add(key)
+        else:
+            self._in_progress_study_ids.discard(key)
+        self.refresh()
+
+    def clear_in_progress(self) -> None:
+        """Clear execution markers when the project is closed or replaced."""
+        self._in_progress_study_ids.clear()
+        self.refresh()
+
+    def refresh(self) -> None:
+        self._table.setRowCount(0)
+        reader = getattr(self._application, "read_study_results", None)
+        if not callable(reader):
+            self._summary.setText("Application does not expose the Protection Study result read model.")
+            return
+        try:
+            results = tuple(reader())
+        except Exception as exc:
+            self._summary.setText(f"Protection Study results unavailable: {type(exc).__name__}: {exc}")
+            return
+
+        rows: list[tuple[str, ...]] = []
+        plot_records: list[dict[str, Any]] = []
+        stale_rows = 0
+        in_progress_rows = 0
+        reports_seen = 0
+        lifecycle = getattr(self._application, "project_lifecycle", None)
+        context = getattr(lifecycle, "context", None) if lifecycle is not None else None
+        if (
+            lifecycle is None
+            or context is None
+            or not getattr(lifecycle, "has_project", False)
+            or getattr(lifecycle, "state", None) != "ACTIVE"
+        ):
+            self._summary.setText("No active project; Protection Study coordination results are hidden.")
+            self._refresh_coordination_plot([])
+            return
+        active_project_id = str(context.project_id)
+        active_generation = int(lifecycle.activation_generation)
+
+        for result in results:
+            if str(getattr(result, "study_type", "")).strip().lower() != "protection":
+                continue
+            if (
+                str(getattr(result, "project_id", "")) != active_project_id
+                or int(getattr(result, "activation_generation", -1)) != active_generation
+            ):
+                stale_rows += 1
+                continue
+            study_id = str(getattr(result, "study_id", "unknown"))
+            if study_id in self._in_progress_study_ids:
+                in_progress_rows += 1
+                continue
+            current = bool(getattr(result, "current", False))
+            completed = str(getattr(result, "status", "")).strip().lower() == "completed"
+            if not current or not completed:
+                stale_rows += 1
+                continue
+            protection_result = getattr(result, "value", None)
+            for scenario in tuple(getattr(protection_result, "fault_scenarios", ()) or ()):
+                report = getattr(scenario, "coordination_report", None)
+                if report is None:
+                    continue
+                reports_seen += 1
+                for grade in tuple(getattr(report, "grades", ()) or ()):
+                    plot_records.append({
+                        "study_id": study_id,
+                        "scenario_id": str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
+                        "downstream_id": str(getattr(grade, "downstream_function_id", "—")),
+                        "upstream_id": str(getattr(grade, "upstream_function_id", "—")),
+                        "downstream_current_a": getattr(grade, "downstream_current_a", None),
+                        "upstream_current_a": getattr(grade, "upstream_current_a", None),
+                        "downstream_time_s": getattr(grade, "downstream_operating_time_s", None),
+                        "upstream_time_s": getattr(grade, "upstream_operating_time_s", None),
+                        "breaker_s": getattr(grade, "downstream_breaker_clearing_time_s", None),
+                        "breaker_max_s": getattr(grade, "downstream_breaker_clearing_time_max_s", None),
+                        "downstream_envelope": getattr(grade, "downstream_timing_envelope", None),
+                        "upstream_envelope": getattr(grade, "upstream_timing_envelope", None),
+                        "cti_s": getattr(grade, "available_cti_s", None),
+                        "required_cti_s": getattr(grade, "required_cti_s", None),
+                        "status": str(getattr(grade, "status", "NOT_EVALUABLE")),
+                        "tolerance_status": str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
+                    })
+                    rows.append((
+                        study_id,
+                        str(getattr(grade, "scenario_id", getattr(scenario, "scenario_id", "unknown"))),
+                        str(getattr(grade, "downstream_function_id", "—")),
+                        self._number(getattr(grade, "downstream_current_a", None)),
+                        self._number(getattr(grade, "downstream_operating_time_s", None)),
+                        str(getattr(grade, "upstream_function_id", "—")),
+                        self._number(getattr(grade, "upstream_current_a", None)),
+                        self._number(getattr(grade, "upstream_operating_time_s", None)),
+                        self._number(getattr(grade, "downstream_breaker_clearing_time_s", None)),
+                        self._number(getattr(grade, "available_cti_s", None)),
+                        self._number(getattr(grade, "required_cti_s", None)),
+                        str(getattr(grade, "status", "NOT_EVALUABLE")),
+                        self._number(getattr(grade, "tolerance_available_cti_s", None)),
+                        str(getattr(grade, "tolerance_status", "NOT_ASSESSED")),
+                        str(getattr(grade, "tolerance_reason", "No tolerance assessment reason published.")),
+                        self._number(getattr(grade, "downstream_breaker_clearing_time_max_s", None)),
+                        self._envelope_summary(getattr(grade, "downstream_timing_envelope", None)),
+                        self._envelope_summary(getattr(grade, "upstream_timing_envelope", None)),
+                        "; ".join(
+                            str(getattr(envelope, "evidence_reference", "")).strip()
+                            for envelope in (
+                                getattr(grade, "downstream_timing_envelope", None),
+                                getattr(grade, "upstream_timing_envelope", None),
+                            )
+                            if envelope is not None and str(getattr(envelope, "evidence_reference", "")).strip()
+                        ) or "Not supplied",
+                    ))
+
+        # Include study identity in the first visible column without inventing
+        # relationships: each row is copied from one explicit Core grade.
+        self._table.setColumnCount(len(self._COLUMNS) + 1)
+        self._table.setHorizontalHeaderLabels(("Study ID",) + self._COLUMNS)
+        self._table.setRowCount(len(rows))
+        for row_index, values in enumerate(rows):
+            for column, value in enumerate(values):
+                self._table.setItem(row_index, column, QTableWidgetItem(value))
+        self._table.resizeColumnsToContents()
+        self._summary.setText(
+            f"{len(rows)} explicit coordination grade(s) from {reports_seen} current, "
+            f"completed Protection Study report(s). {stale_rows} non-current or "
+            "non-completed Protection result(s) and "
+            f"{in_progress_rows} result(s) superseded by an in-progress rerun were excluded. "
+            "Tolerance CTI and reason "
+            "and typed manufacturer/test timing envelopes are taken directly from the "
+            "immutable Core grade. Evidence references are provenance labels, not authentication."
+            if rows else
+            "No current, completed Protection Study contains a static coordination report. "
+            f"{stale_rows} non-current or non-completed Protection result(s) and "
+            f"{in_progress_rows} result(s) superseded by an in-progress rerun were excluded."
+        )
+        self._refresh_coordination_plot(plot_records)
+
+    def _refresh_coordination_plot(self, records: list[dict[str, Any]]) -> None:
+        """Plot exact-scenario grade data; never extrapolate a TCC from one point."""
+        self._plot.removeAllSeries()
+        x_values: list[float] = []
+        y_values: list[float] = []
+
+        def add_series(name: str, points: list[tuple[Any, Any]]) -> None:
+            valid = [
+                (float(current), float(seconds))
+                for current, seconds in points
+                if current is not None and seconds is not None
+                and isfinite(float(current)) and isfinite(float(seconds))
+                and float(current) > 0.0 and float(seconds) > 0.0
+            ]
+            if not valid:
+                return
+            series = QLineSeries()
+            series.setName(name)
+            series.setPointsVisible(True)
+            self._plot.addSeries(series)
+            series.attachAxis(self._plot_x_axis)
+            series.attachAxis(self._plot_y_axis)
+            for current, seconds in valid:
+                x_value, y_value = log10(current), log10(seconds)
+                series.append(x_value, y_value)
+                x_values.append(x_value)
+                y_values.append(y_value)
+
+        for record in records:
+            tag = f'{record["study_id"]} / {record["scenario_id"]}'
+            grade_label = (
+                f'CTI {self._number(record["cti_s"])} / '
+                f'{self._number(record["required_cti_s"])} s · '
+                f'{record["status"]} · {record["tolerance_status"]}'
+            )
+            tag = f"{tag} · {grade_label}"
+            down_current, up_current = record["downstream_current_a"], record["upstream_current_a"]
+            down_time, up_time = record["downstream_time_s"], record["upstream_time_s"]
+            add_series(f'{tag} · downstream {record["downstream_id"]}', [(down_current, down_time)])
+            add_series(f'{tag} · upstream {record["upstream_id"]}', [(up_current, up_time)])
+            if down_time is not None and record["breaker_s"] is not None:
+                clearing_points = [
+                    (down_current, float(down_time) + float(record["breaker_s"]))
+                ]
+                if record["breaker_max_s"] is not None:
+                    clearing_points.append(
+                        (down_current, float(down_time) + float(record["breaker_max_s"]))
+                    )
+                add_series(
+                    f'{tag} · downstream + breaker clearing bound(s)',
+                    clearing_points,
+                )
+            for role, current_key, envelope_key in (
+                ("downstream", "downstream_current_a", "downstream_envelope"),
+                ("upstream", "upstream_current_a", "upstream_envelope"),
+            ):
+                envelope = record[envelope_key]
+                if envelope is None:
+                    continue
+                current = getattr(envelope, "current_a", None)
+                scenario_current = record[current_key]
+                if (
+                    current is None or scenario_current is None
+                    or abs(float(current) - float(scenario_current))
+                    > max(1e-9, abs(float(scenario_current)) * 1e-9)
+                ):
+                    continue
+                add_series(
+                    f'{tag} · {role} supplied timing bounds',
+                    [
+                        (current, getattr(envelope, "minimum_time_s", None)),
+                        (current, getattr(envelope, "maximum_time_s", None)),
+                    ],
+                )
+
+        if x_values and y_values:
+            x_min, x_max = min(x_values), max(x_values)
+            y_min, y_max = min(y_values), max(y_values)
+            self._plot_x_axis.setRange(x_min - 0.15, x_max + 0.15 if x_max > x_min else x_max + 0.5)
+            self._plot_y_axis.setRange(y_min - 0.15, y_max + 0.15 if y_max > y_min else y_max + 0.5)
+        elif records:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nNo finite, positive current/time points are available for logarithmic plotting; "
+                "the exact Core grade records remain visible in the table."
+            )
+        else:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nNo current coordination grade records are available to plot."
+            )
+        if x_values:
+            self._summary.setText(
+                self._summary.text()
+                + "\n\nPlot shows exact-scenario operating points, exact-current supplied timing "
+                "bounds, and nominal/maximum downstream breaker-clearing endpoints. Current is "
+                "shown in each function's supplied ampere basis; no cross-CT normalization is "
+                "inferred. Do not compare horizontal positions across functions unless their CT "
+                "ratios and current bases are known to be equivalent. It does not synthesize "
+                "continuous TCC curves, interpolation, or missing "
+                "manufacturer envelopes."
+            )
+
+
+class ProtectionAnalysisCoveragePanel(QGroupBox):
+    """Expose analysis capability and explicit model boundaries to engineers."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Protection Analysis Coverage", parent)
+        self._label = QLabel(self)
+        self._label.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._label)
+        self.refresh()
+
+    def refresh(self) -> None:
+        self._label.setText(
+            "STATIC COORDINATION\n"
+            "Application Protection Study grades explicitly configured ANSI 51/51N "
+            "pairs against fault-scenario current. Pair identity, CT binding, "
+            "breaker clearing time and required CTI are explicit inputs. Missing "
+            "or unsupported data produces diagnostics, not a pass.\n\n"
+            "TRANSIENT COORDINATION\n"
+            "Time-series traces are bound to individual protection functions. "
+            "Characteristic-normalized progress requires relay-specific confirmation. "
+            "Reset-memory and overshoot require supplied evidence; an unassessed "
+            "overshoot cannot produce a COORDINATED grade.\n\n"
+            "RL FAULT TRANSIENT\n"
+            "The analytical producer is an independent per-phase Thevenin series-RL "
+            "model. It reports instantaneous signed primary amperes and a decaying "
+            "DC offset. It is not a network EMT solver and is not a CT-secondary or "
+            "relay-RMS measurement trace.\n\n"
+            "FUNCTION STATUS\n"
+            "IMPLEMENTED functions may be constructed through the canonical factory. "
+            "PARTIAL functions remain blocked. NOT_IMPLEMENTED functions remain "
+            "unavailable. The ANSI catalogue tab shows the live canonical status "
+            "and input-contract reason."
+        )
+
+
+__all__ = [
+    "ProtectionFunctionCatalogPanel",
+    "ProtectionTCCPanel",
+    "ProtectionAnalysisCoveragePanel",
+    "ProtectionCoordinationStudyPanel",
+]
