@@ -216,3 +216,29 @@ def test_schema_v1_transient_dataclass_keeps_legacy_mapping_semantics(tmp_path):
     assert restored.result.value["$dataclass"] == transient_class
     assert restored.result.value["fields"]["events"][0]["$dataclass"] == event_class
     assert restored.result.value["fields"]["terminal_voltages"][0]["BUS-1"] == 1.0 + 0.0j
+
+
+def test_empty_transient_state_array_shape_round_trips(tmp_path):
+    value = TransientStabilityResult(
+        time=np.empty((0,), dtype=float),
+        states=np.empty((0, 3), dtype=float),
+        terminal_voltages=(),
+        electrical_powers=(),
+        events=(),
+        provenance={"empty_run": True},
+    )
+    original = _study_result(value)
+    archive = StudyResultArchive(tmp_path)
+    archive.save(original)
+
+    restored = archive.load_latest(
+        original.project_id,
+        original.activation_generation,
+        original.study_id,
+    )
+
+    assert restored is not None
+    assert isinstance(restored.result.value, TransientStabilityResult)
+    assert restored.result.value.time.shape == (0,)
+    assert restored.result.value.states.shape == (0, 3)
+    assert restored.result.value.states.flags.writeable is False
