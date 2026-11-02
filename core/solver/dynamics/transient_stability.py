@@ -14,7 +14,7 @@ from typing import Callable, Mapping
 
 import numpy as np
 
-from .dae_solver import DAESolution, DAESolver
+from .dae_solver import AlgebraicNetworkSolution, DAESolution, DAESolver
 from .events import EventExecution, EventManager
 
 
@@ -32,6 +32,7 @@ class TransientStabilityResult:
     electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
     events: tuple[EventExecution, ...] = ()
     provenance: Mapping[str, object] = field(default_factory=dict)
+    algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
@@ -46,6 +47,16 @@ class TransientStabilityResult:
             raise ValueError("Every recorded time sample must have one terminal-voltage output sample.")
         if len(self.electrical_powers) != time.shape[0]:
             raise ValueError("Every recorded time sample must have one electrical-power output sample.")
+        if self.algebraic_quality and len(self.algebraic_quality) != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one algebraic quality record.")
+        if self.algebraic_quality:
+            if any(not isinstance(item, AlgebraicNetworkSolution) for item in self.algebraic_quality):
+                raise TypeError("Transient algebraic quality samples must be canonical AlgebraicNetworkSolution records.")
+            for sample_time, quality in zip(time, self.algebraic_quality):
+                if quality.simulation_time is None or not np.isclose(
+                    quality.simulation_time, sample_time, rtol=0.0, atol=1e-12
+                ):
+                    raise ValueError("Algebraic quality metadata must match its recorded simulation-time sample.")
         if not np.all(np.isfinite(time)) or not np.all(np.isfinite(states)):
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
@@ -73,6 +84,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "states", states)
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
+        object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
@@ -160,13 +172,14 @@ class TransientStabilitySolver:
         states: list[np.ndarray] = []
         voltages: list[dict[str, complex]] = []
         powers: list[dict[str, tuple[float, float]]] = []
+        algebraic_quality: list[AlgebraicNetworkSolution] = []
         executions: list[EventExecution] = []
 
         if not (should_cancel is not None and should_cancel()):
             executions.extend(self._process_due_events())
             if record_initial:
                 initial = self.dae_solver.evaluate(self._state, self._time)
-                self._record(initial, times, states, voltages, powers)
+                self._record(initial, times, states, voltages, powers, algebraic_quality)
 
         while self._time < self.end_time - self.event_manager.tolerance:
             if should_cancel is not None and should_cancel():
@@ -230,7 +243,7 @@ class TransientStabilitySolver:
                         )
                     )
 
-            self._record(solution, times, states, voltages, powers)
+            self._record(solution, times, states, voltages, powers, algebraic_quality)
 
         cancelled = should_cancel is not None and should_cancel()
         if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
@@ -253,6 +266,7 @@ class TransientStabilitySolver:
             terminal_voltages=tuple(voltages),
             electrical_powers=tuple(powers),
             events=tuple(executions),
+            algebraic_quality=tuple(algebraic_quality),
             provenance=result_provenance,
         )
 
@@ -338,11 +352,25 @@ class TransientStabilitySolver:
         states: list[np.ndarray],
         voltages: list[dict[str, complex]],
         powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
     ) -> None:
         times.append(float(solution.time))
         states.append(np.asarray(solution.state, dtype=float).copy())
         voltages.append(dict(solution.terminal_voltages))
         powers.append(self._electrical_powers(solution.state, solution.terminal_voltages))
+        quality = solution.algebraic_quality
+        if quality is None:
+            quality = AlgebraicNetworkSolution(
+                bus_voltages=solution.terminal_voltages,
+                status="UNVERIFIED",
+                accepted=True,
+                quality_verified=False,
+                solver_name="legacy-DAESolution",
+                bus_ids=tuple(solution.terminal_voltages),
+                simulation_time=solution.time,
+                diagnostics=("DAESolution did not carry algebraic quality metadata.",),
+            )
+        algebraic_quality.append(quality)
 
     def _electrical_powers(
         self,
