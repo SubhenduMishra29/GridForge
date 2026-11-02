@@ -77,7 +77,7 @@ The SLD is a first-class engineering authoring surface and a projection of Core/
 
 The UI workspace composition uses Window → Workspace → Areas → Editors → Regions → EditorContext → discipline tools. Qt access remains centralized through `ui/core/qt.py`. Core must not import Qt, QGraphics, SLD, plugin or UI types.
 
-**Phase-domain authoring gap:** PR #908 provides programmatic Application editing and persistence for the phase-domain graph. That does not prove a complete SLD/editor workflow for authoring, inspecting, validating and editing those physical conductor nodes/edges. The UI authoring/projection work remains a separate requirement.
+**Phase-domain UI boundary:** the D15F mainline graph builder constructs supported Line/Cable, switching-pole and Transformer winding/neutral/earth graph structures from explicit Core construction and canonical committed SLD topology. Application graph-edit commands also exist. This is not a complete engineer-facing construction configurator or general-purpose graph editor; those UI workflows, field persistence round-trip and inspection surfaces remain separate requirements.
 
 ## 5. Protection architecture
 
@@ -173,6 +173,10 @@ Open/draft PRs are not mainline. At the stated baseline, PRs #912–#918 remain 
 
 The merged-main Modification Register records the following implementation increments. These are explicit supported construction paths, not universal equipment coverage:
 
+- **D15F-09–17:** graph-node insertion validates the full candidate graph atomically; equipment-terminal current cuts and CT routing carry topology/project/activation provenance; source terminal ownership and role identity are canonical and ambiguous/aliased source IDs fail closed.
+- **D15F-18–20:** Grid sequence data, synchronous Generator fault parameters and Motor locked-rotor/sequence data require explicit original bases and construction; nameplate/load-flow fields are not substituted.
+- **D15F-21–24:** automatic phase-domain ABC source preparation is supported for Grid/Generator with explicit sequence data and grounding; Generator/Grid neutral paths are explicit and source/earth current reconciliation is enforced. Automatic Motor source preparation remains open.
+- **D15F-25–28:** canonical SLD endpoint/Bus attachment identity is preserved; Line/Cable conductor graph is built from explicit inventory; Breaker poles require explicit A/B/C/N construction and state.
 - **D15F-29:** Switch, Disconnector and Fuse phase/neutral pole inventories are explicit; their internal paths are gated by authoritative closed/in-service or not-blown operating state. Per-pole discrepancies, fuse arc/melting behaviour, contact resistance and earthing blades are not covered.
 - **D15F-30:** Breaker, Switch, Disconnector and Fuse use the common immutable `PhysicalConductorConstruction` / `PhysicalConductorPath` contract. Construction and operating state remain separate authorities.
 - **D15F-31:** Transformer winding construction explicitly declares HV/LV connection, terminal roles, phases, neutral/grounding and vector/core metadata. It does not itself create magnetic or galvanic coupling.
