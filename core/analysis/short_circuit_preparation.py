@@ -435,14 +435,25 @@ class ShortCircuitPreparation:
             raise ValueError(
                 "Short Circuit requires the canonical Network registry to capture a stable model revision."
             )
-        return tuple(
-            (
-                str(object_id),
-                id(element),
-                cls._freeze_model_value(element),
-            )
-            for object_id, element in sorted(objects.items(), key=lambda item: str(item[0]))
-        )
+        excluded = {"owner", "_owner", "_network", "network", "registry", "_gridforge_network_token"}
+        signatures = []
+        for object_id, element in sorted(objects.items(), key=lambda item: str(item[0])):
+            attributes = getattr(element, "__dict__", None)
+            if not isinstance(attributes, dict):
+                raise ValueError(
+                    f"Short Circuit cannot capture model state for registered equipment {object_id!r}; "
+                    "the Core object does not expose its authoritative instance fields."
+                )
+            frozen_attributes = tuple(sorted(
+                (
+                    name,
+                    cls._freeze_model_value(value),
+                )
+                for name, value in attributes.items()
+                if name not in excluded and not callable(value)
+            ))
+            signatures.append((str(object_id), id(element), frozen_attributes))
+        return tuple(signatures)
 
     @classmethod
     def _assert_network_unchanged(
