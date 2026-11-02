@@ -20019,6 +20019,11 @@ GF-PROT-070 — SWITCHING-AWARE REACHABILITY, ANSI 21 COVERAGE AND LIVE TRIGGER
     - Physical voltage/current bindings must declare primary reference basis.
     - Live evaluation requires distinct complex phasors, same A/B/C phase,
       exact sample timestamp coherence, and non-zero usable magnitudes.
+    - Binding metadata explicitly identifies phase-to-neutral voltage and
+      phase-conductor current references; voltage channel source terminal
+      must match the configured PT/CVT primary terminal.
+    - Boundary validation rejects an alternate conductive bypass path around
+      either declared CT cut boundary.
     - Typed DistanceProtectionSettings carries the required basis fields.
     - ANSI 21 catalog status remains PARTIAL; the existing baseline
       magnitude-only characteristic is not promoted to a production
