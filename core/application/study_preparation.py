@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
