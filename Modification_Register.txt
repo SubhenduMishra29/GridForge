@@ -18823,3 +18823,49 @@ Disposition:
     Merge is pending final diff and metadata review.
 
 ======================================================================
+
+
+======================================================================
+GF-SC-D15F-46 — STABLE PHYSICAL IDENTITY FOR STUDY RESULT DELTAS
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Correct the numerical Study Result comparison identity contract after
+    post-merge review of D15F-43.
+
+Finding:
+    The initial comparison traversal used the surrounding collection path
+    for Short-Circuit conductor and transformer delta-loop observations.
+    For sequence-backed collections, this could pair unlike physical
+    observations if records were reordered between executions.
+
+Corrections:
+    - ShortCircuitConductorCurrent observations are keyed by equipment,
+      terminal role, conductor identity and bus identity.
+    - Conductor comparison bases now include MVA, kV, topology revision,
+      phase/conductor role, reference direction and current units.
+    - Transformer delta-loop observations are keyed by transformer ID,
+      loop ID and winding identity, not collection index.
+    - Delta-loop comparison bases now include MVA, kV, derived current
+      base and declared positive direction.
+    - RIGHT-minus-LEFT arithmetic is emitted only when both the stable
+      observation identity and complete comparison base match.
+
+Engineering boundary:
+    - No conversion or normalization between unlike bases is attempted.
+    - This correction narrows false-positive matches; it does not make
+      two results from different physical topologies comparable merely
+      because display names or list positions happen to match.
+
+Verification:
+    Remote source inspection and focused static review only. No numerical
+    fixture or runtime test was executed.
+
+Status:
+    STABLE PHYSICAL IDENTITY AND TOPOLOGY-AWARE BASE MATCHING IMPLEMENTED —
+    NUMERICAL FIXTURE VERIFICATION PENDING
+
+======================================================================
