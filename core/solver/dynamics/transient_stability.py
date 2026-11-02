@@ -50,6 +50,15 @@ class TransientStabilityResult:
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
             raise ValueError("Transient result time samples must be strictly increasing.")
+        if any(not isinstance(sample, Mapping) for sample in self.terminal_voltages):
+            raise TypeError("Transient terminal-voltage samples must be mappings.")
+        if any(not isinstance(sample, Mapping) for sample in self.electrical_powers):
+            raise TypeError("Transient electrical-power samples must be mappings.")
+        events = tuple(self.events)
+        if any(not isinstance(event, EventExecution) for event in events):
+            raise TypeError("Transient result events must contain canonical EventExecution records.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Transient result provenance must be a mapping.")
         immutable_voltages = tuple(
             MappingProxyType({str(bus_id): complex(value) for bus_id, value in sample.items()})
             for sample in self.terminal_voltages
@@ -64,7 +73,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "states", states)
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
-        object.__setattr__(self, "events", tuple(self.events))
+        object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @property

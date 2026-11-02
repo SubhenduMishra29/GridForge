@@ -3,6 +3,10 @@
 Study outputs are execution artifacts, not project configuration. This archive
 stores them beside the user's GridForge application data, keyed by project and
 activation provenance, without modifying the canonical .gridforge package.
+
+Schema v1 remains readable with its historical generic-dataclass mapping
+semantics. Schema v2 adds allowlisted reconstruction for transient results
+and EventExecution records, including shaped NumPy arrays.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ import numpy as np
 from core.application.revision import ProjectRevision
 from core.application.study import StudyResult
 from core.solver.power_flow.result import PowerFlowResult
+from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.fault_types import FaultType
 from core.solver.short_circuit.result import (
     ContributionStatus,
@@ -40,7 +46,7 @@ from core.solver.short_circuit.result import (
 
 
 ARCHIVE_FORMAT = "GridForgeStudyResult"
-ARCHIVE_SCHEMA_VERSION = 1
+ARCHIVE_SCHEMA_VERSION = 2
 
 
 class StudyResultArchiveError(RuntimeError):
@@ -101,6 +107,7 @@ _SOLVER_RESULT_TYPES = {
     f"{cls.__module__}.{cls.__qualname__}": cls
     for cls in (
         PowerFlowResult,
+        TransientStabilityResult,
         ShortCircuitResult,
         ShortCircuitSourceContribution,
         ShortCircuitBranchCurrent,
@@ -109,6 +116,9 @@ _SOLVER_RESULT_TYPES = {
         ShortCircuitConductorCurrent,
         ShortCircuitTransformerDeltaLoopCurrent,
     )
+}
+_SOLVER_EVENT_TYPES = {
+    f"{EventExecution.__module__}.{EventExecution.__qualname__}": EventExecution,
 }
 _SOLVER_ENUM_TYPES = {
     f"{cls.__module__}.{cls.__qualname__}": cls
@@ -141,7 +151,16 @@ def _encode_value(value: Any) -> Any:
     if isinstance(value, Enum):
         return {"$type": "enum", "class": _qualified_name(value), "value": _encode_value(value.value)}
     if isinstance(value, np.ndarray):
-        return _encode_value(value.tolist())
+        if value.dtype.kind not in "biufc" or value.dtype.hasobject:
+            raise StudyResultArchiveError(
+                f"Study Result contains an unsupported NumPy array dtype: {value.dtype}."
+            )
+        return {
+            "$type": "ndarray",
+            "dtype": value.dtype.str,
+            "shape": list(value.shape),
+            "data": _encode_value(value.tolist()),
+        }
     if isinstance(value, np.generic):
         return _encode_value(value.item())
     if isinstance(value, Mapping):
@@ -157,8 +176,14 @@ def _encode_value(value: Any) -> Any:
         return sorted((_encode_value(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
     if is_dataclass(value) and not isinstance(value, type):
         qualified = _qualified_name(value)
+        if qualified in _SOLVER_RESULT_TYPES:
+            tag = "solver_result"
+        elif qualified in _SOLVER_EVENT_TYPES:
+            tag = "event_execution"
+        else:
+            tag = "dataclass"
         return {
-            "$type": "solver_result" if qualified in _SOLVER_RESULT_TYPES else "dataclass",
+            "$type": tag,
             "class": qualified,
             "fields": {item.name: _encode_value(getattr(value, item.name)) for item in fields(value)},
         }
@@ -167,12 +192,44 @@ def _encode_value(value: Any) -> Any:
     )
 
 
-def _decode_value(value: Any) -> Any:
+def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
     if isinstance(value, list):
-        return tuple(_decode_value(item) for item in value)
+        return tuple(_decode_value(item, schema_version=schema_version) for item in value)
     if not isinstance(value, Mapping):
         return value
     kind = value.get("$type")
+    qualified_hint = value.get("class")
+    transient_result_name = f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
+    event_execution_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
+    if schema_version >= 2 and qualified_hint in {transient_result_name, event_execution_name}:
+        expected_kind = "solver_result" if qualified_hint == transient_result_name else "event_execution"
+        if kind != expected_kind:
+            raise StudyResultArchiveError(
+                f"Known transient type {qualified_hint} must use the {expected_kind!r} archive tag in schema v2."
+            )
+    if kind in {"solver_result", "event_execution"} and set(value) != {"$type", "class", "fields"}:
+        raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
+    if kind == "ndarray":
+        if schema_version < 2:
+            raise StudyResultArchiveError("NumPy ndarray tags require Study Result archive schema v2.")
+        if set(value) != {"$type", "dtype", "shape", "data"}:
+            raise StudyResultArchiveError("Persisted NumPy ndarray tag contains missing or unknown fields.")
+        try:
+            dtype = np.dtype(value["dtype"])
+            shape_data = value["shape"]
+            if dtype.kind not in "biufc" or dtype.hasobject:
+                raise ValueError("unsupported numeric dtype")
+            if not isinstance(shape_data, list) or any(
+                isinstance(item, bool) or not isinstance(item, int) or item < 0
+                for item in shape_data
+            ):
+                raise ValueError("invalid array shape")
+            decoded_data = _decode_value(value["data"], schema_version=schema_version)
+            array = np.asarray(decoded_data, dtype=dtype)
+            array = array.reshape(tuple(shape_data))
+            return array
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise StudyResultArchiveError(f"Persisted NumPy ndarray payload is invalid: {exc}") from exc
     if kind == "float" and set(value) == {"$type", "value"}:
         special = value["value"]
         if special == "nan":
@@ -193,7 +250,7 @@ def _decode_value(value: Any) -> Any:
         return ShortCircuitTransformerDeltaLoopCurrent.from_dict(value["value"])
     if kind == "enum" and set(value) == {"$type", "class", "value"}:
         qualified = value["class"]
-        decoded = _decode_value(value["value"])
+        decoded = _decode_value(value["value"], schema_version=schema_version)
         enum_type = _SOLVER_ENUM_TYPES.get(qualified)
         if enum_type is not None:
             try:
@@ -202,27 +259,64 @@ def _decode_value(value: Any) -> Any:
                 raise StudyResultArchiveError("Persisted solver enum value is invalid.") from exc
         # Unknown enums remain detached scalar values; never import archive names.
         return decoded
-    if kind in {"solver_result", "dataclass"} and set(value) == {"$type", "class", "fields"}:
+    if kind in {"solver_result", "event_execution", "dataclass"} and set(value) == {"$type", "class", "fields"}:
         payload = value["fields"]
         if not isinstance(payload, Mapping):
             raise StudyResultArchiveError("Persisted dataclass fields must be an object.")
-        decoded_fields = {key: _decode_value(item) for key, item in payload.items()}
+        decoded_fields = {key: _decode_value(item, schema_version=schema_version) for key, item in payload.items()}
         qualified = value["class"]
-        result_type = _SOLVER_RESULT_TYPES.get(qualified) if kind == "solver_result" else None
-        if result_type is not None:
+
+        if kind == "event_execution":
+            if schema_version < 2:
+                raise StudyResultArchiveError("EventExecution tags require Study Result archive schema v2.")
+            execution_type = _SOLVER_EVENT_TYPES.get(qualified)
+            if execution_type is None:
+                raise StudyResultArchiveError("Persisted event execution type is not allowlisted.")
+            allowed_fields = {item.name for item in fields(execution_type)}
+            if set(decoded_fields) != allowed_fields:
+                raise StudyResultArchiveError(
+                    "Persisted EventExecution fields do not match its versioned canonical contract."
+                )
+            try:
+                return execution_type(**decoded_fields)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError(
+                    f"Persisted EventExecution violates its result contract: {exc}"
+                ) from exc
+
+        if kind == "solver_result":
+            result_type = _SOLVER_RESULT_TYPES.get(qualified)
+            if result_type is None:
+                raise StudyResultArchiveError("Persisted solver result type is not allowlisted.")
             allowed_fields = {item.name for item in fields(result_type)}
             if set(decoded_fields) != allowed_fields:
                 raise StudyResultArchiveError(
                     f"Persisted {result_type.__name__} fields do not match its canonical contract."
                 )
+            if result_type is TransientStabilityResult:
+                events = decoded_fields.get("events")
+                if not isinstance(events, (tuple, list)) or any(
+                    not isinstance(item, EventExecution) for item in events
+                ):
+                    raise StudyResultArchiveError(
+                        "Persisted TransientStabilityResult events must be allowlisted EventExecution records."
+                    )
             try:
                 return result_type(**decoded_fields)
             except (TypeError, ValueError) as exc:
                 raise StudyResultArchiveError(
                     f"Persisted {result_type.__name__} violates its result contract: {exc}"
                 ) from exc
+
+        if schema_version >= 2 and qualified in {
+            f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}",
+            f"{EventExecution.__module__}.{EventExecution.__qualname__}",
+        }:
+            raise StudyResultArchiveError(
+                f"Known transient type {qualified} cannot use the generic dataclass archive tag in schema v2."
+            )
         return {"$dataclass": qualified, "fields": decoded_fields}
-    return {key: _decode_value(item) for key, item in value.items()}
+    return {key: _decode_value(item, schema_version=schema_version) for key, item in value.items()}
 
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
@@ -346,9 +440,10 @@ class StudyResultArchive:
                 raise StudyResultArchiveError("Study Result archive envelope contains missing or unknown fields.")
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
-            if envelope.get("schema_version") != ARCHIVE_SCHEMA_VERSION:
+            schema_version = envelope.get("schema_version")
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2}:
                 raise StudyResultArchiveError(
-                    f"Unsupported Study Result archive schema: {envelope.get('schema_version')!r}."
+                    f"Unsupported Study Result archive schema: {schema_version!r}."
                 )
             payload = envelope.get("payload")
             if not isinstance(payload, Mapping):
@@ -374,7 +469,7 @@ class StudyResultArchive:
                 presentation_revision=revision_data["presentation_revision"],
                 persisted_revision=revision_data["persisted_revision"],
             )
-            metadata = _decode_value(payload.get("metadata", {}))
+            metadata = _decode_value(payload.get("metadata", {}), schema_version=schema_version)
             if not isinstance(metadata, Mapping):
                 raise StudyResultArchiveError("Restored Study Result metadata must be an object.")
             result = StudyResult(
@@ -384,7 +479,7 @@ class StudyResultArchive:
                 source_revision=revision,
                 study_type=str(payload["study_type"]),
                 status=str(payload["status"]),
-                value=_decode_value(payload.get("value")),
+                value=_decode_value(payload.get("value"), schema_version=schema_version),
                 message=str(payload.get("message", "")),
                 metadata=metadata,
             )
