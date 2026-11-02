@@ -19074,3 +19074,51 @@ Status:
     MAIN-BASED BRANCH — FULL ANSI 25 GUARD INTEGRATION PENDING
 
 ======================================================================
+
+
+======================================================================
+GF-PROT-058 — ANSI 25 AUTHORIZATION FOR BREAKER RE-ENERGIZATION AND ROLLBACK
+======================================================================
+
+Date:
+    2026-11-02
+
+Scope:
+    Close the remaining Application mutation paths that can restore an
+    energized breaker state without a fresh positive ANSI 25 authorization.
+
+Finding:
+    GF-PROT-057 protected breaker creation, explicit close, and ordinary
+    open-to-closed updates. A breaker that remained logically closed while
+    taken out of service could be re-energized by put_breaker_in_service.
+    Transaction compensation could also re-register or restore an energized
+    breaker without reauthorization after update or deletion.
+
+Correction:
+    - Authorize closed-and-in-service transitions in update_breaker.
+    - Authorize put_breaker_in_service when the breaker is already closed.
+    - Reauthorize transaction rollback paths that restore an energized
+      breaker after update, deletion, or service-state mutation.
+    - Keep opening and taking a breaker out of service available without
+      ANSI 25 authorization.
+    - Perform authorization before the energizing state transition or
+      network re-registration.
+
+Safety boundary:
+    - Uses the existing fail-closed Application authorizer from GF-PROT-057.
+    - Does not claim complete project-scoped ANSI 25 guard integration.
+    - A missing, stale, invalid, or negative authorizer still denies
+      energization and rollback to an energized state.
+
+Verification:
+    - Source-level inspection confirms the update, service-state, deletion,
+      and compensation paths invoke the existing authorizer before
+      re-energization.
+    - No tests/CI, syntax/import checks, or runtime breaker operations run.
+
+Status:
+    APPLICATION RE-ENERGIZATION PATHS ROUTED THROUGH FAIL-CLOSED ANSI 25
+    AUTHORIZATION — FULL PROJECT GUARD INTEGRATION STILL PENDING
+
+======================================================================
+
