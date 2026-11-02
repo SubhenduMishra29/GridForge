@@ -52,6 +52,9 @@ class FieldDeviceDeliveryReceipt:
 class FieldDeviceAcknowledgement:
     command_id: str
     delivery_id: str
+    project_id: str
+    activation_generation: int
+    protection_cycle_id: str
     device_id: str
     status: str
     acknowledged_at: float
@@ -61,9 +64,11 @@ class FieldDeviceAcknowledgement:
     acknowledgement_id: str
 
     def __post_init__(self) -> None:
-        for name in ("command_id", "delivery_id", "device_id", "timestamp_domain", "signature", "payload_digest", "acknowledgement_id"):
+        for name in ("command_id", "delivery_id", "project_id", "protection_cycle_id", "device_id", "timestamp_domain", "signature", "payload_digest", "acknowledgement_id"):
             if not getattr(self, name):
                 raise ValueError(f"{name} is required.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("acknowledgement activation_generation must be a positive integer.")
         if self.status not in {"executed", "rejected"}:
             raise ValueError("acknowledgement status must be executed or rejected.")
         if isinstance(self.acknowledged_at, bool) or not isinstance(self.acknowledged_at, (int, float)) or not math.isfinite(self.acknowledged_at):
@@ -77,6 +82,12 @@ class FieldDeviceExecutionStatus:
     delivery_id: str | None = None
     acknowledgement_id: str | None = None
     diagnostic: str = ""
+    project_id: str | None = None
+    activation_generation: int | None = None
+    protection_cycle_id: str | None = None
+    device_id: str | None = None
+    acknowledged_at: float | None = None
+    timestamp_domain: str | None = None
 
 
 class FieldDeviceAdapter(Protocol):
@@ -110,6 +121,7 @@ class FieldDeviceCommandService:
         self._max_acknowledgement_age_seconds = float(max_acknowledgement_age_seconds)
         self._max_future_skew_seconds = float(max_future_skew_seconds)
         self._deliveries: dict[str, FieldDeviceDeliveryReceipt] = {}
+        self._requests: dict[str, FieldDeviceCommandRequest] = {}
         self._lock = RLock()
 
     def deliver(self, request: FieldDeviceCommandRequest) -> FieldDeviceExecutionStatus:
@@ -125,6 +137,7 @@ class FieldDeviceCommandService:
             if receipt.command_id != request.command_id:
                 return FieldDeviceExecutionStatus("unknown", "unavailable", diagnostic="adapter receipt command identity mismatch")
             self._deliveries[request.command_id] = receipt
+            self._requests[request.command_id] = request
             if receipt.status != "accepted":
                 return FieldDeviceExecutionStatus(
                     receipt.status, "unavailable", receipt.delivery_id,
@@ -148,6 +161,15 @@ class FieldDeviceCommandService:
             return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
                                               receipt.delivery_id if receipt is not None else None,
                                               diagnostic="adapter returned an invalid acknowledgement type")
+        request = self._requests.get(command_id)
+        if request is not None and (
+            acknowledgement.project_id != request.project_id
+            or acknowledgement.activation_generation != request.activation_generation
+            or acknowledgement.protection_cycle_id != request.protection_cycle_id
+        ):
+            return FieldDeviceExecutionStatus("accepted" if receipt is not None else "unknown", "invalid",
+                                              receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
+                                              diagnostic="acknowledgement project/cycle provenance does not match the dispatched request")
         if acknowledgement.command_id != command_id or (
             receipt is not None and acknowledgement.delivery_id != receipt.delivery_id
         ):
@@ -187,6 +209,12 @@ class FieldDeviceCommandService:
             "accepted" if receipt is not None else "unknown", acknowledgement.status,
             receipt.delivery_id if receipt is not None else acknowledgement.delivery_id,
             acknowledgement_id=acknowledgement.acknowledgement_id,
+            project_id=acknowledgement.project_id,
+            activation_generation=acknowledgement.activation_generation,
+            protection_cycle_id=acknowledgement.protection_cycle_id,
+            device_id=acknowledgement.device_id,
+            acknowledged_at=float(acknowledgement.acknowledged_at),
+            timestamp_domain=acknowledgement.timestamp_domain,
         )
 
 
