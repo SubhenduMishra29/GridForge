@@ -92,11 +92,11 @@ class MeasurementChannelService:
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
-        self._sample_published_handler: Callable[[str, float], Any] | None = None
+        self._sample_published_handler: Callable[[str, float, float], Any] | None = None
 
     def bind_sample_published_handler(
         self,
-        handler: Callable[[str, float], Any] | None,
+        handler: Callable[[str, float, float], Any] | None,
     ) -> None:
         """Bind the Application-owned protection trigger to trusted sample ingress."""
         if handler is not None and not callable(handler):
@@ -204,7 +204,11 @@ class MeasurementChannelService:
             )
             handler = self._sample_published_handler
             if handler is not None:
-                return handler(channel.id, float(attestation.timestamp))
+                return handler(
+                    channel.id,
+                    float(attestation.timestamp),
+                    float(trusted_now),
+                )
             return None
 
     def activate(
