@@ -659,11 +659,18 @@ class Application:
         if configuration_service is None or configuration_service.configuration is None:
             raise RuntimeError("Measurement watchdog requires active protection configuration.")
         now = self.measurement_channel_service.trusted_now()
+        enabled_elements = tuple(
+            element for element in configuration_service.configuration.elements if element.enabled
+        )
         required = {
-            channel_id
-            for element in configuration_service.configuration.elements if element.enabled
+            channel_id for element in enabled_elements
             for channel_id in element.input_channel_ids.values()
         }
+        required.update(
+            binding.channel_id
+            for binding in configuration_service.configuration.measurement_bindings
+            if any(element.element_id == binding.protection_element_id for element in enabled_elements)
+        )
         findings = self.measurement_channel_service.inspect_staleness(tuple(required), current_time=now)
         if findings and self._protection_execution_audit_store is not None:
             event_id = f"watchdog:{project.project_id}:{lifecycle.activation_generation}:{now:.9f}"
@@ -1324,11 +1331,29 @@ class Application:
                 )
             return resolved
 
+        field_device_dispatcher = None
+        if self._field_device_command_service is not None:
+            def dispatch_to_field_device(control_decision: Any, command: Command) -> FieldDeviceExecutionStatus:
+                ensure_current_protection_provenance()
+                request = FieldDeviceCommandRequest(
+                    project_id=project.project_id,
+                    activation_generation=captured_generation,
+                    protection_cycle_id=event_id or f"manual:{uuid4()}",
+                    command_id=str(command.command_id),
+                    target_equipment_type=str(control_decision.target_equipment_type),
+                    target_equipment_id=str(control_decision.target_equipment_id),
+                    action_type=str(getattr(control_decision.action_type, "value", control_decision.action_type)),
+                    issued_at=evaluation_time,
+                )
+                return self._field_device_command_service.deliver(request)
+            field_device_dispatcher = dispatch_to_field_device
+
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
             action_resolver=resolve_explicit_protection_action,
             pre_dispatch_guard=ensure_current_protection_provenance,
             state_observer=observe_protection_command_state,
+            field_device_dispatcher=field_device_dispatcher,
         )
         return execution.execute(decisions)
 
