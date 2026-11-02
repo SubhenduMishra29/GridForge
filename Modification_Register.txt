@@ -20209,9 +20209,12 @@ Finding:
 Correction:
     - Add UI-neutral TransientSignalReadModel, TransientEventReadModel and
       TransientResultPresentationReadModel in Application.
-    - Preserve the full time vector, state matrix rows, complex terminal
-      voltage samples, P/Q samples, ordered EventExecution details and solver
-      provenance in the presentation contract.
+    - Preserve the full time vector and project every state column,
+      each complex terminal voltage's exact real/imaginary components, and
+      every active/reactive power component into complete sample-aligned
+      signal series. The authoritative solver result remains the raw source;
+      the presentation DTO avoids retaining a duplicate state/sample matrix.
+    - Preserve ordered EventExecution details and solver provenance.
     - Validate exact sample-count alignment across time, states, terminal
       voltages and electrical powers. Require every selectable signal to
       retain every original source sample index in original order.
