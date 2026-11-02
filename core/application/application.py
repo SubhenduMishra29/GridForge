@@ -715,19 +715,19 @@ class Application:
                     try:
                         with self._execution_lock:
                             application_result = self.execute(pending_command)
-                    if not application_result.success:
-                        status = replace(
-                            status,
-                            diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
-                            + "Device acknowledged execution, but the corresponding Core Application command failed: "
-                            + str(application_result.message),
-                        )
-                    else:
-                        status = replace(
-                            status,
-                            diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
-                            + "Authenticated device acknowledgement received; corresponding Core Application command applied.",
-                        )
+                        if not application_result.success:
+                            status = replace(
+                                status,
+                                diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                                + "Device acknowledged execution, but the corresponding Core Application command failed: "
+                                + str(application_result.message),
+                            )
+                        else:
+                            status = replace(
+                                status,
+                                diagnostic=(status.diagnostic + "; " if status.diagnostic else "")
+                                + "Authenticated device acknowledgement received; corresponding Core Application command applied.",
+                            )
                     except Exception as exc:
                         status = replace(
                             status,
