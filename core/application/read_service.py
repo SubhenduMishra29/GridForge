@@ -686,10 +686,7 @@ class StudyReadService:
             return None
 
         time_s = tuple(float(item) for item in transient_fields.get("time", ()))
-        state_samples = tuple(
-            tuple(float(item) for item in sample)
-            for sample in transient_fields.get("states", ())
-        )
+        raw_states = transient_fields.get("states", ())
         voltage_samples = tuple(dict(sample) for sample in transient_fields.get("terminal_voltages", ()))
         power_samples = tuple(dict(sample) for sample in transient_fields.get("electrical_powers", ()))
         sample_count = len(time_s)
@@ -703,13 +700,18 @@ class StudyReadService:
         if not isinstance(provenance_source, Mapping):
             raise ValueError("Transient solver provenance must be a mapping.")
         state_descriptors = provenance_source.get("state_signals", ())
-        raw_states = transient_fields.get("states", ())
         if getattr(raw_states, "ndim", None) == 2:
             state_width = int(raw_states.shape[1])
-        elif state_samples:
-            state_width = len(state_samples[0])
+        elif len(raw_states):
+            state_width = len(raw_states[0])
         else:
             state_width = 0
+        if len(raw_states) != sample_count:
+            raise ValueError("Transient time and state sample counts must match exactly.")
+        if any(len(sample) != state_width for sample in raw_states):
+            raise ValueError("Transient state rows must retain a consistent column width.")
+        if len(voltage_samples) != sample_count or len(power_samples) != sample_count:
+            raise ValueError("Transient time, voltage and electrical-power sample counts must match exactly.")
         if state_descriptors:
             if not isinstance(state_descriptors, (tuple, list)):
                 raise ValueError("Transient solver state_signals provenance must be an ordered sequence.")
@@ -749,7 +751,7 @@ class StudyReadService:
                 label=str(descriptor.get("label") or f"State {index}"),
                 quantity=str(descriptor.get("state_name") or f"state_{index}"),
                 unit=str(descriptor.get("unit") or "unknown"),
-                values=tuple(sample[index] for sample in state_samples),
+                values=tuple(float(sample[index]) for sample in raw_states),
                 source_indices=source_indices,
                 machine_id=(
                     None if descriptor.get("machine_id") is None
@@ -899,9 +901,6 @@ class StudyReadService:
             record_id=record_id,
             saved_at=saved_at,
             time_s=time_s,
-            state_samples=state_samples,
-            terminal_voltage_samples=voltage_samples,
-            electrical_power_samples=power_samples,
             signals=tuple(signals),
             events=events,
             provenance=provenance,
