@@ -17,6 +17,7 @@ from .machine_models import (
 from .multimachine import MultiMachineSystem
 from .events import EventExecution, EventManager, SimulationEvent
 from .dae_solver import (
+    AlgebraicNetworkSolution,
     NetworkSolver,
     MechanicalPowerMap,
     DAESolverError,
@@ -44,6 +45,7 @@ __all__ = [
     "SimulationEvent",
     "EventExecution",
     "EventManager",
+    "AlgebraicNetworkSolution",
     "NetworkSolver",
     "MechanicalPowerMap",
     "DAESolverError",
