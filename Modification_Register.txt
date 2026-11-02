@@ -18396,3 +18396,65 @@ Disposition:
     not pixel proximity. Keep #874 open pending a reproducible runtime trace.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-137 — README AND ARCHITECTURE DOCUMENTATION RECONCILIATION
+======================================================================
+
+Date:
+    2026-11-02
+
+Repository baseline:
+    SubhenduMishra29/GridForge main
+    a9e07287c90667a7aae8bcc060e4e2d0cadf261e
+
+Scope:
+    Reconcile README, consolidated architecture, Protection Study
+    architecture and phase-domain implementation status against the
+    current Modification_Register entries through GF-SC-D15F-37.
+
+Files:
+    README.md
+    docs/architecture/GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md
+    docs/architecture/PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md
+    docs/architecture/PROTECTION_STUDY_AND_SYSTEM_ARCHITECTURE.md
+    docs/UI_ARCHITECTURE_BLENDER_STYLE.md
+    docs/architecture/simple_wire_connectivity_schema.md
+    docs/architecture/GRIDFORGE_V2_PLUGIN_REUSE_MATRIX.md
+    audit/ARCHITECTURE_RECONCILIATION_MATRIX.md
+    audit/DOCUMENTATION_ARCHITECTURE_REFRESH_2026-11-02.md
+
+Corrections:
+    - Preserved the README's engineering-domain, mutation lifecycle,
+      SLD authoring, persistence, project lifecycle and verification
+      guidance while refreshing the current architecture baseline.
+    - Reconciled phase-domain implementation status through D15F-37:
+      canonical source/equipment identity and provenance gates;
+      supported Grid/Generator source equivalents and physical grounding;
+      Line/Cable branch conductor graph construction; explicit Breaker,
+      Switch, Disconnector and Fuse pole paths; Transformer winding
+      terminal graph, multiport preparation, grounded-wye earth return,
+      evidence-bound zero-sequence coverage and internal delta-loop MNA.
+    - Corrected the earlier blanket statement that Transformer multiport
+      graph integration and all switching-pole paths were outstanding.
+    - Retained explicit limitations: automatic Motor source equivalent,
+      unsupported machine/load/arc-fault/switching models, incomplete
+      construction persistence/configurators, incomplete neutral CT/CBCT
+      coverage, and absent numerical/runtime/commissioning evidence.
+    - Clarified that Simple Wire relationships and the phase-domain
+      physical conductor graph are distinct representations.
+    - Preserved known lifecycle/protection integration gaps rather than
+      silently declaring them closed.
+
+Verification:
+    Remote GitHub source fetches and documentation/diff review only.
+    No tests/CI, syntax/import checks, persistence round-trip, numerical
+    fixtures, application startup, GUI execution or hardware verification
+    were run. No implementation code was changed.
+
+Disposition:
+    Documentation-only reconciliation. PR #919 carries the changes.
+    Merge is pending final diff and metadata review.
+
+======================================================================
