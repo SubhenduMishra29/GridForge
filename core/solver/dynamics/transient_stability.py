@@ -30,9 +30,9 @@ class TransientStabilityResult:
     states: np.ndarray
     terminal_voltages: tuple[Mapping[str, complex], ...] = ()
     electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
-    algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
     events: tuple[EventExecution, ...] = ()
     provenance: Mapping[str, object] = field(default_factory=dict)
+    algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
