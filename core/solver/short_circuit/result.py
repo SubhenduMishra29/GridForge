@@ -451,6 +451,7 @@ class ShortCircuitResult:
             "conductor_currents": dict(self.conductor_currents),
             "conductor_current_status": self.conductor_current_status,
             "conductor_current_diagnostics": self.conductor_current_diagnostics,
+            "transformer_delta_loop_currents": {key: dict(value) for key, value in self.transformer_delta_loop_currents.items()},
             "provenance": dict(self.provenance),
         })
         return result
@@ -464,5 +465,6 @@ __all__ = [
     "ShortCircuitEquipmentCurrent",
     "ShortCircuitTerminalCurrent",
     "ShortCircuitConductorCurrent",
+    "ShortCircuitTransformerDeltaLoopCurrent",
     "ShortCircuitResult",
 ]
