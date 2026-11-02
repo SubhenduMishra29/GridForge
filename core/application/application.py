@@ -924,6 +924,51 @@ class Application:
                 runtime_identity=id(runtime),
             )
 
+        distance_measurement_snapshots: dict[str, Mapping[str, Any]] = {}
+        for element in runtime.configuration.elements:
+            if not element.enabled or str(element.function_code).strip().upper() != "21":
+                continue
+            prefix = f"project={project.project_id!r}, element={element.element_id!r}, function='21'"
+            voltage_sample = validated_sample_values.get((element.element_id, "voltage"))
+            current_sample = validated_sample_values.get((element.element_id, "current"))
+            if voltage_sample is None or current_sample is None:
+                diagnostics.append(f"{prefix}: coherent validated voltage/current phasors are required.")
+                continue
+            voltage_channel, voltage_value, voltage_timestamp = voltage_sample
+            current_channel, current_value, current_timestamp = current_sample
+            if voltage_channel is current_channel or voltage_channel.id == current_channel.id:
+                diagnostics.append(f"{prefix}: voltage and current must be distinct physical MeasurementChannels.")
+                continue
+            if voltage_channel.phase is not current_channel.phase:
+                diagnostics.append(f"{prefix}: voltage and current phase designations must match exactly.")
+                continue
+            if getattr(voltage_channel.phase, "value", voltage_channel.phase) not in {"A", "B", "C"}:
+                diagnostics.append(
+                    f"{prefix}: this ANSI 21 baseline supports only same-phase-to-neutral A/B/C pairing; "
+                    "phase-to-phase and sequence pairing require a separately specified compensation model."
+                )
+                continue
+            if voltage_timestamp != current_timestamp:
+                diagnostics.append(f"{prefix}: voltage/current timestamps differ; impedance pairing is not coherent.")
+                continue
+            if not isinstance(voltage_value, complex) or not isinstance(current_value, complex):
+                diagnostics.append(f"{prefix}: both voltage and current must be complex phasors, not scalar magnitudes.")
+                continue
+            if abs(current_value) <= 1.0e-12 or abs(voltage_value) <= 0.0:
+                diagnostics.append(f"{prefix}: voltage/current phasor magnitude is zero or current is below the distance calculation threshold.")
+                continue
+            distance_measurement_snapshots[element.element_id] = MappingProxyType({
+                "voltage_channel_id": voltage_channel.id,
+                "current_channel_id": current_channel.id,
+                "phase": getattr(voltage_channel.phase, "value", voltage_channel.phase),
+                "voltage": voltage_value,
+                "current": current_value,
+                "sample_timestamp": voltage_timestamp,
+                "impedance_unit": "ohm",
+                "measurement_reference_basis": "PRIMARY",
+                "voltage_current_pairing": "SAME_PHASE_TO_NEUTRAL",
+            })
+
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
 
@@ -956,6 +1001,8 @@ class Application:
                     )
         if directional_snapshots:
             context_metadata["directional_measurement_snapshots_by_element"] = directional_snapshots
+        if distance_measurement_snapshots:
+            context_metadata["distance_measurement_snapshots_by_element"] = distance_measurement_snapshots
         if network_state is not None and not isinstance(network_state, TopologySnapshot):
             raise TypeError("network_state must be a canonical TopologySnapshot or None.")
         context = ProtectionContext(
