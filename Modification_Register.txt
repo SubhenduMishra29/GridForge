@@ -20124,3 +20124,90 @@ Verification:
 
 ======================================================================
 
+
+
+======================================================================
+GF-PROT-072 — DUPLICATE-CYCLE SUPPRESSION AND DURABLE EXECUTION AUDIT
+======================================================================
+
+Corrections:
+    - Added an Application-owned bounded in-memory cycle result cache keyed by
+      project ID, activation generation, channel ID and authenticated sample
+      sequence.
+    - Added an in-flight guard to suppress re-entrant duplicate evaluation.
+    - Added a SQLite-backed append-only audit store under the user's
+      .gridforge/protection-audit directory, partitioned by a one-way hash of
+      project identity.
+    - Added database uniqueness for project/generation/event/type and
+      database triggers rejecting UPDATE and DELETE operations.
+    - Added a durable pre-evaluation cycle claim. A replay after process restart
+      is refused before protection evaluation or command dispatch. A crash
+      after claim leaves an explicit in-progress claim for reconciliation;
+      automatic replay is intentionally not attempted.
+    - Persisted authenticated sample identity, cycle diagnostics, decisions,
+      target/action mapping, Application command IDs/results, Core
+      postcondition observations and field-device outcome fields.
+    - Live authenticated protection evaluation now fails closed if the durable
+      cycle ledger is unavailable.
+
+GF-PROT-073 — FIELD-DEVICE DELIVERY AND ACKNOWLEDGEMENT BOUNDARY
+
+Corrections:
+    - Added deployment-supplied FieldDeviceAdapter contract for command send
+      and acknowledgement polling.
+    - Added typed command requests, delivery receipts and signed device
+      acknowledgements with command/delivery correlation identities.
+    - Require a deployment acknowledgement verifier; unverified, mismatched,
+      rejected, missing or pending acknowledgements are never treated as
+      physical execution.
+    - When a field adapter is configured, Application/Core command mutation is
+      gated on an authenticated executed acknowledgement. A pending command
+      is retained with project/generation provenance and applied only after
+      acknowledgement is verified and the same project activation remains
+      active.
+    - A recovered acknowledgement without its in-memory pending command does
+      not mutate Core; it is surfaced for explicit reconciliation.
+    - Core postcondition observation remains distinct from physical
+      acknowledgement. No hardware adapter or acknowledgement is fabricated.
+
+GF-PROT-074 — MISSING-TELEMETRY WATCHDOG
+
+Corrections:
+    - Added trusted-clock access and required-channel inspection to
+      MeasurementChannelService.
+    - Detects absent channel definitions, never-received samples, stale
+      samples, future timestamps, missing freshness limits and unusable
+      measurement quality/availability.
+    - Added Application.run_measurement_watchdog() to derive required inputs
+      from enabled protection elements and their persisted measurement
+      bindings. It reports findings only and never issues a trip.
+    - Added transition-based durable audit records for watchdog state changes,
+      including recovery to healthy state.
+    - Added scheduler adapter registration through
+      start_measurement_watchdog(scheduler, interval_seconds), plus explicit
+      stop and Application shutdown cleanup. The deployment supplies the
+      scheduler and trusted clock; no hidden thread or wall clock is created.
+
+Boundaries:
+    - No physical field-device implementation is included. Deployment must
+      supply a transport adapter and cryptographic acknowledgement verifier.
+    - A scheduler must call the watchdog at the configured cadence.
+    - Pending device commands recovered after process restart require explicit
+      reconciliation; the application refuses to reconstruct and apply a
+      command from an acknowledgement alone.
+    - The durable cycle claim is at-most-once, fail-safe semantics. A crash
+      between claim and completion may require operator reconciliation rather
+      than automatic re-execution.
+
+Verification:
+    - Source-level inspection only.
+    - No tests or CI were run, per project instruction.
+    - Local syntax/import/runtime checks remain unverified in this session.
+
+Status:
+    DUPLICATE CYCLE SUPPRESSION, SQLITE AUDIT, FIELD-DEVICE ADAPTER CONTRACT,
+    ACKNOWLEDGEMENT-GATED CORE MUTATION AND SCHEDULER-BOUND MISSING-TELEMETRY
+    WATCHDOG IMPLEMENTED IN SOURCE. DEPLOYMENT ADAPTER/SCHEDULER CONFIGURATION
+    AND RUNTIME VALIDATION REMAIN REQUIRED.
+
+======================================================================
