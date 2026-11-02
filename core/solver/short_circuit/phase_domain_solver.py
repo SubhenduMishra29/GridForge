@@ -17,7 +17,7 @@ import numpy as np
 from core.analysis.phase_domain_network_preparation import PhaseDomainAdmittanceSnapshot
 from core.analysis.physical_conductor_preparation import PhysicalConductorImpedanceSnapshot
 from core.network.phase_domain_conductor_network import PhaseDomainConductorNetwork, PhaseDomainNodeKind, PhaseDomainConnectionKind
-from .result import ShortCircuitConductorCurrent
+from .result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 
 def _name(value: str, field: str) -> str:
@@ -326,47 +326,6 @@ class PhaseDomainShortCircuitCase:
         object.__setattr__(self, "faults", faults)
         object.__setattr__(self, "transformer_primitives", transformer_primitives)
         object.__setattr__(self, "base_mva", base)
-
-
-@dataclass(frozen=True, slots=True)
-class TransformerDeltaLoopCurrentResult:
-    """Signed internal delta-loop current, deliberately distinct from CT conductor current."""
-
-    transformer_id: str
-    loop_id: str
-    winding: str
-    current_a: complex
-    base_mva: float
-    voltage_base_kv: float
-    current_base_a: float
-    current_pu: complex
-    positive_direction: str
-    measurement_scope: str = "INTERNAL_DELTA_LOOP"
-    external_ct_measurement_eligible: bool = False
-
-    def __post_init__(self) -> None:
-        for name in ("transformer_id", "loop_id", "positive_direction"):
-            object.__setattr__(self, name, _name(getattr(self, name), name))
-        winding = str(self.winding).strip().upper()
-        if winding not in {"HV", "LV"}:
-            raise ValueError("Delta-loop result winding must be HV or LV.")
-        object.__setattr__(self, "winding", winding)
-        for name in ("base_mva", "voltage_base_kv", "current_base_a"):
-            value = float(getattr(self, name))
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError(f"Delta-loop result {name} must be finite and positive.")
-            object.__setattr__(self, name, value)
-        current = _finite_complex(self.current_a, "delta-loop current A")
-        pu = _finite_complex(self.current_pu, "delta-loop current pu")
-        expected_base = self.base_mva * 1.0e6 / (math.sqrt(3.0) * self.voltage_base_kv * 1.0e3)
-        if not math.isclose(self.current_base_a, expected_base, rel_tol=1.0e-10, abs_tol=1.0e-12):
-            raise ValueError("Delta-loop current base is inconsistent with base_mva and voltage_base_kv.")
-        if not np.isclose(pu, current / self.current_base_a, rtol=1.0e-10, atol=1.0e-12):
-            raise ValueError("Delta-loop per-unit current is inconsistent with signed primary current.")
-        if self.measurement_scope != "INTERNAL_DELTA_LOOP" or self.external_ct_measurement_eligible is not False:
-            raise ValueError("Internal delta-loop current cannot be advertised as an external CT conductor measurement.")
-        object.__setattr__(self, "current_a", current)
-        object.__setattr__(self, "current_pu", pu)
 
 
 @dataclass(frozen=True, slots=True)
@@ -828,7 +787,7 @@ class PhaseDomainShortCircuitSolver:
             if loop_indices:
                 terminal_currents = terminal_currents + np.asarray(primitive.internal_loop_coupling, dtype=complex) @ loop_values
                 transformer_delta_loop_currents[primitive.transformer_id] = {
-                    label: TransformerDeltaLoopCurrentResult(
+                    label: ShortCircuitTransformerDeltaLoopCurrent(
                         transformer_id=primitive.transformer_id,
                         loop_id=label,
                         winding=label.split(":DELTA_LOOP:", 1)[0],
@@ -920,7 +879,6 @@ __all__ = [
     "PhaseDomainGroundedMultiConductorSource",
     "PhaseDomainFaultConnection",
     "PhaseDomainTransformerMultiport",
-    "TransformerDeltaLoopCurrentResult",
     "PhaseDomainShortCircuitCase",
     "PhaseDomainShortCircuitSolution",
     "PhaseDomainShortCircuitSolver",
