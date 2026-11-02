@@ -18396,3 +18396,42 @@ Disposition:
     not pixel proximity. Keep #874 open pending a reproducible runtime trace.
 
 ======================================================================
+
+======================================================================
+GF-SC-D15F-38
+======================================================================
+
+Scope:
+    Produce a phase-domain short-circuit source equivalent for a running
+    Motor only when its explicit locked-rotor sequence data and physical
+    neutral/earth return are complete.
+
+Corrections:
+    - Include canonical in-service Motors in phase-domain source preparation;
+      stopped Motors remain excluded from fault contribution.
+    - Require explicit locked-rotor Z1, Z2, Z0, impedance MVA/kV bases and
+      internal voltage. Nameplate, starting-current and load-flow values are
+      not substituted.
+    - Require exact A/B/C and N equipment-terminal graph nodes and exactly
+      one source-referenced neutral GROUND_ELECTRODE path to an earth node
+      reachable from EARTH_REFERENCE.
+    - Take Motor neutral grounding impedance only from that explicit physical
+      graph edge; no neutral or earth connection is synthesized.
+    - Produce the grounded multi-conductor source primitive using the
+      Motor's declared locked-rotor positive-sequence impedance.
+
+Engineering boundary:
+    - This is a static initial short-circuit equivalent. No motor current
+      decay, rotor-flux transient, speed-dependent contribution, or time
+      constant is inferred or claimed.
+    - Missing sequence data, graph terminals, neutral electrode or earth
+      return continues to fail closed.
+
+Verification:
+    - Remote source review and deterministic patch-anchor checks only.
+    - No tests/CI, syntax/import checks, numerical motor fault fixture or
+      end-to-end protection execution was run.
+
+Status:
+    EXPLICIT STATIC RUNNING-MOTOR PHASE-DOMAIN SOURCE ADAPTER IMPLEMENTED —
+    DYNAMIC MOTOR DECAY AND RUNTIME VERIFICATION DEFERRED
