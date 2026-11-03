@@ -20763,3 +20763,17 @@ Rationale: CT/CVT service availability changes measurement/instrumentation inter
 Relay topology invalidation remains separately addressed by PR #1071 and is not changed here. PT service had no Network.invalidate_topology() calls in the inspected implementation.
 
 Verification boundary: source-level exact replacement only. No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — RELAY TOPOLOGY SEPARATION CORRECTION (2026-11-03)
+
+The same topology/revision separation defect was present in RelayModelService. Corrected on `feat/protection-independent-revisions`:
+
+- Removed `Network.invalidate_topology()` from Relay `update_relay` when only `in_service` changes.
+- Removed topology invalidation from Relay `put_relay_in_service` / `take_relay_out_of_service` and their rollback inverses.
+- Relay service-state transitions still use Relay's domain methods and preserve transaction inverse restoration.
+- Canonical Relay command identifiers are classified by RevisionService as Protection-equipment mutations; they advance `protection_equipment_revision` while leaving physical topology revision unchanged.
+
+This ports the topology separation part of PR #1071 into the broader independent-revisions branch. PR #1071 remains open and should now be reconciled against PR #1072 rather than merged independently without review. The separate live-execution freshness guard from PR #1071 must be checked against the broader revision-based provenance guard already on this branch before deciding whether PR #1071 can be closed as superseded.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
